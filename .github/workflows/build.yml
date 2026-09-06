@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y gcc libx11-dev libgl1-mesa-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libasound2-dev
+      - run: sudo apt-get update && sudo apt-get install -y gcc libx11-dev libgl1-mesa-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libasound2-dev xvfb xauth
       - run: ./game/build.sh test 2
       - run: ./game/build.sh -O2 -Wall
-      - run: ./mare --simulate=60 --seed=1 --nation=4 --log-level=info
+      - run: xvfb-run -a ./mare --simulate=60 --seed=1 --nation=4 --log-level=info
   macos:
     runs-on: macos-latest
     steps:

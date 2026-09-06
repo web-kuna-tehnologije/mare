@@ -34,7 +34,8 @@ as a unity build. Headless tests do not depend on v3/GL.
   chronicle and 3D world observed. screenshots/windows-3d.png is an actual capture.
   Every gameplay action has not been manually tested.
 - Third-party headers still produce MSVC macro/enum warnings.
-- Linux/macOS status must be checked in CI; local Windows results do not prove it.
+- macOS CI build/tests passed. Linux build/tests passed; its initial executable smoke run
+  exposed v3 initializing GLFW before main. Linux CI now supplies Xvfb for that run.
 
 Historical transcript performance numbers are not measurements from this Windows
 machine. Pending design items are explicit in ROADMAP.md and the original

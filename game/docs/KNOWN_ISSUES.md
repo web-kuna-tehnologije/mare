@@ -49,6 +49,9 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   of the standard; acceptable for a dying process).
 
 ## Platform / framework
+- The full game executable initializes GLFW before main, even with `--simulate`.
+  On displayless Linux use `xvfb-run -a ./mare --simulate=60`; simulation tests are
+  fully independent of the window system and need no X server.
 - **Framework:** v3 caps frames at monitor Hz + 2; virtual displays report 0 Hz → 2 FPS. The game
   disables the limiter when the monitor reports < 10 Hz (`--fps=N` overrides).
 - **Framework:** `app_width()/app_state()` do an X11 round-trip and a `glGetIntegerv` per call;
