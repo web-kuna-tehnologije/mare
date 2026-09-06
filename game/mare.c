@@ -1,0 +1,173 @@
+// MARE LIBERUM - 17th century naval trade & war RTS on the v3 framework.
+// Unity build: this file pulls in every module. See README.md for the layout.
+//
+//   linux:   cc game/mare.c -o mare -I. -lm -ldl -lpthread -lasound -O2
+//   windows: cl game\mare.c -I. /O2
+//   osx:     cc -ObjC game/mare.c -o mare -I. -framework cocoa -framework iokit -framework audiotoolbox -O2
+
+#define V3_IMPLEMENTATION
+#include "v3.h"
+
+// simulation (framework independent)
+#include "src/core/diag.c"
+#include "src/core/log.c"
+#include "src/world/world.c"
+#include "src/world/nav.c"
+#include "src/world/wind.c"
+#include "src/world/regions.c"
+#include "src/sim/economy.c"
+#include "src/sim/events.c"
+#include "src/sim/fleet.c"
+#include "src/sim/ai.c"
+#include "src/sim/combat.c"
+#include "src/sim/settlement.c"
+#include "src/sim/region.c"
+#include "src/sim/game.c"
+// presentation (v3: GL, microui, input)
+#include "src/gfx/gpu.c"
+#include "src/gfx/terrain.c"
+#include "src/gfx/sea.c"
+#include "src/gfx/meshes.c"
+#include "src/gfx/icons.c"
+#include "src/gfx/camera.c"
+#include "src/gfx/scene.c"
+#include "src/ui/uikit.c"
+#include "src/ui/input.c"
+#include "src/ui/hud.c"
+#include "src/ui/dashboard.c"
+
+static void print_report(int days) {
+    printf("simulated %d days: %d log lines, %d lanes, %d fleets, %d trades, %d battles, %d captures\n", days, G.nlog, G.nlanes, game_count_fleets(), G.trades, G.battles, G.captures);
+    for (int i = 0; i < G.nlog; ++i) printf("  %s: %s\n", ui_date(G.log[i].day), G.log[i].text);
+    for (int r = 0; r < G.nregions; ++r) {
+        const region_t *R = &G.regions[r];
+        int inland_count = 0;
+        for (int i = 0; i < G.ninland; ++i)
+            inland_count += G.inland[i].alive && G.inland[i].region == r;
+        if (R->nhub && (R->pop > 40 || r % 9 == 0))
+            printf("  region %-22s dev %.2f pop %6.0fk prosp %.2f sat %.2f link %.0f hubs %d inland %d\n", R->name, R->development, R->pop, R->prosperity, R->satisfaction, R->throughput, R->nhub, inland_count);
+    }
+    for (int n = 0; n < MAX_NATIONS; ++n) printf("  %-22s treasury %9.0f ports %2d fleets %2d sunk %3d lost %3d  tax %.0f tariffs %.0f\n", nations_info[n].name, G.nations[n].treasury, G.nations[n].ports, G.nations[n].fleets, G.nations[n].ships_sunk, G.nations[n].ships_lost, G.nations[n].income_tax, G.nations[n].income_trade);
+    fflush(stdout);
+}
+
+static void debug_keys(void) {
+    if (!U.show_debug) return;
+    if (KDOWN(GLFW_KEY_F6)) { event_t *e = event_add(EV_STORM, 10); e->x = cam.tx; e->z = cam.tz; e->radius = 12; e->vx = 0.5f; e->strength = 1; snprintf(e->text, sizeof e->text, "Debug storm"); toast("debug: storm spawned"); }
+    if (KDOWN(GLFW_KEY_F7)) { float x = cam.tx, z = cam.tz; if (nav_snap(&x, &z, 20)) { fleet_t *f = fleet_new(NATION_PIRATES, ROLE_PIRATE, x, z, 0); if (f) { fleet_add_ship(f, SHIP_FRIGATE); fleet_add_ship(f, SHIP_SLOOP); f->home_port = port_nearest(x, z, NATION_PIRATES, 1, -1); toast("debug: pirates spawned"); } } }
+    if (KDOWN(GLFW_KEY_F8)) { G.nations[G.player].treasury += 100000; toast("debug: +100000 ducats"); }
+}
+
+int main(int argc, char **argv) {
+    unsigned seed = (unsigned)time(0); int autostart = 0, headless = 0, skip = 0, dev = 0;
+    diag_config_t dc = { "logs", LOG_WARN, LOG_DEBUG, LOG_TRACE, 0 };
+    for (int i = 1; i < argc; ++i) {
+        if (!strncmp(argv[i], "--seed=", 7)) seed = (unsigned)atoi(argv[i]+7);
+        else if (!strncmp(argv[i], "--nation=", 9)) autostart = atoi(argv[i]+9);
+        else if (!strncmp(argv[i], "--simulate=", 11)) headless = atoi(argv[i]+11);
+        else if (!strncmp(argv[i], "--skip=", 7)) skip = atoi(argv[i]+7);
+        else if (!strcmp(argv[i], "--dev")) dev = 1;
+        else if (!strncmp(argv[i], "--log-level=", 12)) { int l = diag_level_parse(argv[i]+12); if (l >= 0) dc.console_level = l; }
+        else if (!strncmp(argv[i], "--log-dir=", 10)) dc.logdir = argv[i]+10;
+        else if (strncmp(argv[i], "--fps", 5)) fprintf(stderr, "unknown option %s\n", argv[i]);
+    }
+    if (dev) { dc.metrics_csv = 1; dc.file_level = LOG_TRACE; }
+    diag_init(&dc); atexit(diag_shutdown);
+    LOG_INFO("main", "mare liberum starting: seed %u nation %d dev %d headless %d", seed, autostart, dev, headless);
+    if (headless) {   // balance run without a window
+        world_init(seed); nav_init(); game_new(autostart ? autostart : NATION_NETHERLANDS, seed);
+        double t0 = diag_now(); game_advance((float)headless);
+        LOG_INFO("main", "simulated %d days in %.2f s (%.1f ms per day)", headless, diag_now()-t0, (diag_now()-t0)*1000/headless);
+        print_report(headless);
+        return 0;
+    }
+
+    app_create(.title = "Mare Liberum", .w = 1600, .h = 900, .scale = 0.92f);
+    { app_state_t st = app_state(); screen_w = maxi(1, st.w); screen_h = maxi(1, st.h); }
+    // v3 caps the frame rate to the monitor refresh rate + 2. Virtual displays (VMs, Xvfb, some
+    // remote desktops) report 0 Hz, which would lock the game to 2 FPS: fall back to uncapped.
+    { float hz = monitor_hz(0); if (hz < 10 && !flag("--fps")) { vsync(0); LOG_WARN("main", "monitor reports %.0f Hz: frame limiter disabled (use --fps=N to cap)", hz); } else LOG_INFO("main", "monitor %.0f Hz", hz); }
+    LOG_INFO("gpu", "%s | %s", (const char*)glGetString(GL_RENDERER), (const char*)glGetString(GL_VERSION));
+    world_init(seed); nav_init();
+    { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); gpu_check_errors("render_init"); }
+    U.show_debug = dev;
+    if (getenv("MARE_PASSES")) { const char *p = getenv("MARE_PASSES");   // experiment: enable only the listed passes
+        U.pass_terrain = !!strstr(p, "terrain"); U.pass_sea = !!strstr(p, "sea"); U.pass_ports = !!strstr(p, "ports"); U.pass_ships = !!strstr(p, "ships");
+        U.pass_overlays = !!strstr(p, "overlays"); U.pass_icons = !!strstr(p, "icons"); U.pass_labels = !!strstr(p, "labels"); U.pass_panels = !!strstr(p, "panels");
+        LOG_INFO("main", "render passes restricted to: %s", p); }
+    if (getenv("MARE_AUTOQUIT_S")) LOG_INFO("main", "will quit after %s seconds", getenv("MARE_AUTOQUIT_S"));
+    log_set_listener(hud_on_log);
+    U.in_menu = !autostart;
+    if (autostart) { game_new(autostart, seed); game_advance((float)skip); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); }
+
+    int p_frame = prof_id("frame.cpu"), p_input = prof_id("input"), p_sim = prof_id("sim"), p_gfx = prof_id("gfx"), p_terrain = prof_id("gfx.terrain"), p_ports = prof_id("gfx.ports"),
+        p_ships = prof_id("gfx.ships"), p_sea = prof_id("gfx.sea"), p_over = prof_id("gfx.overlays"), p_icons = prof_id("gfx.icons"), p_labels = prof_id("ui.labels"), p_panels = prof_id("ui.panels");
+    int m_steps = metric_id("frame.sim_steps"), m_dt = metric_id("frame.dt_ms"), m_fps = metric_id("frame.fps");
+    double last = time_ss(); float sim_acc = 0;
+    double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
+    while (app_swap(.color = 0xFF000000)) {
+        if (autoquit && diag_now() - t_run0 > atof(autoquit)) break;
+        prof_begin(p_frame);
+        { app_state_t st = app_state(); screen_w = maxi(1, st.w); screen_h = maxi(1, st.h); glfwGetWindowSize(st.handle, &window_w, &window_h); window_w = maxi(1, window_w); window_h = maxi(1, window_h); }   // once per frame
+        double now = time_ss(); float dt = minf((float)(now - last), 0.1f); last = now;
+        RF.time += dt; metric_set(m_dt, dt * 1000); metric_set(m_fps, fps());
+
+        mu_Container *dbg = ui_root_container("debug");   // the framework's own window: keep it out of the way
+        if (dbg) dbg->rect = mu_rect(-5000, -5000, 10, 10);
+
+        ui_overlay_begin();
+        int ui_blocked = ui_mouse_over_panel();
+        if (U.in_menu) {
+            cam.want_dist = 800; cam.want_tx = lon2x(-30); cam.want_tz = lat2z(25); cam.want_yaw += dt * 0.02f;
+            cam_update(dt);
+        } else {
+            prof_begin(p_input); input_frame(dt, ui_blocked); debug_keys(); cam_update(dt); prof_end(p_input);
+            prof_begin(p_sim);
+            int steps = 0;
+            if (G.speed > 0) { sim_acc += dt * G.speed; while (sim_acc >= SIM_STEP && steps < 40) { game_tick(SIM_STEP); sim_acc -= SIM_STEP; steps++; }
+                if (steps >= 40 && sim_acc >= SIM_STEP) { LOG_WARN("main", "simulation behind real time: dropping %.1f days (frame %.0f ms at speed x%.0f)", sim_acc, dt*1000, G.speed); sim_acc = 0; } }
+            metric_set(m_steps, steps);
+            prof_end(p_sim);
+            if (U.toast_timer > 0) U.toast_timer -= dt;
+        }
+        if (territory_dirty == 2) render_territory_upload();
+
+        // ---- 3d
+        RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness; RF.sun = norm3(vec3(0.45f, 0.75f, 0.35f)); RF.daylight = 1.f;
+        RF.sky = lerp3(vec3(0.60f, 0.74f, 0.88f), vec3(0.36f, 0.30f, 0.24f), cam.mapness);
+        glClearColor(RF.sky.x, RF.sky.y, RF.sky.z, 1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
+        prof_begin(p_gfx);
+        float planes[6][4]; cam_frustum(planes);
+        prof_begin(p_terrain); if (U.pass_terrain) terrain_draw(planes); prof_end(p_terrain);
+        icons_begin();
+        if (!U.in_menu) {
+            SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
+            meshes_bind();
+            prof_begin(p_ports); if (U.pass_ports) scene_draw_ports(); prof_end(p_ports);
+            prof_begin(p_ships); if (U.pass_ships) scene_draw_ships(); prof_end(p_ships);
+        }
+        prof_begin(p_sea); if (U.pass_sea) sea_draw(); prof_end(p_sea);
+        if (!U.in_menu) {
+            prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
+            prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
+            prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels);
+        }
+        prof_end(p_gfx);
+        ui_overlay_end();
+        if (U.show_debug) gpu_check_errors("frame");
+
+        // ---- panels
+        prof_begin(p_panels);
+        if (U.in_menu) {
+            int pick = hud_menu();
+            if (pick > 0) { game_new(pick, seed); scene_reset_caches(); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; U.show_help = 1; }
+            else if (pick < 0) { if (game_load("mare_save.bin")) { scene_reset_caches(); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; } else toast("No compatible saved game found"); }
+        } else { if (U.pass_panels) hud_panels(); dashboard_panel(); }
+        prof_end(p_panels);
+        prof_end(p_frame);
+        prof_frame_end();
+    }
+    LOG_INFO("main", "window closed, shutting down");
+    return 0;
+}
