@@ -25,3 +25,11 @@
 __pycache__/
 .vs/
 .DS_Store
+
+# Local credentials and private keys
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx

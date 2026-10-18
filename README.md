@@ -2,6 +2,8 @@
 
 3D pomorska strategija u stvarnom vremenu, smještena u 1620. godinu.
 Napisana u C-u na v3 engineu, kao osnova za daljnji razvoj.
+Namijenjena je ljubiteljima povijesnih strategija i developerima koje zanimaju
+igre u C-u, pomorsko ratovanje i ekonomske simulacije.
 
 Upravljaj trgovačkim i ratnim flotama, razvijaj luke, osnivaj kolonije i poveži
 proizvodnju zaleđa s prekomorskom trgovinom. Karta obuhvaća Europu, Amerike i
@@ -63,6 +65,7 @@ implementirane nalaze se u [planu razvoja](docs/ROADMAP.md).
 - [Dizajn zaleđa](game/docs/DESIGN_HINTERLAND.md)
 
 Kod igre je u `game/src`, testovi u `game/tests`, a priloženi v3 engine u korijenu
-i `ext`. Izvorne licence enginea su u [docs/LICENSE](docs/LICENSE), uz licence
-pojedinačnih biblioteka u `ext`. Privatni transkript i privremeni materijali obnove
-nisu dio repozitorija.
+i `ext`. Izvorni kod igre licenciran je pod MIT licencom u [LICENSE](LICENSE);
+v3 engine i biblioteke trećih strana zadržavaju svoje izvorne licence navedene u
+[docs/LICENSE](docs/LICENSE) i uz pojedinačne komponente u `ext`. Privatni
+transkript i privremeni materijali obnove nisu dio repozitorija.
