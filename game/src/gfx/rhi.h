@@ -61,10 +61,14 @@ int         rhi_check_errors(const char *where);       // logs pending backend e
 // frame & render targets
 void rhi_frame_begin(int w, int h, float r, float g, float b);   // backbuffer: viewport + clear color/depth, depth LEQUAL
 rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_depth);  // fatal if incomplete
+rhi_target_t rhi_target_depth_make(int w, int h);                // depth-only target (shadow maps)
+void rhi_viewport(int x, int y, int w, int h);                   // sub-rect of the bound target (shadow atlas tiles)
+void rhi_target_clear_depth(const rhi_target_t *t);              // bind a depth-only target and clear it
 void rhi_target_free(rhi_target_t *t);                           // for resize (recreate after)
 void rhi_target_begin(const rhi_target_t *t, float r, float g, float b);  // bind + viewport + clear color/depth
 void rhi_backbuffer(int w, int h);                               // bind the window backbuffer, no clear
 void rhi_read_pixels(int x, int y, int w, int h, unsigned char *rgba);    // from the bound target (screenshots, smoke tests)
+void rhi_read_depth(const rhi_target_t *t, float *depth);                 // whole depth attachment (shadow-map debugging)
 
 // pipelines & uniforms (setters require the pipeline to be bound)
 rhi_pipeline_t rhi_pipeline_make(const rhi_pipeline_desc_t *d);  // fatal on compile/link failure

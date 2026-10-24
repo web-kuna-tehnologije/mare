@@ -32,6 +32,7 @@
 #include "src/gfx/meshes.c"
 #include "src/gfx/icons.c"
 #include "src/gfx/hdr.c"
+#include "src/gfx/lighting.c"
 #include "src/gfx/camera.c"
 #include "src/gfx/scene.c"
 #include "src/ui/uikit.c"
@@ -84,6 +85,7 @@ int main(int argc, char **argv) {
         else if (!strncmp(argv[i], "--simulate=", 11)) headless = atoi(argv[i]+11);
         else if (!strncmp(argv[i], "--skip=", 7)) skip = atoi(argv[i]+7);
         else if (!strcmp(argv[i], "--dev")) dev = 1;
+        else if (!strcmp(argv[i], "--no-shadows")) shadow_enabled = 0;
         else if (!strncmp(argv[i], "--log-level=", 12)) { int l = diag_level_parse(argv[i]+12); if (l >= 0) dc.console_level = l; }
         else if (!strncmp(argv[i], "--log-dir=", 10)) dc.logdir = argv[i]+10;
         else if (strncmp(argv[i], "--fps", 5)) fprintf(stderr, "unknown option %s\n", argv[i]);
@@ -118,7 +120,7 @@ int main(int argc, char **argv) {
     if (autostart) { game_new(autostart, seed); game_advance((float)skip); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); }
 
     int p_frame = prof_id("frame.cpu"), p_input = prof_id("input"), p_sim = prof_id("sim"), p_gfx = prof_id("gfx"), p_terrain = prof_id("gfx.terrain"), p_ports = prof_id("gfx.ports"),
-        p_ships = prof_id("gfx.ships"), p_sea = prof_id("gfx.sea"), p_over = prof_id("gfx.overlays"), p_icons = prof_id("gfx.icons"), p_labels = prof_id("ui.labels"), p_panels = prof_id("ui.panels");
+        p_ships = prof_id("gfx.ships"), p_shadow = prof_id("gfx.shadow"), p_sea = prof_id("gfx.sea"), p_over = prof_id("gfx.overlays"), p_icons = prof_id("gfx.icons"), p_labels = prof_id("ui.labels"), p_panels = prof_id("ui.panels");
     int m_steps = metric_id("frame.sim_steps"), m_dt = metric_id("frame.dt_ms"), m_fps = metric_id("frame.fps");
     double last = time_ss(); float sim_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
@@ -152,16 +154,24 @@ int main(int argc, char **argv) {
         // ---- 3d
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness; RF.sun = norm3(vec3(0.45f, 0.75f, 0.35f)); RF.daylight = 1.f;
         RF.sky = lerp3(vec3(0.60f, 0.74f, 0.88f), vec3(0.36f, 0.30f, 0.24f), cam.mapness);
-        hdr_begin(screen_w, screen_h, RF.sky.x, RF.sky.y, RF.sky.z);   // 3D passes render into the HDR target
+        render_light_update();
         prof_begin(p_gfx);
+        // scene geometry is built once, then submitted to the shadow cascades and the main passes
+        if (!U.in_menu) {
+            SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
+            prof_begin(p_ports); if (U.pass_ports) scene_build_ports(); prof_end(p_ports);
+            prof_begin(p_ships); if (U.pass_ships) scene_build_ships(); prof_end(p_ships);
+            prof_begin(p_shadow); shadow_render(); prof_end(p_shadow);
+        }
+        // the HDR target is cleared in linear space: the sky colour is authored in sRGB
+        { vec3 skyl = srgb_to_linear3(RF.sky); hdr_begin(screen_w, screen_h, skyl.x, skyl.y, skyl.z); }
         float planes[6][4]; cam_frustum(planes);
         prof_begin(p_terrain); if (U.pass_terrain) terrain_draw(planes); prof_end(p_terrain);
         icons_begin();
         if (!U.in_menu) {
-            SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
             meshes_bind();
-            prof_begin(p_ports); if (U.pass_ports) scene_draw_ports(); prof_end(p_ports);
-            prof_begin(p_ships); if (U.pass_ships) scene_draw_ships(); prof_end(p_ships);
+            prof_begin(p_ports); if (U.pass_ports) scene_submit_ports(); prof_end(p_ports);
+            prof_begin(p_ships); if (U.pass_ships) scene_submit_ships(); prof_end(p_ships);
         }
         prof_begin(p_sea); if (U.pass_sea) sea_draw(); prof_end(p_sea);
         if (!U.in_menu) {
@@ -170,7 +180,9 @@ int main(int argc, char **argv) {
         }
         hdr_resolve(screen_w, screen_h);   // tonemap to the backbuffer; labels/panels draw on top
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
-          if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot); shot_done = 1; } }
+          if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot);
+            const char *sd = getenv("MARE_SHADOWDUMP"); if (sd) shadow_dump(sd);
+            shot_done = 1; } }
         if (!U.in_menu) { prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels); }
         prof_end(p_gfx);
         ui_overlay_end();

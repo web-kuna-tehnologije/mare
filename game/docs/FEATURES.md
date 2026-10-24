@@ -74,6 +74,12 @@ Status as of the current codebase. Each entry names the module that owns it.
   Modernisation roadmap: docs/DESIGN_RENDERER.md.
 - HDR: 3D passes render into an RGBA16F target, tonemapped to the backbuffer (`hdr.c`, exposure
   control); UI composites on top. `MARE_SCREENSHOT` captures the backbuffer for smoke tests.
+- Linear/sRGB pipeline: sRGB author colours converted on input, lighting in linear, a single
+  sRGB encode after tonemapping.
+- PBR materials (GGX/Smith/Schlick + hemispheric ambient) with per-vertex roughness/metalness;
+  one directional sun shared by every pass (`lighting.c`).
+- Cascaded shadow maps: 3 cascades in one depth atlas, ground-footprint fit, texel snapping,
+  normal-offset bias, 3x3 PCF. Ships, towns, forts and piers cast; terrain receives.
 - Heightmap terrain: 374 chunks, 5 LOD grids with skirts, frustum culling, biome/desert/tundra
   colouring, parchment map style with territories and coast outlines, fog.
 - Animated sea from the heightmap (depth colour, foam, distance-faded waves, graticule in map view).

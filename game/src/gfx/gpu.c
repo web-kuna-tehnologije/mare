@@ -8,9 +8,11 @@
 // mesh builder
 
 static void mb_push(mb_t *m, const float *p, const float *n, float r, float g, float b, float mat) {
-    if (m->n + 1 > m->cap) { m->cap = m->cap ? m->cap*2 : 1024; m->v = realloc(m->v, m->cap*10*sizeof(float)); }
-    float *o = m->v + (m->n++)*10;
+    if (m->n + 1 > m->cap) { m->cap = m->cap ? m->cap*2 : 1024; m->v = realloc(m->v, m->cap*MB_FLOATS*sizeof(float)); }
+    float *o = m->v + (m->n++)*MB_FLOATS;
     o[0]=p[0]; o[1]=p[1]; o[2]=p[2]; o[3]=n[0]; o[4]=n[1]; o[5]=n[2]; o[6]=r; o[7]=g; o[8]=b; o[9]=mat;
+    o[10]= m->rough > 0 ? m->rough : 0.8f;   // a zeroed builder means "matte", never a mirror
+    o[11]= m->metal;
 }
 void mb_tri(mb_t *m, float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float r, float g, float b, float mat) {
     float ux = bx-ax, uy = by-ay, uz = bz-az, vx = cx-ax, vy = cy-ay, vz = cz-az;
@@ -38,9 +40,10 @@ void mb_box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz,
 
 static const rhi_attr_t mesh_attrs[] = {
     { "a_pos", 0, 3,  0, 0 }, { "a_nrm", 0, 3, 12, 0 }, { "a_col", 0, 3, 24, 0 }, { "a_mat", 0, 1, 36, 0 },
+    { "a_rm", 0, 2, 40, 0 },                                      // roughness, metalness
     { "i_pos", 1, 4,  0, 1 }, { "i_scol", 1, 4, 16, 1 }, { "i_misc", 1, 4, 32, 1 },
 };
-const rhi_layout_t mesh_layout = { mesh_attrs, 7, { 10*sizeof(float), sizeof(inst_t) } };
+const rhi_layout_t mesh_layout = { mesh_attrs, 8, { MB_FLOATS*sizeof(float), sizeof(inst_t) } };
 
 mesh_t mesh_upload(mb_t *m) {
     mesh_t r = { rhi_geometry_make(&mesh_layout, m->v, m->n, 0, 0) };

@@ -37,7 +37,7 @@ void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading) {
 
 static instlist_t ship_inst[SHIP_COUNT][2];
 
-void scene_draw_ships(void) {
+void scene_build_ships(void) {
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]);
     for (int i = 0; i < G.nfleets; ++i) {
         const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
@@ -54,10 +54,16 @@ void scene_draw_ships(void) {
             inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
             *in = (inst_t){ x + hx*along - hz*side, 0, z + hz*along + hx*side, heading, sc, col_r(col), col_g(col), col_b(col), f->at_port >= 0 ? 0.3f : 1.f, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0 };
         }
-        if (sel || hov) dd_circle(vec3(x, 0.1f, z), vec3(0,1,0), (sel ? 1.6f : 1.4f) * 1.35f + f->nships * 0.2f, .color = sel ? rgb(255, 240, 120) : rgb(220, 220, 220));
-        if (G.day - f->last_fire < 0.12f && f->at_port < 0) dd_sphere(vec3(x + hz*0.6f, 0.4f, z - hx*0.6f), .r = 0.35f, .color = rgb(255, 200, 80));
+        if (sel || hov) dd_circle(vec3(x, 0.1f, z), vec3(0,1,0), (sel ? 1.6f : 1.4f) * 1.35f + f->nships * 0.2f, .color = rgb_linear(sel ? rgb(255, 240, 120) : rgb(220, 220, 220)));
+        if (G.day - f->last_fire < 0.12f && f->at_port < 0) dd_sphere(vec3(x + hz*0.6f, 0.4f, z - hx*0.6f), .r = 0.35f, .color = rgb_linear(rgb(255, 200, 80)));
     }
-    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) mesh_draw(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n);
+}
+
+// submit the instances built this frame with whatever pipeline is bound (main or shadow pass)
+int scene_submit_ships(void) {
+    int n = 0;
+    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) { mesh_draw(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n); n += ship_inst[t][l].n; }
+    return n;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,18 +125,30 @@ static void town_instances(const port_t *p, int index) {
     for (int i = 0; i < c->n; ++i) *instlist_push(lists[c->items[i].mesh]) = c->items[i].in;
 }
 
-void scene_draw_ports(void) {
+void scene_build_ports(void) {
     instlist_clear(&houses); instlist_clear(&roofs); instlist_clear(&towers); instlist_clear(&walls); instlist_clear(&piers); instlist_clear(&flagpoles);
     for (int i = 0; i < G.nports; ++i) {
         const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
         if (cam_distance(p->x, p->z) > PORT_DETAIL_DIST || cam.mapness > 0.5f) continue;
         town_instances(p, i);
         int sel = i == SH.sel_port, hov = i == SH.hover_port;
-        if (sel || hov) dd_circle(vec3(p->x, 0.1f, p->z), vec3(0,1,0), 2.2f + 0.4f*p->size, .color = sel ? rgb(255,240,120) : rgb(220,220,220));
-        if (p->blockaded_by) dd_circle(vec3(p->x, 0.15f, p->z), vec3(0,1,0), 3.5f, .color = rgb(255,60,40), .dashed = 1);
+        if (sel || hov) dd_circle(vec3(p->x, 0.1f, p->z), vec3(0,1,0), 2.2f + 0.4f*p->size, .color = rgb_linear(sel ? rgb(255,240,120) : rgb(220,220,220)));
+        if (p->blockaded_by) dd_circle(vec3(p->x, 0.15f, p->z), vec3(0,1,0), 3.5f, .color = rgb_linear(rgb(255,60,40)), .dashed = 1);
     }
+}
+
+int scene_submit_ports(void) {
     mesh_draw(&mesh_pier, piers.v, piers.n); mesh_draw(&mesh_house, houses.v, houses.n); mesh_draw(&mesh_roof, roofs.v, roofs.n);
     mesh_draw(&mesh_tower, towers.v, towers.n); mesh_draw(&mesh_wall, walls.v, walls.n); mesh_draw(&mesh_flagpole, flagpoles.v, flagpoles.n);
+    return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n;
+}
+
+// shadow casters: towns and ships (piers and flagpoles are too thin to matter)
+int scene_submit_shadow(void) {
+    mesh_draw(&mesh_house, houses.v, houses.n); mesh_draw(&mesh_roof, roofs.v, roofs.n);
+    mesh_draw(&mesh_tower, towers.v, towers.n); mesh_draw(&mesh_wall, walls.v, walls.n);
+    int n = houses.n + roofs.n + towers.n + walls.n;
+    return n + scene_submit_ships();
 }
 
 // ---------------------------------------------------------------------------
@@ -170,21 +188,21 @@ void scene_draw_overlays(void) {
     const fleet_t *f = fleet_by_id(SH.sel_fleet_id);
     if (f && f->at_port < 0 && f->pathi < f->npath) {
         float px = f->x, pz = f->z;
-        for (int i = f->pathi; i < f->npath; ++i) { dd_line(vec3(px, 0.15f, pz), vec3(f->path_x[i], 0.15f, f->path_z[i]), .color = rgb(255, 240, 140), .top = 1); px = f->path_x[i]; pz = f->path_z[i]; }
-        if (f->target_port >= 0) dd_circle(vec3(G.ports[f->target_port].x, 0.15f, G.ports[f->target_port].z), vec3(0,1,0), 2.5f, .color = rgb(255,240,140), .top = 1);
+        for (int i = f->pathi; i < f->npath; ++i) { dd_line(vec3(px, 0.15f, pz), vec3(f->path_x[i], 0.15f, f->path_z[i]), .color = rgb_linear(rgb(255, 240, 140)), .top = 1); px = f->path_x[i]; pz = f->path_z[i]; }
+        if (f->target_port >= 0) dd_circle(vec3(G.ports[f->target_port].x, 0.15f, G.ports[f->target_port].z), vec3(0,1,0), 2.5f, .color = rgb_linear(rgb(255,240,140)), .top = 1);
     }
     if (f && f->nroute >= 2) for (int i = 0; i < f->nroute; ++i) { const port_t *a = &G.ports[f->route[i]], *b = &G.ports[f->route[(i+1)%f->nroute]];
         if (SH.route_edit && i + 1 == f->nroute) break;
-        dd_line(vec3(a->x, 0.2f, a->z), vec3(b->x, 0.2f, b->z), .color = SH.route_edit ? rgb(120,255,160) : rgb(120, 220, 255), .dashed = !SH.route_edit, .top = 1); }
+        dd_line(vec3(a->x, 0.2f, a->z), vec3(b->x, 0.2f, b->z), .color = rgb_linear(SH.route_edit ? rgb(120,255,160) : rgb(120, 220, 255)), .dashed = !SH.route_edit, .top = 1); }
     if (SH.show_lanes && cam.mapness > 0.2f)
         for (int i = 0; i < G.nlanes; ++i) { const lane_t *l = &G.lanes[i]; if (l->traffic < 0.8f) continue;
-            float t = clampf(l->traffic / 12.f, 0.15f, 1.f); unsigned c = rgb((unsigned)(90 + 120*t), (unsigned)(60 + 60*t), (unsigned)(30 + 20*t));
+            float t = clampf(l->traffic / 12.f, 0.15f, 1.f); unsigned c = rgb_linear(rgb((unsigned)(90 + 120*t), (unsigned)(60 + 60*t), (unsigned)(30 + 20*t)));
             for (int k = 0; k + 1 < l->npts; ++k) dd_line(vec3(l->x[k], 0.25f, l->z[k]), vec3(l->x[k+1], 0.25f, l->z[k+1]), .color = c, .top = 1); }
     for (int i = 0; i < G.nevents; ++i) { const event_t *e = &G.events[i]; if (e->type != EV_STORM) continue;
         float t = RF.time;
-        for (int k = 0; k < 3; ++k) dd_circle(vec3(e->x, 0.4f + k*0.3f, e->z), vec3(0,1,0), e->radius * (0.55f + 0.22f*k) + sinf(t*2 + k)*0.5f, .color = rgb(70, 70, 90), .top = cam.mapness > 0.5f);
+        for (int k = 0; k < 3; ++k) dd_circle(vec3(e->x, 0.4f + k*0.3f, e->z), vec3(0,1,0), e->radius * (0.55f + 0.22f*k) + sinf(t*2 + k)*0.5f, .color = rgb_linear(rgb(70, 70, 90)), .top = cam.mapness > 0.5f);
         if (cam.mapness < 0.4f) for (int k = 0; k < 24; ++k) { float a = k * 0.2618f + t*0.7f, r = e->radius * (0.3f + 0.6f*((k*7)%5)/5.f), x = e->x + cosf(a)*r, z = e->z + sinf(a)*r;
-            dd_line(vec3(x, 3.5f, z), vec3(x - 0.4f, 0.2f, z + 0.3f), .color = rgb(120,130,160)); }
+            dd_line(vec3(x, 3.5f, z), vec3(x - 0.4f, 0.2f, z + 0.3f), .color = rgb_linear(rgb(120,130,160))); }
     }
     if (SH.show_wind && cam.mapness < 0.9f) {
         float step = maxf(3, cam.dist * 0.18f + 2), x0 = floorf((cam.tx - step*7) / step) * step, z0 = floorf((cam.tz - step*5) / step) * step;
@@ -193,6 +211,6 @@ void scene_draw_overlays(void) {
             float dx, dz, s; wind_at(x, z, G.day, &dx, &dz, &s);
             float l = step * 0.3f * s, ph = fmodf(RF.time*0.5f + i*0.37f + j*0.61f, 1.f);
             vec3 a = vec3(x + dx*l*(ph-0.5f), 0.6f, z + dz*l*(ph-0.5f)), b = vec3(a.x + dx*l*0.5f, 0.6f, a.z + dz*l*0.5f);
-            dd_arrow(a, b, .color = rgb(200, 215, 235)); }
+            dd_arrow(a, b, .color = rgb_linear(rgb(200, 215, 235))); }
     }
 }

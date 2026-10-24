@@ -119,6 +119,12 @@ static void tab_system(void) {
     mu_label(ui_ctx, va("world %dx%d cells, nav %dx%d, %d ports, fleets %d (slots %d/%d)", LM_W, LM_H, NAV_W, NAV_H, G.nports, game_count_fleets(), G.nfleets, MAX_FLEETS));
     mu_label(ui_ctx, va("state struct %u bytes | sim day %.2f | seed %u | rng %08x", (unsigned)sizeof G, G.day, G.seed, G.rng));
     mu_label(ui_ctx, va("build %s %s | save v%u", __DATE__, __TIME__, (unsigned)SAVE_VERSION));
+    mu_label(ui_ctx, va("HDR RGBA16F, linear/sRGB, PBR | exposure %.2f | shadows %s (%d casters)",
+                        hdr_exposure, shadow_enabled ? "on" : "off", shadow_casters_drawn));
+    ROW(3, 150, 150, -1, 22);
+    if (ui_btn(shadow_enabled ? "Shadows: on" : "Shadows: off")) shadow_enabled = !shadow_enabled;
+    if (ui_btn("Exposure -")) hdr_exposure = maxf(0.25f, hdr_exposure - 0.1f);
+    if (ui_btn("Exposure +")) hdr_exposure = minf(4.0f, hdr_exposure + 0.1f);
     ROW(3, 150, 150, -1, 22);
     if (ui_btn("Log test warning")) LOG_WARN("dashboard", "test warning from the dashboard");
     if (ui_btn("Log test error")) LOG_ERROR("dashboard", "test error from the dashboard");

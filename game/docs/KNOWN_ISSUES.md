@@ -29,6 +29,15 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 - **L** Settlement names are generated from a small suffix list; duplicates get a numeric suffix.
 
 ## Rendering / UI
+- **L** The terrain does not cast shadows into the shadow map (it only receives), so mountains
+  never shadow valleys. Terrain relief is still shaded per pixel by the sun's N.L term. The
+  chunks are coarse, LOD-switched and skirted, which as occluders produced LOD-mismatch bands,
+  stripes along every chunk edge and self-shadow acne; casting would need a dedicated,
+  skirt-free, LOD-stable caster mesh (see DESIGN_RENDERER.md).
+- **L** Shadow cascades stop at ~300 world units, where towns and ships become icons anyway;
+  beyond that everything is lit.
+- **L** On software rasterizers (llvmpipe/Xvfb) the shadow pass costs ~4 ms/frame of the ~22 ms
+  frame; use `--no-shadows` or the dashboard toggle. Negligible on real GPUs.
 - **L** Fleet labels are not part of the label collision system: a selected fleet's label can
   overlap a port name.
 - **L** Terrain chunks are one draw call each (~50 visible); fine on GPUs.

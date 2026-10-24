@@ -1,7 +1,9 @@
 // Mesh helpers on top of the RHI (rhi.h) used by every render pass.
 //
-// * mb_t: a flat-shaded triangle-mesh builder (10 floats per vertex: position, normal, colour,
-//   material). Material 1 vertices take the per-instance colour (nation stripes, flags, roofs).
+// * mb_t: a flat-shaded triangle-mesh builder (12 floats per vertex: position, normal, colour,
+//   material, roughness, metalness). Material 1 vertices take the per-instance colour (nation
+//   stripes, flags, roofs). Roughness/metalness are builder *state*: set them with
+//   mb_material() and every vertex emitted afterwards carries them (PBR, DESIGN_RENDERER.md).
 // * mesh_t / inst_t: instanced drawing of a mesh; instance data is streamed every frame.
 
 #ifndef MARE_GPU_H
@@ -12,7 +14,16 @@
 #define UNI(p, name) rhi_uniform(&(p), name)
 
 // mesh builder
-typedef struct mb_t { float *v; int n, cap; } mb_t;
+#define MB_FLOATS 12                 // floats per vertex: pos3 nrm3 col3 mat1 rough1 metal1
+typedef struct mb_t { float *v; int n, cap; float rough, metal; } mb_t;
+// PBR surface presets (roughness, metalness) for the procedural meshes
+#define MB_WOOD      0.78f, 0.f
+#define MB_PAINT     0.55f, 0.f
+#define MB_CLOTH     0.90f, 0.f
+#define MB_STONE     0.85f, 0.f
+#define MB_TILE      0.70f, 0.f
+#define MB_METAL     0.35f, 1.f
+static inline void mb_material(mb_t *m, float rough, float metal) { m->rough = rough; m->metal = metal; }
 void mb_tri (mb_t *m, float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float r, float g, float b, float mat);  // CCW front face
 void mb_quad(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat);   // two triangles
 void mb_quad2(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat);  // double sided

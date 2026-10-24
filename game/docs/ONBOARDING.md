@@ -57,9 +57,14 @@ metric instead and let the UI react.
    `cam_update()` smooths and rebuilds matrices.
 4. Simulation: `sim_acc += dt * G.speed`; `game_tick(SIM_STEP)` runs while ≥ 0.1 day is owed
    (max 40 steps/frame, then days are dropped with a warning).
-5. Rendering: `RF` parameters → `terrain_draw` → `meshes_bind` + `scene_draw_ports/ships` →
-   `sea_draw` (blended) → `scene_draw_overlays` + `dd_flush` (v3 debug draw) → icons → `hud_labels`.
-6. `ui_overlay_end()`, then panels (`hud_panels`, `dashboard_panel`, or `hud_menu`).
+5. Rendering: `RF` parameters + `render_light_update()` → `scene_build_ports/ships` (fills the
+   instance lists) → `shadow_render()` (three sun cascades into the depth atlas) → `hdr_begin`
+   (RGBA16F target, cleared in linear) → `terrain_draw` → `meshes_bind` + `scene_submit_ports/ships`
+   → `sea_draw` (blended) → `scene_draw_overlays` + `dd_flush` (v3 debug draw) → icons →
+   `hdr_resolve` (tonemap + sRGB encode to the backbuffer) → `hud_labels`.
+   Geometry is built once and submitted twice (shadow cascades, then the main pass).
+6. `ui_overlay_end()`, then panels (`hud_panels`, `dashboard_panel`, or `hud_menu`). The UI draws
+   on the backbuffer, after the tonemap.
 7. `prof_frame_end()` rolls profiler statistics and samples metrics.
 
 ## 4. How a simulation step flows (`sim/game.c: game_tick`)

@@ -22,6 +22,7 @@ static const char *icons_vs =
 static const char *icons_fs =
     "in vec2 v_uv; in vec4 v_col; in float v_shape; in float v_outline;\n"
     "out vec4 fragColor;\n"
+    GLSL_COLOR
     "void main(){\n"
     "  vec2 p = v_uv; float d; int sh = int(v_shape + 0.5);\n"
     "  if (sh == 0) d = length(p) - 0.8;\n"
@@ -37,7 +38,8 @@ static const char *icons_fs =
     "  vec3 col = mix(v_col.rgb, vec3(0.05), outline * v_outline);\n"
     "  float alpha = max(inside, outline*v_outline) * v_col.a;\n"
     "  if (alpha < 0.02) discard;\n"
-    "  fragColor = vec4(col, alpha);\n"
+    "  fragColor = vec4(srgb_to_linear(col), alpha);\n"   // icons are authored in sRGB; the HDR target is linear
+
     "}\n";
 
 void icons_init(void) {

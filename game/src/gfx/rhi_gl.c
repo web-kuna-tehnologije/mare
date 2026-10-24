@@ -42,6 +42,26 @@ rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_dept
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     return t;
 }
+rhi_target_t rhi_target_depth_make(int w, int h) {
+    rhi_target_t t = { .w = w, .h = h };
+    t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, 0);
+    glGenFramebuffers(1, &t.fbo); glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, t.depth.id, 0);
+    glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE);               // depth only: no colour attachment
+    GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (st != GL_FRAMEBUFFER_COMPLETE) LOG_FATAL("rhi", "depth target %dx%d incomplete: 0x%04x", w, h, (unsigned)st);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return t;
+}
+void rhi_target_clear_depth(const rhi_target_t *t) {
+    glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+    glViewport(0, 0, t->w, t->h);
+    glDepthMask(GL_TRUE);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
+}
+void rhi_viewport(int x, int y, int w, int h) { glViewport(x, y, w, h); }
+
 void rhi_target_free(rhi_target_t *t) {
     if (t->fbo) glDeleteFramebuffers(1, &t->fbo);
     if (t->color.id) glDeleteTextures(1, &t->color.id);
@@ -61,6 +81,11 @@ void rhi_backbuffer(int w, int h) {
 }
 void rhi_read_pixels(int x, int y, int w, int h, unsigned char *rgba) {
     glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+}
+void rhi_read_depth(const rhi_target_t *t, float *depth) {
+    glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+    glReadPixels(0, 0, t->w, t->h, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 // ---------------------------------------------------------------------------

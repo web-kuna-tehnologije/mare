@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.4 — linear/sRGB, PBR, directional lighting, shadows (renderer steps 3-6)
+- **Linear/sRGB pipeline:** author colours are converted to linear on input, all lighting runs in
+  linear space, and `hdr.c` encodes to sRGB once after a Reinhard luminance shoulder.
+- **PBR materials:** Cook-Torrance GGX + Smith + Schlick with hemispheric ambient. Mesh vertices
+  carry roughness/metalness set as builder state (`mb_material`, presets for wood, paint, cloth,
+  stone, tile, metal); terrain roughness follows slope/snow and the sea is a smooth dielectric
+  with a real sun glint and Fresnel sky reflection.
+- **Directional lighting:** one sun shared by terrain, meshes and sea (`lighting.c`:
+  `render_light_update` + `light_bind`), replacing the per-shader ad-hoc diffuse+specular.
+- **Shadows:** three sun cascades in one depth atlas, fitted to each frustum slice's ground
+  footprint, texel-snapped, with normal-offset bias and 3x3 PCF. Ships, towns, forts and piers
+  cast; the terrain receives only (see KNOWN_ISSUES). `--no-shadows` and a dashboard toggle.
+- Mesh shading is now two-sided: sails, flags and roof slopes are single quads with inconsistent
+  winding and previously fell to the ambient floor under PBR.
+- Scene geometry is built once per frame and submitted twice (`scene_build_*` / `scene_submit_*`),
+  so the shadow cascades reuse the main pass's instance lists.
+- RHI gains depth-only targets, sub-rect viewports and depth readback; dev tools:
+  `MARE_SHADOWDUMP`, dashboard exposure/shadow controls.
+
+
 ## 0.7.3 — HDR rendering (renderer modernisation step 2)
 The 3D scene renders into an RGBA16F offscreen target and is tonemapped to the backbuffer
 (`gfx/hdr.c`); UI draws on top. RHI gains render targets (`rhi_target_*`), backbuffer binding

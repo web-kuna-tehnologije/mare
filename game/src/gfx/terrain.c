@@ -45,13 +45,13 @@ static const char *terrain_vs =
 static const char *terrain_fs =
     "in vec3 v_wpos; in vec2 v_uv; in float v_h;\n"
     "uniform sampler2D u_hm; uniform sampler2D u_terr; uniform vec2 u_texel; uniform float u_texel_world;\n"
-    "uniform vec3 u_campos; uniform vec3 u_sun; uniform float u_mapness; uniform vec3 u_sky; uniform float u_k;\n"
+    "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_k;\n"
     "uniform vec3 u_nation_colors[11]; uniform float u_daylight; uniform float u_regions; uniform vec2 u_terr_texel;\n"
     "out vec4 fragColor;\n"
     "float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }\n"
     "float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n"
     "  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }\n"
-    GLSL_FOG
+    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_FOG
     "void main(){\n"
     "  float hl = texture(u_hm, v_uv - vec2(u_texel.x,0)).r, hr = texture(u_hm, v_uv + vec2(u_texel.x,0)).r;\n"
     "  float hu = texture(u_hm, v_uv - vec2(0,u_texel.y)).r, hd = texture(u_hm, v_uv + vec2(0,u_texel.y)).r;\n"
@@ -81,7 +81,11 @@ static const char *terrain_fs =
     "  c = mix(c, tundra, cold * smoothstep(0.3,1.0,h));\n"
     "  c = mix(c, snow, smoothstep(64.0, 70.0, abs(lat)) * 0.8);\n"
     "  float diff = max(dot(n, u_sun), 0.0);\n"
-    "  vec3 lit = c * (0.30 + 0.75 * diff) * u_daylight;\n"
+    // PBR: ground is a rough dielectric; rock/snow slightly smoother than vegetation
+    "  float rough = mix(0.95, 0.75, smoothstep(0.25, 0.6, slope) * 0.6 + smoothstep(6.5, 8.5, h) * 0.4);\n"
+    "  vec3 vdir = normalize(u_campos - v_wpos);\n"
+    "  float viewdist = distance(v_wpos, u_campos);\n"
+    "  vec3 lit = sun_shade(srgb_to_linear(c), n, vdir, v_wpos, rough, 0.0, viewdist);\n"
     // map style
     "  vec4 tt = texture(u_terr, v_uv);\n"
     "  int nid = int(tt.r * 255.0 + 0.5);\n"
@@ -96,10 +100,11 @@ static const char *terrain_fs =
     "  float coastline = 1.0 - smoothstep(0.05, 0.28, h);\n"
     "  mapc = mix(mapc, vec3(0.35,0.28,0.18), coastline*0.8);\n"
     "  if (u_regions > 0.5) { vec3 devc = mix(vec3(0.55,0.50,0.40), vec3(0.95,0.85,0.45), clamp(dev/3.0,0.0,1.0)); mapc = mix(mapc, devc, 0.55); mapc = mix(mapc, vec3(0.15,0.10,0.05), min(border,1.0)*0.8); }\n"
-    "  vec3 col = mix(lit, mapc, u_mapness);\n"
-    "  col = fog_apply(col, distance(v_wpos, u_campos), u_mapness, u_sky);\n"
+    "  vec3 col = mix(lit, srgb_to_linear(mapc) * u_daylight, u_mapness);\n"
+    "  col = fog_apply(col, viewdist, u_mapness, srgb_to_linear(u_sky));\n"
     "  fragColor = vec4(col, 1.0);\n"
     "}\n";
+
 
 static void build_lod(int lod) {
     int n = CHUNK >> lod, vn = n + 1, nverts = vn*vn + 4*vn, k = 0;
@@ -128,7 +133,7 @@ static void build_lod(int lod) {
 void terrain_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_sun", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", 0 };
+    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", GLSL_LIGHT_UNIFORMS, 0 };
     terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = terrain_vs, .fs = terrain_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int i = 0; i < LODS; ++i) build_lod(i);
     tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, heightmap);
@@ -168,8 +173,8 @@ void terrain_draw(float planes[6][4]) {
     rhi_set_f2(UNI(terrain_prg,"u_texel"), 1.f/LM_W, 1.f/LM_H);
     rhi_set_f1(UNI(terrain_prg,"u_texel_world"), WORLD_K / CELLS_PER_DEG);
     rhi_set_f3(UNI(terrain_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
-    rhi_set_f3(UNI(terrain_prg,"u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
     rhi_set_f3(UNI(terrain_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
+    light_bind(&terrain_prg);
     rhi_set_f1(UNI(terrain_prg,"u_mapness"), RF.mapness);
     rhi_set_f1(UNI(terrain_prg,"u_flatten"), RF.flatten);
     rhi_set_f1(UNI(terrain_prg,"u_daylight"), RF.daylight);

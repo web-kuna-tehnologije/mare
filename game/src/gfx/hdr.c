@@ -6,6 +6,7 @@
 
 #include "render.h"
 #include "glsl.h"
+
 #include "../core/diag.h"
 
 float hdr_exposure = 1.f;
@@ -21,11 +22,14 @@ static const char *tonemap_fs =
     "in vec2 v_uv;\n"
     "uniform sampler2D u_scene; uniform float u_exposure;\n"
     "out vec4 fragColor;\n"
+    GLSL_COLOR
     "void main(){\n"
     "  vec3 c = texture(u_scene, v_uv).rgb * u_exposure;\n"
-    "  float m = max(c.r, max(c.g, c.b));\n"                      // identity <= 1; above, normalize to the max channel (hue preserved)
-    "  if (m > 1.0) c /= m;\n"
-    "  fragColor = vec4(c, 1.0);\n"
+    // Reinhard-style shoulder on luminance: keeps midtones, rolls highlights off smoothly
+    "  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
+    "  const float W = 3.0;  float lt = l * (1.0 + l / (W * W)) / (1.0 + l);\n"
+    "  c *= l > 1e-5 ? lt / l : 1.0;\n"
+    "  fragColor = vec4(linear_to_srgb(c), 1.0);\n"   // the only place linear becomes sRGB
     "}\n";
 
 void hdr_init(void) {
