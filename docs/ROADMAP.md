@@ -1,5 +1,10 @@
 # Development roadmap
 
+## In progress: renderer modernisation (game/docs/DESIGN_RENDERER.md)
+
+RHI abstraction (done) -> HDR -> linear/sRGB -> PBR -> directional lighting -> shadows ->
+normal maps -> frustum culling -> instancing -> CPU/GPU/VRAM/RAM profiling hooks.
+
 The recovered baseline implements the transcript's 0.7 core. These remaining
 ideas are planned features, not claims of completed work.
 

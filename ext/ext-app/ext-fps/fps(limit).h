@@ -2,7 +2,9 @@
 // fps locking
 // assumes window and rendering context are created with no VSYNC interval (~max fps)
 
+#if defined _MSC_VER
 #pragma comment(lib, "winmm")
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
 
 static volatile float target_fps; // -1: use monitor refresh rate, 0: vsync off, 1: vsync on, N: specific fps
 static volatile unsigned timer_counter, loop_counter;

@@ -9,8 +9,12 @@
 #elif V3_WINDOWS // && !defined __TINYC__
 #include <winsock2.h>  // windows.h alternative
 #include <dbghelp.h>
+#if defined _MSC_VER
 #pragma comment(lib, "DbgHelp")
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
+#if defined _MSC_VER
 #pragma comment(lib, "Kernel32")
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
 int backtrace( void **addr, int maxtraces ) {
     static bool init = 0;
     ONCE SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_INCLUDE_32BIT_MODULES);

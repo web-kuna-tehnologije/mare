@@ -35,7 +35,13 @@
 #define _GLFW_X11 // also, _GLFW_OSMESA or _GLFW_WAYLAND
 #endif
 #include "glob.c"
+#if defined _MSC_VER
 #pragma comment(lib, "user32")
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
+#if defined _MSC_VER
 #pragma comment(lib, "gdi32")
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
+#if defined _MSC_VER
 #pragma comment(lib, "shell32")
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
 #endif

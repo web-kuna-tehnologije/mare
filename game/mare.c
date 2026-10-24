@@ -23,7 +23,9 @@
 #include "src/sim/settlement.c"
 #include "src/sim/region.c"
 #include "src/sim/game.c"
-// presentation (v3: GL, microui, input)
+// presentation (v3: GL, microui, input). rhi_gl.c is the active RHI backend (rhi.h): all
+// game rendering goes through it; swap this include to target another graphics API.
+#include "src/gfx/rhi_gl.c"
 #include "src/gfx/gpu.c"
 #include "src/gfx/terrain.c"
 #include "src/gfx/sea.c"
@@ -87,9 +89,9 @@ int main(int argc, char **argv) {
     // v3 caps the frame rate to the monitor refresh rate + 2. Virtual displays (VMs, Xvfb, some
     // remote desktops) report 0 Hz, which would lock the game to 2 FPS: fall back to uncapped.
     { float hz = monitor_hz(0); if (hz < 10 && !flag("--fps")) { vsync(0); LOG_WARN("main", "monitor reports %.0f Hz: frame limiter disabled (use --fps=N to cap)", hz); } else LOG_INFO("main", "monitor %.0f Hz", hz); }
-    LOG_INFO("gpu", "%s | %s", (const char*)glGetString(GL_RENDERER), (const char*)glGetString(GL_VERSION));
+    LOG_INFO("gpu", "%s", rhi_info());
     world_init(seed); nav_init();
-    { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); gpu_check_errors("render_init"); }
+    { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); rhi_check_errors("render_init"); }
     U.show_debug = dev;
     if (getenv("MARE_PASSES")) { const char *p = getenv("MARE_PASSES");   // experiment: enable only the listed passes
         U.pass_terrain = !!strstr(p, "terrain"); U.pass_sea = !!strstr(p, "sea"); U.pass_ports = !!strstr(p, "ports"); U.pass_ships = !!strstr(p, "ships");
@@ -135,8 +137,7 @@ int main(int argc, char **argv) {
         // ---- 3d
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness; RF.sun = norm3(vec3(0.45f, 0.75f, 0.35f)); RF.daylight = 1.f;
         RF.sky = lerp3(vec3(0.60f, 0.74f, 0.88f), vec3(0.36f, 0.30f, 0.24f), cam.mapness);
-        glClearColor(RF.sky.x, RF.sky.y, RF.sky.z, 1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
+        rhi_frame_begin(screen_w, screen_h, RF.sky.x, RF.sky.y, RF.sky.z);
         prof_begin(p_gfx);
         float planes[6][4]; cam_frustum(planes);
         prof_begin(p_terrain); if (U.pass_terrain) terrain_draw(planes); prof_end(p_terrain);
@@ -155,7 +156,7 @@ int main(int argc, char **argv) {
         }
         prof_end(p_gfx);
         ui_overlay_end();
-        if (U.show_debug) gpu_check_errors("frame");
+        if (U.show_debug) rhi_check_errors("frame");
 
         // ---- panels
         prof_begin(p_panels);

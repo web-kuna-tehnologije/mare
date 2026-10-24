@@ -1,8 +1,5 @@
-// Thin GL helpers used by every render pass.
+// Mesh helpers on top of the RHI (rhi.h) used by every render pass.
 //
-// * program_t: a linked GLSL program with attributes bound by name (no layout qualifiers, so
-//   shaders work on the 3.2-core macOS context and the compatibility contexts elsewhere) and
-//   uniform locations resolved once at creation.
 // * mb_t: a flat-shaded triangle-mesh builder (10 floats per vertex: position, normal, colour,
 //   material). Material 1 vertices take the per-instance colour (nation stripes, flags, roofs).
 // * mesh_t / inst_t: instanced drawing of a mesh; instance data is streamed every frame.
@@ -10,13 +7,9 @@
 #ifndef MARE_GPU_H
 #define MARE_GPU_H
 
-typedef struct program_t { unsigned id; int nuniforms; const char *names[24]; int locs[24]; } program_t;
+#include "rhi.h"
 
-// compile+link; `attribs` and `uniforms` are NULL-terminated name lists (attribute i -> location i). Fatal on failure
-program_t gpu_program(const char *vs, const char *fs, const char **attribs, const char **uniforms);
-int       gpu_uniform(const program_t *p, const char *name);   // cached lookup (-1 if unknown)
-int       gpu_check_errors(const char *where);                  // logs pending GL errors, returns their count
-#define   UNI(p, name) gpu_uniform(&(p), name)
+#define UNI(p, name) rhi_uniform(&(p), name)
 
 // mesh builder
 typedef struct mb_t { float *v; int n, cap; } mb_t;
@@ -28,7 +21,8 @@ void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz
 // instancing. inst_t = position + heading (radians, 0 = +x), uniform scale + rgb, misc:
 //   sway (roll animation 0/1), sel (highlight 0..1), bob (vertical bobbing 0/1), xlen (>0: stretch along x, for walls/piers)
 typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway, sel, bob, xlen; } inst_t;
-typedef struct mesh_t { unsigned vao, vbo, ibo; int nverts, capacity; } mesh_t;
+typedef struct mesh_t { rhi_geometry_t geo; } mesh_t;
+extern const rhi_layout_t mesh_layout;                // builder vertices + inst_t instances (meshes.c program)
 mesh_t mesh_upload(mb_t *m);                          // uploads and frees the builder
 void   mesh_draw(mesh_t *m, const inst_t *inst, int n);   // requires meshes_bind() first (render.h)
 

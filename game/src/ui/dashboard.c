@@ -114,8 +114,7 @@ static void tab_log(void) {
 
 static void tab_system(void) {
     ROW(1, -1, 18);
-    mu_label(ui_ctx, va("renderer: %s", (const char*)glGetString(GL_RENDERER)));
-    mu_label(ui_ctx, va("GL %s", (const char*)glGetString(GL_VERSION)));
+    mu_label(ui_ctx, va("renderer: %s", rhi_info()));
     mu_label(ui_ctx, va("window %dx%d | camera dist %.0f pitch %.0f mapness %.2f", screen_w, screen_h, cam.dist, cam.pitch*57.3f, cam.mapness));
     mu_label(ui_ctx, va("world %dx%d cells, nav %dx%d, %d ports, fleets %d (slots %d/%d)", LM_W, LM_H, NAV_W, NAV_H, G.nports, game_count_fleets(), G.nfleets, MAX_FLEETS));
     mu_label(ui_ctx, va("state struct %u bytes | sim day %.2f | seed %u | rng %08x", (unsigned)sizeof G, G.day, G.seed, G.rng));
@@ -123,7 +122,7 @@ static void tab_system(void) {
     ROW(3, 150, 150, -1, 22);
     if (ui_btn("Log test warning")) LOG_WARN("dashboard", "test warning from the dashboard");
     if (ui_btn("Log test error")) LOG_ERROR("dashboard", "test error from the dashboard");
-    if (ui_btn("GL error check")) { int n = gpu_check_errors("dashboard"); toast("%d GL errors", n); }
+    if (ui_btn("GPU error check")) { int n = rhi_check_errors("dashboard"); toast("%d GPU errors", n); }
 }
 
 void dashboard_panel(void) {

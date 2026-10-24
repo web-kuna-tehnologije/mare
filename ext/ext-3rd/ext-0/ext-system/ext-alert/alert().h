@@ -1,4 +1,6 @@
+#if defined _MSC_VER
 #pragma comment(lib, "user32")
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
 
 void alert_(alert_flags_t opt) {
     // app_show(0);

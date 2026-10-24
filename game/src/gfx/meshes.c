@@ -10,7 +10,7 @@
 
 mesh_t ship_mesh[SHIP_COUNT][2];
 mesh_t mesh_house, mesh_roof, mesh_tower, mesh_wall, mesh_pier, mesh_flagpole;
-static program_t meshes_prg;
+static rhi_pipeline_t meshes_prg;
 
 static const char *meshes_vs =
     "in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in float a_mat;\n"
@@ -143,20 +143,19 @@ static void build_buildings(void) {
 }
 
 void meshes_init(void) {
-    static const char *attribs[] = { "a_pos", "a_nrm", "a_col", "a_mat", "i_pos", "i_scol", "i_misc", 0 };
     static const char *uniforms[] = { "u_vp", "u_time", "u_sun", "u_campos", "u_sky", "u_mapness", "u_daylight", 0 };
-    meshes_prg = gpu_program(meshes_vs, meshes_fs, attribs, uniforms);
+    meshes_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = meshes_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) build_ship(t, l);
     build_buildings();
 }
 
 void meshes_bind(void) {
-    glUseProgram(meshes_prg.id);
-    glUniformMatrix4fv(UNI(meshes_prg,"u_vp"), 1, GL_FALSE, &RF.vp.x.x);
-    glUniform1f(UNI(meshes_prg,"u_time"), RF.time);
-    glUniform3f(UNI(meshes_prg,"u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
-    glUniform3f(UNI(meshes_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
-    glUniform3f(UNI(meshes_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
-    glUniform1f(UNI(meshes_prg,"u_mapness"), RF.mapness);
-    glUniform1f(UNI(meshes_prg,"u_daylight"), RF.daylight);
+    rhi_pipeline_bind(&meshes_prg);
+    rhi_set_mat4(UNI(meshes_prg,"u_vp"), &RF.vp.x.x);
+    rhi_set_f1(UNI(meshes_prg,"u_time"), RF.time);
+    rhi_set_f3(UNI(meshes_prg,"u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
+    rhi_set_f3(UNI(meshes_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    rhi_set_f3(UNI(meshes_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
+    rhi_set_f1(UNI(meshes_prg,"u_mapness"), RF.mapness);
+    rhi_set_f1(UNI(meshes_prg,"u_daylight"), RF.daylight);
 }

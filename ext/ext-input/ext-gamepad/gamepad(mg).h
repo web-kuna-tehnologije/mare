@@ -3,7 +3,9 @@
 #ifndef DIRECTINPUT_VERSION
 #define DIRECTINPUT_VERSION 0x0800
 #endif
+#if defined _MSC_VER
 #pragma comment(lib, "user32") // __imp_GetRawInputDeviceList
+#endif // MSVC-only: clang on linux fails on dependent-library specifiers
 #else
 #include <unistd.h>
 #if V3_LINUX

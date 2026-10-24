@@ -7,10 +7,10 @@
 #include "../core/types.h"
 #include "../core/util.h"
 
-unsigned terrain_heightmap_texture(void);
+const rhi_texture_t *terrain_heightmap_texture(void);
 
-static program_t sea_prg;
-static unsigned sea_vao, sea_ntris;
+static rhi_pipeline_t sea_prg;
+static rhi_geometry_t sea_geo;
 
 static const char *sea_vs =
     "in vec2 a_pos;\n"
@@ -56,34 +56,31 @@ static const char *sea_fs =
     "}\n";
 
 void sea_init(void) {
-    static const char *attribs[] = { "a_pos", 0 };
+    static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
+    static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     static const char *uniforms[] = { "u_vp", "u_hm", "u_geo", "u_k", "u_time", "u_campos", "u_sun", "u_mapness", "u_sky", "u_daylight", 0 };
-    sea_prg = gpu_program(sea_vs, sea_fs, attribs, uniforms);
+    sea_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = sea_vs, .fs = sea_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_ALPHA });
     int nx = 88, ny = 65;
     float *v = malloc((nx+1)*(ny+1)*2*sizeof(float));
     float x0 = lon2x(LON0), x1 = lon2x(LON1), z0 = lat2z(LAT1), z1 = lat2z(LAT0);
     for (int y = 0; y <= ny; ++y) for (int x = 0; x <= nx; ++x) { v[(y*(nx+1)+x)*2] = lerpf(x0,x1,x/(float)nx); v[(y*(nx+1)+x)*2+1] = lerpf(z0,z1,y/(float)ny); }
     unsigned *idx = malloc(nx*ny*6*sizeof(unsigned)); int m = 0;
     for (int y = 0; y < ny; ++y) for (int x = 0; x < nx; ++x) { unsigned a = y*(nx+1)+x, b = a+1, c = a+nx+1, d = c+1; idx[m++]=a; idx[m++]=c; idx[m++]=b; idx[m++]=b; idx[m++]=c; idx[m++]=d; }
-    sea_vao = vao_begin(); vbo_buffer(0, "2f", v, (nx+1)*(ny+1)*2*sizeof(float)); ebo_buffer("", idx, m*sizeof(unsigned)); vao_end();
-    sea_ntris = m/3; free(v); free(idx);
+    sea_geo = rhi_geometry_make(&layout, v, (nx+1)*(ny+1), idx, m);
+    free(v); free(idx);
 }
 
 void sea_draw(void) {
-    glUseProgram(sea_prg.id);
-    glUniformMatrix4fv(UNI(sea_prg,"u_vp"), 1, GL_FALSE, &RF.vp.x.x);
-    glUniform1i(UNI(sea_prg,"u_hm"), 0); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, terrain_heightmap_texture());
-    glUniform4f(UNI(sea_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
-    glUniform1f(UNI(sea_prg,"u_k"), WORLD_K);
-    glUniform1f(UNI(sea_prg,"u_time"), RF.time);
-    glUniform3f(UNI(sea_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
-    glUniform3f(UNI(sea_prg,"u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
-    glUniform3f(UNI(sea_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
-    glUniform1f(UNI(sea_prg,"u_mapness"), RF.mapness);
-    glUniform1f(UNI(sea_prg,"u_daylight"), RF.daylight);
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glBindVertexArray(sea_vao);
-    glDrawElements(GL_TRIANGLES, sea_ntris*3, GL_UNSIGNED_INT, 0);
-    glBindVertexArray(0);
-    glDisable(GL_BLEND);
+    rhi_pipeline_bind(&sea_prg);
+    rhi_set_mat4(UNI(sea_prg,"u_vp"), &RF.vp.x.x);
+    rhi_set_i1(UNI(sea_prg,"u_hm"), 0); rhi_texture_bind(0, terrain_heightmap_texture());
+    rhi_set_f4(UNI(sea_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
+    rhi_set_f1(UNI(sea_prg,"u_k"), WORLD_K);
+    rhi_set_f1(UNI(sea_prg,"u_time"), RF.time);
+    rhi_set_f3(UNI(sea_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    rhi_set_f3(UNI(sea_prg,"u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
+    rhi_set_f3(UNI(sea_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
+    rhi_set_f1(UNI(sea_prg,"u_mapness"), RF.mapness);
+    rhi_set_f1(UNI(sea_prg,"u_daylight"), RF.daylight);
+    rhi_draw(&sea_geo, 0);
 }

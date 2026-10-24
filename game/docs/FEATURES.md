@@ -68,6 +68,10 @@ Status as of the current codebase. Each entry names the module that owns it.
   that turn hostile; player diplomacy (declare war / sue for peace).
 
 ## Rendering (`src/gfx`)
+- API-agnostic RHI (`rhi.h`): pipelines with baked depth/blend state, geometry objects with
+  streamed instance buffers, format-enum textures. GL3 backend (`rhi_gl.c`) is the only game
+  file calling GL; the backend include in `mare.c` is the switch point for Vulkan/DX12 later.
+  Modernisation roadmap: docs/DESIGN_RENDERER.md.
 - Heightmap terrain: 374 chunks, 5 LOD grids with skirts, frustum culling, biome/desert/tundra
   colouring, parchment map style with territories and coast outlines, fog.
 - Animated sea from the heightmap (depth colour, foam, distance-faded waves, graticule in map view).

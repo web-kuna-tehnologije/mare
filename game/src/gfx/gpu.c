@@ -1,40 +1,8 @@
-// GL helpers (see gpu.h): program creation with attribute binding and uniform caching, GL error
-// logging, mesh builder (flat normals), instanced mesh upload/draw, growable instance lists.
-#include <stdio.h>
+// Mesh helpers (see gpu.h): mesh builder (flat normals), instanced mesh upload/draw via the RHI,
+// growable instance lists.
 #include <stdlib.h>
-#include <string.h>
 #include <math.h>
 #include "gpu.h"
-#include "glsl.h"
-#include "../core/diag.h"
-
-program_t gpu_program(const char *vs, const char *fs, const char **attribs, const char **uniforms) {
-    program_t p = {0};
-    const char *v[2] = { GLSL_VERSION, vs }, *f[2] = { GLSL_VERSION, fs };
-    unsigned vsh = shader('v', 2, v), fsh = shader('f', 2, f);
-    p.id = glCreateProgram();
-    glAttachShader(p.id, vsh); glAttachShader(p.id, fsh);
-    for (int i = 0; attribs[i]; ++i) glBindAttribLocation(p.id, i, attribs[i]);
-    glLinkProgram(p.id);
-    GLint ok; glGetProgramiv(p.id, GL_LINK_STATUS, &ok);
-    if (!ok) { char log[2048]; glGetProgramInfoLog(p.id, sizeof log, 0, log); LOG_FATAL("gpu", "shader link failed: %s", log); }
-    int nattr = 0; while (attribs[nattr]) nattr++;
-    LOG_DEBUG("gpu", "program %u linked (%d attribs, %d uniforms)", p.id, nattr, p.nuniforms);
-    glDeleteShader(vsh); glDeleteShader(fsh);
-    for (int i = 0; uniforms && uniforms[i] && p.nuniforms < 24; ++i) { p.names[p.nuniforms] = uniforms[i]; p.locs[p.nuniforms] = glGetUniformLocation(p.id, uniforms[i]); p.nuniforms++; }
-    return p;
-}
-// logs and clears pending GL errors; returns their count
-int gpu_check_errors(const char *where) {
-    int n = 0; GLenum e;
-    while ((e = glGetError()) != GL_NO_ERROR && n < 8) { LOG_ERROR("gpu", "GL error 0x%04x after %s", (unsigned)e, where); n++; }
-    return n;
-}
-
-int gpu_uniform(const program_t *p, const char *name) {
-    for (int i = 0; i < p->nuniforms; ++i) if (p->names[i] == name || !strcmp(p->names[i], name)) return p->locs[i];
-    return glGetUniformLocation(p->id, name);
-}
 
 // ---------------------------------------------------------------------------
 // mesh builder
@@ -68,32 +36,21 @@ void mb_box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz,
 // ---------------------------------------------------------------------------
 // meshes & instancing
 
+static const rhi_attr_t mesh_attrs[] = {
+    { "a_pos", 0, 3,  0, 0 }, { "a_nrm", 0, 3, 12, 0 }, { "a_col", 0, 3, 24, 0 }, { "a_mat", 0, 1, 36, 0 },
+    { "i_pos", 1, 4,  0, 1 }, { "i_scol", 1, 4, 16, 1 }, { "i_misc", 1, 4, 32, 1 },
+};
+const rhi_layout_t mesh_layout = { mesh_attrs, 7, { 10*sizeof(float), sizeof(inst_t) } };
+
 mesh_t mesh_upload(mb_t *m) {
-    mesh_t r = {0};
-    glGenVertexArrays(1, &r.vao); glBindVertexArray(r.vao);
-    glGenBuffers(1, &r.vbo); glBindBuffer(GL_ARRAY_BUFFER, r.vbo);
-    glBufferData(GL_ARRAY_BUFFER, m->n*10*sizeof(float), m->v, GL_STATIC_DRAW);
-    int stride = 10*sizeof(float);
-    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, 0, stride, (void*)0);
-    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, 0, stride, (void*)(3*sizeof(float)));
-    glEnableVertexAttribArray(2); glVertexAttribPointer(2, 3, GL_FLOAT, 0, stride, (void*)(6*sizeof(float)));
-    glEnableVertexAttribArray(3); glVertexAttribPointer(3, 1, GL_FLOAT, 0, stride, (void*)(9*sizeof(float)));
-    glGenBuffers(1, &r.ibo); glBindBuffer(GL_ARRAY_BUFFER, r.ibo);
-    r.capacity = 256; glBufferData(GL_ARRAY_BUFFER, r.capacity*sizeof(inst_t), 0, GL_STREAM_DRAW);
-    for (int a = 0; a < 3; ++a) { glEnableVertexAttribArray(4+a); glVertexAttribPointer(4+a, 4, GL_FLOAT, 0, sizeof(inst_t), (void*)(size_t)(a*4*sizeof(float))); glVertexAttribDivisor(4+a, 1); }
-    glBindVertexArray(0);
-    r.nverts = m->n;
+    mesh_t r = { rhi_geometry_make(&mesh_layout, m->v, m->n, 0, 0) };
     free(m->v); m->v = 0; m->n = m->cap = 0;
     return r;
 }
 void mesh_draw(mesh_t *m, const inst_t *inst, int n) {
     if (n <= 0) return;
-    glBindVertexArray(m->vao);
-    glBindBuffer(GL_ARRAY_BUFFER, m->ibo);
-    if (n > m->capacity) { m->capacity = n*2; glBufferData(GL_ARRAY_BUFFER, m->capacity*sizeof(inst_t), 0, GL_STREAM_DRAW); }
-    glBufferSubData(GL_ARRAY_BUFFER, 0, n*sizeof(inst_t), inst);
-    glDrawArraysInstanced(GL_TRIANGLES, 0, m->nverts, n);
-    glBindVertexArray(0);
+    rhi_geometry_instances(&m->geo, inst, n);
+    rhi_draw(&m->geo, n);
 }
 inst_t *instlist_push(instlist_t *l) {
     if (l->n >= l->cap) { l->cap = l->cap ? l->cap*2 : 256; l->v = realloc(l->v, l->cap*sizeof(inst_t)); }

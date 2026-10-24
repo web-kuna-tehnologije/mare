@@ -4,8 +4,8 @@
 #include "render.h"
 #include "glsl.h"
 
-static program_t icons_prg;
-static unsigned icons_vao, icons_ibo; static int gpu_cap;
+static rhi_pipeline_t icons_prg;
+static rhi_geometry_t icons_geo;
 static icon_t *icons; static int icon_n, icon_cap;
 
 static const char *icons_vs =
@@ -41,16 +41,15 @@ static const char *icons_fs =
     "}\n";
 
 void icons_init(void) {
-    static const char *attribs[] = { "a_corner", "i_pos", "i_misc", "i_col", 0 };
+    static const rhi_attr_t attrs[] = {
+        { "a_corner", 0, 2, 0, 0 },
+        { "i_pos", 1, 4, 0, 1 }, { "i_misc", 1, 4, 16, 1 }, { "i_col", 1, 4, 32, 1 },
+    };
+    static const rhi_layout_t layout = { attrs, 4, { 2*sizeof(float), sizeof(icon_t) } };
     static const char *uniforms[] = { "u_vp", "u_viewport", 0 };
-    icons_prg = gpu_program(icons_vs, icons_fs, attribs, uniforms);
+    icons_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = icons_vs, .fs = icons_fs, .layout = &layout, .uniforms = uniforms, .blend = RHI_BLEND_ALPHA });
     float corners[] = { -1,-1, 1,-1, 1,1, -1,-1, 1,1, -1,1 };
-    icons_vao = vao_begin();
-    vbo_buffer(0, "2f", corners, sizeof corners);
-    glGenBuffers(1, &icons_ibo); glBindBuffer(GL_ARRAY_BUFFER, icons_ibo);
-    gpu_cap = 1024; glBufferData(GL_ARRAY_BUFFER, gpu_cap*sizeof(icon_t), 0, GL_STREAM_DRAW);
-    for (int a = 0; a < 3; ++a) { glEnableVertexAttribArray(1+a); glVertexAttribPointer(1+a, 4, GL_FLOAT, 0, sizeof(icon_t), (void*)(size_t)(a*4*sizeof(float))); glVertexAttribDivisor(1+a, 1); }
-    vao_end();
+    icons_geo = rhi_geometry_make(&layout, corners, 6, 0, 0);
 }
 
 void icons_begin(void) { icon_n = 0; }
@@ -60,19 +59,13 @@ icon_t *icon_push(void) {
 }
 void icons_draw(void) {
     if (icon_n <= 0) return;
-    glUseProgram(icons_prg.id);
-    glUniformMatrix4fv(UNI(icons_prg,"u_vp"), 1, GL_FALSE, &RF.vp.x.x);
-    glUniform2f(UNI(icons_prg,"u_viewport"), screen_w, screen_h);
-    glBindVertexArray(icons_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, icons_ibo);
-    if (icon_n > gpu_cap) { gpu_cap = icon_n*2; glBufferData(GL_ARRAY_BUFFER, gpu_cap*sizeof(icon_t), 0, GL_STREAM_DRAW); }
-    glBufferSubData(GL_ARRAY_BUFFER, 0, icon_n*sizeof(icon_t), icons);
-    glDisable(GL_DEPTH_TEST); glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDrawArraysInstanced(GL_TRIANGLES, 0, 6, icon_n);
-    glDisable(GL_BLEND); glEnable(GL_DEPTH_TEST);
-    glBindVertexArray(0);
+    rhi_pipeline_bind(&icons_prg);
+    rhi_set_mat4(UNI(icons_prg,"u_vp"), &RF.vp.x.x);
+    rhi_set_f2(UNI(icons_prg,"u_viewport"), screen_w, screen_h);
+    rhi_geometry_instances(&icons_geo, icons, icon_n);
+    rhi_draw(&icons_geo, icon_n);
 }
 
 // umbrella
 void terrain_init(void); void sea_init(void); void meshes_init(void);
-void render_init(void) { terrain_init(); sea_init(); meshes_init(); icons_init(); }
+void render_init(void) { rhi_init(); terrain_init(); sea_init(); meshes_init(); icons_init(); }

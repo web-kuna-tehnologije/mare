@@ -22,9 +22,9 @@ int terrain_chunks_drawn, terrain_tris_drawn, terrain_show_regions;
 
 typedef struct chunk_t { float x0, z0, x1, z1, minh, maxh; int water_only; } chunk_t;
 static chunk_t chunks[CHUNKS_X*CHUNKS_Y];
-static program_t terrain_prg;
-static unsigned terrain_vao[LODS], terrain_ntris[LODS];
-static unsigned tex_height, tex_territory;
+static rhi_pipeline_t terrain_prg;
+static rhi_geometry_t terrain_geo[LODS];
+static rhi_texture_t tex_height, tex_territory;
 static const float lod_dist[LODS-1] = { 45, 110, 240, 520 };
 
 static const char *terrain_vs =
@@ -119,31 +119,20 @@ static void build_lod(int lod) {
         a = i*vn; b = a+vn; sa = skirt0 + 2*vn + i; sb = sa+1;                    idx[m++]=a; idx[m++]=sa; idx[m++]=b; idx[m++]=b; idx[m++]=sa; idx[m++]=sb;
         a = i*vn + n; b = a+vn; sa = skirt0 + 3*vn + i; sb = sa+1;                idx[m++]=a; idx[m++]=b; idx[m++]=sa; idx[m++]=b; idx[m++]=sb; idx[m++]=sa;
     }
-    terrain_vao[lod] = vao_begin();
-    vbo_buffer(0, "3f", v, nverts*3*sizeof(float));
-    ebo_buffer("", idx, nidx*sizeof(unsigned));
-    vao_end();
-    terrain_ntris[lod] = nidx/3;
+    static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
+    static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
+    terrain_geo[lod] = rhi_geometry_make(&layout, v, nverts, idx, nidx);
     free(v); free(idx);
 }
 
-static unsigned make_texture(int w, int h, unsigned internal, unsigned format, unsigned type, const void *data, int linear) {
-    unsigned t; glGenTextures(1, &t); glBindTexture(GL_TEXTURE_2D, t);
-    glTexImage2D(GL_TEXTURE_2D, 0, internal, w, h, 0, format, type, data);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, linear ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    return t;
-}
-
 void terrain_init(void) {
-    static const char *attribs[] = { "a_pos", 0 };
+    static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
+    static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
     static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_sun", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", 0 };
-    terrain_prg = gpu_program(terrain_vs, terrain_fs, attribs, uniforms);
+    terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = terrain_vs, .fs = terrain_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int i = 0; i < LODS; ++i) build_lod(i);
-    tex_height = make_texture(LM_W, LM_H, GL_R32F, GL_RED, GL_FLOAT, heightmap, 1);
-    tex_territory = make_texture(TERR_W, TERR_H, GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE, 0, 0);
+    tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, heightmap);
+    tex_territory = rhi_texture_make(TERR_W, TERR_H, RHI_FMT_RGB8, RHI_FILTER_NEAREST, 0);
     for (int cy = 0; cy < CHUNKS_Y; ++cy) for (int cx = 0; cx < CHUNKS_X; ++cx) {
         chunk_t *c = &chunks[cy*CHUNKS_X+cx]; float mn = 1e9f, mx = -1e9f;
         for (int y = cy*CHUNK; y <= (cy+1)*CHUNK && y < LM_H; ++y) for (int x = cx*CHUNK; x <= (cx+1)*CHUNK && x < LM_W; ++x) { float h = heightmap[y*LM_W+x]; mn = minf(mn, h); mx = maxf(mx, h); }
@@ -152,13 +141,12 @@ void terrain_init(void) {
         c->z0 = lat2z(LAT1 - cy*CHUNK/(float)CELLS_PER_DEG); c->z1 = c->z0 + CHUNK/(float)CELLS_PER_DEG*WORLD_K;
     }
 }
-unsigned terrain_heightmap_texture(void) { return tex_height; }
+const rhi_texture_t *terrain_heightmap_texture(void) { return &tex_height; }
 
 void render_territory_upload(void) {
-    glBindTexture(GL_TEXTURE_2D, tex_territory);
     static unsigned char *rgb; if (!rgb) rgb = malloc(TERR_W*TERR_H*3);   // R nation+1, G development*80, B region id+1
     for (int i = 0; i < TERR_W*TERR_H; ++i) { rgb[i*3] = territory[i]; rgb[i*3+1] = devmap ? devmap[i] : 0; rgb[i*3+2] = regionmap ? regionmap[i] : 0; }
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, TERR_W, TERR_H, GL_RGB, GL_UNSIGNED_BYTE, rgb);
+    rhi_texture_update(&tex_territory, rgb);
     territory_dirty = 0;
 }
 
@@ -170,28 +158,28 @@ static int aabb_visible(float planes[6][4], float x0, float y0, float z0, float 
 }
 
 void terrain_draw(float planes[6][4]) {
-    glUseProgram(terrain_prg.id);
-    glUniformMatrix4fv(UNI(terrain_prg,"u_vp"), 1, GL_FALSE, &RF.vp.x.x);
-    glUniform1i(UNI(terrain_prg,"u_hm"), 0); glUniform1i(UNI(terrain_prg,"u_terr"), 1);
-    glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, tex_height);
-    glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, tex_territory);
-    glUniform4f(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
-    glUniform1f(UNI(terrain_prg,"u_k"), WORLD_K);
-    glUniform2f(UNI(terrain_prg,"u_texel"), 1.f/LM_W, 1.f/LM_H);
-    glUniform1f(UNI(terrain_prg,"u_texel_world"), WORLD_K / CELLS_PER_DEG);
-    glUniform3f(UNI(terrain_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
-    glUniform3f(UNI(terrain_prg,"u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
-    glUniform3f(UNI(terrain_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
-    glUniform1f(UNI(terrain_prg,"u_mapness"), RF.mapness);
-    glUniform1f(UNI(terrain_prg,"u_flatten"), RF.flatten);
-    glUniform1f(UNI(terrain_prg,"u_daylight"), RF.daylight);
-    glUniform1f(UNI(terrain_prg,"u_regions"), terrain_show_regions ? 1.f : 0.f);
-    glUniform2f(UNI(terrain_prg,"u_terr_texel"), 1.f/TERR_W, 1.f/TERR_H);
+    rhi_pipeline_bind(&terrain_prg);
+    rhi_set_mat4(UNI(terrain_prg,"u_vp"), &RF.vp.x.x);
+    rhi_set_i1(UNI(terrain_prg,"u_hm"), 0); rhi_set_i1(UNI(terrain_prg,"u_terr"), 1);
+    rhi_texture_bind(0, &tex_height);
+    rhi_texture_bind(1, &tex_territory);
+    rhi_set_f4(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
+    rhi_set_f1(UNI(terrain_prg,"u_k"), WORLD_K);
+    rhi_set_f2(UNI(terrain_prg,"u_texel"), 1.f/LM_W, 1.f/LM_H);
+    rhi_set_f1(UNI(terrain_prg,"u_texel_world"), WORLD_K / CELLS_PER_DEG);
+    rhi_set_f3(UNI(terrain_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    rhi_set_f3(UNI(terrain_prg,"u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
+    rhi_set_f3(UNI(terrain_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
+    rhi_set_f1(UNI(terrain_prg,"u_mapness"), RF.mapness);
+    rhi_set_f1(UNI(terrain_prg,"u_flatten"), RF.flatten);
+    rhi_set_f1(UNI(terrain_prg,"u_daylight"), RF.daylight);
+    rhi_set_f1(UNI(terrain_prg,"u_regions"), terrain_show_regions ? 1.f : 0.f);
+    rhi_set_f2(UNI(terrain_prg,"u_terr_texel"), 1.f/TERR_W, 1.f/TERR_H);
     float cols[11*3];
     for (int i = 0; i < 11; ++i) { unsigned c = i == 0 ? 0xFF888888 : nations_info[i-1].color; cols[i*3] = col_r(c); cols[i*3+1] = col_g(c); cols[i*3+2] = col_b(c); }
-    glUniform3fv(UNI(terrain_prg,"u_nation_colors"), 11, cols);
-    glUniform1f(UNI(terrain_prg,"u_size"), CHUNK/(float)CELLS_PER_DEG*WORLD_K);
-    int loc_origin = UNI(terrain_prg,"u_origin"), curlod = -1;
+    rhi_set_f3v(UNI(terrain_prg,"u_nation_colors"), cols, 11);
+    rhi_set_f1(UNI(terrain_prg,"u_size"), CHUNK/(float)CELLS_PER_DEG*WORLD_K);
+    int loc_origin = UNI(terrain_prg,"u_origin");
     terrain_chunks_drawn = terrain_tris_drawn = 0;
     for (int i = 0; i < CHUNKS_X*CHUNKS_Y; ++i) {
         const chunk_t *c = &chunks[i];
@@ -200,10 +188,8 @@ void terrain_draw(float planes[6][4]) {
         float d = sqrtf(dx*dx + dz*dz + RF.campos.y*RF.campos.y*0.5f);
         int lod = 0; while (lod < LODS-1 && d > lod_dist[lod]) lod++;
         if (RF.mapness > 0.99f && lod < 2) lod = 2;
-        if (lod != curlod) { glBindVertexArray(terrain_vao[lod]); curlod = lod; }
-        glUniform2f(loc_origin, c->x0, c->z0);
-        glDrawElements(GL_TRIANGLES, terrain_ntris[lod]*3, GL_UNSIGNED_INT, 0);
-        terrain_chunks_drawn++; terrain_tris_drawn += terrain_ntris[lod];
+        rhi_set_f2(loc_origin, c->x0, c->z0);
+        rhi_draw(&terrain_geo[lod], 0);                 // rhi_draw caches the geometry binding across chunks
+        terrain_chunks_drawn++; terrain_tris_drawn += terrain_geo[lod].nindices/3;
     }
-    glBindVertexArray(0);
 }

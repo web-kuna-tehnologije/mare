@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.2 — RHI: API-agnostic renderer abstraction (design: docs/DESIGN_RENDERER.md)
+First step of the renderer modernisation. All game rendering now goes through an API-agnostic
+RHI (`gfx/rhi.h`): pipelines with baked depth/blend state, geometry objects with streamed
+instance buffers, format-enum textures and cached-location uniforms. `gfx/rhi_gl.c` is the only
+game file calling OpenGL; the backend include in `mare.c` is the single switch point for future
+Vulkan/DX12 backends. `gpu.c` keeps the mesh builder and `mesh_t`/`inst_t` API on top of the RHI.
+Framework fix: MSVC-only `#pragma comment(lib, ...)` lines in `ext` guarded with `_MSC_VER`
+(clang-based Linux builds failed on dependent-library specifiers). No visual change intended.
+
+
 ## 0.7.1 — recovered Windows baseline (2026-09-06)
 
 - Reconstructed source history with the supplied v3 archive and development docs.
