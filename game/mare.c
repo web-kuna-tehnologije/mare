@@ -31,6 +31,7 @@
 #include "src/gfx/sea.c"
 #include "src/gfx/meshes.c"
 #include "src/gfx/icons.c"
+#include "src/gfx/hdr.c"
 #include "src/gfx/camera.c"
 #include "src/gfx/scene.c"
 #include "src/ui/uikit.c"
@@ -51,6 +52,20 @@ static void print_report(int days) {
     }
     for (int n = 0; n < MAX_NATIONS; ++n) printf("  %-22s treasury %9.0f ports %2d fleets %2d sunk %3d lost %3d  tax %.0f tariffs %.0f\n", nations_info[n].name, G.nations[n].treasury, G.nations[n].ports, G.nations[n].fleets, G.nations[n].ships_sunk, G.nations[n].ships_lost, G.nations[n].income_tax, G.nations[n].income_trade);
     fflush(stdout);
+}
+
+// MARE_SCREENSHOT=path.ppm: capture the backbuffer (tonemapped scene, pre-UI) once, shortly
+// before MARE_AUTOQUIT_S expires. Smoke tests read it back to verify the render output.
+static void screenshot_ppm(const char *path) {
+    int w = screen_w, h = screen_h;
+    unsigned char *px = malloc((size_t)w * h * 4);
+    rhi_read_pixels(0, 0, w, h, px);
+    FILE *f = fopen(path, "wb");
+    if (!f) { LOG_ERROR("main", "screenshot: cannot write %s", path); free(px); return; }
+    fprintf(f, "P6\n%d %d\n255\n", w, h);
+    for (int y = h - 1; y >= 0; --y) for (int x = 0; x < w; ++x) fwrite(px + (y*(size_t)w + x)*4, 1, 3, f);   // GL rows are bottom-up
+    fclose(f); free(px);
+    LOG_INFO("main", "screenshot saved: %s (%dx%d)", path, w, h);
 }
 
 static void debug_keys(void) {
@@ -137,7 +152,7 @@ int main(int argc, char **argv) {
         // ---- 3d
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness; RF.sun = norm3(vec3(0.45f, 0.75f, 0.35f)); RF.daylight = 1.f;
         RF.sky = lerp3(vec3(0.60f, 0.74f, 0.88f), vec3(0.36f, 0.30f, 0.24f), cam.mapness);
-        rhi_frame_begin(screen_w, screen_h, RF.sky.x, RF.sky.y, RF.sky.z);
+        hdr_begin(screen_w, screen_h, RF.sky.x, RF.sky.y, RF.sky.z);   // 3D passes render into the HDR target
         prof_begin(p_gfx);
         float planes[6][4]; cam_frustum(planes);
         prof_begin(p_terrain); if (U.pass_terrain) terrain_draw(planes); prof_end(p_terrain);
@@ -152,8 +167,11 @@ int main(int argc, char **argv) {
         if (!U.in_menu) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
-            prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels);
         }
+        hdr_resolve(screen_w, screen_h);   // tonemap to the backbuffer; labels/panels draw on top
+        { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
+          if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot); shot_done = 1; } }
+        if (!U.in_menu) { prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels); }
         prof_end(p_gfx);
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");

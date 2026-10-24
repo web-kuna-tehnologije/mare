@@ -5,7 +5,7 @@ Each step lands fully working on all platforms before the next starts.
 
 1. [x] **RHI** — API-agnostic renderer abstraction (`gfx/rhi.h`), GL3 backend (`gfx/rhi_gl.c`),
        chosen at compile time in `mare.c`. Prepares for Vulkan / DX12 backends.
-2. [ ] **HDR rendering** — render the 3D scene into an RGBA16F offscreen target, tonemap to the
+2. [x] **HDR rendering** — render the 3D scene into an RGBA16F offscreen target, tonemap to the
        backbuffer (adds render-target support to the RHI).
 3. [ ] **Linear / sRGB pipeline** — all lighting math in linear space, sRGB conversion at the
        tonemap stage; author colours converted once on input.
@@ -23,6 +23,20 @@ Each step lands fully working on all platforms before the next starts.
 10. [ ] **Profiling hooks** — CPU (exists: `prof_*` in core/diag), GPU timer queries per pass,
         VRAM (buffer/texture allocation tracking in the RHI), process RAM; all surfaced in the
         dashboard and metrics CSV.
+
+## Step 2: HDR rendering (done)
+
+* RHI gains offscreen render targets: `rhi_target_t` (colour + optional depth texture),
+  `rhi_target_make/free/begin`, `rhi_backbuffer`, `rhi_read_pixels`.
+* `gfx/hdr.c`: the 3D passes (terrain, meshes, sea, debug draw, icons) render into an RGBA16F
+  target bound by `hdr_begin`; `hdr_resolve` tonemaps to the backbuffer with a fullscreen
+  triangle; microui labels/panels draw on top in backbuffer space. The target follows window
+  resizes. `hdr_exposure` is a plain multiplier (default 1).
+* Tonemap is deliberately conservative for this step: identity below 1.0, hue-preserving
+  normalisation above, so the game looks unchanged until the linear/sRGB and lighting steps
+  start emitting real HDR values.
+* `MARE_SCREENSHOT=path.ppm` (with `MARE_AUTOQUIT_S`) captures the tonemapped backbuffer via
+  `rhi_read_pixels` for smoke tests.
 
 ## Step 1: RHI (done)
 

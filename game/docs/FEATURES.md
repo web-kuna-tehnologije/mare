@@ -72,6 +72,8 @@ Status as of the current codebase. Each entry names the module that owns it.
   streamed instance buffers, format-enum textures. GL3 backend (`rhi_gl.c`) is the only game
   file calling GL; the backend include in `mare.c` is the switch point for Vulkan/DX12 later.
   Modernisation roadmap: docs/DESIGN_RENDERER.md.
+- HDR: 3D passes render into an RGBA16F target, tonemapped to the backbuffer (`hdr.c`, exposure
+  control); UI composites on top. `MARE_SCREENSHOT` captures the backbuffer for smoke tests.
 - Heightmap terrain: 374 chunks, 5 LOD grids with skirts, frustum culling, biome/desert/tundra
   colouring, parchment map style with territories and coast outlines, fog.
 - Animated sea from the heightmap (depth colour, foam, distance-faded waves, graticule in map view).

@@ -20,10 +20,47 @@ int rhi_check_errors(const char *where) {
 }
 
 void rhi_frame_begin(int w, int h, float r, float g, float b) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, w, h);
     glDepthMask(GL_TRUE);   // a pipeline with depth_write 0 may be the last bound: clear needs the mask on
     glClearColor(r, g, b, 1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
+}
+
+// ---------------------------------------------------------------------------
+// render targets
+
+rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_depth) {
+    rhi_target_t t = { .w = w, .h = h };
+    t.color = rhi_texture_make(w, h, color_fmt, RHI_FILTER_LINEAR, 0);
+    if (with_depth) t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, 0);
+    glGenFramebuffers(1, &t.fbo); glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.color.id, 0);
+    if (with_depth) glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, t.depth.id, 0);
+    GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (st != GL_FRAMEBUFFER_COMPLETE) LOG_FATAL("rhi", "render target %dx%d fmt %d incomplete: 0x%04x", w, h, color_fmt, (unsigned)st);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return t;
+}
+void rhi_target_free(rhi_target_t *t) {
+    if (t->fbo) glDeleteFramebuffers(1, &t->fbo);
+    if (t->color.id) glDeleteTextures(1, &t->color.id);
+    if (t->depth.id) glDeleteTextures(1, &t->depth.id);
+    memset(t, 0, sizeof *t);
+}
+void rhi_target_begin(const rhi_target_t *t, float r, float g, float b) {
+    glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+    glViewport(0, 0, t->w, t->h);
+    glDepthMask(GL_TRUE);
+    glClearColor(r, g, b, 1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
+}
+void rhi_backbuffer(int w, int h) {
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, w, h);
+}
+void rhi_read_pixels(int x, int y, int w, int h, unsigned char *rgba) {
+    glReadPixels(x, y, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
 }
 
 // ---------------------------------------------------------------------------

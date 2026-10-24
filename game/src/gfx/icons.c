@@ -67,5 +67,5 @@ void icons_draw(void) {
 }
 
 // umbrella
-void terrain_init(void); void sea_init(void); void meshes_init(void);
-void render_init(void) { rhi_init(); terrain_init(); sea_init(); meshes_init(); icons_init(); }
+void terrain_init(void); void sea_init(void); void meshes_init(void); void hdr_init(void);
+void render_init(void) { rhi_init(); terrain_init(); sea_init(); meshes_init(); icons_init(); hdr_init(); }

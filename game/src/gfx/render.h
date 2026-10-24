@@ -24,6 +24,11 @@ extern int window_w, window_h;      // window size in screen coordinates (differ
 void render_init(void);             // build programs, LOD grids, textures, procedural meshes (after world_init)
 void render_territory_upload(void); // push the territory map to the GPU when territory_dirty == 2
 
+// HDR (hdr.c): 3D passes render into an RGBA16F target between hdr_begin and hdr_resolve
+void hdr_begin(int w, int h, float r, float g, float b);   // bind + clear the HDR target (recreated on resize)
+void hdr_resolve(int w, int h);                            // tonemap to the backbuffer; UI draws after this
+extern float hdr_exposure;                                 // tonemap multiplier (1 = neutral)
+
 // passes
 void terrain_draw(float planes[6][4]);   // frustum planes from cam_frustum(); chunks pick a LOD by distance
 void sea_draw(void);

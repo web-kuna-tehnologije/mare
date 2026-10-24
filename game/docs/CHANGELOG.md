@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.3 — HDR rendering (renderer modernisation step 2)
+The 3D scene renders into an RGBA16F offscreen target and is tonemapped to the backbuffer
+(`gfx/hdr.c`); UI draws on top. RHI gains render targets (`rhi_target_*`), backbuffer binding
+and pixel readback. The tonemap is identity below 1.0 with a hue-preserving rolloff above, so
+visuals are unchanged until later steps emit real HDR values. `hdr_exposure` multiplier;
+`MARE_SCREENSHOT` env var captures the backbuffer to a PPM for smoke tests.
+
+
 ## 0.7.2 — RHI: API-agnostic renderer abstraction (design: docs/DESIGN_RENDERER.md)
 First step of the renderer modernisation. All game rendering now goes through an API-agnostic
 RHI (`gfx/rhi.h`): pipelines with baked depth/blend state, geometry objects with streamed

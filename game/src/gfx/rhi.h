@@ -44,6 +44,9 @@ typedef struct rhi_pipeline_desc_t {
     rhi_blend_t blend;
 } rhi_pipeline_desc_t;
 
+// offscreen render target: one colour attachment + optional depth
+typedef struct rhi_target_t { unsigned fbo; rhi_texture_t color, depth; int w, h; } rhi_target_t;
+
 // geometry: vertex buffer (+ optional u32 index buffer, + optional streamed instance buffer)
 typedef struct rhi_geometry_t {
     unsigned vao, vbo, ebo, ibo;         // backend-private
@@ -55,8 +58,13 @@ void        rhi_init(void);                            // after the window/conte
 const char *rhi_info(void);                            // "<renderer> | <api version>" for logs
 int         rhi_check_errors(const char *where);       // logs pending backend errors, returns count
 
-// frame
-void rhi_frame_begin(int w, int h, float r, float g, float b);   // viewport + clear color/depth, depth LEQUAL
+// frame & render targets
+void rhi_frame_begin(int w, int h, float r, float g, float b);   // backbuffer: viewport + clear color/depth, depth LEQUAL
+rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_depth);  // fatal if incomplete
+void rhi_target_free(rhi_target_t *t);                           // for resize (recreate after)
+void rhi_target_begin(const rhi_target_t *t, float r, float g, float b);  // bind + viewport + clear color/depth
+void rhi_backbuffer(int w, int h);                               // bind the window backbuffer, no clear
+void rhi_read_pixels(int x, int y, int w, int h, unsigned char *rgba);    // from the bound target (screenshots, smoke tests)
 
 // pipelines & uniforms (setters require the pipeline to be bound)
 rhi_pipeline_t rhi_pipeline_make(const rhi_pipeline_desc_t *d);  // fatal on compile/link failure
