@@ -33,9 +33,9 @@ static const char *meshes_vs =
     "}\n";
 static const char *meshes_fs =
     "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm;\n"
-    "uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness;\n"
+    "uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform sampler2D u_grain;\n"
     "out vec4 fragColor;\n"
-    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_FOG
+    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_NMAP GLSL_FOG
     "void main(){\n"
     "  vec3 n = normalize(v_nrm);\n"
     "  vec3 albedo = srgb_to_linear(v_col);\n"
@@ -44,7 +44,12 @@ static const char *meshes_fs =
     // backface culling, so flip the flat normal towards the viewer instead of letting whole
     // faces fall into the ambient-only floor.
     "  if (dot(n, vdir) < 0.0) n = -n;\n"
-    "  float dist = distance(v_wpos, u_campos);\n"
+    // triplanar surface grain, fading with distance so far meshes keep their clean silhouette;
+    // rougher materials (wood, cloth, stone) get more relief than painted ones
+    "  float dist0 = distance(v_wpos, u_campos);\n"
+    "  float grain = v_rm.x * 0.42 * (1.0 - smoothstep(30.0, 120.0, dist0));\n"
+    "  if (grain > 0.01) n = nmap_triplanar(u_grain, v_wpos * 1.6, n, 1.0, grain);\n"
+    "  float dist = dist0;\n"
     "  vec3 c = sun_shade(albedo, n, vdir, v_wpos, v_rm.x, v_rm.y, dist);\n"
     "  c = mix(c, srgb_to_linear(vec3(1.0,0.95,0.6)) * 1.6, v_sel * 0.35);\n"   // selection tint
     "  c = fog_apply(c, dist, u_mapness, srgb_to_linear(u_sky));\n"
@@ -178,7 +183,7 @@ static void build_buildings(void) {
 }
 
 void meshes_init(void) {
-    static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", GLSL_LIGHT_UNIFORMS, 0 };
     static const char *depth_uniforms[] = { "u_vp", "u_time", 0 };
     meshes_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = meshes_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     depth_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = depth_vs, .fs = depth_fs, .layout = &mesh_layout, .uniforms = depth_uniforms, .depth_test = 1, .depth_write = 1 });
@@ -188,6 +193,7 @@ void meshes_init(void) {
 
 void meshes_bind(void) {
     rhi_pipeline_bind(&meshes_prg);
+    rhi_set_i1(UNI(meshes_prg,"u_grain"), 2); rhi_texture_bind(2, detail_grain());
     rhi_set_mat4(UNI(meshes_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_f1(UNI(meshes_prg,"u_time"), RF.time);
     rhi_set_f3(UNI(meshes_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);

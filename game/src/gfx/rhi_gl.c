@@ -32,8 +32,8 @@ void rhi_frame_begin(int w, int h, float r, float g, float b) {
 
 rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_depth) {
     rhi_target_t t = { .w = w, .h = h };
-    t.color = rhi_texture_make(w, h, color_fmt, RHI_FILTER_LINEAR, 0);
-    if (with_depth) t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, 0);
+    t.color = rhi_texture_make(w, h, color_fmt, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+    if (with_depth) t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
     glGenFramebuffers(1, &t.fbo); glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, t.color.id, 0);
     if (with_depth) glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, t.depth.id, 0);
@@ -44,7 +44,7 @@ rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_dept
 }
 rhi_target_t rhi_target_depth_make(int w, int h) {
     rhi_target_t t = { .w = w, .h = h };
-    t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, 0);
+    t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
     glGenFramebuffers(1, &t.fbo); glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, t.depth.id, 0);
     glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE);               // depth only: no colour attachment
@@ -108,6 +108,9 @@ rhi_pipeline_t rhi_pipeline_make(const rhi_pipeline_desc_t *d) {
 }
 
 static unsigned rhi_bound_vao;   // avoid redundant binds in per-chunk loops
+static rhi_stats_t rhi_stats;
+void rhi_frame_stats_reset(void) { memset(&rhi_stats, 0, sizeof rhi_stats); }
+rhi_stats_t rhi_frame_stats(void) { return rhi_stats; }
 
 void rhi_pipeline_bind(const rhi_pipeline_t *p) {
     glUseProgram(p->id);
@@ -146,15 +149,16 @@ static void gl_format(rhi_format_t fmt, GLint *internal, GLenum *format, GLenum 
     }
 }
 
-rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, const void *data) {
+rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data) {
     rhi_texture_t t = { .w = w, .h = h, .fmt = fmt };
     GLint internal; GLenum format, type; gl_format(fmt, &internal, &format, &type);
+    GLint wr = wrap == RHI_WRAP_REPEAT ? GL_REPEAT : GL_CLAMP_TO_EDGE;
     glGenTextures(1, &t.id); glBindTexture(GL_TEXTURE_2D, t.id);
     glTexImage2D(GL_TEXTURE_2D, 0, internal, w, h, 0, format, type, data);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter == RHI_FILTER_LINEAR ? GL_LINEAR : GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter == RHI_FILTER_LINEAR ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wr);
     return t;
 }
 void rhi_texture_update(rhi_texture_t *t, const void *data) {
@@ -203,10 +207,13 @@ void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n) {
     glBindBuffer(GL_ARRAY_BUFFER, g->ibo);
     if (n > g->inst_capacity) { g->inst_capacity = n * 2; glBufferData(GL_ARRAY_BUFFER, (size_t)g->inst_capacity * g->inst_stride, 0, GL_STREAM_DRAW); }
     glBufferSubData(GL_ARRAY_BUFFER, 0, (size_t)n * g->inst_stride, data);
+    rhi_stats.upload_bytes += (size_t)n * g->inst_stride;
 }
 
 void rhi_draw(rhi_geometry_t *g, int ninstances) {
     if (g->vao != rhi_bound_vao) { glBindVertexArray(g->vao); rhi_bound_vao = g->vao; }
+    rhi_stats.draws++; rhi_stats.instances += ninstances ? ninstances : 1;
+    rhi_stats.tris += (g->nindices ? g->nindices : g->nverts) / 3 * (ninstances ? ninstances : 1);
     if (g->nindices) {
         if (ninstances) glDrawElementsInstanced(GL_TRIANGLES, g->nindices, GL_UNSIGNED_INT, 0, ninstances);
         else glDrawElements(GL_TRIANGLES, g->nindices, GL_UNSIGNED_INT, 0);

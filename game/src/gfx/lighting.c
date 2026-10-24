@@ -127,7 +127,7 @@ static mat44 cascade_matrix(vec3 center, float radius) {
     vec3 eye = sub3(center, scale3(sun, back));
     vec3 up = fabsf(sun.y) > 0.98f ? vec3(0,0,1) : vec3(0,1,0);
     mat44 view = lookat44(eye, center, up);
-    mat44 proj = mat44_ortho_off_center_rh(-radius, radius, -radius, radius, 0.05f, back + radius + SHADOW_DEPTH_MARGIN);
+    mat44 proj = cam_proj_to_gl(mat44_ortho_off_center_rh(-radius, radius, -radius, radius, 0.05f, back + radius + SHADOW_DEPTH_MARGIN));
     return mat44_mul_mat44(view, proj);
 }
 

@@ -16,6 +16,7 @@ typedef struct scene_hints_t {   // filled by the UI each frame before drawing
     int show_lanes, show_wind, show_regions;
 } scene_hints_t;
 extern scene_hints_t SH;
+extern int scene_culled_ports, scene_culled_ships;   // frustum-culled this frame (dashboard stats)
 
 void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading);   // draw position (docked fleets are moored around the harbour)
 void scene_reset_caches(void);    // call after game_new/game_load: town instance caches depend on world heights and port state

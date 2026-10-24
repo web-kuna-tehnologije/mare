@@ -9,6 +9,7 @@
 #include "../sim/game.h"
 #include "../gfx/camera.h"
 #include "../gfx/render.h"
+#include "../gfx/scene.h"
 
 static int tab = 0;                      // 0 perf, 1 metrics, 2 log, 3 system
 static int log_min_level = LOG_DEBUG, log_autoscroll = 1, log_module_filter = 0;
@@ -121,6 +122,9 @@ static void tab_system(void) {
     mu_label(ui_ctx, va("build %s %s | save v%u", __DATE__, __TIME__, (unsigned)SAVE_VERSION));
     mu_label(ui_ctx, va("HDR RGBA16F, linear/sRGB, PBR | exposure %.2f | shadows %s (%d casters)",
                         hdr_exposure, shadow_enabled ? "on" : "off", shadow_casters_drawn));
+    { rhi_stats_t st = rhi_frame_stats();
+      mu_label(ui_ctx, va("draws %d | instances %d | tris %dk | upload %zu KB | culled %d ports %d fleets",
+                          st.draws, st.instances, st.tris / 1000, st.upload_bytes / 1024, scene_culled_ports, scene_culled_ships)); }
     ROW(3, 150, 150, -1, 22);
     if (ui_btn(shadow_enabled ? "Shadows: on" : "Shadows: off")) shadow_enabled = !shadow_enabled;
     if (ui_btn("Exposure -")) hdr_exposure = maxf(0.25f, hdr_exposure - 0.1f);

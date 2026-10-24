@@ -26,6 +26,12 @@ extern int window_w, window_h;      // window size in screen coordinates (differ
 void render_init(void);             // build programs, LOD grids, textures, procedural meshes (after world_init)
 void render_territory_upload(void); // push the territory map to the GPU when territory_dirty == 2
 
+// procedural detail normal maps (detail.c): tileable wave normals for the sea, surface grain
+// applied triplanar to the meshes (they carry no UVs)
+void detail_init(void);
+const rhi_texture_t *detail_waves(void);
+const rhi_texture_t *detail_grain(void);
+
 // HDR (hdr.c): 3D passes render into an RGBA16F target between hdr_begin and hdr_resolve
 void hdr_begin(int w, int h, float r, float g, float b);   // bind + clear the HDR target (recreated on resize)
 void hdr_resolve(int w, int h);                            // tonemap to the backbuffer; UI draws after this

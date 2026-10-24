@@ -28,6 +28,8 @@ void cam_clamp(void);                             // keep targets inside the wor
 void cam_update(float dt);                        // smooth towards targets and rebuild matrices (every frame)
 int  cam_pick_ground(float mx, float my, float h, float *wx, float *wz);   // framebuffer pixel -> plane y=h; 0 if the ray misses
 int  cam_project(float wx, float wy, float wz, float *sx, float *sy);      // world -> framebuffer pixels; 0 if behind the camera
+mat44 cam_proj_to_gl(mat44 proj);                 // remap clip z from [0,1] (vecmath's D3D style) to GL's [-1,1]: uses the whole depth buffer instead of half, visibly reducing z-fighting
 void cam_frustum(float planes[6][4]);             // clip planes (ax+by+cz+d >= 0 inside) for culling
+int  cam_sphere_visible(const float planes[6][4], float x, float y, float z, float r);   // shared culling helper (terrain uses its AABB variant)
 
 #endif

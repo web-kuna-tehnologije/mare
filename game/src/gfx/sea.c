@@ -20,10 +20,10 @@ static const char *sea_vs =
 
 static const char *sea_fs =
     "in vec3 v_wpos;\n"
-    "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_k; uniform float u_time;\n"
+    "uniform sampler2D u_hm; uniform sampler2D u_waves; uniform vec4 u_geo; uniform float u_k; uniform float u_time;\n"
     "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_daylight;\n"
     "out vec4 fragColor;\n"
-    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_FOG
+    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_NMAP GLSL_FOG
     "void main(){\n"
     "  float lon = v_wpos.x / u_k, lat = -v_wpos.z / u_k;\n"
     "  vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));\n"
@@ -33,13 +33,18 @@ static const char *sea_fs =
     "  float dist = distance(v_wpos, u_campos);\n"
     "  float detail = 1.0 - smoothstep(60.0, 400.0, dist);\n"
     "  vec2 p = v_wpos.xz; float t = u_time;\n"
-    "  float w1 = sin(p.x*3.1 + p.y*1.3 + t*1.7), w2 = sin(p.x*-1.7 + p.y*2.9 + t*1.3), w3 = sin(p.x*6.3 + p.y*-4.1 + t*2.9);\n"
-    "  vec3 n = normalize(vec3((w1*0.6+w3*0.2)*0.09*detail, 1.0, (w2*0.6+w3*0.2)*0.09*detail));\n"
+    // two scrolling samples of the tileable wave normal map, large swell + fine chop; the
+    // tangent frame of a flat y-up plane is trivial (T=+x, B=+z)
+    "  vec3 n1 = nmap_decode(texture(u_waves, p * 0.055 + vec2(t*0.009, t*0.013)).rgb);\n"
+    "  vec3 n2 = nmap_decode(texture(u_waves, p * 0.21 - vec2(t*0.022, t*0.016)).rgb);\n"
+    "  vec2 slope = (n1.xy / max(n1.z, 0.3) + n2.xy / max(n2.z, 0.3) * 0.6) * 0.42 * detail;\n"
+    "  vec3 n = normalize(vec3(slope.x, 1.0, slope.y));\n"
+    "  float w1 = sin(p.x*3.1 + p.y*1.3 + t*1.7);\n"   // keeps the foam band animated
     "  vec3 deep = vec3(0.02,0.10,0.24), shallow = vec3(0.12,0.46,0.52);\n"
     "  vec3 c = srgb_to_linear(mix(shallow, deep, 1.0 - exp(-depth*0.9)));\n"
     "  vec3 vdir = normalize(u_campos - v_wpos);\n"
     // water: smooth dielectric, so the sun glint comes from the GGX lobe and the sky from Fresnel
-    "  float rough = mix(0.30, 0.10, detail);\n"
+    "  float rough = mix(0.30, 0.13, detail);\n"
     "  vec3 col3d = sun_shade(c, n, vdir, v_wpos, rough, 0.0, dist);\n"
     "  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, vdir), 0.0), 5.0);\n"
     "  col3d += srgb_to_linear(u_sky) * u_ambsky * fres * 1.4;\n"
@@ -53,14 +58,18 @@ static const char *sea_fs =
     "  mapc = mix(mapc, vec3(0.35,0.42,0.52), max(grid, grid5) * 0.8);\n"
     "  mapc = mix(mapc, vec3(0.30,0.40,0.52), (1.0 - smoothstep(0.0, 0.6, depth))*0.55);\n"
     "  vec3 col = fog_apply(mix(col3d, srgb_to_linear(mapc) * u_daylight, u_mapness), dist, u_mapness, srgb_to_linear(u_sky));\n"
-    "  float alpha = mix(1.0, 0.75, (1.0 - smoothstep(0.0, 0.5, depth)) * (1.0-u_mapness));\n"
+    // transparency: the terrain below has already been drawn, so shallow water reveals the
+    // seabed and deep water goes opaque; the map view stays solid parchment
+    "  float alpha = mix(0.42, 1.0, smoothstep(0.0, 1.6, depth));\n"
+    "  alpha = max(alpha, foam * 0.85);\n"           // surf stays visible over the seabed
+    "  alpha = mix(alpha, 1.0, u_mapness);\n"
     "  fragColor = vec4(col, alpha);\n"
     "}\n";
 
 void sea_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_hm", "u_geo", "u_k", "u_time", "u_campos", "u_mapness", "u_sky", "u_daylight", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_hm", "u_waves", "u_geo", "u_k", "u_time", "u_campos", "u_mapness", "u_sky", "u_daylight", GLSL_LIGHT_UNIFORMS, 0 };
     sea_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = sea_vs, .fs = sea_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_ALPHA });
     int nx = 88, ny = 65;
     float *v = malloc((nx+1)*(ny+1)*2*sizeof(float));
@@ -76,6 +85,7 @@ void sea_draw(void) {
     rhi_pipeline_bind(&sea_prg);
     rhi_set_mat4(UNI(sea_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_i1(UNI(sea_prg,"u_hm"), 0); rhi_texture_bind(0, terrain_heightmap_texture());
+    rhi_set_i1(UNI(sea_prg,"u_waves"), 1); rhi_texture_bind(1, detail_waves());
     rhi_set_f4(UNI(sea_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(UNI(sea_prg,"u_k"), WORLD_K);
     rhi_set_f1(UNI(sea_prg,"u_time"), RF.time);

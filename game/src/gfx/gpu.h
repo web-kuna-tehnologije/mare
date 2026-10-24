@@ -13,7 +13,9 @@
 
 #define UNI(p, name) rhi_uniform(&(p), name)
 
-// mesh builder
+// mesh builder. Double-sided surfaces (mb_quad2) emit a single quad: the mesh shader flips the
+// flat normal towards the viewer, so a mirrored copy would only add exactly coplanar triangles
+// that z-fight their twins.
 #define MB_FLOATS 12                 // floats per vertex: pos3 nrm3 col3 mat1 rough1 metal1
 typedef struct mb_t { float *v; int n, cap; float rough, metal; } mb_t;
 // PBR surface presets (roughness, metalness) for the procedural meshes
@@ -32,10 +34,13 @@ void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz
 // instancing. inst_t = position + heading (radians, 0 = +x), uniform scale + rgb, misc:
 //   sway (roll animation 0/1), sel (highlight 0..1), bob (vertical bobbing 0/1), xlen (>0: stretch along x, for walls/piers)
 typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway, sel, bob, xlen; } inst_t;
-typedef struct mesh_t { rhi_geometry_t geo; } mesh_t;
+typedef struct mesh_t { rhi_geometry_t geo; int ninst; } mesh_t;
 extern const rhi_layout_t mesh_layout;                // builder vertices + inst_t instances (meshes.c program)
 mesh_t mesh_upload(mb_t *m);                          // uploads and frees the builder
-void   mesh_draw(mesh_t *m, const inst_t *inst, int n);   // requires meshes_bind() first (render.h)
+// Instances are streamed to the GPU once per frame (mesh_set_instances, during scene_build_*)
+// and then drawn by every pass that needs them (shadow cascades, main) without re-uploading.
+void   mesh_set_instances(mesh_t *m, const inst_t *inst, int n);
+void   mesh_draw(mesh_t *m);                          // draws the instances set this frame; needs a bound pipeline
 
 // growable CPU-side instance list
 typedef struct instlist_t { inst_t *v; int n, cap; } instlist_t;

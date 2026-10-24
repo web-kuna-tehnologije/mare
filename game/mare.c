@@ -27,6 +27,7 @@
 // game rendering goes through it; swap this include to target another graphics API.
 #include "src/gfx/rhi_gl.c"
 #include "src/gfx/gpu.c"
+#include "src/gfx/detail.c"
 #include "src/gfx/terrain.c"
 #include "src/gfx/sea.c"
 #include "src/gfx/meshes.c"
@@ -122,6 +123,7 @@ int main(int argc, char **argv) {
     int p_frame = prof_id("frame.cpu"), p_input = prof_id("input"), p_sim = prof_id("sim"), p_gfx = prof_id("gfx"), p_terrain = prof_id("gfx.terrain"), p_ports = prof_id("gfx.ports"),
         p_ships = prof_id("gfx.ships"), p_shadow = prof_id("gfx.shadow"), p_sea = prof_id("gfx.sea"), p_over = prof_id("gfx.overlays"), p_icons = prof_id("gfx.icons"), p_labels = prof_id("ui.labels"), p_panels = prof_id("ui.panels");
     int m_steps = metric_id("frame.sim_steps"), m_dt = metric_id("frame.dt_ms"), m_fps = metric_id("frame.fps");
+    int m_draws = metric_id("gfx.draw_calls"), m_inst = metric_id("gfx.instances"), m_upload = metric_id("gfx.upload_kb");
     double last = time_ss(); float sim_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
     while (app_swap(.color = 0xFF000000)) {
@@ -155,6 +157,7 @@ int main(int argc, char **argv) {
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness; RF.sun = norm3(vec3(0.45f, 0.75f, 0.35f)); RF.daylight = 1.f;
         RF.sky = lerp3(vec3(0.60f, 0.74f, 0.88f), vec3(0.36f, 0.30f, 0.24f), cam.mapness);
         render_light_update();
+        rhi_frame_stats_reset();
         prof_begin(p_gfx);
         // scene geometry is built once, then submitted to the shadow cascades and the main passes
         if (!U.in_menu) {
@@ -185,6 +188,7 @@ int main(int argc, char **argv) {
             shot_done = 1; } }
         if (!U.in_menu) { prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels); }
         prof_end(p_gfx);
+        { rhi_stats_t st = rhi_frame_stats(); metric_set(m_draws, st.draws); metric_set(m_inst, st.instances); metric_set(m_upload, st.upload_bytes / 1024.0); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");
 

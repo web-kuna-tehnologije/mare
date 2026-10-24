@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.5 — normal maps, frustum culling, instancing (renderer steps 7-9)
+- Procedural tileable normal maps baked at init (`detail.c`): scrolling two-scale ocean waves on
+  the sea (replacing the hand-written sines) and triplanar plank/plaster grain on the meshes,
+  which carry no UVs.
+- The sea is transparent in the shallows (seabed visible, foam stays opaque, map view solid) and
+  piers and flagpoles now cast shadows, so docks shade the water under them.
+- Per-object frustum culling for ports and fleets with a shadow-caster margin; culled counts in
+  the dashboard.
+- Instance buffers upload once per frame and are reused by the shadow cascades and main pass;
+  the RHI reports draws/instances/triangles/streamed bytes per frame (dashboard + metrics CSV).
+- Depth-precision fixes against triangle flicker: projections remapped from D3D-style clip z to
+  GL's full [-1,1] range (camera and cascades), and double-sided quads no longer emit an exactly
+  coplanar mirrored twin (shading is two-sided since 0.7.4).
+
+
 ## 0.7.4 — linear/sRGB, PBR, directional lighting, shadows (renderer steps 3-6)
 - **Linear/sRGB pipeline:** author colours are converted to linear on input, all lighting runs in
   linear space, and `hdr.c` encodes to sRGB once after a Reinhard luminance shoulder.

@@ -20,6 +20,7 @@ typedef enum rhi_format_t {               // texture formats (grows with HDR/sRG
     RHI_FMT_RGBA16F, RHI_FMT_DEPTH24,
 } rhi_format_t;
 typedef enum rhi_filter_t { RHI_FILTER_NEAREST, RHI_FILTER_LINEAR } rhi_filter_t;
+typedef enum rhi_wrap_t   { RHI_WRAP_CLAMP, RHI_WRAP_REPEAT } rhi_wrap_t;
 typedef enum rhi_blend_t  { RHI_BLEND_NONE, RHI_BLEND_ALPHA } rhi_blend_t;
 typedef enum rhi_usage_t  { RHI_USAGE_STATIC, RHI_USAGE_STREAM } rhi_usage_t;
 
@@ -83,7 +84,7 @@ void rhi_set_mat4(int loc, const float *m16);
 void rhi_set_f3v(int loc, const float *v, int n);
 
 // textures
-rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, const void *data);
+rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data);
 void rhi_texture_update(rhi_texture_t *t, const void *data);     // full-size upload
 void rhi_texture_bind(int slot, const rhi_texture_t *t);
 
@@ -92,5 +93,11 @@ rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, 
                                  const unsigned *indices, int nindices);  // indices optional
 void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n); // stream per-frame instance data (grows the buffer)
 void rhi_draw(rhi_geometry_t *g, int ninstances);    // indexed if indices exist; ninstances 0 = plain draw
+
+// per-frame statistics (draw calls, instances drawn, triangles, bytes streamed to the GPU);
+// reset by rhi_frame_stats_reset at the top of the frame, shown in the dev dashboard
+typedef struct rhi_stats_t { int draws, instances, tris; size_t upload_bytes; } rhi_stats_t;
+void rhi_frame_stats_reset(void);
+rhi_stats_t rhi_frame_stats(void);
 
 #endif

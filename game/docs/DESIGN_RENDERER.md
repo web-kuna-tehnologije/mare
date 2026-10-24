@@ -15,14 +15,45 @@ Each step lands fully working on all platforms before the next starts.
        the per-shader ad-hoc diffuse+specular), day cycle ready.
 6. [x] **Shadows** — cascaded shadow map from the sun (adds depth-target rendering and sampler
        comparison to the RHI).
-7. [ ] **Normal maps** — tangent-space normals for sea detail and building/ship surfaces.
-8. [ ] **Frustum culling** — generalise the terrain chunk culling into a shared helper used by
+7. [x] **Normal maps** — tangent-space normals for sea detail and building/ship surfaces.
+8. [x] **Frustum culling** — generalise the terrain chunk culling into a shared helper used by
        ships, towns and future meshes (bounding spheres on instance lists).
-9. [ ] **Instancing** — formalised in the RHI (done as part of step 1: `rhi_geometry_instances`),
+9. [x] **Instancing** — formalised in the RHI (done as part of step 1: `rhi_geometry_instances`),
        extend with per-mesh instance buffers reused across passes and draw-call stats.
 10. [ ] **Profiling hooks** — CPU (exists: `prof_*` in core/diag), GPU timer queries per pass,
         VRAM (buffer/texture allocation tracking in the RHI), process RAM; all surfaced in the
         dashboard and metrics CSV.
+
+## Steps 7-9: normal maps, frustum culling, instancing (done)
+
+**Normal maps (`detail.c`).** The game ships no texture assets, so two tileable normal maps are
+baked at init from wrapping value noise: a ridged-fbm ocean map and a plank/plaster grain map.
+The sea samples the wave map at two scrolling scales (swell + chop) and blends the slopes,
+replacing the old three hand-written sines; this is also where the sun sparkle now comes from.
+The meshes carry no UVs, so the grain map is applied by UDN-style triplanar projection
+(`nmap_triplanar` in glsl.h), scaled by material roughness and faded out past ~120 units so
+distant silhouettes stay clean.
+
+**Water opacity.** The sea is now genuinely transparent in the shallows: alpha ramps 0.42 → 1.0
+over the first ~1.6 units of depth, so the already-rendered seabed shows through, while foam
+stays opaque and the map view stays solid parchment.
+
+**Frustum culling (`cam_sphere_visible`).** Ports and fleets are culled per object at build
+time against the camera frustum, with an 8-unit margin so casters just outside the view still
+drop their shadows into it (the sun is high; shadows are short). Culled counts are in the
+dashboard. Terrain keeps its per-chunk AABB cull.
+
+**Instancing.** Instance buffers are streamed once per frame (`mesh_set_instances`, during
+`scene_build_*`) and drawn by all four passes (three shadow cascades + main) without
+re-uploading — previously every pass re-uploaded every list. The RHI counts draw calls,
+instances, triangles and streamed bytes per frame (`rhi_frame_stats`), surfaced in the
+dashboard and the metrics CSV (`gfx.draw_calls/instances/upload_kb`).
+
+**Depth precision.** vecmath's projections are D3D-style (clip z in [0,1]), which on GL only
+ever used window depth [0.5, 1] — half the buffer. `cam_proj_to_gl()` remaps clip z to [-1,1]
+for both the camera and the shadow cascades, doubling effective depth precision against
+z-fighting. `mb_quad2` also no longer emits a mirrored twin quad: shading has been two-sided
+since step 4, so the copy only added exactly coplanar triangles fighting their originals.
 
 ## Steps 3-6: linear/sRGB, PBR, directional lighting, shadows (done)
 

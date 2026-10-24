@@ -19,6 +19,11 @@
 #define PORT_DETAIL_DIST 260.f
 
 scene_hints_t SH;
+int scene_culled_ports, scene_culled_ships;   // skipped by frustum culling this frame (dashboard)
+static float frustum[6][4];
+// Margin so that objects just outside the view still cast their shadows into it: the sun sits
+// high, so a shadow reaches at most ~0.8x the caster's height, plus the object's own radius.
+#define CULL_MARGIN 8.f
 
 static float cam_distance(float x, float z) { float d = dist2d(x, z, cam.pos.x, cam.pos.z); return sqrtf(d*d + cam.pos.y*cam.pos.y); }
 
@@ -38,12 +43,15 @@ void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading) {
 static instlist_t ship_inst[SHIP_COUNT][2];
 
 void scene_build_ships(void) {
+    cam_frustum(frustum);
+    scene_culled_ships = 0;
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]);
     for (int i = 0; i < G.nfleets; ++i) {
         const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
         float x, z, heading; scene_fleet_pos(f, &x, &z, &heading);
         float d = cam_distance(x, z);
         if (d > LOD1_DIST || cam.mapness > 0.6f) continue;   // icons handle it
+        if (!cam_sphere_visible(frustum, x, 0, z, f->nships * 1.5f + CULL_MARGIN)) { scene_culled_ships++; continue; }
         unsigned col = f->role == ROLE_PIRATE ? rgb(20,20,20) : nations_info[f->nation].color;
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;
         int lod = d < LOD0_DIST ? 0 : 1, nshow = lod == 1 ? mini(f->nships, 4) : f->nships;
@@ -57,12 +65,13 @@ void scene_build_ships(void) {
         if (sel || hov) dd_circle(vec3(x, 0.1f, z), vec3(0,1,0), (sel ? 1.6f : 1.4f) * 1.35f + f->nships * 0.2f, .color = rgb_linear(sel ? rgb(255, 240, 120) : rgb(220, 220, 220)));
         if (G.day - f->last_fire < 0.12f && f->at_port < 0) dd_sphere(vec3(x + hz*0.6f, 0.4f, z - hx*0.6f), .r = 0.35f, .color = rgb_linear(rgb(255, 200, 80)));
     }
+    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) mesh_set_instances(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n);
 }
 
-// submit the instances built this frame with whatever pipeline is bound (main or shadow pass)
+// submit the instances uploaded by scene_build_* with whatever pipeline is bound (main or shadow)
 int scene_submit_ships(void) {
     int n = 0;
-    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) { mesh_draw(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n); n += ship_inst[t][l].n; }
+    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) { mesh_draw(&ship_mesh[t][l]); n += ship_mesh[t][l].ninst; }
     return n;
 }
 
@@ -126,28 +135,32 @@ static void town_instances(const port_t *p, int index) {
 }
 
 void scene_build_ports(void) {
+    cam_frustum(frustum);
+    scene_culled_ports = 0;
     instlist_clear(&houses); instlist_clear(&roofs); instlist_clear(&towers); instlist_clear(&walls); instlist_clear(&piers); instlist_clear(&flagpoles);
     for (int i = 0; i < G.nports; ++i) {
         const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
         if (cam_distance(p->x, p->z) > PORT_DETAIL_DIST || cam.mapness > 0.5f) continue;
+        if (!cam_sphere_visible(frustum, p->x, 0, p->z, 2.5f + 0.5f * p->size + CULL_MARGIN)) { scene_culled_ports++; continue; }
         town_instances(p, i);
         int sel = i == SH.sel_port, hov = i == SH.hover_port;
         if (sel || hov) dd_circle(vec3(p->x, 0.1f, p->z), vec3(0,1,0), 2.2f + 0.4f*p->size, .color = rgb_linear(sel ? rgb(255,240,120) : rgb(220,220,220)));
         if (p->blockaded_by) dd_circle(vec3(p->x, 0.15f, p->z), vec3(0,1,0), 3.5f, .color = rgb_linear(rgb(255,60,40)), .dashed = 1);
     }
+    mesh_set_instances(&mesh_pier, piers.v, piers.n); mesh_set_instances(&mesh_house, houses.v, houses.n);
+    mesh_set_instances(&mesh_roof, roofs.v, roofs.n); mesh_set_instances(&mesh_tower, towers.v, towers.n);
+    mesh_set_instances(&mesh_wall, walls.v, walls.n); mesh_set_instances(&mesh_flagpole, flagpoles.v, flagpoles.n);
 }
 
 int scene_submit_ports(void) {
-    mesh_draw(&mesh_pier, piers.v, piers.n); mesh_draw(&mesh_house, houses.v, houses.n); mesh_draw(&mesh_roof, roofs.v, roofs.n);
-    mesh_draw(&mesh_tower, towers.v, towers.n); mesh_draw(&mesh_wall, walls.v, walls.n); mesh_draw(&mesh_flagpole, flagpoles.v, flagpoles.n);
+    mesh_draw(&mesh_pier); mesh_draw(&mesh_house); mesh_draw(&mesh_roof);
+    mesh_draw(&mesh_tower); mesh_draw(&mesh_wall); mesh_draw(&mesh_flagpole);
     return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n;
 }
 
-// shadow casters: towns and ships (piers and flagpoles are too thin to matter)
+// shadow casters: every town piece and every ship (piers shadow the water, flagpoles the squares)
 int scene_submit_shadow(void) {
-    mesh_draw(&mesh_house, houses.v, houses.n); mesh_draw(&mesh_roof, roofs.v, roofs.n);
-    mesh_draw(&mesh_tower, towers.v, towers.n); mesh_draw(&mesh_wall, walls.v, walls.n);
-    int n = houses.n + roofs.n + towers.n + walls.n;
+    int n = scene_submit_ports();
     return n + scene_submit_ships();
 }
 

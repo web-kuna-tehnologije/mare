@@ -19,6 +19,15 @@ void cam_clamp(void) {
     cam.want_dist = clampf(cam.want_dist, CAM_MIN_DIST, CAM_MAX_DIST);
 }
 
+// vecmath's perspective/ortho put clip z in [0,1] (D3D convention); GL maps NDC [-1,1] to the
+// depth buffer, so that convention only ever used window depth [0.5,1]. Post-multiplying with
+// z' = 2z - w restores the full range (row-vector convention, so R is applied last).
+mat44 cam_proj_to_gl(mat44 proj) {
+    mat44 r = mat44_identity();
+    r.z.z = 2; r.w.z = -1;
+    return mat44_mul_mat44(proj, r);
+}
+
 void cam_update(float dt) {
     cam_clamp();
     float k = 1 - expf(-dt * 10.f);
@@ -36,7 +45,7 @@ void cam_update(float dt) {
     cam.znear = maxf(0.3f, cam.dist * 0.02f); cam.zfar = cam.dist * 5.f + 1200.f;
     float aspect = screen_w / maxf(1.f, (float)screen_h);
     cam.view = lookat44(cam.pos, target, vec3(0,1,0));
-    cam.proj = perspective44(45.f * 0.0174533f, aspect, cam.znear, cam.zfar);
+    cam.proj = cam_proj_to_gl(perspective44(45.f * 0.0174533f, aspect, cam.znear, cam.zfar));
     cam.vp = mat44_mul_mat44(cam.view, cam.proj);
     float det; if (!mat44_inverse(&cam.inv_vp, &det, cam.vp)) cam.inv_vp = mat44_identity();
 }
@@ -56,6 +65,10 @@ int cam_project(float wx, float wy, float wz, float *sx, float *sy) {
     vec4 c = mat44_mul_vec4(mat44_transpose(cam.vp), vec4(wx, wy, wz, 1));
     if (c.w <= 0.001f) return 0;
     *sx = (c.x / c.w * 0.5f + 0.5f) * screen_w; *sy = (1 - (c.y / c.w * 0.5f + 0.5f)) * screen_h;
+    return 1;
+}
+int cam_sphere_visible(const float planes[6][4], float x, float y, float z, float r) {
+    for (int i = 0; i < 6; ++i) if (planes[i][0]*x + planes[i][1]*y + planes[i][2]*z + planes[i][3] < -r) return 0;
     return 1;
 }
 void cam_frustum(float planes[6][4]) {

@@ -79,7 +79,11 @@ Status as of the current codebase. Each entry names the module that owns it.
 - PBR materials (GGX/Smith/Schlick + hemispheric ambient) with per-vertex roughness/metalness;
   one directional sun shared by every pass (`lighting.c`).
 - Cascaded shadow maps: 3 cascades in one depth atlas, ground-footprint fit, texel snapping,
-  normal-offset bias, 3x3 PCF. Ships, towns, forts and piers cast; terrain receives.
+  normal-offset bias, 3x3 PCF. Ships, towns, forts, piers and flagpoles cast; terrain receives.
+- Procedural normal maps (`detail.c`): two-scale scrolling ocean waves; triplanar surface grain
+  on the UV-less meshes. Shallow water is transparent down to the seabed.
+- Per-object frustum culling (ports, fleets) with shadow-caster margin; per-frame instance
+  buffers shared by all passes; RHI draw/instance/upload statistics in the dashboard.
 - Heightmap terrain: 374 chunks, 5 LOD grids with skirts, frustum culling, biome/desert/tundra
   colouring, parchment map style with territories and coast outlines, fog.
 - Animated sea from the heightmap (depth colour, foam, distance-faded waves, graticule in map view).

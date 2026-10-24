@@ -26,7 +26,7 @@ void mb_quad(mb_t *m, const float a[3], const float b[3], const float c[3], cons
     mb_tri(m, a[0],a[1],a[2], c[0],c[1],c[2], d[0],d[1],d[2], r,g,b_,mat);
 }
 void mb_quad2(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat) {
-    mb_quad(m, a, b, c, d, r, g, b_, mat); mb_quad(m, d, c, b, a, r, g, b_, mat);
+    mb_quad(m, a, b, c, d, r, g, b_, mat);   // one quad: shading is two-sided, a mirrored copy would z-fight
 }
 void mb_box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat) {
     float p[8][3]; for (int i = 0; i < 8; ++i) { p[i][0] = cx + (i&1 ? hx : -hx); p[i][1] = cy + (i&2 ? hy : -hy); p[i][2] = cz + (i&4 ? hz : -hz); }
@@ -50,10 +50,12 @@ mesh_t mesh_upload(mb_t *m) {
     free(m->v); m->v = 0; m->n = m->cap = 0;
     return r;
 }
-void mesh_draw(mesh_t *m, const inst_t *inst, int n) {
-    if (n <= 0) return;
-    rhi_geometry_instances(&m->geo, inst, n);
-    rhi_draw(&m->geo, n);
+void mesh_set_instances(mesh_t *m, const inst_t *inst, int n) {
+    m->ninst = n;
+    if (n > 0) rhi_geometry_instances(&m->geo, inst, n);
+}
+void mesh_draw(mesh_t *m) {
+    if (m->ninst > 0) rhi_draw(&m->geo, m->ninst);
 }
 inst_t *instlist_push(instlist_t *l) {
     if (l->n >= l->cap) { l->cap = l->cap ? l->cap*2 : 256; l->v = realloc(l->v, l->cap*sizeof(inst_t)); }
