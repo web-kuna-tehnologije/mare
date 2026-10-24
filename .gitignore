@@ -24,4 +24,7 @@
 /tools/restore_sources.py
 __pycache__/
 .vs/
+.vscode/
 .DS_Store
+/tmp/
+/assets/
