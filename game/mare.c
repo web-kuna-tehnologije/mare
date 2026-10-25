@@ -23,6 +23,8 @@
 #include "src/sim/settlement.c"
 #include "src/sim/region.c"
 #include "src/sim/game.c"
+// asset runtime (CPU side, no GL: also exercised by the headless asset_test)
+#include "src/assets/gltf.c"
 // presentation (v3: GL, microui, input). rhi_gl.c is the active RHI backend (rhi.h): all
 // game rendering goes through it; swap this include to target another graphics API.
 #include "src/gfx/rhi_gl.c"
