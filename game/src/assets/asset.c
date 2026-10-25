@@ -416,7 +416,21 @@ int asset_build(asset_t *a) {
         }
     }
     for (int i = 0; i < d->nlods && ok; ++i) {
-        ok = asset_build_lod(a, i, &models[model_of[i]], pivot, scale, tex, &ntex);
+        // Pivot per LOD from its own bounds: LOD nodes are often scattered around the source
+        // scene (separate objects), so recentring each one is what puts every LOD in the same
+        // place at the instance position. The scale stays derived from LOD 0.
+        float lpivot[3] = { pivot[0], pivot[1], pivot[2] }, lbmin[3], lbmax[3];
+        if (i > 0 && asset_lod_bounds(&models[model_of[i]], &d->lod[i], d->forward, lbmin, lbmax)) {
+            if (d->pivot == PIVOT_CENTER) for (int c = 0; c < 3; ++c) lpivot[c] = (lbmin[c] + lbmax[c]) * 0.5f;
+            if (d->pivot == PIVOT_BASE_CENTER) { lpivot[0] = (lbmin[0] + lbmax[0]) * 0.5f; lpivot[1] = lbmin[1]; lpivot[2] = (lbmin[2] + lbmax[2]) * 0.5f; }
+            if (d->pivot == PIVOT_KEEP) { lpivot[0] = lpivot[1] = lpivot[2] = 0; }
+            for (int c = 0; c < 3; ++c) {   // import validation: a LOD much larger/smaller than LOD 0 is a wrong node pick
+                float e0 = (a->bmax[c] - a->bmin[c]) / (scale > 1e-9f ? scale : 1), el = lbmax[c] - lbmin[c];
+                if (e0 > 0.01f && (el > e0 * 1.5f || el < e0 * 0.5f))
+                    LOG_WARN("asset", "'%s' LOD %d extent %.2f differs from LOD 0 (%.2f) on axis %d: wrong node?", d->name, i, el, e0, c);
+            }
+        }
+        ok = asset_build_lod(a, i, &models[model_of[i]], lpivot, scale, tex, &ntex);
         if (ok) a->nlods++;
     }
     for (int i = 0; i < ntex; ++i) if (tex[i].px) {

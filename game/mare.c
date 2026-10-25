@@ -112,6 +112,8 @@ int main(int argc, char **argv) {
     { float hz = monitor_hz(0); if (hz < 10 && !flag("--fps")) { vsync(0); LOG_WARN("main", "monitor reports %.0f Hz: frame limiter disabled (use --fps=N to cap)", hz); } else LOG_INFO("main", "monitor %.0f Hz", hz); }
     LOG_INFO("gpu", "%s", rhi_info());
     world_init(seed); nav_init();
+    if (getenv("MARE_LOD_BIAS")) { asset_lod_bias = clampf((float)atof(getenv("MARE_LOD_BIAS")), 0.01f, 16.f);   // pin the LOD knob for screenshot runs
+        LOG_INFO("asset", "LOD bias pinned to %.2f (MARE_LOD_BIAS)", asset_lod_bias); }
     { char manifest[512]; snprintf(manifest, sizeof manifest, "%s/manifest.json", asset_root());   // authored assets (GLB): register and preload
       if (asset_registry_load(manifest)) { double t0 = diag_now(); for (int i = 0; i < asset_count(); ++i) asset_load(asset_at(i));
         LOG_INFO("asset", "%d assets preloaded in %.0f ms (%.1f MB)", asset_count(), (diag_now()-t0)*1000, asset_cpu_bytes() / (1024.0*1024.0)); } }

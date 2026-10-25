@@ -315,7 +315,7 @@ static void test_asset_build(void) {
     char json[2048];
     snprintf(json, sizeof json,
         "{\"asset\":{\"version\":\"2.0\"},\"scene\":0,\"scenes\":[{\"nodes\":[0,1]}],"
-        "\"nodes\":[{\"name\":\"Thing_LOD0\",\"mesh\":0},{\"name\":\"Thing_LOD1\",\"mesh\":1}],"
+        "\"nodes\":[{\"name\":\"Thing_LOD0\",\"mesh\":0},{\"name\":\"Thing_LOD1\",\"mesh\":1,\"translation\":[5,3,2]}],"
         "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0,\"TEXCOORD_0\":2},\"material\":0}]},"
                     "{\"primitives\":[{\"attributes\":{\"POSITION\":1},\"material\":1}]}],"
         "\"materials\":[{\"name\":\"Walls\",\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":0},\"baseColorFactor\":[1,1,0.5,1]}},"
@@ -362,8 +362,11 @@ static void test_asset_build(void) {
     CHECK(L1->nverts == 3 && FEQ(L1->dist, 50), "LOD1");
     CHECK(FEQ(L1->verts[6], 1) && FEQ(L1->verts[7], 0) && FEQ(L1->verts[9], 1) && FEQ(L1->verts[10], 0.6f) && FEQ(L1->verts[11], 0.2f),
           "roof rule: col %f %f slot %f rough %f metal %f", L1->verts[6], L1->verts[7], L1->verts[9], L1->verts[10], L1->verts[11]);
-    // the same normalisation applies to LOD1: its vertex (1,0,0) -> (0,0,-1) -> (-0.5, 0, 0.5)... y = (0-1)*0.5+0.5 = 0
-    CHECK(FEQ(L1->verts[12+0], -0.5f) && FEQ(L1->verts[12+1], 0.f) && FEQ(L1->verts[12+2], 0.5f), "LOD1 v1 = (%f,%f,%f)", L1->verts[12], L1->verts[13], L1->verts[14]);
+    // LOD1's node carries a translation (LOD objects are often scattered around the source
+    // scene); the pivot is therefore computed per LOD, which cancels it. Local triangle
+    // (0,0,0)(1,0,0)(0,1,0), forward +z -> x'=z, z'=-x: bounds x' 0, y 0..1, z' -1..0,
+    // base_center pivot (0, ymin, -0.5). v1 (1,0,0) -> (0,0,-1) -> (0, 0.5, -0.25).
+    CHECK(FEQ(L1->verts[12+0], 0.f) && FEQ(L1->verts[12+1], 0.5f) && FEQ(L1->verts[12+2], -0.25f), "LOD1 v1 = (%f,%f,%f)", L1->verts[12], L1->verts[13], L1->verts[14]);
     CHECK(asset_pick_lod(a, 0) == 0 && asset_pick_lod(a, 49.9f) == 0 && asset_pick_lod(a, 50) == 1 && asset_pick_lod(a, 1e9f) == 1, "lod pick");
     asset_lod_bias = 2.f;    // detail held twice as far: the switch moves from 50 to 100
     CHECK(asset_pick_lod(a, 99) == 0 && asset_pick_lod(a, 100) == 1, "lod bias 2");

@@ -64,8 +64,16 @@ as a standard pipeline under `game/src/assets/` (CPU-side, GL-free, covered by t
   holds the global `asset_lod_bias` knob: authored switch distances are multiplied by it, so
   0.5 drops to coarse LODs at half distance (performance) and 2 holds detail twice as far
   (quality). `MARE_DASHTAB=assets` opens the dashboard on any tab for screenshot runs.
-  Verified in game: camera at 9 / 55 / 110 / 200 world units picks LOD 0 / 1 / 2 / 3
-  (`docs/screenshots/asset-church-lod*.png`).
+  `MARE_LOD_BIAS` pins the knob for screenshot runs.
+- **Fix — pivot per LOD:** LOD objects are usually scattered around the source scene (the Meshy
+  export places Church_LOD0..3 at different translations), so normalising every LOD with LOD 0's
+  pivot put LOD 1-3 metres away from the instance position and sank them into the terrain. Each
+  LOD now derives its own pivot from its own bounds (scale still comes from LOD 0, and a warning
+  fires when a LOD's extent differs from LOD 0 by more than 1.5x - a wrong node pick). The
+  headless test gives the LOD 1 node a translation to pin this down.
+  Verified in game: camera at 9 / 55 / 110 world units picks LOD 0 / 1 / 2, and
+  `MARE_LOD_BIAS=0.04` shows the 3k-triangle LOD 3 in place next to the 128k LOD 0
+  (`docs/screenshots/asset-church-lod0.png` vs `-lod3.png`, same town, same camera).
 - **Fix:** `lighting.c` used `near`/`far` as local names, which `windef.h` defines as empty
   macros; the game did not compile with the current Windows SDK until they were renamed.
 
