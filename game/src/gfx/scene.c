@@ -153,11 +153,17 @@ static void asset_push(asset_t *a, inst_t in, float camdist) {
     if (!L->gpu) {
         asset_mesh[ai][lod] = mesh_upload_indexed(L->verts, L->nverts, L->idx, L->nidx);
         L->gpu = 1;
+        a->gpu_bytes += (size_t)L->nverts * MB_FLOATS * sizeof(float) + (size_t)L->nidx * sizeof(unsigned);
         asset_free_cpu(a, lod);
         LOG_DEBUG("gfx", "asset '%s' LOD %d uploaded (%d tris)", a->desc.name, lod, L->nidx / 3);
     }
     *instlist_push(&asset_inst[ai][lod]) = in;
     asset_used[ai] = 1;
+}
+
+// dashboard accessors: instances per asset and LOD this frame
+int scene_asset_lod_count(int asset_index, int lod) {
+    return asset_index >= 0 && asset_index < ASSET_MAX && lod >= 0 && lod < ASSET_MAX_LODS ? asset_inst[asset_index][lod].n : 0;
 }
 static void assets_clear(void) {
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) { for (int l = 0; l < ASSET_MAX_LODS; ++l) instlist_clear(&asset_inst[i][l]); asset_used[i] = 0; }

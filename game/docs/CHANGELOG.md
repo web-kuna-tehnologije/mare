@@ -53,7 +53,19 @@ as a standard pipeline under `game/src/assets/` (CPU-side, GL-free, covered by t
   `game/assets/README.md` explains the layout.
 - **Tests:** `asset_test` (CTest) builds GLB/glTF files in memory and on disk and checks baked
   transforms, generated normals, texture baking (2×1 BMP via data URI), scale / pivot / forward
-  maths, material rules, LOD picking, registry, cache accounting and 20+ rejection paths.
+  maths, material rules, LOD picking (including the bias), registry, cache accounting and 20+
+  rejection paths.
+- **Cache & LOD runtime (steps 6-7):** the church ships as four GLB files
+  (`game/assets/church/Church_LOD0..3.glb`, one LOD node each selected by name); the texture
+  bake cache is keyed by (model, image) so multi-file assets cannot cross-talk, and is bounded.
+  Per-asset GPU bytes are tracked next to the CPU bytes; `asset.gpu_mb` and `asset.instances`
+  land in the metrics CSV. A new dashboard **Assets** tab lists every registered asset (state,
+  GPU MB, load ms, per-LOD triangles / effective switch distance / live instance counts) and
+  holds the global `asset_lod_bias` knob: authored switch distances are multiplied by it, so
+  0.5 drops to coarse LODs at half distance (performance) and 2 holds detail twice as far
+  (quality). `MARE_DASHTAB=assets` opens the dashboard on any tab for screenshot runs.
+  Verified in game: camera at 9 / 55 / 110 / 200 world units picks LOD 0 / 1 / 2 / 3
+  (`docs/screenshots/asset-church-lod*.png`).
 - **Fix:** `lighting.c` used `near`/`far` as local names, which `windef.h` defines as empty
   macros; the game did not compile with the current Windows SDK until they were renamed.
 

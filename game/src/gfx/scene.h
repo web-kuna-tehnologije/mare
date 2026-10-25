@@ -18,6 +18,7 @@ typedef struct scene_hints_t {   // filled by the UI each frame before drawing
 extern scene_hints_t SH;
 extern int scene_culled_ports, scene_culled_ships;   // frustum-culled this frame (dashboard stats)
 extern int scene_asset_instances;                    // authored-asset (GLB) instances drawn this frame
+int scene_asset_lod_count(int asset_index, int lod); // of those, instances of one asset at one LOD (dashboard)
 
 void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading);   // draw position (docked fleets are moored around the harbour)
 void scene_reset_caches(void);    // also resets the fleet movement animation

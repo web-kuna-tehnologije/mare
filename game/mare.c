@@ -135,6 +135,7 @@ int main(int argc, char **argv) {
     int m_gpu_terrain = metric_id("gpu.terrain_ms"), m_gpu_shadow = metric_id("gpu.shadow_ms"), m_gpu_meshes = metric_id("gpu.meshes_ms"),
         m_gpu_sea = metric_id("gpu.sea_ms"), m_gpu_resolve = metric_id("gpu.resolve_ms"), m_gpu_total = metric_id("gpu.total_ms");
     int m_vram = metric_id("mem.vram_mb"), m_ram = metric_id("mem.ram_mb");
+    int m_asset_gpu = metric_id("asset.gpu_mb"), m_asset_inst = metric_id("asset.instances");
     double last = time_ss(); float sim_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
     while (app_swap(.color = 0xFF000000)) {
@@ -220,7 +221,8 @@ int main(int argc, char **argv) {
           metric_set(m_gpu_sea, gw); metric_set(m_gpu_resolve, gr); metric_set(m_gpu_total, gt+gs+gm+gw+gr);
           rhi_mem_t mem = rhi_memory();
           metric_set(m_vram, (mem.textures + mem.targets + mem.buffers) / (1024.0*1024.0));
-          metric_set(m_ram, diag_process_ram() / (1024.0*1024.0)); }
+          metric_set(m_ram, diag_process_ram() / (1024.0*1024.0));
+          metric_set(m_asset_gpu, asset_gpu_bytes() / (1024.0*1024.0)); metric_set(m_asset_inst, scene_asset_instances); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");
 

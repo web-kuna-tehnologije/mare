@@ -237,17 +237,21 @@ asset_t *asset_get(const char *name) {
     return a->state == ASSET_LOADED ? a : NULL;
 }
 size_t asset_cpu_bytes(void) { size_t s = 0; for (int i = 0; i < nassets; ++i) s += assets[i].cpu_bytes; return s; }
+size_t asset_gpu_bytes(void) { size_t s = 0; for (int i = 0; i < nassets; ++i) s += assets[i].gpu_bytes; return s; }
+
+float asset_lod_bias = 1.f;   // global LOD quality knob, see asset.h
 
 int asset_pick_lod(const asset_t *a, float d) {
     int l = 0;
-    while (l + 1 < a->nlods && d >= a->lod[l + 1].dist) ++l;
+    while (l + 1 < a->nlods && d >= a->lod[l + 1].dist * asset_lod_bias) ++l;
     return l;
 }
 
 // --------------------------------------------------------------------------
 // build: glTF -> normalised builder vertices per LOD
 
-typedef struct texbake_t { unsigned char *px; int w, h; int image; } texbake_t;   // decoded base colour texture
+#define ASSET_MAX_TEXBAKE 16
+typedef struct texbake_t { unsigned char *px; int w, h; const gltf_model_t *model; int image; } texbake_t;   // decoded base colour texture, keyed by (model, image)
 
 static void asset_forward_rotate(int fwd, float *v) {   // model forward axis -> +x (heading 0)
     float x = v[0], z = v[2];
@@ -278,9 +282,10 @@ static int asset_lod_bounds(const gltf_model_t *m, const asset_lod_desc_t *l, in
 }
 
 static texbake_t *asset_tex_decode(gltf_model_t *m, int image, texbake_t *cache, int *ncache) {
-    for (int i = 0; i < *ncache; ++i) if (cache[i].image == image) return cache[i].px ? &cache[i] : NULL;
+    for (int i = 0; i < *ncache; ++i) if (cache[i].model == m && cache[i].image == image) return cache[i].px ? &cache[i] : NULL;
+    if (*ncache >= ASSET_MAX_TEXBAKE) { LOG_WARN("asset", "texture cache full (%d): image %d not baked", ASSET_MAX_TEXBAKE, image); return NULL; }
     texbake_t *t = &cache[(*ncache)++];
-    memset(t, 0, sizeof *t); t->image = image;
+    memset(t, 0, sizeof *t); t->model = m; t->image = image;
 #ifndef ASSET_NO_STB
     if (image >= 0 && image < m->nimages && m->images[image].data) {
         double t0 = diag_now();
@@ -388,7 +393,7 @@ int asset_build(asset_t *a) {
         if (!gltf_load_file(path, &models[nmodels])) { snprintf(a->error, sizeof a->error, "%s: %s", d->lod[i].file, models[nmodels].error); ok = 0; break; }
         model_of[i] = nmodels++;
     }
-    texbake_t tex[8]; int ntex = 0;
+    texbake_t tex[ASSET_MAX_TEXBAKE]; int ntex = 0;
     float pivot[3] = {0,0,0}, scale = d->scale_factor;
     if (ok) {
         // normalisation is derived from LOD 0 so every LOD lands in the same place at the same size
@@ -456,9 +461,9 @@ void asset_free_cpu(asset_t *a, int lod) {
     a->cpu_bytes -= (size_t)L->nverts * ASSET_VERT_FLOATS * sizeof(float) + (size_t)L->nidx * sizeof(unsigned);
     free(L->verts); free(L->idx); L->verts = NULL; L->idx = NULL;
 }
-void asset_unload(asset_t *a) {
+void asset_unload(asset_t *a) {   // CPU data only: GPU meshes are owned and reclaimed by the renderer
     for (int i = 0; i < ASSET_MAX_LODS; ++i) { free(a->lod[i].verts); free(a->lod[i].idx); }
     memset(a->lod, 0, sizeof a->lod);
-    a->nlods = 0; a->cpu_bytes = 0; a->state = ASSET_UNLOADED; a->error[0] = 0;
+    a->nlods = 0; a->cpu_bytes = 0; a->gpu_bytes = 0; a->state = ASSET_UNLOADED; a->error[0] = 0;
 }
 void asset_unload_all(void) { for (int i = 0; i < nassets; ++i) asset_unload(&assets[i]); }

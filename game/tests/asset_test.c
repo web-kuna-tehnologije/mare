@@ -365,6 +365,11 @@ static void test_asset_build(void) {
     // the same normalisation applies to LOD1: its vertex (1,0,0) -> (0,0,-1) -> (-0.5, 0, 0.5)... y = (0-1)*0.5+0.5 = 0
     CHECK(FEQ(L1->verts[12+0], -0.5f) && FEQ(L1->verts[12+1], 0.f) && FEQ(L1->verts[12+2], 0.5f), "LOD1 v1 = (%f,%f,%f)", L1->verts[12], L1->verts[13], L1->verts[14]);
     CHECK(asset_pick_lod(a, 0) == 0 && asset_pick_lod(a, 49.9f) == 0 && asset_pick_lod(a, 50) == 1 && asset_pick_lod(a, 1e9f) == 1, "lod pick");
+    asset_lod_bias = 2.f;    // detail held twice as far: the switch moves from 50 to 100
+    CHECK(asset_pick_lod(a, 99) == 0 && asset_pick_lod(a, 100) == 1, "lod bias 2");
+    asset_lod_bias = 0.5f;   // coarser sooner: the switch moves to 25
+    CHECK(asset_pick_lod(a, 24) == 0 && asset_pick_lod(a, 25) == 1, "lod bias 0.5");
+    asset_lod_bias = 1.f;
     CHECK(a->radius > 1.5f && a->coll_half[1] > 0.49f && a->coll_radius > 0.9f, "radius/collision derivation");
     CHECK(a->cpu_bytes == 6 * 12 * sizeof(float) + 6 * sizeof(unsigned) && asset_cpu_bytes() == a->cpu_bytes, "cpu bytes %zu", a->cpu_bytes);
     asset_free_cpu(a, 0);

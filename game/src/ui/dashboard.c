@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <math.h>
 #include "ui.h"
 #include "../core/util.h"
@@ -10,8 +11,9 @@
 #include "../gfx/camera.h"
 #include "../gfx/render.h"
 #include "../gfx/scene.h"
+#include "../assets/asset.h"
 
-static int tab = 0;                      // 0 perf, 1 metrics, 2 log, 3 system
+static int tab = 0;                      // 0 perf, 1 metrics, 2 assets, 3 log, 4 system
 static int log_min_level = LOG_DEBUG, log_autoscroll = 1, log_module_filter = 0;
 static const char *module_filters[] = { "all", "sim", "nav", "ai", "fleet", "combat", "gpu", "game", "chronicle", "world", "diag" };
 static float perf_scale_ms = 33.3f;
@@ -117,6 +119,42 @@ static void tab_metrics(void) {
     mu_label(ui_ctx, va("log records: %llu total | warn %d error %d fatal %d", diag_log_total(), diag_level_count(LOG_WARN), diag_level_count(LOG_ERROR), diag_level_count(LOG_FATAL)));
 }
 
+// task 6/7 of the asset runtime: the cache and the LOD selection, made visible
+static void tab_assets(void) {
+    double mb = 1024.0 * 1024.0;
+    ROW(1, -1, 18);
+    mu_label(ui_ctx, va("%d registered | CPU %.1f MB (freed after upload) | GPU %.1f MB | %d instances this frame",
+                        asset_count(), asset_cpu_bytes() / mb, asset_gpu_bytes() / mb, scene_asset_instances));
+    ROW(3, 150, 150, -1, 22);
+    if (ui_btn("LOD bias -")) asset_lod_bias = maxf(0.25f, asset_lod_bias * 0.8f);
+    if (ui_btn("LOD bias +")) asset_lod_bias = minf(4.0f, asset_lod_bias * 1.25f);
+    mu_label(ui_ctx, va("bias %.2f (authored switch distances x bias; <1 coarser sooner, >1 detail further)", asset_lod_bias));
+    ROW(6, 110, 70, 60, 70, 70, -1, 16);
+    mu_label(ui_ctx, "asset"); mu_label(ui_ctx, "type"); mu_label(ui_ctx, "state"); mu_label(ui_ctx, "GPU MB"); mu_label(ui_ctx, "load ms"); mu_label(ui_ctx, "LODs: tris @ dist (instances now)");
+    for (int i = 0; i < asset_count(); ++i) {
+        const asset_t *a = asset_at(i);
+        mu_push_id(ui_ctx, &i, sizeof i);
+        ROW(6, 110, 70, 60, 70, 70, -1, 16);
+        ui_label_col(a->desc.name, mu_color(220,220,230,255));
+        mu_label(ui_ctx, asset_type_name(a->desc.type));
+        ui_label_col(a->state == ASSET_LOADED ? "loaded" : a->state == ASSET_FAILED ? "FAILED" : "idle",
+                     a->state == ASSET_FAILED ? mu_color(255,110,90,255) : mu_color(160,220,160,255));
+        mu_label(ui_ctx, va("%.1f", a->gpu_bytes / mb));
+        mu_label(ui_ctx, va("%.0f", a->load_ms));
+        if (a->state == ASSET_LOADED) {
+            char line[256]; int o = 0;
+            for (int l = 0; l < a->nlods && o < (int)sizeof line - 32; ++l)
+                o += snprintf(line + o, sizeof line - o, "%s%dk@%.0f(%d)", l ? "  " : "", a->lod[l].nidx / 3000, a->lod[l].dist * asset_lod_bias, scene_asset_lod_count(i, l));
+            mu_label(ui_ctx, line);
+        } else mu_label(ui_ctx, a->state == ASSET_FAILED ? a->error : "-");
+        mu_pop_id(ui_ctx);
+    }
+    ROW(1, -1, 16);
+    ui_label_col(va("size: %s | bounds are normalised (scale fit + pivot) at load; LOD picked per instance by camera distance",
+                    asset_count() ? va("LOD0 %.2fx%.2fx%.2f", asset_at(0)->bmax[0]-asset_at(0)->bmin[0], asset_at(0)->bmax[1]-asset_at(0)->bmin[1], asset_at(0)->bmax[2]-asset_at(0)->bmin[2]) : "-"),
+                 mu_color(170,180,200,255));
+}
+
 static void tab_log(void) {
     ROW(5, 100, 110, 130, 110, -1, 20);
     if (ui_btn(va(">= %s", diag_level_name(log_min_level)))) log_min_level = (log_min_level + 1) % LOG_LEVELS;
@@ -169,13 +207,19 @@ static void tab_system(void) {
 
 void dashboard_panel(void) {
     if (!U.show_debug) return;
+    // MARE_DASHTAB=performance|metrics|assets|log|system opens the dashboard on that tab
+    // (screenshot runs can then capture any tab without input)
+    static int tab_env_read;
+    if (!tab_env_read) { tab_env_read = 1; const char *t = getenv("MARE_DASHTAB");
+        if (t) { static const char *names[5] = { "performance", "metrics", "assets", "log", "system" };
+                 for (int i = 0; i < 5; ++i) if (!strcmp(t, names[i])) tab = i; } }
     mu_Container *c = mu_get_container(ui_ctx, "Dev Dashboard"); if (c->rect.w == 0) c->rect = mu_rect(20, 50, 640, 460);
     if (!mu_begin_window_ex(ui_ctx, "Dev Dashboard", c->rect, MU_OPT_NOCLOSE)) return;
-    ROW(4, 120, 120, 120, -1, 22);
-    static const char *tabs[4] = { "Performance", "Metrics", "Log", "System" };
-    for (int i = 0; i < 4; ++i) { mu_push_id(ui_ctx, &i, sizeof i); if (ui_btn(tab == i ? va("[%s]", tabs[i]) : tabs[i])) tab = i; mu_pop_id(ui_ctx); }
+    ROW(5, 110, 90, 90, 70, -1, 22);
+    static const char *tabs[5] = { "Performance", "Metrics", "Assets", "Log", "System" };
+    for (int i = 0; i < 5; ++i) { mu_push_id(ui_ctx, &i, sizeof i); if (ui_btn(tab == i ? va("[%s]", tabs[i]) : tabs[i])) tab = i; mu_pop_id(ui_ctx); }
     int errs = diag_level_count(LOG_ERROR) + diag_level_count(LOG_FATAL), warns = diag_level_count(LOG_WARN);
     if (errs || warns) { ROW(1, -1, 16); ui_label_col(va("%d errors, %d warnings this run (see logs/mare_errors.log)", errs, warns), errs ? mu_color(255,110,90,255) : mu_color(255,200,90,255)); }
-    switch (tab) { case 0: tab_perf(); break; case 1: tab_metrics(); break; case 2: tab_log(); break; default: tab_system(); }
+    switch (tab) { case 0: tab_perf(); break; case 1: tab_metrics(); break; case 2: tab_assets(); break; case 3: tab_log(); break; default: tab_system(); }
     mu_end_window(ui_ctx);
 }

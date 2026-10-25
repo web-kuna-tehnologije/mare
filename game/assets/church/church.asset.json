@@ -1,12 +1,11 @@
 {
   "name": "church",
   "type": "building",
-  "file": "church.glb",
   "lods": [
-    { "node": "Church_LOD0", "dist": 0 },
-    { "node": "Church_LOD1", "dist": 35 },
-    { "node": "Church_LOD2", "dist": 80 },
-    { "node": "Church_LOD3", "dist": 150 }
+    { "file": "Church_LOD0.glb", "node": "Church_LOD0", "dist": 0 },
+    { "file": "Church_LOD1.glb", "node": "Church_LOD1", "dist": 35 },
+    { "file": "Church_LOD2.glb", "node": "Church_LOD2", "dist": 80 },
+    { "file": "Church_LOD3.glb", "node": "Church_LOD3", "dist": 150 }
   ],
   "scale": { "fit": "height", "size": 0.55 },
   "pivot": "base_center",

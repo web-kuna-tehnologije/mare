@@ -83,7 +83,8 @@ typedef struct asset_t {
     float scale;                          // final model->world factor
     float bmin[3], bmax[3], radius;       // normalised bounds (LOD 0) and bounding-sphere radius about the pivot
     float coll_radius, coll_half[3];      // collision shape, derived when the descriptor leaves them 0
-    size_t cpu_bytes;                     // vertex + index memory held
+    size_t cpu_bytes;                     // vertex + index memory held on the CPU
+    size_t gpu_bytes;                     // what the renderer uploaded (asset_lod_t.gpu set by scene.c)
     double load_ms;
     char  error[256];
 } asset_t;
@@ -99,11 +100,15 @@ int      asset_load(asset_t *a);                           // 1 ok; 0 with a->er
 void     asset_unload(asset_t *a);                         // frees CPU data, back to ASSET_UNLOADED
 void     asset_unload_all(void);
 void     asset_free_cpu(asset_t *a, int lod);              // renderer: drop the CPU copy after upload
-size_t   asset_cpu_bytes(void);                            // total held by the cache
+size_t   asset_cpu_bytes(void);                            // total held by the cache (CPU side)
+size_t   asset_gpu_bytes(void);                            // total uploaded by the renderer
 const char *asset_root(void);                              // resolved assets directory (MARE_ASSETS or game/assets up the tree)
 
-// LOD for a camera distance (world units): the last LOD whose dist <= d
-int      asset_pick_lod(const asset_t *a, float d);
+// LOD for a camera distance (world units): the last LOD whose dist * asset_lod_bias <= d.
+// The bias is a global quality knob (dashboard): 2 holds detailed LODs twice as far,
+// 0.5 drops to coarse LODs at half the authored distance.
+int          asset_pick_lod(const asset_t *a, float d);
+extern float asset_lod_bias;
 
 // building blocks, exposed for tests and tools
 int  asset_desc_parse(const char *json, size_t n, const char *dir, asset_desc_t *d, char *err, size_t errcap);
