@@ -45,6 +45,7 @@ static void panel_topbar(void) {
     if (ui_btn(G.speed == 0 ? ">" : "||")) G.speed = G.speed == 0 ? SIM_SPEED_DEFAULT : 0;
     static const float speeds[4] = SIM_SPEEDS;
     for (int i = 0; i < 4; ++i) { mu_push_id(ui_ctx, &i, sizeof i); if (ui_btn(G.speed == speeds[i] ? va("[%d]", i+1) : va("%d", i+1))) G.speed = speeds[i]; mu_pop_id(ui_ctx); }
+    if (U.city_view) { mu_layout_set_next(ui_ctx, mu_rect(282, 4, 66, 22), 0); ui_label_col("~city~", mu_color(170,210,255,255)); }   // clock crawls while walking the town
     mu_layout_set_next(ui_ctx, mu_rect(350, 4, 230, 22), 0); ui_label_col(va("Treasury: %s ducats", ui_money(me->treasury)), mu_color(255,220,120,255));
     double net = me->stat_income - me->stat_expense;
     mu_layout_set_next(ui_ctx, mu_rect(580, 4, 190, 22), 0); ui_label_col(va("Yesterday: %s%.0f", net >= 0 ? "+" : "", net), net >= 0 ? mu_color(150,240,150,255) : mu_color(240,140,140,255));

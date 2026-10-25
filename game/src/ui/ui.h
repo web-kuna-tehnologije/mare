@@ -17,6 +17,7 @@ typedef struct ui_state_t {
     int in_menu;                        // main menu (nation choice) is up
     char toast[160]; float toast_timer; // transient notification at the top of the screen
     float saved_dist;                   // zoom level to return to after map view (M key)
+    int city_view;                      // camera is in the city view over a town: the clock crawls (mare.c)
     int pass_terrain, pass_sea, pass_ports, pass_ships, pass_overlays, pass_icons, pass_labels, pass_panels; // dev: render pass toggles (1 = on)
 } ui_state_t;
 extern ui_state_t U;

@@ -17,8 +17,9 @@ typedef struct rts_cam_t {
 
 extern rts_cam_t cam;
 
-#define CAM_MIN_DIST   6.f
+#define CAM_MIN_DIST   2.5f    // close enough to walk a town square (city view)
 #define CAM_MAX_DIST   950.f
+#define CAM_CITY_DIST  16.f    // below this over a town: city view (mare.c slows the clock, hud.c says so)
 #define CAM_MAP_START  300.f   // map styling begins
 #define CAM_MAP_FULL   480.f   // fully map view
 

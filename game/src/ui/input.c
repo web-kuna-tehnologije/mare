@@ -26,21 +26,34 @@ void ui_select_port(int i) { U.sel_port = i; U.sel_fleet_id = 0; U.route_mode = 
 // ---------------------------------------------------------------------------
 // picking: nearest fleet/port marker in screen space; port name labels are clickable too
 
+// Pick radius grows with the object's size on screen: zoomed in, a town covers hundreds of
+// pixels and all of them should hover it, not just an 18 px dot at its centre. The world radii
+// match the selection circles scene.c draws.
+static float pick_radius_px(float wx, float wz, float world_r, float min_px) {
+    float ax, ay, bx, by;
+    if (!cam_project(wx, 0.2f, wz, &ax, &ay)) return min_px;
+    if (!cam_project(wx + cam.right.x * world_r, 0.2f + cam.right.y * world_r, wz + cam.right.z * world_r, &bx, &by)) return min_px;
+    return maxf(min_px, sqrtf(sqr(bx-ax) + sqr(by-ay)));
+}
+
 static void pick(float mx, float my) {
     U.hover_fleet_id = 0; U.hover_port = -1;
-    float best = 16*16; const fleet_t *bf = 0; float bfx = 0, bfy = 0;
+    float best = 1e18f; const fleet_t *bf = 0; float bfx = 0, bfy = 0;
     for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
         float x, z, h, sx, sy; scene_fleet_pos(f, &x, &z, &h);
         if (!cam_project(x, 0.2f, z, &sx, &sy)) continue;
+        float r = pick_radius_px(x, z, 1.4f * 1.35f + f->nships * 0.2f, 16);
         float d = sqr(sx-mx) + sqr(sy-my); if (is_player(f->nation)) d *= 0.6f;
-        if (d < best) { best = d; bf = f; bfx = sx; bfy = sy; } }
-    float bestp = 18*18; int bp = -1, label_hit = 0; float bpx = 0, bpy = 0;
+        if (d < sqr(r) && d < best) { best = d; bf = f; bfx = sx; bfy = sy; } }
+    float bestp = 1e18f; int bp = -1, label_hit = 0; float bpx = 0, bpy = 0;
     for (int i = 0; i < G.nports; ++i) { const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
         float sx, sy; if (!cam_project(p->x, 0.2f, p->z, &sx, &sy)) continue;
+        float rp = pick_radius_px(p->x, p->z, 2.2f + 0.4f * p->size, 18);
         float d = sqr(sx-mx) + sqr(sy-my);
+        if (d >= sqr(rp)) d = 1e18f;
         float ly = sy - 12 - (cam.mapness > 0.5f ? 2 + 2*p->size : 8) - 2, lw = ui_text_w(p->name) * 0.5f + 4;
         if (fabsf(mx - sx) < lw && fabsf(my - ly) < 9) { d = 0; label_hit = 1; }
-        if (d < bestp) { bestp = d; bp = i; bpx = sx; bpy = sy; } }
+        if (d < 1e17f && d < bestp) { bestp = d; bp = i; bpx = sx; bpy = sy; } }
     if (label_hit) { U.hover_port = bp; return; }
     if (bf && bp >= 0) { // both: closest wins, a fleet docked at that port wins
         if (bf->at_port == bp || sqr(bfx-mx)+sqr(bfy-my) <= sqr(bpx-mx)+sqr(bpy-my)) bp = -1; else bf = 0;
@@ -169,6 +182,13 @@ void input_frame(float dt, int ui_blocked) {
     if (KDOWN(GLFW_KEY_F9)) { if (game_load("mare_save.bin")) { ui_select_fleet(0); scene_reset_caches(); toast("Game loaded"); } else toast("No compatible saved game"); }
     if (key_down('h')) { int c = G.nations[G.player].capital; if (c >= 0) cam_goto(G.ports[c].x, G.ports[c].z); }
     if (key_down('f') && U.sel_fleet_id) cam.follow_fleet_id = cam.follow_fleet_id == U.sel_fleet_id ? 0 : U.sel_fleet_id;
+    if (key_down('b')) {   // jump the camera to the freshest sea battle (spectating is free: the clock keeps running)
+        const fleet_t *hot = 0;
+        for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i];
+            if (f->alive && f->at_port < 0 && f->last_fire > G.day - 1.f && (!hot || f->last_fire > hot->last_fire)) hot = f; }
+        if (hot) { cam_goto(hot->x, hot->z); cam.want_dist = 24; toast("Battle: %s", hot->name); }
+        else toast("No battle under way");
+    }
     if (key_down('m')) { if (cam.want_dist < CAM_MAP_FULL) { U.saved_dist = cam.want_dist; cam.want_dist = 700; } else cam.want_dist = U.saved_dist > 0 ? U.saved_dist : 60; }
     if (KDOWN(GLFW_KEY_TAB)) {   // cycle the player's fleets
         int start = -1; for (int i = 0; i < G.nfleets; ++i) if (G.fleets[i].alive && G.fleets[i].id == U.sel_fleet_id) start = i;

@@ -163,8 +163,22 @@ int main(int argc, char **argv) {
         } else {
             prof_begin(p_input); input_frame(dt, ui_blocked); debug_keys(); cam_update(dt); prof_end(p_input);
             prof_begin(p_sim);
+            // City view (3rd zoom): with the camera down on a town square the clock crawls to
+            // 0.05 days/s so the place can be looked at without the world racing on. A battle
+            // being watched from the same height must NOT slow down - spectating is free - so
+            // any fresh broadside near the camera target overrides the throttle.
+            U.city_view = 0;
+            float eff_speed = G.speed;
+            if (cam.dist < CAM_CITY_DIST) {
+                int over_town = 0, battle_near = 0;
+                for (int i = 0; i < G.nports; ++i) { const port_t *p = &G.ports[i];
+                    if (!port_is_gone(p) && p->size >= 1 && dist2d(p->x, p->z, cam.tx, cam.tz) < 8.f) { over_town = 1; break; } }
+                for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i];
+                    if (f->alive && f->at_port < 0 && f->last_fire > G.day - 0.3f && dist2d(f->x, f->z, cam.tx, cam.tz) < 30.f) { battle_near = 1; break; } }
+                if (over_town && !battle_near) { U.city_view = 1; eff_speed = minf(G.speed, 0.05f); }
+            }
             int steps = 0;
-            if (G.speed > 0) { sim_acc += dt * G.speed; while (sim_acc >= SIM_STEP && steps < 40) { game_tick(SIM_STEP); sim_acc -= SIM_STEP; steps++; }
+            if (eff_speed > 0) { sim_acc += dt * eff_speed; while (sim_acc >= SIM_STEP && steps < 40) { game_tick(SIM_STEP); sim_acc -= SIM_STEP; steps++; }
                 if (steps >= 40 && sim_acc >= SIM_STEP) { LOG_WARN("main", "simulation behind real time: dropping %.1f days (frame %.0f ms at speed x%.0f)", sim_acc, dt*1000, G.speed); sim_acc = 0; } }
             metric_set(m_steps, steps);
             prof_end(p_sim);
@@ -180,6 +194,9 @@ int main(int argc, char **argv) {
 
         // ---- 3d
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness; RF.sun = norm3(vec3(0.45f, 0.75f, 0.35f)); RF.daylight = 1.f;
+        { static const char *sun_env; static int sun_read;   // MARE_SUN="x,y,z" pins the sun direction (shadow/lighting tests)
+          if (!sun_read) { sun_env = getenv("MARE_SUN"); sun_read = 1; if (sun_env) LOG_INFO("gpu", "sun pinned to %s (MARE_SUN)", sun_env); }
+          if (sun_env) { float sx = 0.45f, sy = 0.75f, sz = 0.35f; sscanf(sun_env, "%f,%f,%f", &sx, &sy, &sz); RF.sun = norm3(vec3(sx, maxf(sy, 0.08f), sz)); } }
         RF.sky = lerp3(vec3(0.60f, 0.74f, 0.88f), vec3(0.36f, 0.30f, 0.24f), cam.mapness);
         render_light_update();
         rhi_frame_stats_reset();

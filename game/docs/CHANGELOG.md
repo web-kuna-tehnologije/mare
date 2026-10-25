@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.7.9 — shadows actually cast, city view, battle detail, picking by size
+- **Fix (issue-2): nothing ever cast a shadow onto the ground or the water.** The shadow
+  camera was placed on the wrong side of the scene (`center - sun*back` instead of
+  `center + sun*back`): it looked *towards* the sun, so depth sorted away from it, an occluder
+  above a receiver stored a larger depth than the receiver, and the compare always answered
+  "lit". Only side-face darkening survived, which is what made shadows look "sort of there".
+  Boats, houses, walls and the church now cast onto terrain and water. Verified by projecting
+  logged cascade matrices against a dumped atlas, then in game
+  (`docs/screenshots/shadows-fixed.png`, `-lowsun.png`).
+- **Shadow filtering is bilinear now:** the depth atlas is sampled as `sampler2DShadow` with
+  LINEAR + compare mode, so every PCF tap is a hardware bilinear depth comparison (3x3 taps on
+  top). The depth margin dropped from 260 to 24 world units: the old range mapped ~550 units
+  into [0,1], which pushed the lookup bias past the occluder separation of anything shorter
+  than a few units - the second reason boats never shadowed the sea. Bias no longer scales per
+  cascade (the normal-offset already does).
+- **Dev tools:** `MARE_SUN="x,y,z"` pins the sun (lighting/shadow tests);
+  `MARE_SHADOW_DEBUG=1` renders the shadow factor as grayscale, `=2` renders diagnostics
+  (out-of-bounds / factor / enabled as RGB); the cascade-0 matrix is logged once under it.
+- **City view (3rd zoom):** the camera now goes down to 2.5 units (was 6) and the pitch eases
+  towards street level below 16; Q/E and middle-mouse already rotate. With the camera over a
+  town the clock crawls to 0.05 days/s (the world does not race on while you look at a city;
+  the HUD shows `~city~`), and the moment a battle is being watched from the same height the
+  throttle lifts - spectating never slows the simulation. Resuming zoom restores the chosen
+  speed automatically (G.speed is never touched).
+- **Battle view:** a fleet that fired in the last 0.3 days keeps its full mesh and its whole
+  line of ships out to 230 units (instead of 4 simplified hulls), budgeted at ~50 promoted
+  ships per frame so a huge melee cannot stall the renderer. `B` jumps the camera to the
+  freshest battle.
+- **Picking:** the hover/click radius for towns and fleets now grows with their projected
+  size on screen (matching the selection circles) instead of a fixed 16-18 px dot at the
+  centre - a zoomed-in town is clickable anywhere on its footprint.
+- **Proposal:** `game/docs/DESIGN_MAP_DETAIL.md` - how to get a more detailed map without
+  raising the global grid: shader detail octaves near the camera, a coastline SDF to kill the
+  cell staircase, and (only if needed) a camera-centred clipmap. With estimates and rejected
+  alternatives.
+
+
 ## 0.7.8 — town placement fix, clearer water, asset roles and footprints (asset steps 8-9)
 - **Fix (issue-1): houses in the fort wall, roofs without houses.** Town pieces were placed by
   centre point only: houses could stand in the wall ring (their roof overhang reached the

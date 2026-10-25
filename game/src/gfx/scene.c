@@ -79,9 +79,12 @@ static void fleet_anim_pos(int i, const fleet_t *f, float dt, float *x, float *z
     *x = a->x; *z = a->z; *heading = a->heading; *speed = a->speed;
 }
 
+#define BATTLE_DETAIL_MAX 50     // full-detail ships a battle may add beyond the normal LOD rules
+
 void scene_build_ships(void) {
     cam_frustum(frustum);
     scene_culled_ships = 0;
+    int battle_lod0_budget = BATTLE_DETAIL_MAX;
     float dt = clampf(RF.time - anim_prev_time, 0, 0.25f); anim_prev_time = RF.time;
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]);
     instlist_clear(&puffs);
@@ -93,7 +96,13 @@ void scene_build_ships(void) {
         if (!cam_sphere_visible(frustum, x, 0, z, f->nships * 1.5f + CULL_MARGIN)) { scene_culled_ships++; continue; }
         unsigned col = f->role == ROLE_PIRATE ? rgb(20,20,20) : nations_info[f->nation].color;
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;
+        // Battle view: a fleet that fired recently is being watched - it keeps the full mesh and
+        // its whole line of ships out to LOD1_DIST, so a spectated battle reads ship for ship
+        // instead of collapsing to 4 simplified hulls. A frame budget caps the extra detail: a
+        // melee stops promoting at ~BATTLE_DETAIL_MAX ships and falls back to distance LODs.
+        int in_battle = f->at_port < 0 && f->last_fire > G.day - 0.3f;
         int lod = d < LOD0_DIST ? 0 : 1, nshow = lod == 1 ? mini(f->nships, 4) : f->nships;
+        if (in_battle && lod == 1 && battle_lod0_budget >= f->nships) { lod = 0; nshow = f->nships; battle_lod0_budget -= f->nships; }
         float hx = cosf(heading), hz = -sinf(heading);
         // how hard the ship works: moored ships barely move, ships under way roll with their
         // speed, and a storm throws everything around

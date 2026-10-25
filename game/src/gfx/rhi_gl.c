@@ -68,7 +68,13 @@ rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_dept
 }
 rhi_target_t rhi_target_depth_make(int w, int h) {
     rhi_target_t t = { .w = w, .h = h };
-    t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
+    // LINEAR + compare mode = hardware PCF: each tap of the shadow lookup is a bilinear-filtered
+    // depth comparison (sampler2DShadow), so shadow edges are smooth instead of stair-stepped
+    t.depth = rhi_texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+    glBindTexture(GL_TEXTURE_2D, t.depth.id);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glBindTexture(GL_TEXTURE_2D, 0);
     glGenFramebuffers(1, &t.fbo); glBindFramebuffer(GL_FRAMEBUFFER, t.fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, t.depth.id, 0);
     glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE);               // depth only: no colour attachment

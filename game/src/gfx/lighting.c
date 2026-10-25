@@ -71,6 +71,8 @@ void light_bind(const rhi_pipeline_t *p) {
     rhi_set_f3(rhi_uniform(p, "u_ambsky"), RF.ambsky.x, RF.ambsky.y, RF.ambsky.z);
     rhi_set_f3(rhi_uniform(p, "u_ambgnd"), RF.ambgnd.x, RF.ambgnd.y, RF.ambgnd.z);
     int on = shadow_enabled && shadow_atlas.fbo && RF.mapness < 0.98f;
+    static int dbg = -1; if (dbg < 0) { const char *e = getenv("MARE_SHADOW_DEBUG"); dbg = e ? atoi(e) : 0; }
+    rhi_set_f1(rhi_uniform(p, "u_shadow_debug"), (float)dbg);
     rhi_set_f1(rhi_uniform(p, "u_shadow_on"), on ? 1.f : 0.f);
     if (!on) return;
     rhi_set_i1(rhi_uniform(p, "u_shadowmap"), 3);
@@ -115,16 +117,24 @@ static void slice_sphere(float dnear, float dfar, vec3 *center, float *radius) {
     *center = mid; *radius = r + SHADOW_RELIEF;
 }
 
-// SHADOW_DEPTH_MARGIN is deliberately generous: the light must see every caster above the
-// cascade's footprint, and anything that falls outside the ortho's depth range is clipped away
-// and silently stops casting (or, worse, lands at the near plane and shadows everything).
-#define SHADOW_DEPTH_MARGIN 260.f
+// SHADOW_DEPTH_MARGIN covers casters above/behind the cascade footprint along the light.
+// It also sets the depth precision: the ortho depth range is ~2*(radius+margin) world units
+// mapped to [0,1], and the lookup bias must stay below the occluder-receiver separation of the
+// *shortest* caster. The old value of 260 stretched the range to ~550 units, which pushed the
+// bias past the depth separation of boats, houses and walls - they stopped casting entirely
+// (issue-2). Everything that casts lives within a few units of the ground band (masts ~3,
+// church 0.6, terrain relief already inside SHADOW_RELIEF), so 24 is ample.
+#define SHADOW_DEPTH_MARGIN 24.f
 static mat44 cascade_matrix(vec3 center, float radius) {
     vec3 sun = norm3(RF.sun);
     float texels = 2.f * radius / SHADOW_RES;                 // snap the centre to whole texels
     center = vec3(floorf(center.x / texels) * texels, floorf(center.y / texels) * texels, floorf(center.z / texels) * texels);
     float back = radius + SHADOW_DEPTH_MARGIN;
-    vec3 eye = sub3(center, scale3(sun, back));
+    // The shadow camera sits on the SUN side of the scene looking along -sun (issue-2: this was
+    // sub3, placing the eye under the world looking up - depth sorted away from the sun, so an
+    // occluder above a receiver stored a *larger* depth and the compare always said "lit";
+    // objects never cast onto the water or the ground, only side-facing acne survived).
+    vec3 eye = add3(center, scale3(sun, back));
     vec3 up = fabsf(sun.y) > 0.98f ? vec3(0,0,1) : vec3(0,1,0);
     mat44 view = lookat44(eye, center, up);
     mat44 proj = cam_proj_to_gl(mat44_ortho_off_center_rh(-radius, radius, -radius, radius, 0.05f, back + radius + SHADOW_DEPTH_MARGIN));
@@ -178,6 +188,16 @@ void shadow_render(void) {
         cascade_wtexel[i] = 2.f * r / SHADOW_RES;
     }
 
+    // MARE_SHADOW_DEBUG: log the cascade-0 matrix once so a dumped atlas can be checked offline
+    static int logged_mats;
+    if (!logged_mats && getenv("MARE_SHADOW_DEBUG")) { logged_mats = 1;
+        const float *m = &cascade_vp[0].x.x;
+        LOG_INFO("gpu", "cascade0 vp rows: [%g %g %g %g] [%g %g %g %g] [%g %g %g %g] [%g %g %g %g] splits %.1f %.1f",
+                 m[0],m[1],m[2],m[3], m[4],m[5],m[6],m[7], m[8],m[9],m[10],m[11], m[12],m[13],m[14],m[15], cascade_split[0], cascade_split[1]);
+        for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i];
+            if (f->alive && dist2d(f->x, f->z, cam.tx, cam.tz) < 15) { float x, z, h; scene_fleet_pos(f, &x, &z, &h);
+                LOG_INFO("gpu", "debug fleet '%s' draws at %.3f %.3f heading %.2f", f->name, x, z, h); break; } }
+    }
     rhi_target_clear_depth(&shadow_atlas);
     for (int i = 0; i < SHADOW_CASCADES; ++i) {
         rhi_viewport(i * SHADOW_RES, 0, SHADOW_RES, SHADOW_RES);

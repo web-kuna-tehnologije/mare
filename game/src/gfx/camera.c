@@ -6,7 +6,13 @@
 
 rts_cam_t cam;
 
-static float pitch_for(float dist) { float t = powf(clampf((dist - CAM_MIN_DIST) / 420.f, 0, 1), 0.55f); return (28.f + 60.f * t) * 0.0174533f; }
+// pitch flattens towards street level as the city view approaches, so a zoomed-in town reads
+// like a citybuilder scene rather than a top-down map tile
+static float pitch_for(float dist) {
+    float t = powf(clampf((dist - CAM_MIN_DIST) / 420.f, 0, 1), 0.55f);
+    float base = 28.f - 10.f * clampf((CAM_CITY_DIST - dist) / (CAM_CITY_DIST - CAM_MIN_DIST), 0, 1);
+    return (base + 60.f * t) * 0.0174533f;
+}
 
 void cam_reset(float tx, float tz, float dist) {
     cam.tx = cam.want_tx = tx; cam.tz = cam.want_tz = tz; cam.dist = cam.want_dist = dist; cam.yaw = cam.want_yaw = 0; cam.follow_fleet_id = 0;
