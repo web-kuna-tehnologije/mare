@@ -67,7 +67,7 @@ static const char *sea_fs =
     "  vec3 col = fog_apply(mix(col3d, srgb_to_linear(mapc) * u_daylight, u_mapness), dist, u_mapness, srgb_to_linear(u_sky));\n"
     // transparency: the terrain below has already been drawn, so shallow water reveals the
     // seabed and deep water goes opaque; the map view stays solid parchment
-    "  float alpha = mix(0.62, 1.0, smoothstep(0.0, 1.1, depth));\n"
+    "  float alpha = mix(0.38, 0.92, smoothstep(0.0, 1.6, depth));\n"   // clearer shallows, seabed reads through a little further out
     "  alpha = max(alpha, foam * 0.85);\n"           // surf stays visible over the seabed
     "  alpha = mix(alpha, 1.0, u_mapness);\n"
     "  fragColor = vec4(col, alpha);\n"

@@ -1,6 +1,7 @@
 {
   "name": "church",
   "type": "building",
+  "role": "church",
   "lods": [
     { "file": "Church_LOD0.glb", "node": "Church_LOD0", "dist": 0 },
     { "file": "Church_LOD1.glb", "node": "Church_LOD1", "dist": 35 },

@@ -246,7 +246,7 @@ static void test_oob_index(void) {   // indices referencing vertex 9 of a 3-vert
 static void test_descriptor(void) {
     asset_desc_t d; char err[256];
     const char *good =
-        "{\"name\":\"church\",\"type\":\"building\",\"file\":\"church.glb\","
+        "{\"name\":\"church_a\",\"role\":\"church\",\"type\":\"building\",\"file\":\"church.glb\","
         "\"lods\":[{\"node\":\"Church_LOD0\",\"dist\":0},{\"node\":\"Church_LOD1\",\"dist\":40},{\"file\":\"far.glb\",\"dist\":120}],"
         "\"scale\":{\"fit\":\"height\",\"size\":0.55},\"pivot\":\"base_center\",\"forward\":\"+z\",\"pivot_offset\":[0,0.1,0],"
         "\"materials\":[{\"match\":\"roof\",\"rough\":0.7,\"color\":[0.6,0.3,0.2],\"instance_color\":true},{\"match\":\"*\",\"metal\":0}],"
@@ -254,11 +254,12 @@ static void test_descriptor(void) {
     int ok = asset_desc_parse(good, strlen(good), "assets/church", &d, err, sizeof err);
     CHECK(ok, "descriptor parse failed: %s", err);
     if (ok) {
-        CHECK(!strcmp(d.name, "church") && d.type == ASSET_BUILDING, "name/type");
+        CHECK(!strcmp(d.name, "church_a") && d.type == ASSET_BUILDING, "name/type");
         CHECK(d.nlods == 3 && !strcmp(d.lod[0].file, "church.glb") && !strcmp(d.lod[1].node, "Church_LOD1") && !strcmp(d.lod[2].file, "far.glb") && FEQ(d.lod[2].dist, 120), "lods");
         CHECK(d.fit == FIT_HEIGHT && FEQ(d.fit_size, 0.55f) && d.pivot == PIVOT_BASE_CENTER && d.forward == 1 && FEQ(d.pivot_offset[1], 0.1f), "scale/pivot/forward");
         CHECK(d.nmat == 2 && d.mat[0].has_rough && !d.mat[0].has_metal && d.mat[0].has_color && d.mat[0].instance_color && d.mat[0].bake_texture && d.mat[1].has_metal, "material rules");
         CHECK(d.coll == COLL_AABB && FEQ(d.coll_half[2], 3), "collision");
+        CHECK(!strcmp(d.role, "church"), "role defaults to the name when absent, else as given: '%s'", d.role);
         CHECK(!strcmp(d.dir, "assets/church"), "dir");
     }
     // defaults: single LOD from "file", scale 1, base_center pivot, +x forward
@@ -374,6 +375,12 @@ static void test_asset_build(void) {
     CHECK(asset_pick_lod(a, 24) == 0 && asset_pick_lod(a, 25) == 1, "lod bias 0.5");
     asset_lod_bias = 1.f;
     CHECK(a->radius > 1.5f && a->coll_half[1] > 0.49f && a->coll_radius > 0.9f, "radius/collision derivation");
+    // collision helpers (step 8): no "collision" block -> COLL_NONE treated as AABB from bounds
+    // (half x 0.5, half z 1.0); point tests rotate into the instance frame
+    CHECK(FEQ(asset_footprint_radius(a), sqrtf(0.25f + 1.f)), "footprint radius %f", asset_footprint_radius(a));
+    CHECK(asset_contains_xz(a, 10, 10, 0, 10.4f, 10.9f) && !asset_contains_xz(a, 10, 10, 0, 10.6f, 10), "aabb contains (unrotated)");
+    CHECK(asset_contains_xz(a, 10, 10, 1.5708f, 10.9f, 10.0f) && !asset_contains_xz(a, 10, 10, 1.5708f, 10, 10.9f), "aabb contains (rotated 90 deg)");
+    CHECK(asset_get_role(ASSET_PROP, "thing") == a && asset_get_role(ASSET_BUILDING, "thing") == NULL && asset_get_role(ASSET_PROP, "nope") == NULL, "role lookup");
     CHECK(a->cpu_bytes == 6 * 12 * sizeof(float) + 6 * sizeof(unsigned) && asset_cpu_bytes() == a->cpu_bytes, "cpu bytes %zu", a->cpu_bytes);
     asset_free_cpu(a, 0);
     CHECK(a->lod[0].verts == NULL && a->cpu_bytes == 3 * 12 * sizeof(float) + 3 * sizeof(unsigned), "free_cpu accounting");

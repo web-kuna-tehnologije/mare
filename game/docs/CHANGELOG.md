@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.8 — town placement fix, clearer water, asset roles and footprints (asset steps 8-9)
+- **Fix (issue-1): houses in the fort wall, roofs without houses.** Town pieces were placed by
+  centre point only: houses could stand in the wall ring (their roof overhang reached the
+  stones), and a house on a slope took its centre height, so the downhill side floated and the
+  uphill side was buried with only the roof showing. `town_build` (scene.c) now keeps a
+  footprint list — tower, church, every house — and rejects overlaps; houses stay a margin
+  inside the wall ring, take the *lowest* ground under their footprint, and are skipped on
+  steep ground (rise > 60% of their height) or on the beach (below the sand/grass blend).
+  Walls do the same per segment and are left out on the beach. Big pieces are placed first
+  (tower, then the church landward of it, with a wider search on hillside towns), then as many
+  houses as fit. Layouts change as a result; the per-port cache still rebuilds only when size,
+  fort, owner or population change.
+- **Sea:** more transparent — shallow water now shows the seabed clearly (alpha 0.38 → 0.92
+  over the first 1.6 units of depth, was 0.62 → 1.0 over 1.1); foam and the map view are
+  unchanged.
+- **Asset roles (step 9, generator wiring):** descriptors carry `"role"` (defaults to the
+  name); `asset_get_role(type, role)` returns the first loadable asset of that type and role,
+  so the town generator asks for `building`/`church` rather than a file name — drop in another
+  church descriptor with the same role and towns use it, no code change.
+- **Collision footprints (step 8):** `asset_footprint_radius` (sphere, or the AABB's half
+  diagonal) and `asset_contains_xz` (point test in the rotated instance frame) on top of the
+  derived collision shape; the town generator uses the radius to keep houses out of the church.
+  Still no physics — these are placement helpers.
+- **Church assets:** `game/assets/church/Church_LOD0..3.glb` are now the real per-LOD exports
+  (one node each: 128k / 50k / 15k / 3k triangles), copied from `/assets`.
+- Tests: role parsing and lookup, footprint radius, rotated AABB containment. All three CTest
+  suites pass. Screenshots: `docs/screenshots/town-placement-issue.png` (before) and
+  `town-placement-fixed.png` (after, Seville), `sea-transparency.png`, `asset-church-towns.png`.
+
+
 ## 0.7.7 — asset runtime: GLB/glTF import, descriptors, normalisation, cache, LODs
 The first authored 3D asset (a Meshy church) renders inside a procedural town. Everything
 needed to go from a `.blend` to an instanced, shadowed, LOD-switched mesh in the game now exists

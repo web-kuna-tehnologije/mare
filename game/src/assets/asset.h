@@ -13,7 +13,7 @@
 //
 // Descriptor example (game/assets/church/church.asset.json):
 //   {
-//     "name": "church", "type": "building",
+//     "name": "church", "type": "building", "role": "church",   // role: what town/ship generators look up
 //     "file": "church.glb",                       // default file for every LOD
 //     "lods": [ { "node": "Church_LOD0", "dist": 0 },        // LODs by node name in one file ...
 //               { "node": "Church_LOD1", "dist": 40 },
@@ -56,6 +56,7 @@ typedef struct asset_lod_desc_t { char file[ASSET_PATH]; char node[64]; float di
 
 typedef struct asset_desc_t {
     char name[64];
+    char role[32];                        // what the generators ask for ("church", "warehouse", "hull"...); "" = name
     char dir[ASSET_PATH];                 // directory the descriptor lives in (files resolve against it)
     asset_type_t type;
     asset_lod_desc_t lod[ASSET_MAX_LODS]; int nlods;
@@ -95,6 +96,7 @@ int      asset_register_desc(const char *desc_path);       // one descriptor fil
 int      asset_count(void);
 asset_t *asset_at(int index);
 asset_t *asset_find(const char *name);                     // registered asset, loaded or not
+asset_t *asset_get_role(asset_type_t type, const char *role);   // first loadable asset of a type with this role (NULL if none / failed)
 asset_t *asset_get(const char *name);                      // find + load on first use; NULL if unknown or failed
 int      asset_load(asset_t *a);                           // 1 ok; 0 with a->error (idempotent)
 void     asset_unload(asset_t *a);                         // frees CPU data, back to ASSET_UNLOADED
@@ -103,6 +105,11 @@ void     asset_free_cpu(asset_t *a, int lod);              // renderer: drop the
 size_t   asset_cpu_bytes(void);                            // total held by the cache (CPU side)
 size_t   asset_gpu_bytes(void);                            // total uploaded by the renderer
 const char *asset_root(void);                              // resolved assets directory (MARE_ASSETS or game/assets up the tree)
+
+// collision (step 8): the descriptor's shape, derived from the normalised bounds when not
+// given. Generators use the footprint to keep pieces apart; nothing physical yet.
+float    asset_footprint_radius(const asset_t *a);         // XZ radius about the pivot (sphere, or the AABB's half diagonal)
+int      asset_contains_xz(const asset_t *a, float ax, float az, float heading, float px, float pz);   // is world point (px,pz) inside the instance's footprint?
 
 // LOD for a camera distance (world units): the last LOD whose dist * asset_lod_bias <= d.
 // The bias is a global quality knob (dashboard): 2 holds detailed LODs twice as far,

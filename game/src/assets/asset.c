@@ -90,6 +90,8 @@ int asset_desc_parse(const char *json, size_t n, const char *dir, asset_desc_t *
     if (gjson_parse(&j, json, (int)n) < 0 || j.t[0].type != JS_OBJ) { free(j.t); DFAIL("descriptor is not a JSON object"); }
     int ok = 0;
     jstrcpy(&j, jget(&j, 0, "name"), d->name, sizeof d->name);
+    jstrcpy(&j, jget(&j, 0, "role"), d->role, sizeof d->role);
+    if (!d->role[0]) snprintf(d->role, sizeof d->role, "%s", d->name);
     int t;
     if ((t = asset_parse_enum(&j, jget(&j, 0, "type"), type_names, ASSET_TYPE_COUNT, ASSET_PROP)) < 0) { snprintf(err, errcap, "unknown asset type"); goto done; }
     d->type = (asset_type_t)t;
@@ -230,6 +232,14 @@ asset_t *asset_find(const char *name) {
     for (int i = 0; i < nassets; ++i) if (!strcmp(assets[i].desc.name, name)) return &assets[i];
     return NULL;
 }
+asset_t *asset_get_role(asset_type_t type, const char *role) {
+    for (int i = 0; i < nassets; ++i)
+        if (assets[i].desc.type == type && !strcmp(assets[i].desc.role, role) && assets[i].state != ASSET_FAILED) {
+            if (assets[i].state == ASSET_UNLOADED) asset_load(&assets[i]);
+            if (assets[i].state == ASSET_LOADED) return &assets[i];
+        }
+    return NULL;
+}
 asset_t *asset_get(const char *name) {
     asset_t *a = asset_find(name);
     if (!a) { static int warned; if (!warned++) LOG_WARN("asset", "unknown asset '%s'", name); return NULL; }
@@ -238,6 +248,20 @@ asset_t *asset_get(const char *name) {
 }
 size_t asset_cpu_bytes(void) { size_t s = 0; for (int i = 0; i < nassets; ++i) s += assets[i].cpu_bytes; return s; }
 size_t asset_gpu_bytes(void) { size_t s = 0; for (int i = 0; i < nassets; ++i) s += assets[i].gpu_bytes; return s; }
+
+// collision helpers (asset.h). AABB tests rotate the point into the instance frame.
+float asset_footprint_radius(const asset_t *a) {
+    if (a->desc.coll == COLL_SPHERE) return a->coll_radius;
+    return sqrtf(a->coll_half[0] * a->coll_half[0] + a->coll_half[2] * a->coll_half[2]);
+}
+int asset_contains_xz(const asset_t *a, float ax, float az, float heading, float px, float pz) {
+    float dx = px - ax, dz = pz - az;
+    if (a->desc.coll == COLL_SPHERE) return dx * dx + dz * dz <= a->coll_radius * a->coll_radius;
+    // inst_t heading rotates model +x to (cos h, -sin h) in world (meshes.c); undo it
+    float c = cosf(heading), s = sinf(heading);
+    float lx = dx * c - dz * s, lz = dx * s + dz * c;
+    return fabsf(lx) <= a->coll_half[0] && fabsf(lz) <= a->coll_half[2];
+}
 
 float asset_lod_bias = 1.f;   // global LOD quality knob, see asset.h
 

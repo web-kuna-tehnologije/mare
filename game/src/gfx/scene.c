@@ -198,48 +198,98 @@ static unsigned town_signature(const port_t *p) {
     return 0x9E3779B1u * (unsigned)(p->size + 1) ^ 0x85EBCA6Bu * (unsigned)(p->building[B_FORT] + 1) ^ 0xC2B2AE35u * (unsigned)(mini((int)(p->pop / 12), 63) + 1) ^ col ^ (unsigned)(p->merged_into >= 0) << 31;
 }
 
+// Town layout. Pieces are placed with a footprint list so they do not stand inside each
+// other or in the fort wall, and every house takes the *lowest* ground under its footprint
+// and is skipped on steep ground: a house set at its centre height on a slope floats on the
+// downhill side and shows a roof without walls on the uphill side (issue-1).
+typedef struct footprint_t { float x, z, r; } footprint_t;
+#define TOWN_MAX_FOOTPRINTS 96
+#define TOWN_MIN_HEIGHT     0.18f   // above the beach (terrain.c blends sand into grass from 0.15)
+
+static int fp_free(const footprint_t *fp, int n, float x, float z, float r) {
+    for (int i = 0; i < n; ++i) if (dist2d(fp[i].x, fp[i].z, x, z) < fp[i].r + r) return 0;
+    return 1;
+}
+// lowest and highest ground under a square footprint of half size `h` at (x,z)
+static void ground_range(float x, float z, float h, float *lo, float *hi) {
+    float c = world_height(x, z); *lo = *hi = c;
+    for (int i = 0; i < 4; ++i) {
+        float y = world_height(x + (i & 1 ? h : -h), z + (i & 2 ? h : -h));
+        if (y < *lo) *lo = y;
+        if (y > *hi) *hi = y;
+    }
+}
+
 static void town_build(const port_t *p, int index) {
     unsigned seed = 1000 + index * 7919;
     float ang = atan2f(p->z - p->lz, p->x - p->lx);
     unsigned col = p->size > 0 ? nations_info[p->nation].color : 0xFFBBBBBB;
+    footprint_t fp[TOWN_MAX_FOOTPRINTS]; int nfp = 0;
     tc_push(TM_PIER, (inst_t){ p->x - cosf(ang)*0.9f, 0, p->z - sinf(ang)*0.9f, -ang, 0.9f, 1,1,1, 0,0,0, 2.0f });
     float fy = world_height(p->lx, p->lz);
     if (p->size <= 0) { tc_push(TM_FLAG, (inst_t){ p->lx, fy, p->lz, 0, 1.2f, 0.8f,0.8f,0.8f, 0,0,0,0 }); return; }
     tc_push(TM_FLAG, (inst_t){ p->lx + 0.3f, fy, p->lz + 0.3f, 0, 1.0f + 0.2f*p->size, col_r(col), col_g(col), col_b(col), 0,0,0,0 });
-    int nh = mini(4 + 7 * p->size + (int)(p->pop / 12), 40);
+    fp[nfp++] = (footprint_t){ p->lx + 0.3f, p->lz + 0.3f, 0.08f };
     float rad = 0.55f + 0.3f * p->size;
-    int med = p->region == REG_MED || p->region == REG_ATLANTIC, colonial = port_colonial(p);
-    float roof[3]; if (med) { roof[0]=0.68f; roof[1]=0.32f; roof[2]=0.20f; } else if (colonial) { roof[0]=0.55f; roof[1]=0.42f; roof[2]=0.22f; } else { roof[0]=0.30f; roof[1]=0.32f; roof[2]=0.36f; }
-    for (int k = 0; k < nh; ++k) {
-        float a = rnd_f(&seed) * 6.2832f, r = sqrtf(rnd_f(&seed)) * rad, hx = p->lx + cosf(a) * r, hz = p->lz + sinf(a) * r;
-        float s = 0.16f + rnd_f(&seed) * 0.12f, rot = rnd_f(&seed) * 3.14f, wc = 0.75f + rnd_f(&seed) * 0.2f;
-        if (!world_is_land(hx, hz)) continue;
-        float hy = world_height(hx, hz); if (hy < 0.05f) continue;
-        float wr = med ? wc : colonial ? wc*0.9f : wc*0.7f, wg = med ? wc*0.92f : colonial ? wc*0.8f : wc*0.55f, wb = med ? wc*0.75f : colonial ? wc*0.6f : wc*0.45f;
-        tc_push(TM_HOUSE, (inst_t){ hx, hy - 0.05f, hz, rot, s, wr, wg, wb, 0,0,0,0 });
-        tc_push(TM_ROOF,  (inst_t){ hx, hy - 0.05f + s, hz, rot, s, roof[0], roof[1], roof[2], 0,0,0,0 });
-    }
-    if (p->size >= 2) tc_push(TM_TOWER, (inst_t){ p->lx, fy - 0.05f, p->lz, 0, 0.35f + 0.12f*p->size, 0.8f,0.78f,0.72f, 0,0,0,0 });
-    // authored church (game/assets/church) for established towns: on the landward side of the
-    // square, facing the harbour. The asset is already world-scaled and pivoted at its base.
+    int fort = p->building[B_FORT] > 0;
+    // the fort wall ring: houses keep a margin inside it so nothing pokes through the stones
+    float wall_r = rad + 0.35f, wall_inner = fort ? wall_r * 0.95f - 0.12f : rad + 0.3f;
+
+    // big pieces first: tower on the square, authored church (role "church") landward of it
     if (p->size >= 2) {
-        asset_t *church = asset_get("church");
+        float ts = 0.35f + 0.12f*p->size;
+        tc_push(TM_TOWER, (inst_t){ p->lx, fy - 0.05f, p->lz, 0, ts, 0.8f,0.78f,0.72f, 0,0,0,0 });
+        fp[nfp++] = (footprint_t){ p->lx, p->lz, ts * 0.45f };
+        asset_t *church = asset_get_role(ASSET_BUILDING, "church");
         if (church) {
-            float ca = ang + 3.14159f + (rnd_f(&seed) - 0.5f) * 1.2f, cr = rad * 0.5f + 0.2f;
-            float cx = p->lx + cosf(ca) * cr, cz = p->lz + sinf(ca) * cr, cy = world_height(cx, cz);
-            if (world_is_land(cx, cz) && cy >= 0.05f) {
-                tc_push_asset(church, (inst_t){ cx, cy - 0.03f, cz, -ang, 1.f, 1,1,1, 0,0,0,0 });
+            float cradius = asset_footprint_radius(church);
+            // landward of the tower first, anywhere on the square after a few tries; the church is
+            // tall enough to tolerate more slope than a house (it is pivoted at its lowest corner)
+            for (int tries = 0; tries < 14; ++tries) {
+                float spread = tries < 7 ? 1.4f : 6.2832f;
+                float ca = ang + 3.14159f + (rnd_f(&seed) - 0.5f) * spread, cr = ts * 0.45f + cradius + 0.1f + rnd_f(&seed) * 0.25f;
+                float cx = p->lx + cosf(ca) * cr, cz = p->lz + sinf(ca) * cr, lo, hi;
+                if (cr + cradius > wall_inner || !world_is_land(cx, cz)) continue;
+                ground_range(cx, cz, cradius * 0.7f, &lo, &hi);
+                if (lo < TOWN_MIN_HEIGHT || hi - lo > 0.28f || !fp_free(fp, nfp, cx, cz, cradius)) continue;
+                tc_push_asset(church, (inst_t){ cx, lo - 0.02f, cz, -ang, 1.f, 1,1,1, 0,0,0,0 });
+                fp[nfp++] = (footprint_t){ cx, cz, cradius };
                 static int logged; if (!logged++) LOG_INFO("gfx", "first authored church placed at %s (lon %.2f lat %.2f)", p->name, x2lon(cx), z2lat(cz));
+                break;
             }
         }
     }
-    if (p->building[B_FORT] > 0) {
-        int nseg = 8 + 2 * p->building[B_FORT]; float wr = rad + 0.35f, wh = 0.22f + 0.05f * p->building[B_FORT];
+
+    // houses: as many as the town's size and population call for, where they fit
+    int nh = mini(4 + 7 * p->size + (int)(p->pop / 12), 40), placed = 0;
+    int med = p->region == REG_MED || p->region == REG_ATLANTIC, colonial = port_colonial(p);
+    float roof[3]; if (med) { roof[0]=0.68f; roof[1]=0.32f; roof[2]=0.20f; } else if (colonial) { roof[0]=0.55f; roof[1]=0.42f; roof[2]=0.22f; } else { roof[0]=0.30f; roof[1]=0.32f; roof[2]=0.36f; }
+    for (int k = 0; k < nh * 4 && placed < nh && nfp < TOWN_MAX_FOOTPRINTS; ++k) {
+        float s = 0.16f + rnd_f(&seed) * 0.12f, half = 0.55f * s;        // roof overhang is the widest part
+        float a = rnd_f(&seed) * 6.2832f, r = sqrtf(rnd_f(&seed)) * maxf(wall_inner - half, 0.1f);
+        float hx = p->lx + cosf(a) * r, hz = p->lz + sinf(a) * r;
+        float rot = rnd_f(&seed) * 3.14f, wc = 0.75f + rnd_f(&seed) * 0.2f;
+        if (!world_is_land(hx, hz)) continue;
+        float lo, hi; ground_range(hx, hz, half, &lo, &hi);
+        if (lo < TOWN_MIN_HEIGHT || hi - lo > s * 0.6f) continue;         // beach or too steep
+        if (!fp_free(fp, nfp, hx, hz, half * 1.05f)) continue;
+        float wr = med ? wc : colonial ? wc*0.9f : wc*0.7f, wg = med ? wc*0.92f : colonial ? wc*0.8f : wc*0.55f, wb = med ? wc*0.75f : colonial ? wc*0.6f : wc*0.45f;
+        float hy = lo - 0.03f;                                              // the lowest corner touches ground; the rest is buried a little
+        tc_push(TM_HOUSE, (inst_t){ hx, hy, hz, rot, s, wr, wg, wb, 0,0,0,0 });
+        tc_push(TM_ROOF,  (inst_t){ hx, hy + s, hz, rot, s, roof[0], roof[1], roof[2], 0,0,0,0 });
+        fp[nfp++] = (footprint_t){ hx, hz, half };
+        placed++;
+    }
+
+    if (fort) {
+        int nseg = 8 + 2 * p->building[B_FORT]; float wh = 0.22f + 0.05f * p->building[B_FORT];
         for (int k = 0; k < nseg; ++k) {
             float a0 = k * 6.2832f / nseg, a1 = (k+1) * 6.2832f / nseg;
-            float x0 = p->lx + cosf(a0)*wr, z0 = p->lz + sinf(a0)*wr, x1 = p->lx + cosf(a1)*wr, z1 = p->lz + sinf(a1)*wr, mx = (x0+x1)*0.5f, mz = (z0+z1)*0.5f;
+            float x0 = p->lx + cosf(a0)*wall_r, z0 = p->lz + sinf(a0)*wall_r, x1 = p->lx + cosf(a1)*wall_r, z1 = p->lz + sinf(a1)*wall_r, mx = (x0+x1)*0.5f, mz = (z0+z1)*0.5f;
             if (!world_is_land(mx, mz)) continue;
-            tc_push(TM_WALL, (inst_t){ mx, world_height(mx, mz) - 0.1f, mz, -atan2f(z1-z0, x1-x0), wh, 1,1,1, 0,0,0, dist2d(x0,z0,x1,z1) / wh });
+            float lo, hi; ground_range(mx, mz, dist2d(x0,z0,x1,z1) * 0.5f, &lo, &hi);
+            if (lo < 0.05f) continue;                                        // no wall on the beach
+            tc_push(TM_WALL, (inst_t){ mx, lo - 0.1f, mz, -atan2f(z1-z0, x1-x0), wh, 1,1,1, 0,0,0, dist2d(x0,z0,x1,z1) / wh });
         }
     }
 }
