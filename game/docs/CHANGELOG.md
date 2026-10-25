@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.6 — profiling hooks, slower clock, ship motion, visual fixes
+Completes the renderer modernisation (step 10) and slows the simulation down to a watchable pace.
+
+- **Profiling (step 10):** per-pass GPU timer queries read back without stalling, RHI VRAM
+  accounting (textures / render targets / buffers), and process RAM. All shown in the dashboard
+  Perf tab and written to the metrics CSV (`gpu.*_ms`, `mem.vram_mb`, `mem.ram_mb`).
+- **Simulation speed:** keys 1-4 are now 0.33, 0.5, 1.0 and 3.0 days per real second (were 1, 3,
+  8, 20), with 0.33 the default. A voyage now reads as a voyage.
+- **Ship movement:** fleets are drawn from a smoothed render position that chases the simulated
+  one, so ships sail continuously instead of stepping once per 0.1-day tick (measured: 387
+  distinct render positions across 47 simulation ticks). Rocking gained a pitch axis and a second
+  frequency, and its amplitude now follows what the ship is doing - moored, under way, or in a
+  storm. The shadow pass uses the same vertex motion, so shadows follow.
+- **Visual fixes:**
+  - Detail normal maps are mipmapped, and the sea derives extra roughness from per-pixel normal
+    variance (`dFdx/dFdy`). Together these remove the field of white fireflies that covered the
+    ocean at middle and long range; a real sun glitter path remains up close.
+  - Cannon fire was a v3 debug-draw wire sphere that read as a gold scribble. It is now real
+    gunsmoke: an instanced puff on a translucent pipeline drawn after the sea, swelling and
+    drifting, excluded from shadow casting.
+  - Billowed sails use a blended normal, so a sail reads as one curved surface instead of four
+    hard light and dark wedges.
+  - Shallow water was muddy where the seabed showed through; the shoal tint is brighter and the
+    transparency ramp shorter, so shallows read as water over sand.
+- `MARE_CAM="lon,lat,dist[,yaw]"` pins the camera for reproducible screenshots.
+
+
 ## 0.7.5 — normal maps, frustum culling, instancing (renderer steps 7-9)
 - Procedural tileable normal maps baked at init (`detail.c`): scrolling two-scale ocean waves on
   the sea (replacing the hand-written sines) and triplanar plank/plaster grain on the meshes,

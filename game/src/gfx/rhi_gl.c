@@ -28,7 +28,30 @@ void rhi_frame_begin(int w, int h, float r, float g, float b) {
 }
 
 // ---------------------------------------------------------------------------
+// GPU memory accounting (what we allocated, not what the driver committed)
+
+static rhi_mem_t rhi_mem;
+rhi_mem_t rhi_memory(void) { return rhi_mem; }
+
+static size_t format_bpp(rhi_format_t f) {
+    switch (f) {
+    case RHI_FMT_R32F: return 4;
+    case RHI_FMT_RGB8: case RHI_FMT_SRGB8: return 3;
+    case RHI_FMT_RGBA8: case RHI_FMT_SRGB8_A8: case RHI_FMT_DEPTH24: return 4;
+    case RHI_FMT_RGBA16F: return 8;
+    default: return 4;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // render targets
+
+// render-target images are accounted under `targets`, not `textures`: rhi_texture_make has
+// already counted them, so move the bytes across rather than counting them twice
+static void mem_reclassify_as_target(size_t bytes, int ntex) {
+    rhi_mem.textures -= bytes; rhi_mem.ntextures -= ntex;
+    rhi_mem.targets  += bytes;
+}
 
 rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_depth) {
     rhi_target_t t = { .w = w, .h = h };
@@ -40,6 +63,7 @@ rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_dept
     GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     if (st != GL_FRAMEBUFFER_COMPLETE) LOG_FATAL("rhi", "render target %dx%d fmt %d incomplete: 0x%04x", w, h, color_fmt, (unsigned)st);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    mem_reclassify_as_target((size_t)w * h * (format_bpp(color_fmt) + (with_depth ? 4 : 0)), with_depth ? 2 : 1);
     return t;
 }
 rhi_target_t rhi_target_depth_make(int w, int h) {
@@ -51,6 +75,7 @@ rhi_target_t rhi_target_depth_make(int w, int h) {
     GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     if (st != GL_FRAMEBUFFER_COMPLETE) LOG_FATAL("rhi", "depth target %dx%d incomplete: 0x%04x", w, h, (unsigned)st);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    mem_reclassify_as_target((size_t)w * h * 4, 1);
     return t;
 }
 void rhi_target_clear_depth(const rhi_target_t *t) {
@@ -64,8 +89,8 @@ void rhi_viewport(int x, int y, int w, int h) { glViewport(x, y, w, h); }
 
 void rhi_target_free(rhi_target_t *t) {
     if (t->fbo) glDeleteFramebuffers(1, &t->fbo);
-    if (t->color.id) glDeleteTextures(1, &t->color.id);
-    if (t->depth.id) glDeleteTextures(1, &t->depth.id);
+    if (t->color.id) { glDeleteTextures(1, &t->color.id); rhi_mem.targets -= (size_t)t->color.w * t->color.h * format_bpp(t->color.fmt); }
+    if (t->depth.id) { glDeleteTextures(1, &t->depth.id); rhi_mem.targets -= (size_t)t->depth.w * t->depth.h * format_bpp(t->depth.fmt); }
     memset(t, 0, sizeof *t);
 }
 void rhi_target_begin(const rhi_target_t *t, float r, float g, float b) {
@@ -112,6 +137,63 @@ static rhi_stats_t rhi_stats;
 void rhi_frame_stats_reset(void) { memset(&rhi_stats, 0, sizeof rhi_stats); }
 rhi_stats_t rhi_frame_stats(void) { return rhi_stats; }
 
+// ---------------------------------------------------------------------------
+// GPU timer queries (ARB_timer_query, core since GL 3.3)
+//
+// Each scope keeps a small ring of queries. We write into the slot for this frame and read back
+// the slot RHI_GPU_LAG frames old, which is always finished by then, so the CPU never stalls.
+
+#define RHI_GPU_LAG 4
+typedef struct gpu_scope_t { const char *name; unsigned q[RHI_GPU_LAG]; int issued[RHI_GPU_LAG]; float ms; } gpu_scope_t;
+static gpu_scope_t gpu_scopes[RHI_GPU_SCOPES];
+static int gpu_nscopes, gpu_frame, gpu_open = -1, gpu_supported = -1;
+
+static int gpu_timers_ok(void) {
+    if (gpu_supported < 0) {
+        gpu_supported = glGenQueries && glBeginQuery && glEndQuery && glGetQueryObjectui64v ? 1 : 0;
+        if (!gpu_supported) LOG_WARN("rhi", "GPU timer queries unavailable: per-pass GPU times will read 0");
+    }
+    return gpu_supported;
+}
+int rhi_gpu_timers_supported(void) { return gpu_timers_ok(); }
+
+int rhi_gpu_scope(const char *name) {
+    for (int i = 0; i < gpu_nscopes; ++i) if (!strcmp(gpu_scopes[i].name, name)) return i;
+    if (gpu_nscopes >= RHI_GPU_SCOPES) return -1;
+    gpu_scopes[gpu_nscopes].name = name;
+    return gpu_nscopes++;
+}
+const char *rhi_gpu_scope_name(int s) { return s >= 0 && s < gpu_nscopes ? gpu_scopes[s].name : ""; }
+int rhi_gpu_scope_count(void) { return gpu_nscopes; }
+float rhi_gpu_ms(int s) { return s >= 0 && s < gpu_nscopes ? gpu_scopes[s].ms : 0.f; }
+
+void rhi_gpu_begin(int s) {
+    if (s < 0 || !gpu_timers_ok() || gpu_open >= 0) return;
+    gpu_scope_t *g = &gpu_scopes[s];
+    int slot = gpu_frame % RHI_GPU_LAG;
+    if (!g->q[slot]) glGenQueries(1, &g->q[slot]);
+    glBeginQuery(GL_TIME_ELAPSED, g->q[slot]);
+    g->issued[slot] = 1; gpu_open = s;
+}
+void rhi_gpu_end(void) {
+    if (gpu_open < 0) return;
+    glEndQuery(GL_TIME_ELAPSED);
+    gpu_open = -1;
+}
+void rhi_gpu_collect(void) {
+    if (!gpu_timers_ok()) return;
+    int slot = (gpu_frame + 1) % RHI_GPU_LAG;          // the oldest slot in the ring
+    for (int i = 0; i < gpu_nscopes; ++i) {
+        gpu_scope_t *g = &gpu_scopes[i];
+        if (!g->issued[slot] || !g->q[slot]) continue;
+        GLint ready = 0; glGetQueryObjectiv(g->q[slot], GL_QUERY_RESULT_AVAILABLE, &ready);
+        if (!ready) continue;
+        GLuint64 ns = 0; glGetQueryObjectui64v(g->q[slot], GL_QUERY_RESULT, &ns);
+        g->ms = (float)(ns / 1.0e6); g->issued[slot] = 0;
+    }
+    gpu_frame++;
+}
+
 void rhi_pipeline_bind(const rhi_pipeline_t *p) {
     glUseProgram(p->id);
     rhi_bound_vao = 0;   // v3 (debug draw, microui) may have bound its own VAO between passes
@@ -153,12 +235,15 @@ rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filt
     rhi_texture_t t = { .w = w, .h = h, .fmt = fmt };
     GLint internal; GLenum format, type; gl_format(fmt, &internal, &format, &type);
     GLint wr = wrap == RHI_WRAP_REPEAT ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+    rhi_mem.textures += (size_t)w * h * format_bpp(fmt); rhi_mem.ntextures++;
     glGenTextures(1, &t.id); glBindTexture(GL_TEXTURE_2D, t.id);
     glTexImage2D(GL_TEXTURE_2D, 0, internal, w, h, 0, format, type, data);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter == RHI_FILTER_LINEAR ? GL_LINEAR : GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter == RHI_FILTER_LINEAR ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                    filter == RHI_FILTER_MIPMAP ? GL_LINEAR_MIPMAP_LINEAR : filter == RHI_FILTER_LINEAR ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter == RHI_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wr);
+    if (filter == RHI_FILTER_MIPMAP) { glGenerateMipmap(GL_TEXTURE_2D); rhi_mem.textures += (size_t)w * h * format_bpp(fmt) / 3; }
     return t;
 }
 void rhi_texture_update(rhi_texture_t *t, const void *data) {
@@ -188,14 +273,17 @@ rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, 
     glGenVertexArrays(1, &g.vao); glBindVertexArray(g.vao);
     glGenBuffers(1, &g.vbo); glBindBuffer(GL_ARRAY_BUFFER, g.vbo);
     glBufferData(GL_ARRAY_BUFFER, (size_t)nverts * layout->stride[0], verts, GL_STATIC_DRAW);
+    rhi_mem.buffers += (size_t)nverts * layout->stride[0]; rhi_mem.nbuffers++;
     apply_layout(layout, 0);
     if (indices) {
         glGenBuffers(1, &g.ebo); glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g.ebo);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, nindices * sizeof(unsigned), indices, GL_STATIC_DRAW);
+        rhi_mem.buffers += (size_t)nindices * sizeof(unsigned); rhi_mem.nbuffers++;
     }
     if (g.inst_stride) {
         glGenBuffers(1, &g.ibo); glBindBuffer(GL_ARRAY_BUFFER, g.ibo);
         g.inst_capacity = 256; glBufferData(GL_ARRAY_BUFFER, (size_t)g.inst_capacity * g.inst_stride, 0, GL_STREAM_DRAW);
+        rhi_mem.buffers += (size_t)g.inst_capacity * g.inst_stride; rhi_mem.nbuffers++;
         apply_layout(layout, 1);
     }
     glBindVertexArray(0); rhi_bound_vao = 0;
@@ -205,7 +293,11 @@ rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, 
 void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n) {
     if (n <= 0) return;
     glBindBuffer(GL_ARRAY_BUFFER, g->ibo);
-    if (n > g->inst_capacity) { g->inst_capacity = n * 2; glBufferData(GL_ARRAY_BUFFER, (size_t)g->inst_capacity * g->inst_stride, 0, GL_STREAM_DRAW); }
+    if (n > g->inst_capacity) {
+        rhi_mem.buffers -= (size_t)g->inst_capacity * g->inst_stride;
+        g->inst_capacity = n * 2; glBufferData(GL_ARRAY_BUFFER, (size_t)g->inst_capacity * g->inst_stride, 0, GL_STREAM_DRAW);
+        rhi_mem.buffers += (size_t)g->inst_capacity * g->inst_stride;
+    }
     glBufferSubData(GL_ARRAY_BUFFER, 0, (size_t)n * g->inst_stride, data);
     rhi_stats.upload_bytes += (size_t)n * g->inst_stride;
 }

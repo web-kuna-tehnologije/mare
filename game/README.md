@@ -184,7 +184,9 @@ screen-sized icon), procedural towns within 260 units, icons beyond; beyond ~300
 flattened parchment map with national territories, a graticule and the emergent trade lanes.
 
 **Coordinates.** `x = lon * 4`, `z = -lat * 4`, `y = height` (sea level 0). One day at speed 1.0 is 9 units (~2.25°).
-The simulation runs in fixed 0.1-day steps; game speed is days per real second.
+The simulation runs in fixed 0.1-day steps; game speed is days per real second (keys 1-4 select
+0.33, 0.5, 1.0 and 3.0, default 0.33). Fleets are drawn from a smoothed position that chases the
+simulated one, so they sail continuously between ticks.
 
 ## Expanding the world (Asia, the Pacific...)
 

@@ -84,6 +84,10 @@ Status as of the current codebase. Each entry names the module that owns it.
   on the UV-less meshes. Shallow water is transparent down to the seabed.
 - Per-object frustum culling (ports, fleets) with shadow-caster margin; per-frame instance
   buffers shared by all passes; RHI draw/instance/upload statistics in the dashboard.
+- Profiling: per-pass GPU timer queries (read back without stalling), RHI VRAM accounting and
+  process RAM, in the dashboard Perf tab and the metrics CSV.
+- Ship motion: smoothed render positions between simulation ticks, roll + pitch rocking scaled by
+  speed and weather, translucent gunsmoke on firing broadsides.
 - Heightmap terrain: 374 chunks, 5 LOD grids with skirts, frustum culling, biome/desert/tundra
   colouring, parchment map style with territories and coast outlines, fog.
 - Animated sea from the heightmap (depth colour, foam, distance-faded waves, graticule in map view).

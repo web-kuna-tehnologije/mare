@@ -42,8 +42,8 @@ static void panel_topbar(void) {
     const nation_t *me = &G.nations[G.player];
     ROW(6, 130, 34, 34, 34, 34, 34, 22);
     ui_label_col(ui_date(G.day), mu_color(240,230,200,255));
-    if (ui_btn(G.speed == 0 ? ">" : "||")) G.speed = G.speed == 0 ? 1 : 0;
-    static const float speeds[4] = { 1, 3, 8, 20 };
+    if (ui_btn(G.speed == 0 ? ">" : "||")) G.speed = G.speed == 0 ? SIM_SPEED_DEFAULT : 0;
+    static const float speeds[4] = SIM_SPEEDS;
     for (int i = 0; i < 4; ++i) { mu_push_id(ui_ctx, &i, sizeof i); if (ui_btn(G.speed == speeds[i] ? va("[%d]", i+1) : va("%d", i+1))) G.speed = speeds[i]; mu_pop_id(ui_ctx); }
     mu_layout_set_next(ui_ctx, mu_rect(350, 4, 230, 22), 0); ui_label_col(va("Treasury: %s ducats", ui_money(me->treasury)), mu_color(255,220,120,255));
     double net = me->stat_income - me->stat_expense;

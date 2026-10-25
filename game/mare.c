@@ -124,6 +124,11 @@ int main(int argc, char **argv) {
         p_ships = prof_id("gfx.ships"), p_shadow = prof_id("gfx.shadow"), p_sea = prof_id("gfx.sea"), p_over = prof_id("gfx.overlays"), p_icons = prof_id("gfx.icons"), p_labels = prof_id("ui.labels"), p_panels = prof_id("ui.panels");
     int m_steps = metric_id("frame.sim_steps"), m_dt = metric_id("frame.dt_ms"), m_fps = metric_id("frame.fps");
     int m_draws = metric_id("gfx.draw_calls"), m_inst = metric_id("gfx.instances"), m_upload = metric_id("gfx.upload_kb");
+    int g_terrain = rhi_gpu_scope("gpu.terrain"), g_shadow = rhi_gpu_scope("gpu.shadow"), g_meshes = rhi_gpu_scope("gpu.meshes"),
+        g_sea = rhi_gpu_scope("gpu.sea"), g_resolve = rhi_gpu_scope("gpu.resolve");
+    int m_gpu_terrain = metric_id("gpu.terrain_ms"), m_gpu_shadow = metric_id("gpu.shadow_ms"), m_gpu_meshes = metric_id("gpu.meshes_ms"),
+        m_gpu_sea = metric_id("gpu.sea_ms"), m_gpu_resolve = metric_id("gpu.resolve_ms"), m_gpu_total = metric_id("gpu.total_ms");
+    int m_vram = metric_id("mem.vram_mb"), m_ram = metric_id("mem.ram_mb");
     double last = time_ss(); float sim_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
     while (app_swap(.color = 0xFF000000)) {
@@ -138,6 +143,11 @@ int main(int argc, char **argv) {
 
         ui_overlay_begin();
         int ui_blocked = ui_mouse_over_panel();
+        // MARE_CAM="lon,lat,dist[,yaw_deg]" pins the camera: screenshots of a given seed then
+        // frame the same thing every run, which is what makes visual regressions comparable.
+        // It overrides the camera *after* the normal update, so the simulation still runs.
+        static const char *cam_lock; static int cam_lock_read;
+        if (!cam_lock_read) { cam_lock = getenv("MARE_CAM"); cam_lock_read = 1; }
         if (U.in_menu) {
             cam.want_dist = 800; cam.want_tx = lon2x(-30); cam.want_tz = lat2z(25); cam.want_yaw += dt * 0.02f;
             cam_update(dt);
@@ -150,6 +160,12 @@ int main(int argc, char **argv) {
             metric_set(m_steps, steps);
             prof_end(p_sim);
             if (U.toast_timer > 0) U.toast_timer -= dt;
+        }
+        if (cam_lock) {
+            float lo = 0, la = 0, di = 60, ya = 0; sscanf(cam_lock, "%f,%f,%f,%f", &lo, &la, &di, &ya);
+            cam.want_tx = cam.tx = lon2x(lo); cam.want_tz = cam.tz = lat2z(la);
+            cam.want_dist = cam.dist = di; cam.want_yaw = cam.yaw = ya * 0.0174533f;
+            cam_update(dt);
         }
         if (territory_dirty == 2) render_territory_upload();
 
@@ -164,24 +180,27 @@ int main(int argc, char **argv) {
             SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
             prof_begin(p_ports); if (U.pass_ports) scene_build_ports(); prof_end(p_ports);
             prof_begin(p_ships); if (U.pass_ships) scene_build_ships(); prof_end(p_ships);
-            prof_begin(p_shadow); shadow_render(); prof_end(p_shadow);
+            prof_begin(p_shadow); rhi_gpu_begin(g_shadow); shadow_render(); rhi_gpu_end(); prof_end(p_shadow);
         }
         // the HDR target is cleared in linear space: the sky colour is authored in sRGB
         { vec3 skyl = srgb_to_linear3(RF.sky); hdr_begin(screen_w, screen_h, skyl.x, skyl.y, skyl.z); }
         float planes[6][4]; cam_frustum(planes);
-        prof_begin(p_terrain); if (U.pass_terrain) terrain_draw(planes); prof_end(p_terrain);
+        prof_begin(p_terrain); rhi_gpu_begin(g_terrain); if (U.pass_terrain) terrain_draw(planes); rhi_gpu_end(); prof_end(p_terrain);
         icons_begin();
         if (!U.in_menu) {
             meshes_bind();
+            rhi_gpu_begin(g_meshes);
             prof_begin(p_ports); if (U.pass_ports) scene_submit_ports(); prof_end(p_ports);
             prof_begin(p_ships); if (U.pass_ships) scene_submit_ships(); prof_end(p_ships);
+            rhi_gpu_end();
         }
-        prof_begin(p_sea); if (U.pass_sea) sea_draw(); prof_end(p_sea);
+        prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
+        if (!U.in_menu && U.pass_ships) { meshes_bind_smoke(); scene_submit_smoke(); }   // translucent, so after the water
         if (!U.in_menu) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
         }
-        hdr_resolve(screen_w, screen_h);   // tonemap to the backbuffer; labels/panels draw on top
+        rhi_gpu_begin(g_resolve); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer; labels/panels draw on top
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
           if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot);
             const char *sd = getenv("MARE_SHADOWDUMP"); if (sd) shadow_dump(sd);
@@ -189,6 +208,13 @@ int main(int argc, char **argv) {
         if (!U.in_menu) { prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels); }
         prof_end(p_gfx);
         { rhi_stats_t st = rhi_frame_stats(); metric_set(m_draws, st.draws); metric_set(m_inst, st.instances); metric_set(m_upload, st.upload_bytes / 1024.0); }
+        rhi_gpu_collect();
+        { float gt = rhi_gpu_ms(g_terrain), gs = rhi_gpu_ms(g_shadow), gm = rhi_gpu_ms(g_meshes), gw = rhi_gpu_ms(g_sea), gr = rhi_gpu_ms(g_resolve);
+          metric_set(m_gpu_terrain, gt); metric_set(m_gpu_shadow, gs); metric_set(m_gpu_meshes, gm);
+          metric_set(m_gpu_sea, gw); metric_set(m_gpu_resolve, gr); metric_set(m_gpu_total, gt+gs+gm+gw+gr);
+          rhi_mem_t mem = rhi_memory();
+          metric_set(m_vram, (mem.textures + mem.targets + mem.buffers) / (1024.0*1024.0));
+          metric_set(m_ram, diag_process_ram() / (1024.0*1024.0)); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");
 

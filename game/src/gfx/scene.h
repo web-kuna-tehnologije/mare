@@ -19,13 +19,15 @@ extern scene_hints_t SH;
 extern int scene_culled_ports, scene_culled_ships;   // frustum-culled this frame (dashboard stats)
 
 void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading);   // draw position (docked fleets are moored around the harbour)
-void scene_reset_caches(void);    // call after game_new/game_load: town instance caches depend on world heights and port state
+void scene_reset_caches(void);    // also resets the fleet movement animation
+void scene_reset_anim(void);      // drop smoothed fleet positions (new game / load / teleport)    // call after game_new/game_load: town instance caches depend on world heights and port state
 // Geometry is built once per frame, then submitted with whatever pipeline is bound: the shadow
 // cascades reuse the same instance lists as the main pass (lighting.c, mare.c).
 void scene_build_ports(void);     // towns are cached per port and rebuilt when size/fort/owner/population change
 void scene_build_ships(void);
 int  scene_submit_ports(void);    // after meshes_bind(); returns instances drawn
 int  scene_submit_ships(void);    // after meshes_bind()
+int  scene_submit_smoke(void);    // after meshes_bind_smoke(), once the sea is down
 int  scene_submit_shadow(void);   // after meshes_bind_depth(): towns + ships as shadow casters
 void scene_push_icons(void);      // icons for far/map-view ports, fleets and storms (between icons_begin/icons_draw)
 void scene_draw_overlays(void);   // debug-draw lines: selected path, routes, lanes, storms, wind arrows (flushed by dd_flush)

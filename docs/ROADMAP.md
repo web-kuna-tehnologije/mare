@@ -1,9 +1,11 @@
 # Development roadmap
 
-## In progress: renderer modernisation (game/docs/DESIGN_RENDERER.md)
+## Done: renderer modernisation (game/docs/DESIGN_RENDERER.md)
 
-Steps 1-9 are done (RHI, HDR, linear/sRGB, PBR, directional lighting, shadows, normal maps,
-frustum culling, instancing). Next: step 10, CPU/GPU/VRAM/RAM profiling hooks.
+All ten steps are complete: RHI abstraction, HDR, linear/sRGB, PBR, directional lighting,
+cascaded shadows, normal maps, frustum culling, instancing and CPU/GPU/VRAM/RAM profiling.
+Possible follow-ups: a Vulkan or DX12 backend behind the RHI, terrain that casts shadows from a
+dedicated caster mesh, ship wakes, and a day/night cycle driving the existing sun.
 
 The recovered baseline implements the transcript's 0.7 core. These remaining
 ideas are planned features, not claims of completed work.

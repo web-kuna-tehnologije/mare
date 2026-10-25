@@ -51,12 +51,14 @@ void terrain_draw(float planes[6][4]);   // frustum planes from cam_frustum(); c
 void sea_draw(void);
 void meshes_bind(void);             // bind the instanced-mesh program (call before mesh_draw / scene_draw_*)
 void meshes_bind_depth(const mat44 *lightvp);   // depth-only instanced pipeline for the shadow pass
+void meshes_bind_smoke(void);       // translucent instanced pipeline for gunsmoke (after sea_draw)
 extern int terrain_chunks_drawn, terrain_tris_drawn;   // stats for the dashboard
 extern int terrain_show_regions;                       // map view: shade hinterlands by development and draw their borders
 
 // procedural meshes built at init
 extern mesh_t ship_mesh[SHIP_COUNT][2];   // [ship type][lod]: 0 = full hull/masts/sails/stripe/flag, 1 = simplified
 extern mesh_t mesh_house, mesh_roof, mesh_tower, mesh_wall, mesh_pier, mesh_flagpole;
+extern mesh_t mesh_puff;   // gunsmoke
 float ship_scale(int type);               // world scale of a ship type (sloop 0.7 ... ship of the line 1.55, times 1.35)
 
 // screen-sized SDF icons at world positions (ports/fleets/storms when far away or in map view)

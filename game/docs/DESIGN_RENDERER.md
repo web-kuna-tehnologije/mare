@@ -1,7 +1,7 @@
 # Design: modern renderer
 
-Status: **in progress**. The renderer is being modernised one step at a time, in this order.
-Each step lands fully working on all platforms before the next starts.
+Status: **all ten steps done**. The renderer was modernised one step at a time, in this order;
+each step landed fully working on all platforms before the next started.
 
 1. [x] **RHI** — API-agnostic renderer abstraction (`gfx/rhi.h`), GL3 backend (`gfx/rhi_gl.c`),
        chosen at compile time in `mare.c`. Prepares for Vulkan / DX12 backends.
@@ -20,9 +20,33 @@ Each step lands fully working on all platforms before the next starts.
        ships, towns and future meshes (bounding spheres on instance lists).
 9. [x] **Instancing** — formalised in the RHI (done as part of step 1: `rhi_geometry_instances`),
        extend with per-mesh instance buffers reused across passes and draw-call stats.
-10. [ ] **Profiling hooks** — CPU (exists: `prof_*` in core/diag), GPU timer queries per pass,
+10. [x] **Profiling hooks** — CPU (exists: `prof_*` in core/diag), GPU timer queries per pass,
         VRAM (buffer/texture allocation tracking in the RHI), process RAM; all surfaced in the
         dashboard and metrics CSV.
+
+## Step 10: profiling hooks (done)
+
+**GPU timers.** `rhi_gpu_begin/end` wrap each pass (terrain, shadow, meshes, sea, resolve) in an
+`ARB_timer_query`. Results are read back four frames late from a small per-scope ring, so the
+CPU never blocks on the GPU; `rhi_gpu_collect()` harvests whatever has finished. Backends
+without timer queries report 0 and say so in the dashboard instead of showing fake numbers.
+
+**VRAM.** The RHI tracks every allocation it makes - textures, render targets, vertex, index and
+instance buffers - in `rhi_memory()`. Render-target images are *moved* out of the texture bucket
+into the target bucket rather than counted twice. This is what the renderer asked for, not what
+the driver committed, and the dashboard says so.
+
+**RAM.** `diag_process_ram()` returns the process resident set size, with the platform code kept
+beside the other platform code in `core/diag.c` (`/proc/self/statm`, `GetProcessMemoryInfo`,
+`task_info`).
+
+Everything lands in the Perf tab (per-pass GPU bars next to the CPU scopes, VRAM breakdown,
+process RAM, draw/instance/upload counts) and in the metrics CSV as `gpu.*_ms`, `mem.vram_mb`
+and `mem.ram_mb`, so a run can be analysed offline.
+
+A worked example, on llvmpipe where the "GPU" is really the CPU: the tonemap resolve costs
+~13 ms because `linear_to_srgb` runs a `pow` per pixel per channel. On real hardware that is
+free, but it is exactly the kind of thing these hooks exist to surface.
 
 ## Steps 7-9: normal maps, frustum culling, instancing (done)
 

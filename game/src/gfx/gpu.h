@@ -17,7 +17,7 @@
 // flat normal towards the viewer, so a mirrored copy would only add exactly coplanar triangles
 // that z-fight their twins.
 #define MB_FLOATS 12                 // floats per vertex: pos3 nrm3 col3 mat1 rough1 metal1
-typedef struct mb_t { float *v; int n, cap; float rough, metal; } mb_t;
+typedef struct mb_t { float *v; int n, cap; float rough, metal; float nrm[3], nrm_blend; } mb_t;
 // PBR surface presets (roughness, metalness) for the procedural meshes
 #define MB_WOOD      0.78f, 0.f
 #define MB_PAINT     0.55f, 0.f
@@ -26,6 +26,11 @@ typedef struct mb_t { float *v; int n, cap; float rough, metal; } mb_t;
 #define MB_TILE      0.70f, 0.f
 #define MB_METAL     0.35f, 1.f
 static inline void mb_material(mb_t *m, float rough, float metal) { m->rough = rough; m->metal = metal; }
+// Normal override, also builder state: blends the per-triangle flat normal towards `n`. Used for
+// surfaces that are modelled faceted but should read as smooth - a billowed sail is a fan of
+// triangles whose flat normals split it into hard light and dark wedges.
+static inline void mb_set_normal(mb_t *m, float x, float y, float z, float blend) { m->nrm[0]=x; m->nrm[1]=y; m->nrm[2]=z; m->nrm_blend = blend; }
+static inline void mb_auto_normal(mb_t *m) { m->nrm_blend = 0; }
 void mb_tri (mb_t *m, float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float r, float g, float b, float mat);  // CCW front face
 void mb_quad(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat);   // two triangles
 void mb_quad2(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat);  // double sided

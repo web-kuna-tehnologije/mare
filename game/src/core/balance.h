@@ -116,5 +116,11 @@
 
 // simulation
 #define SIM_STEP 0.1f            // days per fixed step
+// Simulation speeds in days per real second, selected with keys 1-4 and the HUD buttons.
+// Deliberately slow: at one day per three seconds a voyage reads as a voyage, and fleets are
+// watchable rather than teleporting between ticks. Speed 4 stays a fast-forward for long waits.
+#define SIM_SPEEDS { 0.3333f, 0.5f, 1.0f, 3.0f }
+#define SIM_SPEED_DEFAULT 0.3333f
+#define GUNSMOKE_DAYS 0.12f      // how long a broadside's smoke hangs around (also the "recently fired" window)
 
 #endif

@@ -109,7 +109,7 @@ void game_new(int player, unsigned seed) {
     double t0 = diag_now();
     memset(&G, 0, sizeof G);
     G.magic = SAVE_MAGIC; G.version = SAVE_VERSION; G.size = sizeof G;
-    G.player = player; G.seed = seed; G.rng = seed * 2654435761u + 12345u; G.speed = 1;
+    G.player = player; G.seed = seed; G.rng = seed * 2654435761u + 12345u; G.speed = SIM_SPEED_DEFAULT;
     G.treasure_timer = 400;   // the first flota sails the first spring
     nav_ports_reset();
     regions_generate(seed, 1);

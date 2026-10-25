@@ -1,10 +1,12 @@
 // Scene assembly (see scene.h): LOD selection for ships and ports, procedural towns, icons,
 // debug-draw overlays (paths, routes, lanes, storms, wind).
 #include <math.h>
+#include <string.h>
 #include "scene.h"
 #include "render.h"
 #include "camera.h"
 #include "../core/util.h"
+#include "../core/diag.h"
 #include "../data/tables.h"
 #include "../world/world.h"
 #include "../world/wind.h"
@@ -39,16 +41,50 @@ void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading) {
 
 // ---------------------------------------------------------------------------
 // ships
+//
+// The simulation moves fleets in fixed 0.1-day steps, which at the default speed is one step
+// every ~0.3 s: rendering the raw simulation position makes ships visibly jump about two thirds
+// of their own length at a time. Each fleet therefore carries a render state that chases the
+// simulated position exponentially, which turns those steps into continuous motion (the lag is
+// well under one step). Large jumps - new game, load, teleport, slot reuse - snap instead.
 
 static instlist_t ship_inst[SHIP_COUNT][2];
+static instlist_t puffs;                 // gunsmoke from recent broadsides
+
+typedef struct fleet_anim_t { int id; float x, z, heading, speed; } fleet_anim_t;
+static fleet_anim_t fleet_anim[MAX_FLEETS];
+static float anim_prev_time;
+
+#define ANIM_RATE  7.0f     // 1/s: time constant ~0.14 s, shorter than one simulation step
+#define ANIM_SNAP  9.0f     // world units: beyond this the fleet did not sail there
+
+void scene_reset_anim(void) { memset(fleet_anim, 0, sizeof fleet_anim); }
+
+// smoothed draw position for fleet slot `i`; also reports how fast it is actually moving
+static void fleet_anim_pos(int i, const fleet_t *f, float dt, float *x, float *z, float *heading, float *speed) {
+    float tx, tz, th; scene_fleet_pos(f, &tx, &tz, &th);
+    fleet_anim_t *a = &fleet_anim[i];
+    if (a->id != f->id || dist2d(a->x, a->z, tx, tz) > ANIM_SNAP) {
+        *a = (fleet_anim_t){ f->id, tx, tz, th, 0 };
+    } else {
+        float k = 1.f - expf(-dt * ANIM_RATE);
+        float nx = a->x + (tx - a->x) * k, nz = a->z + (tz - a->z) * k;
+        a->speed = dt > 1e-5f ? lerpf(a->speed, dist2d(a->x, a->z, nx, nz) / dt, 0.2f) : a->speed;
+        a->x = nx; a->z = nz;
+        a->heading += wrap_angle(th - a->heading) * k;
+    }
+    *x = a->x; *z = a->z; *heading = a->heading; *speed = a->speed;
+}
 
 void scene_build_ships(void) {
     cam_frustum(frustum);
     scene_culled_ships = 0;
+    float dt = clampf(RF.time - anim_prev_time, 0, 0.25f); anim_prev_time = RF.time;
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]);
+    instlist_clear(&puffs);
     for (int i = 0; i < G.nfleets; ++i) {
         const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
-        float x, z, heading; scene_fleet_pos(f, &x, &z, &heading);
+        float x, z, heading, vel; fleet_anim_pos(i, f, dt, &x, &z, &heading, &vel);
         float d = cam_distance(x, z);
         if (d > LOD1_DIST || cam.mapness > 0.6f) continue;   // icons handle it
         if (!cam_sphere_visible(frustum, x, 0, z, f->nships * 1.5f + CULL_MARGIN)) { scene_culled_ships++; continue; }
@@ -56,24 +92,46 @@ void scene_build_ships(void) {
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;
         int lod = d < LOD0_DIST ? 0 : 1, nshow = lod == 1 ? mini(f->nships, 4) : f->nships;
         float hx = cosf(heading), hz = -sinf(heading);
+        // how hard the ship works: moored ships barely move, ships under way roll with their
+        // speed, and a storm throws everything around
+        const event_t *storm = storm_at(f->x, f->z);
+        float rock = (f->at_port >= 0 ? 0.25f : 0.55f + 0.45f * clampf(vel / 9.f, 0, 1))
+                   * (storm ? 1.f + 1.6f * storm->strength : 1.f);
         for (int s = 0; s < nshow; ++s) {
             float sc = ship_scale(f->ships[s].type);
             float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
             inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
-            *in = (inst_t){ x + hx*along - hz*side, 0, z + hz*along + hx*side, heading, sc, col_r(col), col_g(col), col_b(col), f->at_port >= 0 ? 0.3f : 1.f, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0 };
+            *in = (inst_t){ x + hx*along - hz*side, 0, z + hz*along + hx*side, heading, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0 };
         }
         if (sel || hov) dd_circle(vec3(x, 0.1f, z), vec3(0,1,0), (sel ? 1.6f : 1.4f) * 1.35f + f->nships * 0.2f, .color = rgb_linear(sel ? rgb(255, 240, 120) : rgb(220, 220, 220)));
-        if (G.day - f->last_fire < 0.12f && f->at_port < 0) dd_sphere(vec3(x + hz*0.6f, 0.4f, z - hx*0.6f), .r = 0.35f, .color = rgb_linear(rgb(255, 200, 80)));
+        // Gunsmoke: a couple of puffs off the engaged broadside that swell, drift and thin out.
+        // (This used to be a debug-draw wire sphere, which read as a gold scribble on the water.)
+        float age = G.day - f->last_fire;
+        if (age >= 0 && age < GUNSMOKE_DAYS && f->at_port < 0) {
+            float t = age / GUNSMOKE_DAYS, env = sinf(3.14159f * t);
+            static int logged; if (!logged) { logged = 1; LOG_DEBUG("gfx", "gunsmoke: first broadside rendered (%s)", f->name); }
+            for (int k = 0; k < 2; ++k) {
+                float along = (k ? -0.7f : 0.55f) * 1.35f;
+                inst_t *pf = instlist_push(&puffs);
+                *pf = (inst_t){ x + hx*along + hz*(0.6f + 0.8f*t), 0.3f + 0.9f*t, z + hz*along - hx*(0.6f + 0.8f*t),
+                                0, (0.35f + 0.8f*t) * env * (k ? 0.8f : 1.f), 0.86f, 0.85f, 0.84f, 0, 0, 0, 0 };
+            }
+        }
     }
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) mesh_set_instances(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n);
+    mesh_set_instances(&mesh_puff, puffs.v, puffs.n);
 }
 
 // submit the instances uploaded by scene_build_* with whatever pipeline is bound (main or shadow)
-int scene_submit_ships(void) {
+static int submit_ship_meshes(void) {
     int n = 0;
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) { mesh_draw(&ship_mesh[t][l]); n += ship_mesh[t][l].ninst; }
     return n;
 }
+int scene_submit_ships(void) { return submit_ship_meshes(); }
+
+// gunsmoke, drawn after the sea with the translucent pipeline (meshes_bind_smoke)
+int scene_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
 
 // ---------------------------------------------------------------------------
 // ports (towns are regenerated each frame from a per-port seed: cheap and always in sync)
@@ -125,7 +183,7 @@ static void town_build(const port_t *p, int index) {
     }
 }
 
-void scene_reset_caches(void) { for (int i = 0; i < MAX_PORTS; ++i) town_cache[i].sig = 0, town_cache[i].n = 0; }   // world/heights may have changed (new game, load)
+void scene_reset_caches(void) { for (int i = 0; i < MAX_PORTS; ++i) town_cache[i].sig = 0, town_cache[i].n = 0; scene_reset_anim(); }   // world/heights may have changed (new game, load)
 
 static void town_instances(const port_t *p, int index) {
     town_cache_t *c = &town_cache[index]; unsigned sig = town_signature(p);
@@ -158,10 +216,10 @@ int scene_submit_ports(void) {
     return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n;
 }
 
-// shadow casters: every town piece and every ship (piers shadow the water, flagpoles the squares)
+// shadow casters: every town piece and every ship (piers shadow the water, flagpoles the
+// squares). Gunsmoke is deliberately left out: a hard-edged shadow from a smoke ball looks wrong.
 int scene_submit_shadow(void) {
-    int n = scene_submit_ports();
-    return n + scene_submit_ships();
+    return scene_submit_ports() + submit_ship_meshes();
 }
 
 // ---------------------------------------------------------------------------

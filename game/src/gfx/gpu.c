@@ -18,6 +18,10 @@ void mb_tri(mb_t *m, float ax, float ay, float az, float bx, float by, float bz,
     float ux = bx-ax, uy = by-ay, uz = bz-az, vx = cx-ax, vy = cy-ay, vz = cz-az;
     float n[3] = { uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx };
     float l = sqrtf(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]); if (l > 1e-9f) { n[0]/=l; n[1]/=l; n[2]/=l; } else n[1] = 1;
+    if (m->nrm_blend > 0) {
+        for (int i = 0; i < 3; ++i) n[i] = n[i] * (1 - m->nrm_blend) + m->nrm[i] * m->nrm_blend;
+        float q = sqrtf(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]); if (q > 1e-9f) { n[0]/=q; n[1]/=q; n[2]/=q; }
+    }
     float a[3] = {ax,ay,az}, bb[3] = {bx,by,bz}, c[3] = {cx,cy,cz};
     mb_push(m, a, n, r,g,b,mat); mb_push(m, bb, n, r,g,b,mat); mb_push(m, c, n, r,g,b,mat);
 }

@@ -47,7 +47,7 @@ static rhi_texture_t bake_normals(int n, float bump, float (*height)(float u, fl
         o[1] = (unsigned char)((ny/l * 0.5f + 0.5f) * 255);
         o[2] = (unsigned char)((1.f/l * 0.5f + 0.5f) * 255);
     }
-    rhi_texture_t t = rhi_texture_make(n, n, RHI_FMT_RGB8, RHI_FILTER_LINEAR, RHI_WRAP_REPEAT, px);
+    rhi_texture_t t = rhi_texture_make(n, n, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT, px);
     free(px);
     return t;
 }

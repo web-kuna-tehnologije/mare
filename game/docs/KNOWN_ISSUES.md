@@ -36,8 +36,11 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   skirt-free, LOD-stable caster mesh (see DESIGN_RENDERER.md).
 - **L** Shadow cascades stop at ~300 world units, where towns and ships become icons anyway;
   beyond that everything is lit.
-- **L** On software rasterizers (llvmpipe/Xvfb) the shadow pass costs ~4 ms/frame of the ~22 ms
-  frame; use `--no-shadows` or the dashboard toggle. Negligible on real GPUs.
+- **L** On software rasterizers (llvmpipe/Xvfb) the shadow pass costs ~2-4 ms/frame and the
+  tonemap resolve ~13 ms (a `pow` per pixel for the sRGB encode); use `--no-shadows` or the
+  dashboard toggle. Both are negligible on real GPUs - the Perf tab shows the per-pass split.
+- **L** Gunsmoke puffs are alpha blended without sorting between themselves, so overlapping
+  puffs can blend in the wrong order. Not noticeable at the sizes used.
 - **L** Fleet labels are not part of the label collision system: a selected fleet's label can
   overlap a port name.
 - **L** Terrain chunks are one draw call each (~50 visible); fine on GPUs.

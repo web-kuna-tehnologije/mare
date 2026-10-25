@@ -23,6 +23,10 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <psapi.h>
+#if defined(_MSC_VER)
+#pragma comment(lib, "psapi")   // GetProcessMemoryInfo
+#endif
 #include <direct.h>
 #include <io.h>
 #define diag_mkdir(p) _mkdir(p)
@@ -30,6 +34,9 @@
 #else
 #include <sys/time.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 #define diag_mkdir(p) mkdir(p, 0777)
 #define diag_isatty() isatty(fileno(stderr))
 #endif
@@ -68,6 +75,27 @@ double diag_now(void) {
     struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return ts.tv_sec + ts.tv_nsec * 1e-9;
 #endif
 }
+// Resident set size of this process, in bytes (0 if unavailable). Platform code stays here with
+// the rest of it; the dashboard and the metrics CSV report it alongside the GPU figures.
+size_t diag_process_ram(void) {
+#if defined(_WIN32)
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof pmc)) return (size_t)pmc.WorkingSetSize;
+    return 0;
+#elif defined(__APPLE__)
+    struct mach_task_basic_info info; mach_msg_type_number_t n = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &n) == KERN_SUCCESS) return (size_t)info.resident_size;
+    return 0;
+#else
+    FILE *f = fopen("/proc/self/statm", "r");          // pages: size resident shared ...
+    if (!f) return 0;
+    unsigned long total = 0, resident = 0;
+    int got = fscanf(f, "%lu %lu", &total, &resident);
+    fclose(f);
+    return got == 2 ? (size_t)resident * (size_t)sysconf(_SC_PAGESIZE) : 0;
+#endif
+}
+
 static double wall_now(void) {
 #ifdef _WIN32
     FILETIME ft; GetSystemTimeAsFileTime(&ft); unsigned long long t = ((unsigned long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime; return t / 1e7 - 11644473600.0;

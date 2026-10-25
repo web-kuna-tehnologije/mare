@@ -159,11 +159,9 @@ void input_frame(float dt, int ui_blocked) {
     if (ldown && !(mouse_held('l') || mouse_down('l'))) { if (!ui_blocked && fabsf(mx - lx0) < 6 && fabsf(my - ly0) < 6) left_click(); ldown = 0; }
 
     // hotkeys
-    if (key_down(' ')) G.speed = G.speed == 0 ? 1 : 0;
-    if (key_down('1')) G.speed = 1;
-    if (key_down('2')) G.speed = 3;
-    if (key_down('3')) G.speed = 8;
-    if (key_down('4')) G.speed = 20;
+    { static const float speeds[4] = SIM_SPEEDS;
+      if (key_down(' ')) G.speed = G.speed == 0 ? SIM_SPEED_DEFAULT : 0;
+      for (int k = 0; k < 4; ++k) if (key_down('1' + k)) G.speed = speeds[k]; }
     if (KDOWN(GLFW_KEY_ESCAPE)) { if (U.route_mode) U.route_mode = 0; else if (U.show_help) U.show_help = 0; else { U.sel_fleet_id = 0; U.sel_port = -1; } }
     if (KDOWN(GLFW_KEY_F1)) U.show_help ^= 1;
     if (KDOWN(GLFW_KEY_F3)) U.show_debug ^= 1;

@@ -19,7 +19,9 @@ typedef enum rhi_format_t {               // texture formats (grows with HDR/sRG
     RHI_FMT_R32F, RHI_FMT_RGB8, RHI_FMT_RGBA8, RHI_FMT_SRGB8, RHI_FMT_SRGB8_A8,
     RHI_FMT_RGBA16F, RHI_FMT_DEPTH24,
 } rhi_format_t;
-typedef enum rhi_filter_t { RHI_FILTER_NEAREST, RHI_FILTER_LINEAR } rhi_filter_t;
+// MIPMAP builds a full mip chain and filters trilinearly: required for any texture that is
+// minified (an unmipmapped normal map aliases into per-pixel specular sparkle at distance)
+typedef enum rhi_filter_t { RHI_FILTER_NEAREST, RHI_FILTER_LINEAR, RHI_FILTER_MIPMAP } rhi_filter_t;
 typedef enum rhi_wrap_t   { RHI_WRAP_CLAMP, RHI_WRAP_REPEAT } rhi_wrap_t;
 typedef enum rhi_blend_t  { RHI_BLEND_NONE, RHI_BLEND_ALPHA } rhi_blend_t;
 typedef enum rhi_usage_t  { RHI_USAGE_STATIC, RHI_USAGE_STREAM } rhi_usage_t;
@@ -99,5 +101,27 @@ void rhi_draw(rhi_geometry_t *g, int ninstances);    // indexed if indices exist
 typedef struct rhi_stats_t { int draws, instances, tris; size_t upload_bytes; } rhi_stats_t;
 void rhi_frame_stats_reset(void);
 rhi_stats_t rhi_frame_stats(void);
+
+// --------------------------------------------------------------------------
+// GPU profiling (DESIGN_RENDERER.md step 10)
+//
+// Timer scopes measure how long the GPU actually spent on a pass. Results are read back a few
+// frames late so the CPU never blocks waiting for the GPU; rhi_gpu_ms() returns the newest
+// completed measurement for a scope. Backends without timer queries report 0 and set
+// rhi_gpu_timers_supported() to 0.
+#define RHI_GPU_SCOPES 12
+int   rhi_gpu_scope(const char *name);        // stable id, created on first use
+void  rhi_gpu_begin(int scope);               // scopes must not nest
+void  rhi_gpu_end(void);
+void  rhi_gpu_collect(void);                  // once per frame: harvest finished queries
+float rhi_gpu_ms(int scope);                  // newest completed timing, ms
+const char *rhi_gpu_scope_name(int scope);
+int   rhi_gpu_scope_count(void);
+int   rhi_gpu_timers_supported(void);
+
+// GPU memory accounting: bytes the RHI has allocated for textures, render targets, vertex,
+// index and instance buffers. This is what *we* asked for, not what the driver committed.
+typedef struct rhi_mem_t { size_t textures, targets, buffers; int ntextures, nbuffers; } rhi_mem_t;
+rhi_mem_t rhi_memory(void);
 
 #endif

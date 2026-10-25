@@ -9,7 +9,7 @@
 #include "../core/util.h"
 
 mesh_t ship_mesh[SHIP_COUNT][2];
-mesh_t mesh_house, mesh_roof, mesh_tower, mesh_wall, mesh_pier, mesh_flagpole;
+mesh_t mesh_house, mesh_roof, mesh_tower, mesh_wall, mesh_pier, mesh_flagpole, mesh_puff;
 static rhi_pipeline_t meshes_prg;
 
 static const char *meshes_vs =
@@ -20,12 +20,19 @@ static const char *meshes_vs =
     "void main(){\n"
     "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
     "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
-    "  float roll = i_misc.x * sin(u_time*1.3 + i_pos.x*3.0 + i_pos.z*2.0) * 0.06;\n"
-    "  float cr = cos(roll), sr = sin(roll);\n"
+    /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
+       never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, \
+       or caught in a storm), so anchored ships barely stir while a storm throws them about. */ \
+    "  float ph = i_pos.x*3.0 + i_pos.z*2.0;\n"
+    "  float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.045;\n"
+    "  float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.022;\n"
+    "  float cr = cos(roll), sr = sin(roll), cp = cos(pitch), sp = sin(pitch);\n"
     "  p = vec3(p.x, p.y*cr - p.z*sr, p.y*sr + p.z*cr);\n"
+    "  p = vec3(p.x*cp - p.y*sp, p.x*sp + p.y*cp, p.z);\n"
     "  vec3 n = vec3(a_nrm.x, a_nrm.y*cr - a_nrm.z*sr, a_nrm.y*sr + a_nrm.z*cr);\n"
+    "  n = vec3(n.x*cp - n.y*sp, n.x*sp + n.y*cp, n.z);\n"
     "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;\n"
-    "  wp.y += i_misc.z * sin(u_time*1.1 + i_pos.x*2.0) * 0.02;\n"
+    "  wp.y += i_misc.z * (sin(u_time*1.10 + i_pos.x*2.0) * 0.02 + sin(u_time*0.47 + i_pos.z*1.3) * 0.012);\n"
     "  v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);\n"
     "  v_col = mix(a_col, i_scol.yzw, a_mat);\n"
     "  v_wpos = wp; v_sel = i_misc.y; v_rm = a_rm;\n"
@@ -64,13 +71,41 @@ static const char *depth_vs =
     "void main(){\n"
     "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
     "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
-    "  float roll = i_misc.x * sin(u_time*1.3 + i_pos.x*3.0 + i_pos.z*2.0) * 0.06;\n"
-    "  float cr = cos(roll), sr = sin(roll);\n"
+    /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
+       never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, \
+       or caught in a storm), so anchored ships barely stir while a storm throws them about. */ \
+    "  float ph = i_pos.x*3.0 + i_pos.z*2.0;\n"
+    "  float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.045;\n"
+    "  float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.022;\n"
+    "  float cr = cos(roll), sr = sin(roll), cp = cos(pitch), sp = sin(pitch);\n"
     "  p = vec3(p.x, p.y*cr - p.z*sr, p.y*sr + p.z*cr);\n"
+    "  p = vec3(p.x*cp - p.y*sp, p.x*sp + p.y*cp, p.z);\n"
     "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;\n"
-    "  wp.y += i_misc.z * sin(u_time*1.1 + i_pos.x*2.0) * 0.02;\n"
+    "  wp.y += i_misc.z * (sin(u_time*1.10 + i_pos.x*2.0) * 0.02 + sin(u_time*0.47 + i_pos.z*1.3) * 0.012);\n"
     "  gl_Position = u_vp * vec4(wp, 1.0);\n"
     "}\n";
+// Gunsmoke: the same instanced geometry, but shaded as a soft translucent volume instead of a
+// solid surface - alpha falls off towards the silhouette, so the sphere reads as a puff rather
+// than a ball. Blended, depth-tested but not depth-written, drawn after the sea.
+static const char *smoke_fs =
+    "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm;\n"
+    "uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness;\n"
+    "out vec4 fragColor;\n"
+    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_FOG
+    "void main(){\n"
+    "  vec3 n = normalize(v_nrm);\n"
+    "  vec3 vdir = normalize(u_campos - v_wpos);\n"
+    "  if (dot(n, vdir) < 0.0) n = -n;\n"
+    "  float facing = max(dot(n, vdir), 0.0);\n"
+    "  vec3 albedo = srgb_to_linear(v_col);\n"
+    "  float sh = shadow_at(v_wpos, n, max(dot(n, u_sun), 0.0), distance(v_wpos, u_campos));\n"
+    // soft, mostly ambient lighting: smoke scatters rather than reflects
+    "  vec3 c = albedo * (u_ambsky * 0.9 + u_ambgnd * 0.4 + u_suncol * 0.16 * sh * max(dot(n, u_sun), 0.0));\n"
+    "  c = fog_apply(c, distance(v_wpos, u_campos), u_mapness, srgb_to_linear(u_sky));\n"
+    "  fragColor = vec4(c, smoothstep(0.0, 0.75, facing) * 0.72);\n"
+    "}\n";
+static rhi_pipeline_t smoke_prg;
+
 static const char *depth_fs =
     "out vec4 fragColor;\n"
     "void main(){ fragColor = vec4(1.0); }\n";
@@ -137,10 +172,12 @@ static void build_ship(int type, int lod) {
             float hw = (s == 0 ? 0.15f : 0.11f) * (type == SHIP_SLOOP ? 0.8f : 1.f), bx = mx + 0.01f;
             float a[3] = {bx,y0,-hw}, b[3] = {bx,y0,hw}, c[3] = {bx,y1,hw}, d[3] = {bx,y1,-hw}, mid[3] = {bx + 0.045f, (y0+y1)*0.5f, 0};
             if (lod == 0) {   // billowed: fan of 4 triangles around a centre pushed forward, both sides
+                mb_set_normal(&m, 1, 0, 0, 0.72f);   // read as one curved surface, not four wedges
                 const float *q[4] = { a, b, c, d };
                 for (int e = 0; e < 4; ++e) { const float *p0 = q[e], *p1 = q[(e+1)%4];
                     mb_tri(&m, p0[0],p0[1],p0[2], p1[0],p1[1],p1[2], mid[0],mid[1],mid[2], sail[0],sail[1],sail[2], 0);
                     mb_tri(&m, p1[0],p1[1],p1[2], p0[0],p0[1],p0[2], mid[0],mid[1],mid[2], sail[0],sail[1],sail[2], 0); }
+                mb_auto_normal(&m);
             } else mb_quad2(&m, a, b, c, d, sail[0],sail[1],sail[2], 0);
         }
         mb_material(&m, MB_WOOD);
@@ -182,13 +219,38 @@ static void build_buildings(void) {
     mesh_flagpole = mesh_upload(&m);
 }
 
+// A low-poly sphere used as a gunsmoke puff: material 1, so the instance colour tints it, and
+// smooth normals so it reads as a soft ball rather than a faceted rock.
+static void build_puff(void) {
+    mb_t m = {0};
+    mb_material(&m, 0.97f, 0.f);
+    const int SEG = 8, RING = 4;
+    for (int j = 0; j < RING; ++j) {
+        float t0 = j * 3.14159f / RING, t1 = (j+1) * 3.14159f / RING;
+        for (int i = 0; i < SEG; ++i) {
+            float p0 = i * 6.28318f / SEG, p1 = (i+1) * 6.28318f / SEG;
+            float a[3] = { sinf(t0)*cosf(p0)*0.5f, cosf(t0)*0.5f, sinf(t0)*sinf(p0)*0.5f };
+            float b[3] = { sinf(t1)*cosf(p0)*0.5f, cosf(t1)*0.5f, sinf(t1)*sinf(p0)*0.5f };
+            float c[3] = { sinf(t1)*cosf(p1)*0.5f, cosf(t1)*0.5f, sinf(t1)*sinf(p1)*0.5f };
+            float d[3] = { sinf(t0)*cosf(p1)*0.5f, cosf(t0)*0.5f, sinf(t0)*sinf(p1)*0.5f };
+            float mid[3] = { (a[0]+b[0]+c[0]+d[0])*0.25f, (a[1]+b[1]+c[1]+d[1])*0.25f, (a[2]+b[2]+c[2]+d[2])*0.25f };
+            mb_set_normal(&m, mid[0], mid[1], mid[2], 0.85f);
+            mb_quad(&m, a, b, c, d, 1,1,1, 1);
+        }
+    }
+    mb_auto_normal(&m);
+    mesh_puff = mesh_upload(&m);
+}
+
 void meshes_init(void) {
     static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", GLSL_LIGHT_UNIFORMS, 0 };
     static const char *depth_uniforms[] = { "u_vp", "u_time", 0 };
     meshes_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = meshes_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     depth_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = depth_vs, .fs = depth_fs, .layout = &mesh_layout, .uniforms = depth_uniforms, .depth_test = 1, .depth_write = 1 });
+    smoke_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = smoke_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 0, .blend = RHI_BLEND_ALPHA });
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) build_ship(t, l);
     build_buildings();
+    build_puff();
 }
 
 void meshes_bind(void) {
@@ -200,6 +262,16 @@ void meshes_bind(void) {
     rhi_set_f3(UNI(meshes_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
     rhi_set_f1(UNI(meshes_prg,"u_mapness"), RF.mapness);
     light_bind(&meshes_prg);
+}
+
+void meshes_bind_smoke(void) {
+    rhi_pipeline_bind(&smoke_prg);
+    rhi_set_mat4(UNI(smoke_prg,"u_vp"), &RF.vp.x.x);
+    rhi_set_f1(UNI(smoke_prg,"u_time"), RF.time);
+    rhi_set_f3(UNI(smoke_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    rhi_set_f3(UNI(smoke_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
+    rhi_set_f1(UNI(smoke_prg,"u_mapness"), RF.mapness);
+    light_bind(&smoke_prg);
 }
 
 void meshes_bind_depth(const mat44 *lightvp) {

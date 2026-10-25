@@ -15,6 +15,7 @@
 #define MARE_DIAG_H
 
 #include <stdarg.h>
+#include <stddef.h>
 
 enum { LOG_TRACE=0, LOG_DEBUG, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_FATAL, LOG_LEVELS };
 
@@ -41,6 +42,7 @@ void diag_init(const diag_config_t *cfg);        // cfg may be NULL for defaults
 void diag_shutdown(void);                        // flushes, writes a summary, closes files
 void diag_set_sim_day(float day);                // stamped on every record
 double diag_now(void);                           // monotonic seconds
+size_t diag_process_ram(void);                   // process resident set size in bytes (0 if unavailable)
 const char *diag_run_log_path(void);             // path of this run's log file
 
 // --------------------------------------------------------------------------

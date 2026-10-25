@@ -40,11 +40,18 @@ static const char *sea_fs =
     "  vec2 slope = (n1.xy / max(n1.z, 0.3) + n2.xy / max(n2.z, 0.3) * 0.6) * 0.42 * detail;\n"
     "  vec3 n = normalize(vec3(slope.x, 1.0, slope.y));\n"
     "  float w1 = sin(p.x*3.1 + p.y*1.3 + t*1.7);\n"   // keeps the foam band animated
-    "  vec3 deep = vec3(0.02,0.10,0.24), shallow = vec3(0.12,0.46,0.52);\n"
+    "  vec3 deep = vec3(0.02,0.10,0.24), shallow = vec3(0.16,0.56,0.60);\n"
     "  vec3 c = srgb_to_linear(mix(shallow, deep, 1.0 - exp(-depth*0.9)));\n"
     "  vec3 vdir = normalize(u_campos - v_wpos);\n"
     // water: smooth dielectric, so the sun glint comes from the GGX lobe and the sky from Fresnel
-    "  float rough = mix(0.30, 0.13, detail);\n"
+    // Specular antialiasing. One pixel covers many waves once the camera pulls back, and a
+    // sharp GGX lobe sampled at one point per pixel then turns into a field of fireflies.
+    // Measuring how much the normal actually swings per pixel and folding that variance into
+    // roughness fixes it at every distance, instead of guessing with a distance curve.
+    "  float rough = mix(0.45, 0.13, detail);\n"
+    "  vec3 ndx = dFdx(n), ndy = dFdy(n);\n"
+    "  float nvar = dot(ndx, ndx) + dot(ndy, ndy);\n"
+    "  rough = clamp(sqrt(rough*rough + nvar * 2.0), 0.0, 1.0);\n"
     "  vec3 col3d = sun_shade(c, n, vdir, v_wpos, rough, 0.0, dist);\n"
     "  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, vdir), 0.0), 5.0);\n"
     "  col3d += srgb_to_linear(u_sky) * u_ambsky * fres * 1.4;\n"
@@ -60,7 +67,7 @@ static const char *sea_fs =
     "  vec3 col = fog_apply(mix(col3d, srgb_to_linear(mapc) * u_daylight, u_mapness), dist, u_mapness, srgb_to_linear(u_sky));\n"
     // transparency: the terrain below has already been drawn, so shallow water reveals the
     // seabed and deep water goes opaque; the map view stays solid parchment
-    "  float alpha = mix(0.42, 1.0, smoothstep(0.0, 1.6, depth));\n"
+    "  float alpha = mix(0.62, 1.0, smoothstep(0.0, 1.1, depth));\n"
     "  alpha = max(alpha, foam * 0.85);\n"           // surf stays visible over the seabed
     "  alpha = mix(alpha, 1.0, u_mapness);\n"
     "  fragColor = vec4(col, alpha);\n"

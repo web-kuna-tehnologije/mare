@@ -68,7 +68,39 @@ static void tab_perf(void) {
     mu_checkbox(ui_ctx, "terrain", &U.pass_terrain); mu_checkbox(ui_ctx, "sea", &U.pass_sea); mu_checkbox(ui_ctx, "ports", &U.pass_ports); mu_checkbox(ui_ctx, "ships", &U.pass_ships);
     mu_checkbox(ui_ctx, "overlays", &U.pass_overlays); mu_checkbox(ui_ctx, "icons", &U.pass_icons); mu_checkbox(ui_ctx, "labels", &U.pass_labels); mu_checkbox(ui_ctx, "panels", &U.pass_panels);
     ROW(1, -1, 18);
-    mu_label(ui_ctx, va("render: %d chunks, %d terrain tris | sim speed x%.0f | %d steps/frame budgeted", terrain_chunks_drawn, terrain_tris_drawn, G.speed, 40));
+    mu_label(ui_ctx, va("render: %d chunks, %d terrain tris | sim speed %.2f days/s | %d steps/frame budgeted", terrain_chunks_drawn, terrain_tris_drawn, G.speed, 40));
+
+    // --- GPU timings and memory (DESIGN_RENDERER.md step 10)
+    ROW(1, -1, 18);
+    ui_label_col(rhi_gpu_timers_supported() ? "GPU passes (timer queries, read back 4 frames late):"
+                                            : "GPU passes: timer queries unavailable on this driver",
+                 mu_color(230,200,160,255));
+    if (rhi_gpu_timers_supported()) {
+        float total = 0;
+        for (int i = 0; i < rhi_gpu_scope_count(); ++i) total += rhi_gpu_ms(i);
+        float scale = maxf(0.05f, total);
+        for (int i = 0; i < rhi_gpu_scope_count(); ++i) {
+            mu_push_id(ui_ctx, &i, sizeof i);
+            ROW(3, 170, 60, -1, 16);
+            ui_label_col(rhi_gpu_scope_name(i), mu_color(190,200,220,255));
+            mu_label(ui_ctx, va("%.2f", rhi_gpu_ms(i)));
+            mu_Rect r = mu_layout_next(ui_ctx); mu_draw_rect(ui_ctx, r, mu_color(40,40,50,255));
+            mu_draw_rect(ui_ctx, mu_rect(r.x, r.y+2, (int)(r.w * clampf(rhi_gpu_ms(i)/scale, 0, 1)), r.h-4), mu_color(200,140,90,255));
+            mu_pop_id(ui_ctx);
+        }
+        ROW(3, 170, 60, -1, 16);
+        ui_label_col("gpu total", mu_color(230,230,230,255)); mu_label(ui_ctx, va("%.2f", total));
+        mu_label(ui_ctx, va("vs %.2f ms CPU frame", prof_frame_ms()));
+    }
+    { rhi_mem_t mem = rhi_memory(); rhi_stats_t st = rhi_frame_stats();
+      double mb = 1024.0*1024.0;
+      ROW(1, -1, 18);
+      mu_label(ui_ctx, va("VRAM %.1f MB = textures %.1f (%d) + targets %.1f + buffers %.1f (%d)",
+                          (mem.textures+mem.targets+mem.buffers)/mb, mem.textures/mb, mem.ntextures,
+                          mem.targets/mb, mem.buffers/mb, mem.nbuffers));
+      ROW(1, -1, 18);
+      mu_label(ui_ctx, va("process RAM %.1f MB | game state %.1f MB | streamed %zu KB/frame in %d draws",
+                          diag_process_ram()/mb, sizeof(G)/mb, st.upload_bytes/1024, st.draws)); }
 }
 
 static void tab_metrics(void) {
@@ -123,8 +155,8 @@ static void tab_system(void) {
     mu_label(ui_ctx, va("HDR RGBA16F, linear/sRGB, PBR | exposure %.2f | shadows %s (%d casters)",
                         hdr_exposure, shadow_enabled ? "on" : "off", shadow_casters_drawn));
     { rhi_stats_t st = rhi_frame_stats();
-      mu_label(ui_ctx, va("draws %d | instances %d | tris %dk | upload %zu KB | culled %d ports %d fleets",
-                          st.draws, st.instances, st.tris / 1000, st.upload_bytes / 1024, scene_culled_ports, scene_culled_ships)); }
+      mu_label(ui_ctx, va("draws %d | instances %d | tris %dk | culled %d ports %d fleets (GPU times: Perf tab)",
+                          st.draws, st.instances, st.tris / 1000, scene_culled_ports, scene_culled_ships)); }
     ROW(3, 150, 150, -1, 22);
     if (ui_btn(shadow_enabled ? "Shadows: on" : "Shadows: off")) shadow_enabled = !shadow_enabled;
     if (ui_btn("Exposure -")) hdr_exposure = maxf(0.25f, hdr_exposure - 0.1f);
