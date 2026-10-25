@@ -226,5 +226,6 @@ code via `KDOWN/KHELD`); and `keyboard(glfw3).h` called `toupper()` on GLFW code
 
 ## License
 
-Game code is released under the same terms as v3 (public domain / 0-BSD / MIT-0). No external assets: the world, ships
-and towns are generated from the data tables in `src/data/`.
+Original Mare Liberum game code is licensed under the MIT License in the repository root. The bundled v3 framework and
+third-party components retain their respective upstream licenses; see `docs/LICENSE` and the notices alongside
+components in `ext/`. No external assets: the world, ships and towns are generated from the data tables in `src/data/`.

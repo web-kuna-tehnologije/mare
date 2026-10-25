@@ -28,3 +28,10 @@ __pycache__/
 .DS_Store
 /tmp/
 /assets/
+# Local credentials and private keys
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
