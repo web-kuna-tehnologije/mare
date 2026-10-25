@@ -1,132 +1,13 @@
-// glTF 2.0 / GLB loader - see gltf.h for scope. Self-contained: a small recursive-descent
-// JSON tokenizer (preorder token array, O(1) subtree skip), base64 for data: URIs, accessor
-// readers that widen every component type to float/u32, and a scene walk that bakes node
-// transforms into flat vertex streams.
+// glTF 2.0 / GLB loader - see gltf.h for scope. JSON via gjson.h, base64 for data: URIs,
+// accessor readers that widen every component type to float/u32, and a scene walk that bakes
+// node transforms into flat vertex streams.
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include "gltf.h"
-
-// --------------------------------------------------------------------------
-// JSON tokenizer. Tokens in preorder; tok.ntok = tokens in the subtree including itself, so
-// skipping a value is `i += tok[i].ntok`. Object children alternate key-string / value.
-
-typedef enum { JS_NULL, JS_BOOL, JS_NUM, JS_STR, JS_ARR, JS_OBJ } gjtype_t;
-typedef struct gjtok_t { unsigned char type; int start, len; int ntok, nchild; } gjtok_t;
-typedef struct gjson_t { const char *s; int n; gjtok_t *t; int ntok, cap; } gjson_t;
-
-static int jpush(gjson_t *j, gjtype_t type, int start) {
-    if (j->ntok == j->cap) { j->cap = j->cap ? j->cap * 2 : 256; j->t = (gjtok_t *)realloc(j->t, j->cap * sizeof *j->t); }
-    gjtok_t *t = &j->t[j->ntok];
-    t->type = (unsigned char)type; t->start = start; t->len = 0; t->ntok = 1; t->nchild = 0;
-    return j->ntok++;
-}
-static void jws(gjson_t *j, int *i) { while (*i < j->n && (j->s[*i]==' '||j->s[*i]=='\t'||j->s[*i]=='\n'||j->s[*i]=='\r')) (*i)++; }
-
-static int jparse_value(gjson_t *j, int *i, int depth);
-
-static int jparse_string(gjson_t *j, int *i) {   // *i at the opening quote
-    int tok = jpush(j, JS_STR, *i + 1);
-    for ((*i)++; *i < j->n; (*i)++) {
-        if (j->s[*i] == '\\') { (*i)++; continue; }
-        if (j->s[*i] == '"') { j->t[tok].len = *i - j->t[tok].start; (*i)++; return tok; }
-    }
-    return -1;
-}
-static int jparse_value(gjson_t *j, int *i, int depth) {
-    if (depth > 64) return -1;
-    jws(j, i);
-    if (*i >= j->n) return -1;
-    char c = j->s[*i];
-    if (c == '"') return jparse_string(j, i);
-    if (c == '{' || c == '[') {
-        int tok = jpush(j, c == '{' ? JS_OBJ : JS_ARR, *i);
-        char close = c == '{' ? '}' : ']';
-        (*i)++;
-        for (;;) {
-            jws(j, i);
-            if (*i >= j->n) return -1;
-            if (j->s[*i] == close) { (*i)++; break; }
-            if (j->t[tok].nchild) { if (j->s[*i] != ',') return -1; (*i)++; jws(j, i); }
-            if (close == '}') {
-                if (*i >= j->n || j->s[*i] != '"' || jparse_string(j, i) < 0) return -1;
-                jws(j, i);
-                if (*i >= j->n || j->s[*i] != ':') return -1;
-                (*i)++;
-            }
-            if (jparse_value(j, i, depth + 1) < 0) return -1;
-            j->t[tok].nchild++;
-        }
-        j->t[tok].ntok = j->ntok - tok;
-        return tok;
-    }
-    int start = *i;
-    while (*i < j->n && !strchr(",]}} \t\n\r", j->s[*i])) (*i)++;
-    int len = *i - start;
-    if (len <= 0) return -1;
-    gjtype_t t = JS_NUM;
-    if (!strncmp(j->s + start, "true", 4) || !strncmp(j->s + start, "false", 5)) t = JS_BOOL;
-    else if (!strncmp(j->s + start, "null", 4)) t = JS_NULL;
-    int tok = jpush(j, t, start);
-    j->t[tok].len = len;
-    return tok;
-}
-static int gjson_parse(gjson_t *j, const char *s, int n) {
-    j->s = s; j->n = n; j->t = NULL; j->ntok = j->cap = 0;
-    int i = 0;
-    int root = jparse_value(j, &i, 0);
-    if (root != 0) return -1;
-    jws(j, &i);
-    return i == n ? 0 : -1;
-}
-
-// lookups. All take/return token indices; -1 = not found (safe to pass through).
-static int jget(const gjson_t *j, int obj, const char *key) {
-    if (obj < 0 || j->t[obj].type != JS_OBJ) return -1;
-    int klen = (int)strlen(key);
-    int i = obj + 1;
-    for (int c = 0; c < j->t[obj].nchild; ++c) {
-        int val = i + 1;
-        if (j->t[i].len == klen && !strncmp(j->s + j->t[i].start, key, klen)) return val;
-        i = val + j->t[val].ntok;
-    }
-    return -1;
-}
-static int jlen(const gjson_t *j, int arr) { return arr < 0 ? 0 : j->t[arr].nchild; }
-static int jat(const gjson_t *j, int arr, int idx) {
-    if (arr < 0 || j->t[arr].type != JS_ARR || idx < 0 || idx >= j->t[arr].nchild) return -1;
-    int i = arr + 1;
-    while (idx--) i += j->t[i].ntok;
-    return i;
-}
-static double jnum(const gjson_t *j, int tok, double dflt) {
-    if (tok < 0 || j->t[tok].type != JS_NUM) return dflt;
-    return strtod(j->s + j->t[tok].start, NULL);
-}
-static int jint(const gjson_t *j, int tok, int dflt) { return (int)jnum(j, tok, dflt); }
-static int jbool(const gjson_t *j, int tok, int dflt) {
-    if (tok < 0 || j->t[tok].type != JS_BOOL) return dflt;
-    return j->s[j->t[tok].start] == 't';
-}
-static int jstreq(const gjson_t *j, int tok, const char *s) {
-    return tok >= 0 && j->t[tok].type == JS_STR && (int)strlen(s) == j->t[tok].len
-        && !strncmp(j->s + j->t[tok].start, s, j->t[tok].len);
-}
-static void jstrcpy(const gjson_t *j, int tok, char *dst, int cap) {   // basic escapes only
-    int n = 0;
-    if (tok >= 0 && j->t[tok].type == JS_STR)
-        for (int i = 0; i < j->t[tok].len && n < cap - 1; ++i) {
-            char c = j->s[j->t[tok].start + i];
-            if (c == '\\' && i + 1 < j->t[tok].len) { c = j->s[j->t[tok].start + ++i]; if (c=='n') c=' '; if (c=='u') { i += 4; c='?'; } }
-            dst[n++] = c;
-        }
-    dst[n] = 0;
-}
-static void jfloats(const gjson_t *j, int arr, float *out, int n) {    // leaves defaults where missing
-    for (int i = 0; i < n; ++i) { int t = jat(j, arr, i); if (t >= 0) out[i] = (float)jnum(j, t, out[i]); }
-}
+#include "gjson.h"
 
 // --------------------------------------------------------------------------
 // loader state
@@ -137,7 +18,7 @@ static void jfloats(const gjson_t *j, int arr, float *out, int n) {    // leaves
 typedef struct gbuf_t { unsigned char *data; size_t size; int owned; } gbuf_t;
 typedef struct gld_t {
     gjson_t j;
-    int buffers, views, accessors, meshes, materials, nodes, scenes;   // root token indices
+    int buffers, views, accessors, meshes, materials, nodes, scenes, images, textures;   // root token indices
     gbuf_t buf[GLTF_MAX_BUFFERS]; int nbuf;
     const char *dir;
     gltf_model_t *m;
@@ -349,7 +230,7 @@ static void bake_grow_verts(bake_t *bk, int add) {
     }
 }
 
-static int gltf_bake_mesh(gld_t *g, bake_t *bk, int mesh_index, const float *M) {
+static int gltf_bake_mesh(gld_t *g, bake_t *bk, int mesh_index, const float *M, const char *node_name) {
     const gjson_t *j = &g->j;
     int mesh = jat(j, g->meshes, mesh_index);
     if (mesh < 0) return gfail(g, "node references a missing mesh%s", NULL);
@@ -445,6 +326,7 @@ static int gltf_bake_mesh(gld_t *g, bake_t *bk, int mesh_index, const float *M) 
         pr->material = jint(j, jget(j, prim, "material"), -1);
         pr->first_index = first; pr->nindices = nidx;
         memcpy(pr->mesh_name, mesh_name, sizeof pr->mesh_name);
+        snprintf(pr->node_name, sizeof pr->node_name, "%s", node_name);
     }
     return 1;
 }
@@ -458,7 +340,11 @@ static int gltf_bake_node(gld_t *g, bake_t *bk, int node_index, const float *par
     gltf_node_matrix(j, node, local);
     mat_mul(M, parent, local);
     int mesh = jget(j, node, "mesh");
-    if (mesh >= 0 && !gltf_bake_mesh(g, bk, jint(j, mesh, -1), M)) return 0;
+    if (mesh >= 0) {
+        char name[64];
+        jstrcpy(j, jget(j, node, "name"), name, sizeof name);
+        if (!gltf_bake_mesh(g, bk, jint(j, mesh, -1), M, name)) return 0;
+    }
     int children = jget(j, node, "children");
     for (int i = 0; i < jlen(j, children); ++i)
         if (!gltf_bake_node(g, bk, jint(j, jat(j, children, i), -1), M, depth + 1)) return 0;
@@ -479,6 +365,8 @@ static int gltf_parse(gld_t *g, const char *json, size_t json_len) {
     g->materials = jget(j, 0, "materials");
     g->nodes     = jget(j, 0, "nodes");
     g->scenes    = jget(j, 0, "scenes");
+    g->images    = jget(j, 0, "images");
+    g->textures  = jget(j, 0, "textures");
     int asset = jget(j, 0, "asset");
     if (asset < 0 || !jstreq(j, jget(j, asset, "version"), "2.0"))
         return gfail(g, "not a glTF 2.0 asset%s", NULL);
@@ -500,12 +388,54 @@ static int gltf_parse(gld_t *g, const char *json, size_t json_len) {
             mt->base_color[0] = mt->base_color[1] = mt->base_color[2] = mt->base_color[3] = 1;
             mt->rough = 1; mt->metal = 1;   // glTF defaults
             mt->double_sided = jbool(j, jget(j, mat, "doubleSided"), 0);
+            mt->base_tex = -1;
             int pbr = jget(j, mat, "pbrMetallicRoughness");
             if (pbr >= 0) {
                 jfloats(j, jget(j, pbr, "baseColorFactor"), mt->base_color, 4);
                 mt->rough = (float)jnum(j, jget(j, pbr, "roughnessFactor"), 1);
                 mt->metal = (float)jnum(j, jget(j, pbr, "metallicFactor"), 1);
+                int tex = jat(j, g->textures, jint(j, jget(j, jget(j, pbr, "baseColorTexture"), "index"), -1));
+                if (tex >= 0) mt->base_tex = jint(j, jget(j, tex, "source"), -1);
+                if (mt->base_tex >= jlen(j, g->images)) mt->base_tex = -1;
             }
+        }
+    }
+
+    // images: copied out as encoded bytes (bufferView, data: uri or external file)
+    m->nimages = jlen(j, g->images);
+    if (m->nimages) {
+        m->images = (gltf_image_t *)calloc((size_t)m->nimages, sizeof *m->images);
+        for (int i = 0; i < m->nimages; ++i) {
+            gltf_image_t *im = &m->images[i];
+            int img = jat(j, g->images, i);
+            jstrcpy(j, jget(j, img, "name"), im->name, sizeof im->name);
+            jstrcpy(j, jget(j, img, "mimeType"), im->mime, sizeof im->mime);
+            int bv = jat(j, g->views, jint(j, jget(j, img, "bufferView"), -1));
+            int uri = jget(j, img, "uri");
+            if (bv >= 0) {
+                gbuf_t *buf = gltf_buffer(g, jint(j, jget(j, bv, "buffer"), 0));
+                size_t off = (size_t)jint(j, jget(j, bv, "byteOffset"), 0), len = (size_t)jint(j, jget(j, bv, "byteLength"), 0);
+                if (!buf || off + len > buf->size) return gfail(g, "image '%s' bufferView is out of range", im->name);
+                im->data = (unsigned char *)malloc(len ? len : 1);
+                memcpy(im->data, buf->data + off, len);
+                im->size = len;
+            } else if (uri >= 0) {
+                const char *s = j->s + j->t[uri].start; int n = j->t[uri].len;
+                if (n > 5 && !strncmp(s, "data:", 5)) {
+                    const char *comma = (const char *)memchr(s, ',', (size_t)n);
+                    if (!comma) return gfail(g, "image '%s' has a malformed data: uri", im->name);
+                    im->data = b64_decode(comma + 1, (int)(n - (comma + 1 - s)), &im->size);
+                    const char *semi = (const char *)memchr(s, ';', (size_t)(comma - s));
+                    if (semi && !im->mime[0]) snprintf(im->mime, sizeof im->mime, "%.*s", (int)(semi - s - 5), s + 5);
+                } else if (g->dir) {
+                    char name[256], path[512];
+                    jstrcpy(j, uri, name, sizeof name);
+                    if (strstr(name, "..") || name[0] == '/' || strstr(name, "://")) return gfail(g, "image uri '%s' escapes the asset directory", name);
+                    snprintf(path, sizeof path, "%s/%s", g->dir, name);
+                    im->data = read_whole_file(path, &im->size);
+                    if (!im->data) return gfail(g, "image file '%s' not found", name);
+                } else return gfail(g, "image '%s' needs an external file but no directory was given", im->name);
+            }   // an image with neither is allowed (unused by any material)
         }
     }
 
@@ -600,5 +530,7 @@ int gltf_load_file(const char *path, gltf_model_t *m) {
 void gltf_free(gltf_model_t *m) {
     free(m->pos); free(m->nrm); free(m->col); free(m->uv);
     free(m->idx); free(m->prims); free(m->mats);
+    for (int i = 0; i < m->nimages; ++i) free(m->images[i].data);
+    free(m->images);
     memset(m, 0, sizeof *m);
 }

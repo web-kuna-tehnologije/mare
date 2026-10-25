@@ -7,7 +7,8 @@
 // POSITION/NORMAL/TEXCOORD_0/COLOR_0 attributes, u8/u16/u32 indices, node TRS or matrix
 // hierarchies, pbrMetallicRoughness factors. Not supported (rejected with a clear error or
 // ignored): sparse accessors, Draco/meshopt compression, skins, animations, non-triangle
-// primitive modes, textures (factors only - the game's meshes carry colours, not UVs maps yet).
+// primitive modes, samplers (images are handed over as encoded bytes; asset.c bakes the base
+// colour texture into vertex colours since the game's meshes are untextured).
 
 #ifndef MARE_GLTF_H
 #define MARE_GLTF_H
@@ -19,14 +20,23 @@ typedef struct gltf_material_t {
     float base_color[4];           // baseColorFactor (sRGB, straight alpha)
     float rough, metal;            // roughnessFactor, metallicFactor
     int   double_sided;
+    int   base_tex;                // index into images (baseColorTexture), -1 none
 } gltf_material_t;
+
+// encoded image bytes (PNG/JPEG as stored in the file); decoding is the caller's business
+typedef struct gltf_image_t {
+    unsigned char *data; size_t size;
+    char mime[32];                 // "image/png", "image/jpeg" or "" when unknown
+    char name[64];
+} gltf_image_t;
 
 // one draw range: indices [first_index, first_index+nindices) referencing the shared vertex
 // streams, shaded with materials[material] (-1 = glTF default material)
 typedef struct gltf_prim_t {
     int material;
     int first_index, nindices;
-    char mesh_name[64];            // the glTF mesh this range came from (hull, mast, ...)
+    char mesh_name[64];            // the glTF mesh this range came from
+    char node_name[64];            // the node that placed it (LOD selection keys on this: Church_LOD1)
 } gltf_prim_t;
 
 typedef struct gltf_model_t {
@@ -41,6 +51,7 @@ typedef struct gltf_model_t {
     unsigned *idx; int nidx;       // triangle list
     gltf_prim_t     *prims; int nprims;
     gltf_material_t *mats;  int nmats;
+    gltf_image_t    *images; int nimages;
     float bmin[3], bmax[3];        // bounds of the baked positions
     char  error[256];              // set when a load returns 0
 } gltf_model_t;

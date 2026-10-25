@@ -42,6 +42,7 @@ typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway
 typedef struct mesh_t { rhi_geometry_t geo; int ninst; } mesh_t;
 extern const rhi_layout_t mesh_layout;                // builder vertices + inst_t instances (meshes.c program)
 mesh_t mesh_upload(mb_t *m);                          // uploads and frees the builder
+mesh_t mesh_upload_indexed(const float *verts, int nverts, const unsigned *idx, int nidx);   // builder-format vertices + u32 indices (authored assets)
 // Instances are streamed to the GPU once per frame (mesh_set_instances, during scene_build_*)
 // and then drawn by every pass that needs them (shadow cascades, main) without re-uploading.
 void   mesh_set_instances(mesh_t *m, const inst_t *inst, int n);

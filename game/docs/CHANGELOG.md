@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.7.7 — asset runtime: GLB/glTF import, descriptors, normalisation, cache, LODs
+The first authored 3D asset (a Meshy church) renders inside a procedural town. Everything
+needed to go from a `.blend` to an instanced, shadowed, LOD-switched mesh in the game now exists
+as a standard pipeline under `game/src/assets/` (CPU-side, GL-free, covered by the headless
+`asset_test`).
+
+- **glTF 2.0 / GLB loader (`gltf.c`):** GLB container and plain `.gltf`, base64 `data:` URIs,
+  external `.bin` buffers (confined to the asset directory), POSITION / NORMAL / TEXCOORD_0 /
+  COLOR_0, u8/u16/u32 indices, node TRS or matrix hierarchies baked into flat world-space
+  streams, pbrMetallicRoughness factors, base-colour textures handed over as encoded bytes.
+  Every primitive remembers its glTF mesh and node name. Missing normals are generated flat.
+  Rejected with a message naming the mesh: sparse accessors, required extensions (Draco),
+  non-triangle modes, accessor overruns, out-of-range indices, non-finite positions, truncated
+  GLB chunks, a 4M-vertex budget.
+- **Asset descriptors (`<name>.asset.json`, format in `asset.h`):** type (prop, building, ship,
+  ship_part, terrain), per-LOD file *or node name* with switch distance, scale (`fit` height /
+  length / width / max to a world size, or a plain factor), pivot (keep / center /
+  base_center + offset), forward axis, material rules, collision shape. Validated on parse:
+  missing name or file, paths escaping the directory, non-increasing LOD distances, LOD 0 not
+  at 0, fit without size, negative scale, unknown enums.
+- **Registry and cache (`asset.c`):** `game/assets/manifest.json` lists descriptors;
+  `asset_get(name)` loads on first use and caches; failures are remembered (no retry storm) and
+  reported with the file and reason; `asset_unload_all` drops CPU data but keeps registrations.
+  Files shared by several LODs are read once. The asset root is `MARE_ASSETS` or `game/assets`
+  searched upwards from the working directory. Startup preloads every registered asset (the
+  church: 4 LODs, 128k triangles, 4096² JPEG decoded, 9 MB, ~220 ms).
+- **Scale normalisation:** derived from LOD 0 so every LOD lands at the same size; sanity limit
+  of 1000 world units catches cm/m mistakes.
+- **Pivot normalisation:** `base_center` puts the origin under the model's footprint, so
+  `inst_t.y = world_height` sits it on the ground; `forward` rotates the model's front to the
+  game's heading 0 (+x).
+- **Material metadata:** glTF materials map onto the game's 12-float PBR vertex format
+  (roughness, metalness, colour, instance-colour slot). Rules match material names
+  case-insensitively (`"*"` for all) and override roughness / metalness / colour, mark a
+  material as taking the per-instance colour (nation roofs, flags), or disable texture baking.
+  glTF's literal defaults (metallic 1, roughness 1) are read as "unspecified" and become a matte
+  dielectric. The base-colour texture is **baked into vertex colours** (nearest sample at each
+  vertex UV × baseColorFactor × COLOR_0); the renderer stays untextured.
+- **LODs:** per-LOD meshes with switch distances; `asset_pick_lod` selects per instance from
+  the camera distance (the church shows 128k / 50k / 15k / 3k triangles). A LOD with more
+  triangles than the previous one logs a warning.
+- **Collision (stub):** `collision.type` aabb / sphere parsed; radius and half extents are
+  derived from the normalised bounds when not given. Nothing uses them yet.
+- **Renderer:** `mesh_upload_indexed` (u32 index buffers via the RHI); scene.c keeps one
+  instance list per asset and LOD, uploads GPU meshes lazily and frees the CPU copy; authored
+  assets go through the same instanced pipeline as procedural meshes, so they receive the sun,
+  cast shadow-cascade shadows and are frustum-culled with their town. Established towns
+  (size ≥ 2) place the church on the landward side of the square, facing the harbour.
+- **Tooling:** `tools/blender_export_glb.py` exports a `.blend` headlessly to GLB (textures
+  embedded, optional decimated copy). GLB files are not committed (`game/assets/**/*.glb`);
+  `game/assets/README.md` explains the layout.
+- **Tests:** `asset_test` (CTest) builds GLB/glTF files in memory and on disk and checks baked
+  transforms, generated normals, texture baking (2×1 BMP via data URI), scale / pivot / forward
+  maths, material rules, LOD picking, registry, cache accounting and 20+ rejection paths.
+- **Fix:** `lighting.c` used `near`/`far` as local names, which `windef.h` defines as empty
+  macros; the game did not compile with the current Windows SDK until they were renamed.
+
+Known limits: textures are baked per vertex, so surface detail is only as fine as the mesh
+(the 128k-triangle church reads well, a 500-triangle crate would not); normals pass through
+non-uniform node scales approximately; one base-colour texture per material; Draco / meshopt
+compressed files must be re-exported uncompressed.
+
+
 ## 0.7.6 — profiling hooks, slower clock, ship motion, visual fixes
 Completes the renderer modernisation (step 10) and slows the simulation down to a watchable pace.
 

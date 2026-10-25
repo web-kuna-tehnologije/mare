@@ -28,6 +28,7 @@ __pycache__/
 .DS_Store
 /tmp/
 /assets/
+/game/assets/**/*.glb
 # Local credentials and private keys
 .env
 .env.*

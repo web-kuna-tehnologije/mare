@@ -2,7 +2,7 @@
 rem Build MARE LIBERUM with Visual Studio (cl). Run from anywhere.
 rem   game\build.bat          -> mare.exe (release)
 rem   game\build.bat debug    -> mare.exe with symbols, no optimisation
-rem   game\build.bat test     -> diag_test.exe + sim_test.exe (headless) and runs them
+rem   game\build.bat test     -> diag_test.exe + sim_test.exe + asset_test.exe (headless) and runs them
 cd /d "%~dp0\.."
 where /q cl.exe || call "%ProgramFiles%/Microsoft Visual Studio/2022/Community/VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul 2>nul
 where /q cl.exe || call "%ProgramFiles%/Microsoft Visual Studio/2022/Professional/VC/Auxiliary/Build/vcvarsx86_amd64.bat" >nul 2>nul
@@ -17,6 +17,8 @@ if "%1"=="test" (
     cl %COMMON% /O2 game\tests\sim_test.c /Fe:sim_test.exe || exit /b 1
     sim_test.exe 2
     if errorlevel 1 exit /b 1
+    cl %COMMON% /O2 game\tests\asset_test.c /Fe:asset_test.exe || exit /b 1
+    asset_test.exe || exit /b 1
     exit /b 0
 )
 set FLAGS=/O2 /DNDEBUG=1 /MT

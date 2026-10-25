@@ -164,13 +164,13 @@ void shadow_render(void) {
     // Cascades only need to reach as far as the meshes themselves: past PORT_DETAIL_DIST the
     // towns and ships are replaced by icons, so there is nothing left to cast. Beyond this the
     // lookup returns "lit".
-    float far = clampf(cam.dist * 1.2f + 40.f, 50.f, 300.f);
-    float near = cam.znear;
+    float zfar = clampf(cam.dist * 1.2f + 40.f, 50.f, 300.f);
+    float znear = cam.znear;
     for (int i = 0; i < SHADOW_CASCADES; ++i) {
         float t0 = i / (float)SHADOW_CASCADES, t1 = (i + 1) / (float)SHADOW_CASCADES;
         // practical split scheme: blend of uniform and logarithmic
-        float lin0 = near + (far - near) * t0, lin1 = near + (far - near) * t1;
-        float log0 = near * powf(far / near, t0), log1 = near * powf(far / near, t1);
+        float lin0 = znear + (zfar - znear) * t0, lin1 = znear + (zfar - znear) * t1;
+        float log0 = znear * powf(zfar / znear, t0), log1 = znear * powf(zfar / znear, t1);
         float d0 = lerpf(lin0, log0, 0.75f), d1 = lerpf(lin1, log1, 0.75f);
         cascade_split[i] = d1;
         vec3 c; float r; slice_sphere(d0, d1, &c, &r);

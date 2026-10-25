@@ -15,6 +15,9 @@
 #include "../sim/events.h"
 #include "../sim/settlement.h"
 #include "../world/regions.h"
+#include "../assets/asset.h"
+
+_Static_assert(MB_FLOATS == 12, "asset.c emits 12-float builder vertices (ASSET_VERT_FLOATS)");
 
 #define LOD0_DIST         75.f
 #define LOD1_DIST        230.f
@@ -134,17 +137,56 @@ int scene_submit_ships(void) { return submit_ship_meshes(); }
 int scene_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
 
 // ---------------------------------------------------------------------------
+// authored assets (asset.h): GPU meshes are created on first use from the asset's CPU LODs,
+// which are then released. One instance list per asset and LOD; the LOD is picked per instance
+// from the camera distance, so a town can show a detailed church up close and a 3k-triangle
+// one from afar in the same frame.
+
+static mesh_t    asset_mesh[ASSET_MAX][ASSET_MAX_LODS];
+static instlist_t asset_inst[ASSET_MAX][ASSET_MAX_LODS];
+static int asset_used[ASSET_MAX];        // has an instance list this frame
+int scene_asset_instances;               // dashboard: authored-asset instances drawn this frame
+
+static void asset_push(asset_t *a, inst_t in, float camdist) {
+    int ai = (int)(a - asset_at(0)), lod = asset_pick_lod(a, camdist);
+    asset_lod_t *L = &a->lod[lod];
+    if (!L->gpu) {
+        asset_mesh[ai][lod] = mesh_upload_indexed(L->verts, L->nverts, L->idx, L->nidx);
+        L->gpu = 1;
+        asset_free_cpu(a, lod);
+        LOG_DEBUG("gfx", "asset '%s' LOD %d uploaded (%d tris)", a->desc.name, lod, L->nidx / 3);
+    }
+    *instlist_push(&asset_inst[ai][lod]) = in;
+    asset_used[ai] = 1;
+}
+static void assets_clear(void) {
+    for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) { for (int l = 0; l < ASSET_MAX_LODS; ++l) instlist_clear(&asset_inst[i][l]); asset_used[i] = 0; }
+    scene_asset_instances = 0;
+}
+static void assets_set_instances(void) {
+    for (int i = 0; i < asset_count(); ++i) if (asset_used[i])
+        for (int l = 0; l < ASSET_MAX_LODS; ++l) { mesh_set_instances(&asset_mesh[i][l], asset_inst[i][l].v, asset_inst[i][l].n); scene_asset_instances += asset_inst[i][l].n; }
+}
+static int assets_submit(void) {
+    int n = 0;
+    for (int i = 0; i < asset_count(); ++i) if (asset_used[i])
+        for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[i][l].geo.vao) { mesh_draw(&asset_mesh[i][l]); n += asset_mesh[i][l].ninst; }
+    return n;
+}
+
+// ---------------------------------------------------------------------------
 // ports (towns are regenerated each frame from a per-port seed: cheap and always in sync)
 
 static instlist_t houses, roofs, towers, walls, piers, flagpoles;
 
 // per-port cache of the town instances: rebuilt only when what it depends on changes
-enum { TM_HOUSE, TM_ROOF, TM_TOWER, TM_WALL, TM_PIER, TM_FLAG };
-typedef struct town_item_t { unsigned char mesh; inst_t in; } town_item_t;
+enum { TM_HOUSE, TM_ROOF, TM_TOWER, TM_WALL, TM_PIER, TM_FLAG, TM_ASSET };
+typedef struct town_item_t { unsigned char mesh; short asset; inst_t in; } town_item_t;   // asset: registry index for TM_ASSET
 typedef struct town_cache_t { unsigned sig; int n; town_item_t *items; } town_cache_t;
 static town_cache_t town_cache[MAX_PORTS];
 static town_cache_t *tc_cur;
-static void tc_push(int mesh, inst_t in) { town_cache_t *c = tc_cur; if (c->n % 64 == 0) c->items = realloc(c->items, (c->n + 64) * sizeof(town_item_t)); c->items[c->n].mesh = (unsigned char)mesh; c->items[c->n].in = in; c->n++; }
+static void tc_push(int mesh, inst_t in) { town_cache_t *c = tc_cur; if (c->n % 64 == 0) c->items = realloc(c->items, (c->n + 64) * sizeof(town_item_t)); c->items[c->n].mesh = (unsigned char)mesh; c->items[c->n].asset = -1; c->items[c->n].in = in; c->n++; }
+static void tc_push_asset(asset_t *a, inst_t in) { tc_push(TM_ASSET, in); tc_cur->items[tc_cur->n - 1].asset = (short)(a - asset_at(0)); }
 static unsigned town_signature(const port_t *p) {
     unsigned col = p->size > 0 ? nations_info[p->nation].color : 0xFFBBBBBB;
     return 0x9E3779B1u * (unsigned)(p->size + 1) ^ 0x85EBCA6Bu * (unsigned)(p->building[B_FORT] + 1) ^ 0xC2B2AE35u * (unsigned)(mini((int)(p->pop / 12), 63) + 1) ^ col ^ (unsigned)(p->merged_into >= 0) << 31;
@@ -172,6 +214,19 @@ static void town_build(const port_t *p, int index) {
         tc_push(TM_ROOF,  (inst_t){ hx, hy - 0.05f + s, hz, rot, s, roof[0], roof[1], roof[2], 0,0,0,0 });
     }
     if (p->size >= 2) tc_push(TM_TOWER, (inst_t){ p->lx, fy - 0.05f, p->lz, 0, 0.35f + 0.12f*p->size, 0.8f,0.78f,0.72f, 0,0,0,0 });
+    // authored church (game/assets/church) for established towns: on the landward side of the
+    // square, facing the harbour. The asset is already world-scaled and pivoted at its base.
+    if (p->size >= 2) {
+        asset_t *church = asset_get("church");
+        if (church) {
+            float ca = ang + 3.14159f + (rnd_f(&seed) - 0.5f) * 1.2f, cr = rad * 0.5f + 0.2f;
+            float cx = p->lx + cosf(ca) * cr, cz = p->lz + sinf(ca) * cr, cy = world_height(cx, cz);
+            if (world_is_land(cx, cz) && cy >= 0.05f) {
+                tc_push_asset(church, (inst_t){ cx, cy - 0.03f, cz, -ang, 1.f, 1,1,1, 0,0,0,0 });
+                static int logged; if (!logged++) LOG_INFO("gfx", "first authored church placed at %s (lon %.2f lat %.2f)", p->name, x2lon(cx), z2lat(cz));
+            }
+        }
+    }
     if (p->building[B_FORT] > 0) {
         int nseg = 8 + 2 * p->building[B_FORT]; float wr = rad + 0.35f, wh = 0.22f + 0.05f * p->building[B_FORT];
         for (int k = 0; k < nseg; ++k) {
@@ -189,13 +244,18 @@ static void town_instances(const port_t *p, int index) {
     town_cache_t *c = &town_cache[index]; unsigned sig = town_signature(p);
     if (c->sig != sig || !c->items) { c->n = 0; c->sig = sig; tc_cur = c; town_build(p, index); }
     static instlist_t *lists[6] = { &houses, &roofs, &towers, &walls, &piers, &flagpoles };
-    for (int i = 0; i < c->n; ++i) *instlist_push(lists[c->items[i].mesh]) = c->items[i].in;
+    for (int i = 0; i < c->n; ++i) {
+        const town_item_t *it = &c->items[i];
+        if (it->mesh == TM_ASSET) { asset_t *a = asset_at(it->asset); if (a && a->state == ASSET_LOADED) asset_push(a, it->in, cam_distance(it->in.x, it->in.z)); }
+        else *instlist_push(lists[it->mesh]) = it->in;
+    }
 }
 
 void scene_build_ports(void) {
     cam_frustum(frustum);
     scene_culled_ports = 0;
     instlist_clear(&houses); instlist_clear(&roofs); instlist_clear(&towers); instlist_clear(&walls); instlist_clear(&piers); instlist_clear(&flagpoles);
+    assets_clear();
     for (int i = 0; i < G.nports; ++i) {
         const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
         if (cam_distance(p->x, p->z) > PORT_DETAIL_DIST || cam.mapness > 0.5f) continue;
@@ -208,12 +268,13 @@ void scene_build_ports(void) {
     mesh_set_instances(&mesh_pier, piers.v, piers.n); mesh_set_instances(&mesh_house, houses.v, houses.n);
     mesh_set_instances(&mesh_roof, roofs.v, roofs.n); mesh_set_instances(&mesh_tower, towers.v, towers.n);
     mesh_set_instances(&mesh_wall, walls.v, walls.n); mesh_set_instances(&mesh_flagpole, flagpoles.v, flagpoles.n);
+    assets_set_instances();
 }
 
 int scene_submit_ports(void) {
     mesh_draw(&mesh_pier); mesh_draw(&mesh_house); mesh_draw(&mesh_roof);
     mesh_draw(&mesh_tower); mesh_draw(&mesh_wall); mesh_draw(&mesh_flagpole);
-    return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n;
+    return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n + assets_submit();
 }
 
 // shadow casters: every town piece and every ship (piers shadow the water, flagpoles the

@@ -54,6 +54,10 @@ mesh_t mesh_upload(mb_t *m) {
     free(m->v); m->v = 0; m->n = m->cap = 0;
     return r;
 }
+mesh_t mesh_upload_indexed(const float *verts, int nverts, const unsigned *idx, int nidx) {
+    mesh_t r = { rhi_geometry_make(&mesh_layout, verts, nverts, idx, nidx) };
+    return r;
+}
 void mesh_set_instances(mesh_t *m, const inst_t *inst, int n) {
     m->ninst = n;
     if (n > 0) rhi_geometry_instances(&m->geo, inst, n);

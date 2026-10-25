@@ -25,6 +25,7 @@
 #include "src/sim/game.c"
 // asset runtime (CPU side, no GL: also exercised by the headless asset_test)
 #include "src/assets/gltf.c"
+#include "src/assets/asset.c"
 // presentation (v3: GL, microui, input). rhi_gl.c is the active RHI backend (rhi.h): all
 // game rendering goes through it; swap this include to target another graphics API.
 #include "src/gfx/rhi_gl.c"
@@ -111,6 +112,9 @@ int main(int argc, char **argv) {
     { float hz = monitor_hz(0); if (hz < 10 && !flag("--fps")) { vsync(0); LOG_WARN("main", "monitor reports %.0f Hz: frame limiter disabled (use --fps=N to cap)", hz); } else LOG_INFO("main", "monitor %.0f Hz", hz); }
     LOG_INFO("gpu", "%s", rhi_info());
     world_init(seed); nav_init();
+    { char manifest[512]; snprintf(manifest, sizeof manifest, "%s/manifest.json", asset_root());   // authored assets (GLB): register and preload
+      if (asset_registry_load(manifest)) { double t0 = diag_now(); for (int i = 0; i < asset_count(); ++i) asset_load(asset_at(i));
+        LOG_INFO("asset", "%d assets preloaded in %.0f ms (%.1f MB)", asset_count(), (diag_now()-t0)*1000, asset_cpu_bytes() / (1024.0*1024.0)); } }
     { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); rhi_check_errors("render_init"); }
     U.show_debug = dev;
     if (getenv("MARE_PASSES")) { const char *p = getenv("MARE_PASSES");   // experiment: enable only the listed passes
