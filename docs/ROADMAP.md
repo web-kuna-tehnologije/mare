@@ -31,3 +31,18 @@ ideas are planned features, not claims of completed work.
 
 Before each feature: update its design, implement a playable slice, add meaningful
 simulation tests, visually check affected UI, then update FEATURES and CHANGELOG.
+
+## Next: optimisation and multithreading (planned)
+
+The renderer and simulation are single-threaded today. Planned order of work:
+1. **Profile first** - the dashboard already splits CPU scopes and GPU passes per frame; pick
+   the top three costs at the two worst views (map fully zoomed out, 50-ship detail battle).
+2. **Simulation step on a worker thread** - the fixed 0.1-day ticks are independent of
+   rendering; double-buffer the game state or hand the renderer a read-only snapshot.
+3. **Parallel scene build** - town instance caches, ship instance lists and frustum culling
+   are embarrassingly parallel per port/fleet.
+4. **Asset loading off the main thread** - GLB parsing + JPEG decode already takes ~800 ms at
+   startup for one asset; a loader thread with GPU upload on the main thread removes the stall
+   as the asset set grows.
+5. **Draw submission** stays single-threaded (GL); batching and instance-buffer reuse already
+   keep it cheap.

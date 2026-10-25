@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.8.0 — detail views: through the clouds to the battle and the city
+Spectator close-ups for the two reference concepts (`assets/ship_battle*.png`,
+`assets/city_view.png`), staged with the current low-poly models as 1:1 samples.
+
+- **The transition:** entering a detail view rolls procedural fbm clouds over the finished
+  frame (~0.8 s, the "loading" bake), swaps to the staged scene behind full cover, then dives
+  the camera from 380 to ~50-130 units as the clouds thin (~1.1 s). Leaving plays the same in
+  reverse and restores the exact map camera. The overlay draws after the tonemap.
+- **Battle view (`B`):** a staged local scene (1 unit ≈ 4 m) - open sea in every direction and
+  a hilly coastline a kilometre off. Ships reuse the world meshes at true relative scale
+  (sloop ~24 m, ship of the line ~52 m, capped at 50). A real battle is reconstructed from the
+  engaged fleets (sides, ship types, nation colours); on quiet seas a 30-ship exercise is
+  staged instead. Every ship sails independently: own course, speed and wander, steering back
+  into the melee, rolling and pitching in the swell, trading broadside gunsmoke with the
+  nearest enemy. Ship shadows land on the water (0.7.9's fix at work). Spectating is free -
+  the world keeps simulating at the chosen speed.
+- **City view (`V`):** the selected/hovered town (or the nearest one) at 1:1, laid out in
+  districts that follow the port's actual state: civic centre (tower + banner), the authored
+  church, a harbour front whose pier count follows B_DOCKS and warehouse row follows
+  B_WAREHOUSE, a commercial core when B_MARKET exists, a residential mass sized by population,
+  the wall ring with corner towers per fort level, and farms outside the walls. Two moored
+  ships give the harbour life. The clock crawls at 0.05 days/s while inside (same rule as the
+  map's city view); leaving restores the chosen speed.
+- **Camera:** the ordinary RTS camera drives the local space (pan / Q/E / wheel / middle-mouse
+  all work), clamped to the stage; `cam_pitch_scale` eases the pitch towards the horizon for
+  the cinematic framing. Esc or M leaves. `MARE_DETAIL=battle|city` enters straight from
+  startup for visual tests.
+- **Plumbing:** world passes (terrain, sea, ports, ships, overlays, icons, labels) are skipped
+  while a detail scene owns the frame; the scene submits through the standard instanced mesh
+  pipeline, so PBR, gunsmoke and the shadow cascades apply unchanged (the shadow pass hooks
+  `scene_submit_shadow`). World picking and commands are disabled; speed keys still work.
+- Screenshots: `docs/screenshots/detail-battle.png`, `detail-city.png`. All three CTest suites
+  pass.
+
+Known limits: the staged sea is a calm plane (no waves or wakes); the city has no street grid
+yet, only districts; battles are not steerable by design. Next feature: optimisation and
+multithreading (see ROADMAP).
+
+
 ## 0.7.9 — shadows actually cast, city view, battle detail, picking by size
 - **Fix (issue-2): nothing ever cast a shadow onto the ground or the water.** The shadow
   camera was placed on the wrong side of the scene (`center - sun*back` instead of

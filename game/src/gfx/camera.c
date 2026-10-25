@@ -5,13 +5,14 @@
 #include "../core/util.h"
 
 rts_cam_t cam;
+float cam_pitch_scale = 1.f;
 
 // pitch flattens towards street level as the city view approaches, so a zoomed-in town reads
 // like a citybuilder scene rather than a top-down map tile
 static float pitch_for(float dist) {
     float t = powf(clampf((dist - CAM_MIN_DIST) / 420.f, 0, 1), 0.55f);
     float base = 28.f - 10.f * clampf((CAM_CITY_DIST - dist) / (CAM_CITY_DIST - CAM_MIN_DIST), 0, 1);
-    return (base + 60.f * t) * 0.0174533f;
+    return maxf(12.f, (base + 60.f * t) * cam_pitch_scale) * 0.0174533f;
 }
 
 void cam_reset(float tx, float tz, float dist) {

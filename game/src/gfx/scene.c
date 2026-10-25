@@ -16,6 +16,7 @@
 #include "../sim/settlement.h"
 #include "../world/regions.h"
 #include "../assets/asset.h"
+#include "detailview.h"
 
 _Static_assert(MB_FLOATS == 12, "asset.c emits 12-float builder vertices (ASSET_VERT_FLOATS)");
 
@@ -156,8 +157,10 @@ static instlist_t asset_inst[ASSET_MAX][ASSET_MAX_LODS];
 static int asset_used[ASSET_MAX];        // has an instance list this frame
 int scene_asset_instances;               // dashboard: authored-asset instances drawn this frame
 
-static void asset_push(asset_t *a, inst_t in, float camdist) {
-    int ai = (int)(a - asset_at(0)), lod = asset_pick_lod(a, camdist);
+// GPU mesh for one asset LOD, uploaded on first use (CPU copy freed after). Shared with the
+// detail view (detailview.c), which draws the same meshes in its own staged scenes.
+mesh_t *scene_asset_mesh(asset_t *a, int lod) {
+    int ai = (int)(a - asset_at(0));
     asset_lod_t *L = &a->lod[lod];
     if (!L->gpu) {
         asset_mesh[ai][lod] = mesh_upload_indexed(L->verts, L->nverts, L->idx, L->nidx);
@@ -166,6 +169,12 @@ static void asset_push(asset_t *a, inst_t in, float camdist) {
         asset_free_cpu(a, lod);
         LOG_DEBUG("gfx", "asset '%s' LOD %d uploaded (%d tris)", a->desc.name, lod, L->nidx / 3);
     }
+    return &asset_mesh[ai][lod];
+}
+
+static void asset_push(asset_t *a, inst_t in, float camdist) {
+    int ai = (int)(a - asset_at(0)), lod = asset_pick_lod(a, camdist);
+    scene_asset_mesh(a, lod);
     *instlist_push(&asset_inst[ai][lod]) = in;
     asset_used[ai] = 1;
 }
@@ -345,6 +354,7 @@ int scene_submit_ports(void) {
 // shadow casters: every town piece and every ship (piers shadow the water, flagpoles the
 // squares). Gunsmoke is deliberately left out: a hard-edged shadow from a smoke ball looks wrong.
 int scene_submit_shadow(void) {
+    if (detailview_mode() != DV_OFF) return detailview_submit();   // the staged scene is the only caster set
     return scene_submit_ports() + submit_ship_meshes();
 }
 

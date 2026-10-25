@@ -16,6 +16,7 @@ typedef struct rts_cam_t {
 } rts_cam_t;
 
 extern rts_cam_t cam;
+extern float cam_pitch_scale;   // 1 = normal; the detail view lowers it towards the horizon (detailview.c)
 
 #define CAM_MIN_DIST   2.5f    // close enough to walk a town square (city view)
 #define CAM_MAX_DIST   950.f

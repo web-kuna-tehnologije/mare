@@ -12,6 +12,7 @@
 #include "../sim/game.h"
 #include "../sim/settlement.h"
 #include "../gfx/camera.h"
+#include "../gfx/detailview.h"
 #include "../gfx/render.h"
 #include "../gfx/scene.h"
 
@@ -153,6 +154,17 @@ static void camera_input(float dt, int ui_blocked) {
 
 void input_frame(float dt, int ui_blocked) {
     float mx = mouse_px(), my = mouse_py();
+    // Detail view: a spectator scene owns the frame. Only the camera, Esc/M (leave) and the
+    // speed keys work; world picking and commands would act on things that are not on screen.
+    if (detailview_mode() != DV_OFF) {
+        U.hover_fleet_id = 0; U.hover_port = -1;
+        if (KDOWN(GLFW_KEY_ESCAPE) || key_down('m')) detailview_exit();
+        { static const float speeds[4] = SIM_SPEEDS;
+          if (key_down(' ')) G.speed = G.speed == 0 ? SIM_SPEED_DEFAULT : 0;
+          for (int k = 0; k < 4; ++k) if (key_down('1' + k)) G.speed = speeds[k]; }
+        if (!detailview_busy()) camera_input(dt, ui_blocked);
+        return;
+    }
     pick(mx, my);
     if (ui_blocked) { U.hover_fleet_id = 0; U.hover_port = -1; }
 
@@ -182,12 +194,14 @@ void input_frame(float dt, int ui_blocked) {
     if (KDOWN(GLFW_KEY_F9)) { if (game_load("mare_save.bin")) { ui_select_fleet(0); scene_reset_caches(); toast("Game loaded"); } else toast("No compatible saved game"); }
     if (key_down('h')) { int c = G.nations[G.player].capital; if (c >= 0) cam_goto(G.ports[c].x, G.ports[c].z); }
     if (key_down('f') && U.sel_fleet_id) cam.follow_fleet_id = cam.follow_fleet_id == U.sel_fleet_id ? 0 : U.sel_fleet_id;
-    if (key_down('b')) {   // jump the camera to the freshest sea battle (spectating is free: the clock keeps running)
-        const fleet_t *hot = 0;
-        for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i];
-            if (f->alive && f->at_port < 0 && f->last_fire > G.day - 1.f && (!hot || f->last_fire > hot->last_fire)) hot = f; }
-        if (hot) { cam_goto(hot->x, hot->z); cam.want_dist = 24; toast("Battle: %s", hot->name); }
-        else toast("No battle under way");
+    if (key_down('b')) {   // battle view: through the clouds to the freshest fight (a staged exercise if the seas are quiet)
+        toast("Closing in on the action...");
+        detailview_enter_battle(0);
+    }
+    if (key_down('v')) {   // city view of the selected/hovered town, else the nearest one
+        int port = U.sel_port >= 0 ? U.sel_port : U.hover_port;
+        detailview_enter_city(port);
+        toast("Descending into the city...");
     }
     if (key_down('m')) { if (cam.want_dist < CAM_MAP_FULL) { U.saved_dist = cam.want_dist; cam.want_dist = 700; } else cam.want_dist = U.saved_dist > 0 ? U.saved_dist : 60; }
     if (KDOWN(GLFW_KEY_TAB)) {   // cycle the player's fleets

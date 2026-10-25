@@ -39,6 +39,7 @@
 #include "src/gfx/lighting.c"
 #include "src/gfx/camera.c"
 #include "src/gfx/scene.c"
+#include "src/gfx/detailview.c"
 #include "src/ui/uikit.c"
 #include "src/ui/input.c"
 #include "src/ui/hud.c"
@@ -126,7 +127,11 @@ int main(int argc, char **argv) {
     if (getenv("MARE_AUTOQUIT_S")) LOG_INFO("main", "will quit after %s seconds", getenv("MARE_AUTOQUIT_S"));
     log_set_listener(hud_on_log);
     U.in_menu = !autostart;
-    if (autostart) { game_new(autostart, seed); game_advance((float)skip); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); }
+    if (autostart) { game_new(autostart, seed); game_advance((float)skip); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60);
+        const char *dvw = getenv("MARE_DETAIL");   // "battle" | "city": straight into a staged detail view (visual tests)
+        if (dvw && !strcmp(dvw, "battle")) detailview_enter_battle(0);
+        else if (dvw && !strcmp(dvw, "city")) detailview_enter_city(c);
+    }
 
     int p_frame = prof_id("frame.cpu"), p_input = prof_id("input"), p_sim = prof_id("sim"), p_gfx = prof_id("gfx"), p_terrain = prof_id("gfx.terrain"), p_ports = prof_id("gfx.ports"),
         p_ships = prof_id("gfx.ships"), p_shadow = prof_id("gfx.shadow"), p_sea = prof_id("gfx.sea"), p_over = prof_id("gfx.overlays"), p_icons = prof_id("gfx.icons"), p_labels = prof_id("ui.labels"), p_panels = prof_id("ui.panels");
@@ -169,7 +174,8 @@ int main(int argc, char **argv) {
             // any fresh broadside near the camera target overrides the throttle.
             U.city_view = 0;
             float eff_speed = G.speed;
-            if (cam.dist < CAM_CITY_DIST) {
+            if (detailview_mode() == DV_CITY) { U.city_view = 1; eff_speed = minf(G.speed, 0.05f); }
+            else if (detailview_mode() == DV_OFF && cam.dist < CAM_CITY_DIST) {
                 int over_town = 0, battle_near = 0;
                 for (int i = 0; i < G.nports; ++i) { const port_t *p = &G.ports[i];
                     if (!port_is_gone(p) && p->size >= 1 && dist2d(p->x, p->z, cam.tx, cam.tz) < 8.f) { over_town = 1; break; } }
@@ -184,7 +190,7 @@ int main(int argc, char **argv) {
             prof_end(p_sim);
             if (U.toast_timer > 0) U.toast_timer -= dt;
         }
-        if (cam_lock) {
+        if (cam_lock && detailview_mode() == DV_OFF) {   // the detail view drives the camera itself
             float lo = 0, la = 0, di = 60, ya = 0; sscanf(cam_lock, "%f,%f,%f,%f", &lo, &la, &di, &ya);
             cam.want_tx = cam.tx = lon2x(lo); cam.want_tz = cam.tz = lat2z(la);
             cam.want_dist = cam.dist = di; cam.want_yaw = cam.yaw = ya * 0.0174533f;
@@ -204,34 +210,41 @@ int main(int argc, char **argv) {
         // scene geometry is built once, then submitted to the shadow cascades and the main passes
         if (!U.in_menu) {
             SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
-            prof_begin(p_ports); if (U.pass_ports) scene_build_ports(); prof_end(p_ports);
-            prof_begin(p_ships); if (U.pass_ships) scene_build_ships(); prof_end(p_ships);
+            detailview_frame(dt);                 // transition clock + staged-scene animation (before the shadow pass)
+            int dv_on = detailview_mode() != DV_OFF;
+            prof_begin(p_ports); if (U.pass_ports && !dv_on) scene_build_ports(); prof_end(p_ports);
+            prof_begin(p_ships); if (U.pass_ships && !dv_on) scene_build_ships(); prof_end(p_ships);
             prof_begin(p_shadow); rhi_gpu_begin(g_shadow); shadow_render(); rhi_gpu_end(); prof_end(p_shadow);
         }
         // the HDR target is cleared in linear space: the sky colour is authored in sRGB
         { vec3 skyl = srgb_to_linear3(RF.sky); hdr_begin(screen_w, screen_h, skyl.x, skyl.y, skyl.z); }
         float planes[6][4]; cam_frustum(planes);
-        prof_begin(p_terrain); rhi_gpu_begin(g_terrain); if (U.pass_terrain) terrain_draw(planes); rhi_gpu_end(); prof_end(p_terrain);
+        int dv_on = !U.in_menu && detailview_mode() != DV_OFF;
+        prof_begin(p_terrain); rhi_gpu_begin(g_terrain); if (U.pass_terrain && !dv_on) terrain_draw(planes); rhi_gpu_end(); prof_end(p_terrain);
         icons_begin();
         if (!U.in_menu) {
             meshes_bind();
             rhi_gpu_begin(g_meshes);
-            prof_begin(p_ports); if (U.pass_ports) scene_submit_ports(); prof_end(p_ports);
-            prof_begin(p_ships); if (U.pass_ships) scene_submit_ships(); prof_end(p_ships);
+            if (dv_on) { prof_begin(p_ports); detailview_submit(); prof_end(p_ports); }
+            else {
+                prof_begin(p_ports); if (U.pass_ports) scene_submit_ports(); prof_end(p_ports);
+                prof_begin(p_ships); if (U.pass_ships) scene_submit_ships(); prof_end(p_ships);
+            }
             rhi_gpu_end();
         }
-        prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
-        if (!U.in_menu && U.pass_ships) { meshes_bind_smoke(); scene_submit_smoke(); }   // translucent, so after the water
-        if (!U.in_menu) {
+        prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !dv_on) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
+        if (!U.in_menu) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
+        if (!U.in_menu && !dv_on) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
         }
         rhi_gpu_begin(g_resolve); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer; labels/panels draw on top
+        if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
           if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot);
             const char *sd = getenv("MARE_SHADOWDUMP"); if (sd) shadow_dump(sd);
             shot_done = 1; } }
-        if (!U.in_menu) { prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels); }
+        if (!U.in_menu && detailview_mode() == DV_OFF) { prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels); }
         prof_end(p_gfx);
         { rhi_stats_t st = rhi_frame_stats(); metric_set(m_draws, st.draws); metric_set(m_inst, st.instances); metric_set(m_upload, st.upload_bytes / 1024.0); }
         rhi_gpu_collect();
