@@ -119,6 +119,9 @@ void game_new(int player, unsigned seed) {
     setup_nations(player);
     setup_fleets(player);
     world_compute_territory();
+    // Every port distance now, in parallel, rather than one 15 ms Dijkstra at a time during the
+    // first minutes of play. The rows are the same either way, so the simulation is unchanged.
+    nav_ports_precompute();
     LOG_INFO("game", "new game: player %s seed %u, %d ports, %d fleets (%.1f ms)", nations_info[player].name, seed, G.nports, game_count_fleets(), (diag_now()-t0)*1000);
     log_event(EV_INFO, player, 1, "1 January 1620. You are Admiral of the %s fleet. Build a trading empire.", nations_info[player].adj);
 }
@@ -180,7 +183,7 @@ int game_load(const char *path) {
     game_t *tmp = malloc(sizeof *tmp);
     int ok = fread(tmp, sizeof *tmp, 1, fp) == 1 && tmp->magic == SAVE_MAGIC && tmp->version == SAVE_VERSION && tmp->size == sizeof G;
     fclose(fp);
-    if (ok) { G = *tmp; nav_ports_reset(); regions_generate(G.seed, 0); regions_refresh_devmap(); economy_refresh_caches(); world_compute_territory(); LOG_INFO("game", "loaded %s (day %.1f)", path, G.day); }
+    if (ok) { G = *tmp; nav_ports_reset(); nav_ports_precompute(); regions_generate(G.seed, 0); regions_refresh_devmap(); economy_refresh_caches(); world_compute_territory(); LOG_INFO("game", "loaded %s (day %.1f)", path, G.day); }
     else LOG_ERROR("game", "rejected %s: magic %08x version %u size %u (expected %08x %u %u)", path, tmp->magic, tmp->version, tmp->size, SAVE_MAGIC, SAVE_VERSION, (unsigned)sizeof G);
     free(tmp);
     return ok;

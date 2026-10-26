@@ -12,6 +12,9 @@
 #include "../gfx/render.h"
 #include "../gfx/scene.h"
 #include "../assets/asset.h"
+#include "../core/jobs.h"
+#include "../gfx/lod.h"
+#include "../gfx/scene.h"
 
 static int tab = 0;                      // 0 perf, 1 metrics, 2 assets, 3 log, 4 system
 static int log_min_level = LOG_DEBUG, log_autoscroll = 1, log_module_filter = 0;
@@ -129,6 +132,16 @@ static void tab_assets(void) {
     if (ui_btn("LOD bias -")) asset_lod_bias = maxf(0.25f, asset_lod_bias * 0.8f);
     if (ui_btn("LOD bias +")) asset_lod_bias = minf(4.0f, asset_lod_bias * 1.25f);
     mu_label(ui_ctx, va("bias %.2f (authored switch distances x bias; <1 coarser sooner, >1 detail further)", asset_lod_bias));
+    { job_stats_t js; jobs_stats(&js);
+      ROW(1, -1, 16);
+      ui_label_col(va("jobs: %d workers | queued worker %d decode %d io %d main %d | inline %lld | lod: %d tracked, %d fading, %d pops | %d assets loading",
+                      js.workers, js.lane[JOB_LANE_WORKER].queued, js.lane[JOB_LANE_DECODE].queued, js.lane[JOB_LANE_IO].queued, js.lane[JOB_LANE_MAIN].queued,
+                      js.inline_runs, lod_tracked, lod_fading, lod_pops, asset_loading_count()), mu_color(170,180,200,255));
+      ROW(1, -1, 16);
+      ui_label_col(va("tier %s | asset triangles %.2fM of %.2fM budget | threshold scale x%.2f | %d markers clustered | %d assets evicted",
+                      lod_tier_name(lod_tier()), lod_last_tris / 1e6, lod_tier_budget(lod_tier()) / 1e6,
+                      lod_budget_scale, scene_icons_clustered, scene_assets_evicted),
+                   lod_budget_scale > 1.01f ? mu_color(240,210,120,255) : mu_color(170,180,200,255)); }
     ROW(6, 110, 70, 60, 70, 70, -1, 16);
     mu_label(ui_ctx, "asset"); mu_label(ui_ctx, "type"); mu_label(ui_ctx, "state"); mu_label(ui_ctx, "GPU MB"); mu_label(ui_ctx, "load ms"); mu_label(ui_ctx, "LODs: tris @ dist (instances now)");
     for (int i = 0; i < asset_count(); ++i) {
@@ -137,14 +150,14 @@ static void tab_assets(void) {
         ROW(6, 110, 70, 60, 70, 70, -1, 16);
         ui_label_col(a->desc.name, mu_color(220,220,230,255));
         mu_label(ui_ctx, asset_type_name(a->desc.type));
-        ui_label_col(a->state == ASSET_LOADED ? "loaded" : a->state == ASSET_FAILED ? "FAILED" : "idle",
-                     a->state == ASSET_FAILED ? mu_color(255,110,90,255) : mu_color(160,220,160,255));
+        ui_label_col(a->state == ASSET_LOADED ? "loaded" : a->state == ASSET_FAILED ? "FAILED" : a->state == ASSET_LOADING ? "loading" : "idle",
+                     a->state == ASSET_FAILED ? mu_color(255,110,90,255) : a->state == ASSET_LOADING ? mu_color(240,210,120,255) : mu_color(160,220,160,255));
         mu_label(ui_ctx, va("%.1f", a->gpu_bytes / mb));
         mu_label(ui_ctx, va("%.0f", a->load_ms));
         if (a->state == ASSET_LOADED) {
             char line[256]; int o = 0;
             for (int l = 0; l < a->nlods && o < (int)sizeof line - 32; ++l)
-                o += snprintf(line + o, sizeof line - o, "%s%dk@%.0f(%d)", l ? "  " : "", a->lod[l].nidx / 3000, a->lod[l].dist * asset_lod_bias, scene_asset_lod_count(i, l));
+                o += snprintf(line + o, sizeof line - o, "%s%dk@%.0f%s(%d)", l ? "  " : "", a->lod[l].nidx / 3000, a->lod[l].px > 0 ? a->lod[l].px / asset_lod_bias : asset_lod_switch_dist(a, l), a->lod[l].px > 0 ? "px" : "", scene_asset_lod_count(i, l));
             mu_label(ui_ctx, line);
         } else mu_label(ui_ctx, a->state == ASSET_FAILED ? a->error : "-");
         mu_pop_id(ui_ctx);

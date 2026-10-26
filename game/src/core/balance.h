@@ -123,4 +123,14 @@
 #define SIM_SPEED_DEFAULT 0.3333f
 #define GUNSMOKE_DAYS 0.12f      // how long a broadside's smoke hangs around (also the "recently fired" window)
 
+// Day and night (gfx/lighting.c). The cycle is driven by the simulated day, so it pauses with
+// the game; 24 days per cycle is ~80 s of real time at the default speed, slow enough to read
+// as moving light rather than a strobe. Night never goes black - this is a map that has to stay
+// playable - and the sun never drops below MIN_ELEV so the shadow cascades stay well formed.
+#define DAYNIGHT_PERIOD_DAYS 24.f
+#define DAYNIGHT_FLOOR     0.50f   // darkest night, as a fraction of full daylight
+#define DAYNIGHT_START     0.40f   // time of day at day 0 (mid-morning: a new game opens in daylight)
+#define DAYNIGHT_MIN_ELEV  0.12f   // sine of the lowest sun elevation used for shadows (~7 degrees)
+#define DAYNIGHT_NOON      0.62f   // time of day used when the cycle is off (the old fixed afternoon)
+
 #endif

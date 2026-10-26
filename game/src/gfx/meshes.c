@@ -8,16 +8,22 @@
 #include "../core/types.h"
 #include "../core/util.h"
 
+const rhi_texture_t *terrain_heightmap_texture(void);
+
 mesh_t ship_mesh[SHIP_COUNT][2];
 mesh_t mesh_house, mesh_roof, mesh_tower, mesh_wall, mesh_pier, mesh_flagpole, mesh_puff;
 static rhi_pipeline_t meshes_prg;
 
 static const char *meshes_vs =
     "in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in float a_mat; in vec2 a_rm;\n"
-    "in vec4 i_pos; in vec4 i_scol; in vec4 i_misc;\n"   // xyz+heading | scale+rgb | sway, highlight, bob, x-stretch
+    "in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx;\n"   // xyz+heading | scale+rgb | sway, highlight, bob, x-stretch | dither, reserved
     "uniform mat4 u_vp; uniform float u_time;\n"
-    "out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm;\n"
+    "uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;\n"
+    "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;\n"
+    "out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither;\n"
+    GLSL_WAVES
     "void main(){\n"
+    "  v_dither = i_fx.x;\n"
     "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
     "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
     /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
@@ -33,17 +39,28 @@ static const char *meshes_vs =
     "  n = vec3(n.x*cp - n.y*sp, n.x*sp + n.y*cp, n.z);\n"
     "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;\n"
     "  wp.y += i_misc.z * (sin(u_time*1.10 + i_pos.x*2.0) * 0.02 + sin(u_time*0.47 + i_pos.z*1.3) * 0.012);\n"
+    /* Floating instances (i_misc.z, the bob flag) ride the Gerstner swell the sea pass draws:
+       the hull is lifted to the surface at its own position and sheared by the surface slope, so
+       a ship pitches into a trough instead of sailing through it. The shadow pass applies the
+       same transform, so the shadow stays under the ship. */ \
+    "  float wamp = u_wave_amp * i_misc.z;\n"
+    "  if (wamp > 0.0) wamp *= wave_depth_fade(u_hm, i_pos.xz, u_geo, u_wk, u_wave_scale, u_local_depth);\n"
+    "  vec3 wtx, wtz; float wcrest;\n"
+    "  vec3 wdisp = wave_sum(i_pos.xz, u_time, wamp, u_wave_scale, wtx, wtz, wcrest);\n"
+    "  vec3 wup = normalize(cross(wtz, wtx));\n"
+    "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
     "  v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);\n"
     "  v_col = mix(a_col, i_scol.yzw, a_mat);\n"
     "  v_wpos = wp; v_sel = i_misc.y; v_rm = a_rm;\n"
     "  gl_Position = u_vp * vec4(wp, 1.0);\n"
     "}\n";
 static const char *meshes_fs =
-    "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm;\n"
+    "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither;\n"
     "uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform sampler2D u_grain;\n"
     "out vec4 fragColor;\n"
-    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_NMAP GLSL_FOG
+    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_NMAP GLSL_FOG GLSL_DITHER
     "void main(){\n"
+    "  dither_clip(v_dither);\n"
     "  vec3 n = normalize(v_nrm);\n"
     "  vec3 albedo = srgb_to_linear(v_col);\n"
     "  vec3 vdir = normalize(u_campos - v_wpos);\n"
@@ -66,9 +83,14 @@ static const char *meshes_fs =
 // depth-only variant for the shadow cascades: same instance transform, no shading
 static const char *depth_vs =
     "in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in float a_mat; in vec2 a_rm;\n"
-    "in vec4 i_pos; in vec4 i_scol; in vec4 i_misc;\n"
+    "in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx;\n"
     "uniform mat4 u_vp; uniform float u_time;\n"
+    "uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;\n"
+    "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;\n"
+    "out float v_dither;\n"
+    GLSL_WAVES
     "void main(){\n"
+    "  v_dither = i_fx.x;\n"
     "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
     "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
     /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
@@ -82,13 +104,23 @@ static const char *depth_vs =
     "  p = vec3(p.x*cp - p.y*sp, p.x*sp + p.y*cp, p.z);\n"
     "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;\n"
     "  wp.y += i_misc.z * (sin(u_time*1.10 + i_pos.x*2.0) * 0.02 + sin(u_time*0.47 + i_pos.z*1.3) * 0.012);\n"
+    /* Floating instances (i_misc.z, the bob flag) ride the Gerstner swell the sea pass draws:
+       the hull is lifted to the surface at its own position and sheared by the surface slope, so
+       a ship pitches into a trough instead of sailing through it. The shadow pass applies the
+       same transform, so the shadow stays under the ship. */ \
+    "  float wamp = u_wave_amp * i_misc.z;\n"
+    "  if (wamp > 0.0) wamp *= wave_depth_fade(u_hm, i_pos.xz, u_geo, u_wk, u_wave_scale, u_local_depth);\n"
+    "  vec3 wtx, wtz; float wcrest;\n"
+    "  vec3 wdisp = wave_sum(i_pos.xz, u_time, wamp, u_wave_scale, wtx, wtz, wcrest);\n"
+    "  vec3 wup = normalize(cross(wtz, wtx));\n"
+    "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
     "  gl_Position = u_vp * vec4(wp, 1.0);\n"
     "}\n";
 // Gunsmoke: the same instanced geometry, but shaded as a soft translucent volume instead of a
 // solid surface - alpha falls off towards the silhouette, so the sphere reads as a puff rather
 // than a ball. Blended, depth-tested but not depth-written, drawn after the sea.
 static const char *smoke_fs =
-    "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm;\n"
+    "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither;\n"
     "uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness;\n"
     "out vec4 fragColor;\n"
     GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_FOG
@@ -107,8 +139,10 @@ static const char *smoke_fs =
 static rhi_pipeline_t smoke_prg;
 
 static const char *depth_fs =
+    "in float v_dither;\n"
     "out vec4 fragColor;\n"
-    "void main(){ fragColor = vec4(1.0); }\n";
+    GLSL_DITHER
+    "void main(){ dither_clip(v_dither); fragColor = vec4(1.0); }\n";   // shadows cross-fade with the meshes
 static rhi_pipeline_t depth_prg;
 
 // ---------------------------------------------------------------------------
@@ -224,7 +258,7 @@ static void build_buildings(void) {
 static void build_puff(void) {
     mb_t m = {0};
     mb_material(&m, 0.97f, 0.f);
-    const int SEG = 8, RING = 4;
+    const int SEG = 14, RING = 7;   // round enough to read as smoke at battle-view scale
     for (int j = 0; j < RING; ++j) {
         float t0 = j * 3.14159f / RING, t1 = (j+1) * 3.14159f / RING;
         for (int i = 0; i < SEG; ++i) {
@@ -243,8 +277,9 @@ static void build_puff(void) {
 }
 
 void meshes_init(void) {
-    static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", GLSL_LIGHT_UNIFORMS, 0 };
-    static const char *depth_uniforms[] = { "u_vp", "u_time", 0 };
+    static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain",
+                                      "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *depth_uniforms[] = { "u_vp", "u_time", "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", 0 };
     meshes_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = meshes_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     depth_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = depth_vs, .fs = depth_fs, .layout = &mesh_layout, .uniforms = depth_uniforms, .depth_test = 1, .depth_write = 1 });
     smoke_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = smoke_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 0, .blend = RHI_BLEND_ALPHA });
@@ -253,8 +288,20 @@ void meshes_init(void) {
     build_puff();
 }
 
+// the wave uniforms every instanced pipeline needs so floating instances ride the same surface
+// the sea pass draws (render.h: sea_wave_amp / sea_wave_scale / sea_local_depth)
+static void meshes_bind_waves(const rhi_pipeline_t *p) {
+    rhi_set_f1(rhi_uniform(p,"u_wave_amp"), sea_wave_amp * (1.f - RF.mapness));
+    rhi_set_f1(rhi_uniform(p,"u_wave_scale"), sea_wave_scale);
+    rhi_set_f1(rhi_uniform(p,"u_local_depth"), sea_local_depth);
+    rhi_set_i1(rhi_uniform(p,"u_hm"), 4); rhi_texture_bind(4, terrain_heightmap_texture());
+    rhi_set_f4(rhi_uniform(p,"u_geo"), LON0, LON1, LAT0, LAT1);
+    rhi_set_f1(rhi_uniform(p,"u_wk"), WORLD_K);
+}
+
 void meshes_bind(void) {
     rhi_pipeline_bind(&meshes_prg);
+    meshes_bind_waves(&meshes_prg);
     rhi_set_i1(UNI(meshes_prg,"u_grain"), 2); rhi_texture_bind(2, detail_grain());
     rhi_set_mat4(UNI(meshes_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_f1(UNI(meshes_prg,"u_time"), RF.time);
@@ -266,6 +313,7 @@ void meshes_bind(void) {
 
 void meshes_bind_smoke(void) {
     rhi_pipeline_bind(&smoke_prg);
+    meshes_bind_waves(&smoke_prg);
     rhi_set_mat4(UNI(smoke_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_f1(UNI(smoke_prg,"u_time"), RF.time);
     rhi_set_f3(UNI(smoke_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
@@ -276,6 +324,7 @@ void meshes_bind_smoke(void) {
 
 void meshes_bind_depth(const mat44 *lightvp) {
     rhi_pipeline_bind(&depth_prg);
+    meshes_bind_waves(&depth_prg);
     rhi_set_mat4(UNI(depth_prg,"u_vp"), &lightvp->x.x);
     rhi_set_f1(UNI(depth_prg,"u_time"), RF.time);
 }

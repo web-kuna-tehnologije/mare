@@ -293,7 +293,20 @@ rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, 
         apply_layout(layout, 1);
     }
     glBindVertexArray(0); rhi_bound_vao = 0;
+    g.vstride = layout->stride[0];
     return g;
+}
+
+// Release a geometry's buffers (LOD streaming: gfx/scene.c evicts meshes it has stopped
+// drawing). The accounting mirrors rhi_geometry_make so rhi_memory() stays truthful.
+void rhi_geometry_free(rhi_geometry_t *g) {
+    if (!g || !g->vao) return;
+    if (rhi_bound_vao == g->vao) { glBindVertexArray(0); rhi_bound_vao = 0; }
+    if (g->vbo) { glDeleteBuffers(1, &g->vbo); rhi_mem.buffers -= (size_t)g->nverts * g->vstride; rhi_mem.nbuffers--; }
+    if (g->ebo) { glDeleteBuffers(1, &g->ebo); rhi_mem.buffers -= (size_t)g->nindices * sizeof(unsigned); rhi_mem.nbuffers--; }
+    if (g->ibo) { glDeleteBuffers(1, &g->ibo); rhi_mem.buffers -= (size_t)g->inst_capacity * g->inst_stride; rhi_mem.nbuffers--; }
+    glDeleteVertexArrays(1, &g->vao);
+    memset(g, 0, sizeof *g);
 }
 
 void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n) {

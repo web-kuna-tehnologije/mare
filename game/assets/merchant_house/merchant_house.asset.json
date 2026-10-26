@@ -1,0 +1,44 @@
+{
+  "name": "merchant_house",
+  "type": "building",
+  "role": "merchant_house",
+  "lods": [
+    {
+      "file": "merchant_house_LOD0.glb",
+      "node": "merchant_house_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "merchant_house_LOD1.glb",
+      "node": "merchant_house_LOD1",
+      "px": 220
+    },
+    {
+      "file": "merchant_house_LOD2.glb",
+      "node": "merchant_house_LOD2",
+      "px": 90
+    },
+    {
+      "file": "merchant_house_LOD3.glb",
+      "node": "merchant_house_LOD3",
+      "px": 30
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 0.42
+  },
+  "pivot": "base_center",
+  "forward": "+z",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

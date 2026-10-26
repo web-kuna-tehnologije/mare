@@ -1,0 +1,44 @@
+{
+  "name": "small_wooden_house",
+  "type": "building",
+  "role": "small_wooden_house",
+  "lods": [
+    {
+      "file": "small_wooden_house_LOD0.glb",
+      "node": "small_wooden_house_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "small_wooden_house_LOD1.glb",
+      "node": "small_wooden_house_LOD1",
+      "px": 220
+    },
+    {
+      "file": "small_wooden_house_LOD2.glb",
+      "node": "small_wooden_house_LOD2",
+      "px": 90
+    },
+    {
+      "file": "small_wooden_house_LOD3.glb",
+      "node": "small_wooden_house_LOD3",
+      "px": 30
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 0.28
+  },
+  "pivot": "base_center",
+  "forward": "+z",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

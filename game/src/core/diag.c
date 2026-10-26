@@ -42,6 +42,20 @@
 #endif
 #include "diag.h"
 
+// Logging is called from job-system workers (core/jobs.h), so the record path takes a spinlock.
+// It is a spinlock rather than a mutex because C11 has no portable mutex MSVC implements, the
+// critical section is a few hundred nanoseconds, and this file keeps its platform code to
+// intrinsics. Metrics and profiler scopes are main-thread only and stay unlocked.
+#if defined(_WIN32)
+static volatile long diag_lock_v;
+static void diag_lock(void)   { while (_InterlockedExchange(&diag_lock_v, 1)) { while (diag_lock_v) YieldProcessor(); } }
+static void diag_unlock(void) { _InterlockedExchange(&diag_lock_v, 0); }
+#else
+static volatile int diag_lock_v;
+static void diag_lock(void)   { while (__sync_lock_test_and_set(&diag_lock_v, 1)) { while (diag_lock_v) { } } }
+static void diag_unlock(void) { __sync_lock_release(&diag_lock_v); }
+#endif
+
 // ---------------------------------------------------------------------------
 // state
 
@@ -183,16 +197,19 @@ void diag_logv(int level, const char *module, const char *where, const char *fmt
     if (level < 0) level = 0;
     if (level >= LOG_LEVELS) level = LOG_LEVELS-1;
     log_record_t r; memset(&r, 0, sizeof r);
-    r.seq = ++seq; r.wall = wall_now(); r.run = initialized ? diag_now() - t_start : 0; r.day = sim_day; r.level = level;
+    r.wall = wall_now(); r.run = initialized ? diag_now() - t_start : 0; r.day = sim_day; r.level = level;
     snprintf(r.module, sizeof r.module, "%s", module ? module : "-");
     const char *slash = where; for (const char *p = where; *p; ++p) if (*p == '/' || *p == '\\') slash = p + 1;   // basename only
     snprintf(r.where, sizeof r.where, "%s", slash);
     vsnprintf(r.text, sizeof r.text, fmt, va);
+    diag_lock();
+    r.seq = ++seq;
     level_counts[level]++;
     if (level >= cfg.ring_level) { ring[ring_head] = r; ring_head = (ring_head + 1) % LOG_RING; if (ring_n < LOG_RING) ring_n++; }
     if (f_run && level >= cfg.file_level) { write_record(f_run, &r, 0); if (level >= LOG_WARN) fflush(f_run); }
     if (f_err && level >= LOG_WARN) { write_record(f_err, &r, 0); fflush(f_err); }
     if (level >= cfg.console_level) write_record(stderr, &r, console_color);
+    diag_unlock();
     if (level == LOG_FATAL) { diag_shutdown(); abort(); }
 }
 void diag_log(int level, const char *module, const char *where, const char *fmt, ...) { va_list va; va_start(va, fmt); diag_logv(level, module, where, fmt, va); va_end(va); }

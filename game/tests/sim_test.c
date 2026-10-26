@@ -14,6 +14,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include "../src/core/jobs.h"      // linked from src/core/jobs.cpp: nav's precompute runs on the pool
 #include "../src/core/diag.c"
 #include "../src/core/log.c"
 #include "../src/world/world.c"
@@ -58,6 +59,9 @@ static void check_invariants(const char *when) {
 int main(int argc, char **argv) {
     int years = argc > 1 ? atoi(argv[1]) : 3; unsigned seed = argc > 2 ? (unsigned)atoi(argv[2]) : 7;
     diag_config_t dc = { "test_logs", LOG_ERROR, LOG_DEBUG, LOG_TRACE, 0 }; diag_init(&dc);
+    // The real pool, not synchronous mode: the port-distance precompute runs in parallel here,
+    // so the save/load determinism check below is also the determinism check for that work.
+    jobs_init(-1); atexit(jobs_shutdown);
     world_init(seed); nav_init();
     log_set_listener(listener);
 

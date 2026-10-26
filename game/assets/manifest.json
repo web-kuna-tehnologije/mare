@@ -1,5 +1,13 @@
 {
   "assets": [
-    "church/church.asset.json"
+    "artisan_house/artisan_house.asset.json",
+    "church/church.asset.json",
+    "merchant_house/merchant_house.asset.json",
+    "poor_house/poor_house.asset.json",
+    "small_stone_house/small_stone_house.asset.json",
+    "small_wooden_house/small_wooden_house.asset.json",
+    "three_story_townhouse/three_story_townhouse.asset.json",
+    "two_story_townhouse/two_story_townhouse.asset.json",
+    "wealthy_townhouse/wealthy_townhouse.asset.json"
   ]
 }

@@ -14,14 +14,26 @@ and `FEATURES.md` / `KNOWN_ISSUES.md`.
 | macOS | Xcode command line tools | `./game/build.sh` | `./game/build.sh test` |
 | Any IDE | CMake 3.16+ | `cmake -S game -B build && cmake --build build` | `ctest --test-dir build` |
 
-The game is a **single translation unit**: `game/mare.c` includes `v3.h` (the framework) and then
-every `src/**/*.c`. There is no separate link step and no library to install. The headless tests
-include only `src/core`, `src/world`, `src/sim` and need nothing but libc/libm.
+The game is **two translation units**: `game/mare.c` includes `v3.h` (the framework) and then
+every `src/**/*.c`, and `game/src/core/jobs.cpp` is the job system - the only C++ in the project,
+behind a C ABI (`core/jobs.h`, see [DESIGN_JOBS.md](DESIGN_JOBS.md)). The build scripts compile
+both and link with the C++ driver; there is no library to install. The headless tests include
+only the modules they exercise and need nothing but libc/libm (`jobs_test` needs a C++17
+compiler and threads).
 
 Useful flags: `--nation=4 --seed=7` (skip the menu), `--skip=365` (pre-simulate), `--dev`
 (dashboard, verbose log, metrics CSV), `--simulate=730` (headless balance report), `--fps=N`,
 `--log-level=debug`, `--log-dir=PATH`. Environment: `MARE_LOG_LEVEL`, `MARE_PASSES=terrain,sea`
-(restrict render passes for profiling), `MARE_AUTOQUIT_S=30`.
+(restrict render passes for profiling), `MARE_AUTOQUIT_S=30`, `MARE_JOBS=0|N` (synchronous
+job system / pinned worker count), `MARE_ZOOM=d0,d1,seconds[,lon,lat]` (scripted camera zoom
+there and back, for LOD/streaming measurements), `MARE_CAM=lon,lat,dist[,yaw]` and
+`MARE_SCREENSHOT=file.ppm` (pinned camera + capture), `MARE_DETAIL=battle|city`.
+
+Asset tooling (Windows dev box: Blender 5.2 and Python with PIL):
+`blender -b src.blend --python tools/blender_export_glb.py -- game/assets/<name> <name>` exports
+LOD0-3 GLBs, `python3 tools/gen_asset_descriptors.py game/assets` writes the descriptors and the
+manifest, `python tools/sea_textures.py <reference.png> game/assets/sea` rebuilds the sea tiles.
+GLBs are not in git (see .gitignore); descriptors and the manifest are.
 
 ## 2. Directory map
 
@@ -35,10 +47,14 @@ game/
     util.h                math, coordinate conversions, rng (xorshift32), calendar, colours
     log.[ch]              the player-facing chronicle (+ listener hook for toasts)
     diag.[ch]             technical logging (levels, files, ring), metrics, profiler, crash handlers
+    jobs.h / jobs.cpp     thread pool: WORKER/DECODE/IO/MAIN lanes, join counters, parallel_for
+                          (C API, C++17 implementation - the project's only C++ file)
   src/data/               static data: geo_coast.h (polygons), geo_ports.h (ports/sites), tables.h (goods, ships, buildings, nations)
   src/world/              world.c (raster, heightfield, territory)  regions.c (land regions, deposits)  nav.c (water grid, A*, port distances)  wind.c
   src/sim/                economy, region (hinterlands/hubs), settlement, events (incl. diplomacy/history), fleet, ai, combat, game (new/tick/save/load)
-  src/gfx/                gpu (programs/meshes/instancing), terrain, sea, meshes (procedural ships/towns), icons, camera, scene
+  src/assets/             gltf (GLB/glTF loader), asset (descriptors, registry, background load pipeline)
+  src/gfx/                gpu (programs/meshes/instancing), terrain, sea, meshes (procedural ships/towns), icons, camera,
+                          lod (screen-space LOD selection + cross-fade state), textures (streamed PNG/JPEG), scene, detailview
   src/ui/                 ui.h (UI state + kit API), uikit, input (picking/commands/hotkeys/camera), hud (panels), dashboard
   tests/                  sim_test.c (connectivity, invariants, colonisation, save/load determinism)  diag_test.c
 ```
@@ -107,6 +123,13 @@ reloaded game continues bit-identically — keep it that way (see rules below).
 * **Portability**: C11 only — no VLAs, no statement expressions, no `__attribute__`, no POSIX
   in `core/world/sim` outside `diag.c`'s guarded block. Avoid Windows macro names (`MAX_PATH`,
   `ERROR`, `DELETE`, `near/far`, `min/max`). Never put a `game_t` on the stack (~1 MB).
+* **C++**: only `core/jobs.cpp`, and only because a portable thread pool in C11 is a pile of
+  `#ifdef`. Any future C++ island follows the same rule: a C header with `extern "C"`, one
+  translation unit behind it, no STL type and no exception crossing the boundary. Game code
+  never becomes C++ by accident.
+* **Threading**: anything that might take longer than a frame goes through `core/jobs.h` on the
+  lane that fits (DECODE for parsing/decoding, IO for files, MAIN for GL). Simulation code that
+  runs on the pool must obey the determinism rules in DESIGN_JOBS.md.
 * **Keys**: use `KDOWN(GLFW_KEY_x)` / `KHELD(...)`, not v3's `KEY_*` (shadowed on Linux).
 * **Sizes**: use `screen_w/screen_h` (framebuffer) for projection and `mouse_px()/mouse_py()`
   for the cursor, never `app_width()` in per-object loops.

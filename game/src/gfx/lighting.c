@@ -23,6 +23,8 @@
 #include "scene.h"
 #include "../core/util.h"
 #include "../core/diag.h"
+#include "../core/balance.h"
+#include <stdio.h>
 
 #define SHADOW_RES    1024
 #define SHADOW_CASCADES 3
@@ -58,11 +60,73 @@ unsigned rgb_linear(unsigned col) {   // colours are 0xAABBGGRR (util.h)
 
 void render_light_update(void) {
     float d = RF.daylight;
+    vec3 tint = RF.suntint.x > 0 || RF.suntint.y > 0 || RF.suntint.z > 0 ? RF.suntint : vec3(1,1,1);
+    // The ambient takes its colour from the sky, which at night is almost black - multiplying
+    // that by a low daylight level would double-darken the scene into an unplayable map. Keep a
+    // moonlit floor instead: the sky still reads as night, the ground stays legible.
+    vec3 ambcol = lerp3(vec3(0.30f, 0.37f, 0.52f), RF.sky, clampf(RF.ambfloor, 0.f, 1.f));
+    float ambd = lerpf(0.72f, 1.f, clampf(RF.ambfloor, 0.f, 1.f));
     // Sun radiance is tuned so a mid-grey albedo under full sun lands near 0.6 after tonemapping.
-    RF.suncol = scale3(srgb_to_linear3(vec3(1.00f, 0.96f, 0.88f)), 3.1f * d);
+    vec3 base = srgb_to_linear3(vec3(1.00f, 0.96f, 0.88f));
+    RF.suncol = scale3(vec3(base.x * tint.x, base.y * tint.y, base.z * tint.z), 3.1f * d);
     // Hemispheric ambient: sky from above, warm bounce from the ground below.
-    RF.ambsky = scale3(srgb_to_linear3(RF.sky), 0.55f * d);
-    RF.ambgnd = scale3(srgb_to_linear3(vec3(0.33f, 0.30f, 0.25f)), 0.30f * d);
+    RF.ambsky = scale3(srgb_to_linear3(ambcol), 0.55f * ambd);
+    RF.ambgnd = scale3(srgb_to_linear3(vec3(0.33f, 0.30f, 0.25f)), 0.30f * ambd);
+}
+
+// ---------------------------------------------------------------------------
+// day and night
+//
+// The sun rides a tilted circle once per `daynight_period_days` simulated days, so shadows
+// sweep across the world while the game runs (and stop when it is paused, since they are driven
+// by G.day rather than by wall time). Three things follow the elevation: the light direction,
+// the daylight level and the sky colour, with a warm tint at the horizon.
+//
+// Two deliberate departures from physics. The elevation is clamped to DAYNIGHT_MIN_ELEV so the
+// shadow cascades never degenerate into the plane of the ground, and night bottoms out at
+// DAYNIGHT_FLOOR rather than at black: this is a strategy map that has to stay readable, so
+// "night" is a dim blue dusk. MARE_SUN pins the direction (screenshot tests) and
+// MARE_DAYNIGHT=0 keeps the old fixed afternoon sun.
+
+int   daynight_enabled = 1;
+float daynight_period_days = DAYNIGHT_PERIOD_DAYS;
+
+void render_sun_update(float day) {
+    static const char *sun_env; static int sun_read;
+    if (!sun_read) {
+        sun_read = 1;
+        sun_env = getenv("MARE_SUN");
+        const char *dn = getenv("MARE_DAYNIGHT");
+        if (dn) daynight_enabled = atoi(dn) != 0;
+        const char *pd = getenv("MARE_DAYNIGHT_DAYS");
+        if (pd) daynight_period_days = maxf(0.5f, (float)atof(pd));
+        if (sun_env) LOG_INFO("gpu", "sun pinned to %s (MARE_SUN)", sun_env);
+        else LOG_INFO("gpu", "day/night cycle %s (%.0f simulated days per cycle)", daynight_enabled ? "on" : "off", daynight_period_days);
+    }
+    float tod = DAYNIGHT_NOON;                                   // the fixed afternoon sun of 0.7.x
+    // Day 0 is mid-morning, not midnight: a new game should open in daylight.
+    if (daynight_enabled && !sun_env) { tod = DAYNIGHT_START + day / daynight_period_days; tod -= floorf(tod); }
+    RF.tod = tod;
+
+    float a = (tod - 0.25f) * 6.2831853f;                        // 06:00 sunrise, 12:00 noon, 18:00 sunset
+    float elev = sinf(a), east = cosf(a);
+    // direction towards the sun: it swings east -> west and keeps a southern tilt (+z is south)
+    vec3 dir = norm3(vec3(east * 0.85f, maxf(elev, DAYNIGHT_MIN_ELEV), 0.35f));
+    if (sun_env) { float sx = 0.45f, sy = 0.75f, sz = 0.35f; sscanf(sun_env, "%f,%f,%f", &sx, &sy, &sz); dir = norm3(vec3(sx, maxf(sy, 0.08f), sz)); }
+    RF.sun = dir;
+
+    // daylight: full above ~15 degrees, down to the night floor once the sun is below the horizon
+    float lit = clampf((elev + 0.16f) / 0.42f, 0.f, 1.f);
+    lit = lit * lit * (3.f - 2.f * lit);
+    RF.daylight = lerpf(DAYNIGHT_FLOOR, 1.f, lit);
+    RF.ambfloor = lit;                                           // render_light_update keeps the ambient above a floor
+    // horizon warmth: strongest while the sun is within a few degrees of the horizon
+    float horizon = clampf(1.f - fabsf(elev) * 3.2f, 0.f, 1.f);
+    vec3 day_tint = vec3(1.f, 1.f, 1.f), dusk_tint = vec3(1.25f, 0.72f, 0.42f), night_tint = vec3(0.55f, 0.68f, 1.05f);
+    RF.suntint = lerp3(lerp3(day_tint, dusk_tint, horizon), night_tint, 1.f - lit);
+    // sky: day blue -> sunset orange -> night blue (mare.c blends the map parchment over this)
+    vec3 sky_day = vec3(0.60f, 0.74f, 0.88f), sky_dusk = vec3(0.86f, 0.60f, 0.42f), sky_night = vec3(0.07f, 0.10f, 0.20f);
+    RF.sky = lerp3(lerp3(sky_night, sky_day, lit), sky_dusk, horizon * (0.35f + 0.65f * lit));
 }
 
 void light_bind(const rhi_pipeline_t *p) {

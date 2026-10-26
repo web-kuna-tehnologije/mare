@@ -20,10 +20,14 @@
 #include "../data/tables.h"
 #include "../sim/fleet.h"
 #include "../sim/settlement.h"
+#include "lod.h"
 
-#define DV_SHIP_SCALE   6.f          // world ship mesh -> local units
+#define DV_SHIP_SCALE   9.f          // world ship mesh -> local units (1 unit ~ 2.8 m: a ship of the line is ~19 units)
 #define DV_COAST_DIST 190.f          // battle: coast this far north (+z is south, so -z)
 #define DV_MAX_SHIPS   50
+#define DV_MAX_BUILD  160
+#define DV_SEA_DEPTH   40.f          // staged scenes have no heightmap: open water everywhere
+typedef struct dv_build_t dv_build_t;
 #define DV_CLOUD_IN   0.8f           // seconds of cloud cover building up
 #define DV_CLOUD_OUT  1.1f           // seconds of reveal (the camera dives during this)
 
@@ -50,6 +54,7 @@ static struct {
     float time;
     // stage + instance lists
     mesh_t stage; int stage_built;
+    struct dv_build_t { short asset; inst_t in; } build[DV_MAX_BUILD]; int nbuild;   // authored houses (registry index + local instance)
     instlist_t ships_il[SHIP_COUNT], houses, roofs, towers, walls, piers, flags, puffs_il;
     // clouds
     rhi_pipeline_t cloud_prg; rhi_geometry_t cloud_geo; int cloud_init;
@@ -68,9 +73,8 @@ static void stage_free(void) { dv.stage_built = 0; }   // geometry is leaked per
 
 static void stage_battle(void) {
     mb_t m = {0};
-    mb_material(&m, 0.10f, 0.f);                                   // calm sea: smooth dielectric, sun glint
     float S = 1500;
-    mb_quad(&m, (float[]){-S,0,S}, (float[]){S,0,S}, (float[]){S,0,-S}, (float[]){-S,0,-S}, 0.09f, 0.22f, 0.38f, 0);
+    // (no sea quad: sea_draw_local draws the real water, with the same waves the map has)
     // the coast, a kilometre to the north: beach strip, grass rise, a few worn hills
     mb_material(&m, MB_STONE);
     float zc = -DV_COAST_DIST;
@@ -97,8 +101,6 @@ static void stage_city(void) {
     mb_material(&m, MB_STONE);
     mb_quad(&m, (float[]){-S,0,S}, (float[]){S,0,S}, (float[]){S,0,-120}, (float[]){-S,0,-120}, 0.38f,0.50f,0.28f, 0);     // grass
     mb_quad(&m, (float[]){-S,0.02f,-120}, (float[]){S,0.02f,-120}, (float[]){S,0.02f,-160}, (float[]){-S,0.02f,-160}, 0.80f,0.74f,0.55f, 0);  // beach
-    mb_material(&m, 0.10f, 0.f);
-    mb_quad(&m, (float[]){-S,0,-160}, (float[]){S,0,-160}, (float[]){S,0,-S}, (float[]){-S,0,-S}, 0.09f,0.22f,0.38f, 0);   // harbour water
     mb_material(&m, MB_STONE);
     mb_quad(&m, (float[]){-90,0.05f,90}, (float[]){90,0.05f,90}, (float[]){90,0.05f,-90}, (float[]){-90,0.05f,-90}, 0.55f,0.52f,0.47f, 0);    // cobbled town ground
     dv.stage = mesh_upload(&m);
@@ -131,7 +133,7 @@ static void build_battle(int fleet_id) {
             int side = f->nation == hot->nation ? 0 : 1; real = 1;
             unsigned col = f->role == ROLE_PIRATE ? rgb(25,25,25) : nations_info[f->nation].color;
             for (int k = 0; k < f->nships; ++k) {
-                float lx = -60 + (dv.nships % 7) * 18.f + rnd_f(&seed) * 8, lz = (side ? 16 : -16) + ((dv.nships / 7) % 3) * 22.f + rnd_f(&seed) * 10;
+                float lx = -46 + (dv.nships % 7) * 15.f + rnd_f(&seed) * 7, lz = (side ? 14 : -14) + ((dv.nships / 7) % 3) * 19.f + rnd_f(&seed) * 8;
                 battle_add_ship(f->ships[k].type, side, lx, lz, side ? 3.14159f + rnd_f(&seed) * 0.5f : rnd_f(&seed) * 0.5f, col, &seed);
             }
         }
@@ -140,8 +142,8 @@ static void build_battle(int fleet_id) {
         unsigned ca = nations_info[G.player >= 0 ? G.player : 1].color, cb = rgb(140, 25, 25);
         for (int i = 0; i < 15; ++i) {
             int ta = i % SHIP_COUNT, tb = (i * 2 + 1) % SHIP_COUNT;
-            battle_add_ship(ta, 0, -75 + (i % 5) * 26 + rnd_f(&seed) * 10, -28 - (i / 5) * 24 + rnd_f(&seed) * 8, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed);
-            battle_add_ship(tb, 1, -65 + (i % 5) * 28 + rnd_f(&seed) * 10,  24 + (i / 5) * 22 + rnd_f(&seed) * 8, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed);
+            battle_add_ship(ta, 0, -56 + (i % 5) * 22 + rnd_f(&seed) * 8, -22 - (i / 5) * 20 + rnd_f(&seed) * 6, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed);
+            battle_add_ship(tb, 1, -48 + (i % 5) * 23 + rnd_f(&seed) * 8,  20 + (i / 5) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed);
         }
         LOG_INFO("gfx", "detail view: no battle under way, staged a 30-ship exercise");
     } else LOG_INFO("gfx", "detail view: battle with %d ships", dv.nships);
@@ -189,6 +191,17 @@ static void battle_update(float dt) {
 
 #define DV_HOUSE 3.2f       // base house scale: ~13 m footprint
 static float dv_fp[220][3]; static int dv_nfp;
+static const char *const dv_roles_rich[] = { "wealthy_townhouse", "merchant_house", "three_story_townhouse", "inn" };
+static const char *const dv_roles_mid[]  = { "two_story_townhouse", "artisan_house", "shop", "bakery", "blacksmith", "small_stone_house" };
+static const char *const dv_roles_poor[] = { "poor_house", "small_wooden_house", "small_stone_house" };
+static asset_t *dv_house_asset(float ring, int size, unsigned *seed) {
+    const char *const *roles; int n;
+    float tier = ring + (rnd_f(seed) - 0.5f) * 0.35f;
+    if (tier < 0.3f && size >= 2) { roles = dv_roles_rich; n = 4; } else if (tier < 0.7f) { roles = dv_roles_mid; n = 6; } else { roles = dv_roles_poor; n = 3; }
+    int start = rnd_int(seed, n);
+    for (int k = 0; k < n; ++k) { asset_t *a = asset_get_role(ASSET_BUILDING, roles[(start + k) % n]); if (a) return a; }
+    return NULL;
+}
 static int dv_free(float x, float z, float r) {
     for (int i = 0; i < dv_nfp; ++i) if (dist2d(dv_fp[i][0], dv_fp[i][1], x, z) < dv_fp[i][2] + r) return 0;
     return 1;
@@ -226,20 +239,30 @@ static void build_city(int port) {
         *instlist_push(&dv.roofs)  = (inst_t){ wx, s, wz, 1.5708f, s, 0.35f,0.33f,0.30f, 0,0,0,0 };
         dv_take(wx, wz, s * 0.62f);
     }
-    // commercial centre around the plaza (brighter plaster, denser) then residential mass
+    // commercial centre around the plaza (brighter plaster, denser) then residential mass.
+    // Authored houses (same role tiers as the map's towns, scene.c) stand in for the boxes
+    // where they have loaded, scaled from their world-map size to the 1:1 stage.
     int nres = mini(24 + (int)(pop * 1.4f) + 18 * market, 150);
+    dv.nbuild = 0;
     for (int k = 0, placed = 0; k < nres * 5 && placed < nres; ++k) {
         float ring = sqrtf(rnd_f(&seed));
         float a = rnd_f(&seed) * 6.2832f, r = 14 + ring * (R - 22);
         float hx = cosf(a) * r, hz = sinf(a) * r * 0.82f - 20;
         if (hz < -108) continue;                              // keep out of the harbour water
         float s = DV_HOUSE * (0.8f + rnd_f(&seed) * 0.5f) * (r < 45 ? 1.25f : 1.f);
-        if (!dv_free(hx, hz, s * 0.68f)) continue;
-        float wc = 0.72f + rnd_f(&seed) * 0.2f;
-        int commercial = r < 45 && market;
-        *instlist_push(&dv.houses) = (inst_t){ hx, 0, hz, rnd_f(&seed) * 3.14f, s, wc, wc * (commercial ? 0.95f : 0.9f), wc * 0.75f, 0,0,0,0 };
-        *instlist_push(&dv.roofs)  = (inst_t){ hx, s, hz, dv.houses.v[dv.houses.n-1].heading, s, 0.66f, 0.33f, 0.20f, 0,0,0,0 };
-        dv_take(hx, hz, s * 0.7f);
+        asset_t *house = dv_house_asset(ring, size, &seed);
+        float foot = house ? asset_footprint_radius(house) * (s / maxf(house->bmax[1] - house->bmin[1], 0.05f)) : s * 0.68f;
+        if (!dv_free(hx, hz, foot)) continue;
+        if (house && dv.nbuild < DV_MAX_BUILD) {
+            float sc = s / maxf(house->bmax[1] - house->bmin[1], 0.05f);   // asset height -> this house's height
+            dv.build[dv.nbuild++] = (dv_build_t){ (short)(house - asset_at(0)), { hx, 0.02f, hz, -atan2f(-hz, -hx) + (rnd_f(&seed) - 0.5f) * 0.5f, sc, 1,1,1, 0,0,0,0 } };
+        } else {
+            float wc = 0.72f + rnd_f(&seed) * 0.2f;
+            int commercial = r < 45 && market;
+            *instlist_push(&dv.houses) = (inst_t){ hx, 0, hz, rnd_f(&seed) * 3.14f, s, wc, wc * (commercial ? 0.95f : 0.9f), wc * 0.75f, 0,0,0,0 };
+            *instlist_push(&dv.roofs)  = (inst_t){ hx, s, hz, dv.houses.v[dv.houses.n-1].heading, s, 0.66f, 0.33f, 0.20f, 0,0,0,0 };
+        }
+        dv_take(hx, hz, foot * 1.03f);
         placed++;
     }
     // military district: the wall ring (when a fort exists) with corner towers
@@ -301,7 +324,25 @@ static float dv_cover(void) {   // cloud cover 0..1 for the current phase
     }
 }
 
+// The staged scenes are ~3.2x smaller per unit than the map, so the shared wave field is
+// stretched by DV_SHIP_SCALE to keep its physical size relative to the ships, and the heightmap
+// lookup is replaced by a constant depth (there is no world under a staged scene).
+static void dv_sea_params(void) {
+    int on = dv.phase != DVP_IDLE && dv.phase != DVP_OUT;
+    sea_wave_scale = on ? DV_SHIP_SCALE : 1.f;
+    sea_local_depth = on ? DV_SEA_DEPTH : 0.f;
+}
+void detailview_sea(void) {
+    // The battle is open ocean; the city's water stops at its beach (stage_city lays the sand
+    // out to local z = -160), so the staged sea is clipped there instead of flooding the town.
+    sea_clip_on = dv.mode == DV_CITY;
+    sea_clip_z = dv.cz - 158.f;
+    sea_draw_local(DV_SEA_DEPTH, DV_SHIP_SCALE, 1600.f);
+    sea_clip_on = 0;
+}
+
 void detailview_frame(float dt) {
+    dv_sea_params();
     if (dv.phase == DVP_IDLE) return;
     dv.t += dt;
     if (dv.phase == DVP_IN && dv.t >= DV_CLOUD_IN) {          // fully covered: swap to the staged scene
@@ -313,7 +354,7 @@ void detailview_frame(float dt) {
         dv.cz = clampf(cam.want_tz, lat2z(LAT1) + 140, lat2z(LAT0) - 140);
         LOG_INFO("gfx", "detail view: scene centred at %.0f %.0f (cam was %.0f %.0f)", dv.cx, dv.cz, cam.want_tx, cam.want_tz);
         cam.tx = cam.want_tx = dv.cx; cam.tz = cam.want_tz = dv.cz + (dv.mode == DV_BATTLE ? -25 : -30);
-        cam.dist = 380; cam.want_dist = dv.mode == DV_BATTLE ? 48 : 130;      // the dive through the clouds
+        cam.dist = 380; cam.want_dist = dv.mode == DV_BATTLE ? 32 : 110;      // the dive through the clouds
         cam.yaw = cam.want_yaw = dv.mode == DV_BATTLE ? 0.12f : 0.25f;        // battle: facing the coast a kilometre off
         cam_pitch_scale = 0.72f;                                               // towards the horizon, like the concept frames
         dv.phase = DVP_SHOW; dv.t = 0;
@@ -327,7 +368,7 @@ void detailview_frame(float dt) {
     if (dv.phase == DVP_OUT && dv.t >= DV_CLOUD_OUT) { dv.phase = DVP_IDLE; dv.mode = DV_OFF; stage_free(); return; }
     if (dv.phase != DVP_SHOW) return;
 
-    cam.want_dist = clampf(cam.want_dist, 8, 260);            // stay under the map morph in local space
+    cam.want_dist = clampf(cam.want_dist, 6, 260);            // stay under the map morph in local space
     cam.want_tx = clampf(cam.want_tx, dv.cx - 120, dv.cx + 120);
     cam.want_tz = clampf(cam.want_tz, dv.cz - 120, dv.cz + 120);
 
@@ -343,7 +384,7 @@ void detailview_frame(float dt) {
     for (int i = 0; i < dv.npuffs; ++i) { const dv_puff_t *p = &dv.puff[i];
         float t01 = p->age / 3.2f, env = sinf(3.14159f * minf(t01, 1.f));
         *instlist_push(&dv.puffs_il) = (inst_t){ dv.cx + p->x, p->y, dv.cz + p->z, 0,
-            (p->scale + t01 * 6.f) * env, 0.88f, 0.87f, 0.86f, 0, 0, 0, 0 }; }
+            (p->scale + t01 * 6.f) * env * 0.55f, 0.88f, 0.87f, 0.86f, 0, 0, 0, 0 }; }
     for (int t = 0; t < SHIP_COUNT; ++t) mesh_set_instances(&ship_mesh[t][0], dv.ships_il[t].v, dv.ships_il[t].n);
     mesh_set_instances(&mesh_puff, dv.puffs_il.v, dv.puffs_il.n);
     if (dv.mode == DV_CITY) {
@@ -356,11 +397,20 @@ void detailview_frame(float dt) {
             for (int i = 0; i < src[l]->n; ++i) { inst_t in = src[l]->v[i]; in.x += dv.cx; in.z += dv.cz; *instlist_push(&sh[l]) = in; }
             mesh_set_instances(dst[l], sh[l].v, sh[l].n);
         }
+        scene_assets_begin();
         asset_t *church = asset_get_role(ASSET_BUILDING, "church");
         if (church) {
             inst_t in = { dv.cx + 34, 0.05f, dv.cz - 14, 0.3f, 9.f / maxf(church->bmax[1] - church->bmin[1], 0.1f), 1,1,1, 0,0,0,0 };
-            mesh_set_instances(scene_asset_mesh(church, 0), &in, 1);
+            scene_asset_instance(church, in, lod_key(LODK_MISC, 1, 0), dist2d(dv.cx + 34, dv.cz - 14, cam.pos.x, cam.pos.z));
         }
+        for (int i = 0; i < dv.nbuild; ++i) {
+            asset_t *a = asset_at(dv.build[i].asset);
+            if (!a || a->state != ASSET_LOADED) continue;
+            inst_t in = dv.build[i].in; in.x += dv.cx; in.z += dv.cz;
+            float dx = in.x - cam.pos.x, dz = in.z - cam.pos.z;
+            scene_asset_instance(a, in, lod_key(LODK_MISC, 2, i), sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y));
+        }
+        scene_assets_end();
     } else {
         mesh_set_instances(&mesh_house, 0, 0); mesh_set_instances(&mesh_roof, 0, 0); mesh_set_instances(&mesh_tower, 0, 0);
         mesh_set_instances(&mesh_wall, 0, 0); mesh_set_instances(&mesh_pier, 0, 0); mesh_set_instances(&mesh_flagpole, 0, 0);
@@ -377,8 +427,7 @@ int detailview_submit(void) {
         mesh_draw(&mesh_house); mesh_draw(&mesh_roof); mesh_draw(&mesh_tower);
         mesh_draw(&mesh_wall); mesh_draw(&mesh_pier); mesh_draw(&mesh_flagpole);
         n += mesh_house.ninst + mesh_roof.ninst + mesh_tower.ninst + mesh_wall.ninst + mesh_pier.ninst + mesh_flagpole.ninst;
-        asset_t *church = asset_get_role(ASSET_BUILDING, "church");
-        if (church) { mesh_draw(scene_asset_mesh(church, 0)); n++; }
+        n += scene_assets_submit();                                   // church + authored houses, LOD-picked in detailview_frame
     }
     return n;
 }

@@ -111,6 +111,30 @@ Status as of the current codebase. Each entry names the module that owns it.
 - Dev dashboard (F3 / `--dev`): performance graph and scope tree, metrics, filtered log, system
   info, render-pass toggles, test buttons.
 
+## Concurrency (`src/core/jobs.h`, `jobs.cpp`)
+- Thread pool of `cores - 1` workers over four lanes: WORKER (frame-critical, served first),
+  DECODE (parsing, texture decode, mesh processing), IO (dedicated threads for blocking file
+  work), MAIN (GPU uploads, only ever run by the render thread, budgeted per frame).
+- Join counters, `jobs_parallel_for` with worker-count-independent chunks (so parallel
+  reductions stay bit-identical), waits that help instead of idling, per-lane statistics.
+- `MARE_JOBS=0` forces synchronous execution, `MARE_JOBS=N` pins the worker count.
+
+## Assets and LOD (`src/assets`, `src/gfx/lod.c`, `src/gfx/textures.c`)
+- glTF/GLB asset runtime with JSON descriptors (scale fit, pivot, forward axis, material rules,
+  texture baking, collision footprint); loads in the background on the job system, GPU upload
+  budgeted per frame; `asset_generation()` lets caches rebuild when an asset lands.
+- Screen-space LOD for authored assets, ships and towns: projected pixel size, thresholds in
+  reference pixels (`px`) or authored distances, per-instance hysteresis and 0.3 s dithered
+  cross-fades (meshes and shadows), mesh-to-icon dissolves; `lod.pops` / `lod.fading` metrics,
+  `MARE_ZOOM` scripted zoom for measuring.
+- Authored sea tiles (seamless normal map + foam albedo cut from the reference sheet by
+  `tools/sea_textures.py`), streamed; the procedural map covers until they are resident.
+- Meshy building set: `tools/blender_export_glb.py` exports per-LOD GLBs (80k/24k/7k/2k
+  triangles, 1k JPEG base colour only), `tools/gen_asset_descriptors.py` writes descriptors and
+  the manifest; towns and the staged city place the houses by tier, plus warehouse,
+  lighthouse and town hall when present.
+
 ## Tooling
-- Headless tests (`tests/sim_test.c`, `tests/diag_test.c`), balance runs (`--simulate`),
-  cross-platform build scripts, CMake project, GitHub Actions matrix (Windows/Linux/macOS).
+- Headless tests (`tests/sim_test.c`, `tests/diag_test.c`, `tests/asset_test.c`,
+  `tests/jobs_test.cpp`), balance runs (`--simulate`), cross-platform build scripts, CMake
+  project, GitHub Actions matrix (Windows/Linux/macOS).

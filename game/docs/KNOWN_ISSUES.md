@@ -53,6 +53,23 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   full-width `ROW(1, -1, 0)` (`ui_text_full` does this) or it wraps into a narrow column.
 - **L** Chronicle keeps the last 160 lines only; the technical run log has everything.
 
+## Assets, LOD and streaming (engine scale 0.8, in progress)
+- **M** No triangle budget yet (plan step 5): the staged city with ~150 authored houses and the
+  map at town height are GPU-bound on integrated graphics (Intel iGPU: 20-80 ms frames at
+  LOD 0/1). The generated descriptors keep LOD 0 only above 220 px for that reason; the LOD
+  director will budget per tier.
+- **L** Every registered asset is requested at start-up and every LOD is uploaded once built
+  (~6-9 MB per building); residency/eviction and camera-predicted streaming are step 7.
+- **L** A town or asset fading between two LODs carries one dither pattern per instance, so a
+  town dissolving into its icon overrides the asset's own LOD fade for that moment.
+- **L** The first frame after the window opens costs ~90 ms (GL warm-up, first present) on
+  every run; it is not asset loading (that is off the render thread now) and not steady state.
+- **L** In unattended runs the detail-view camera edge-pans if the cursor is parked at a
+  screen edge, so `MARE_DETAIL` screenshots are not pixel-reproducible the way `MARE_CAM`
+  ones are.
+- **L** GPU timer readings in the detail view can stay stale for seconds (same value repeated
+  in the metrics CSV); frame time is the reliable number there.
+
 ## Observability
 - **L** `mare_metrics.csv` re-emits a header (prefixed `# columns changed`) when new scopes or
   metrics register after the first row; readers must tolerate comment lines (pandas: `comment='#'`).

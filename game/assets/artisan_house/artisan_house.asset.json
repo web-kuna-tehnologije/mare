@@ -1,0 +1,44 @@
+{
+  "name": "artisan_house",
+  "type": "building",
+  "role": "artisan_house",
+  "lods": [
+    {
+      "file": "artisan_house_LOD0.glb",
+      "node": "artisan_house_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "artisan_house_LOD1.glb",
+      "node": "artisan_house_LOD1",
+      "px": 220
+    },
+    {
+      "file": "artisan_house_LOD2.glb",
+      "node": "artisan_house_LOD2",
+      "px": 90
+    },
+    {
+      "file": "artisan_house_LOD3.glb",
+      "node": "artisan_house_LOD3",
+      "px": 30
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 0.32
+  },
+  "pivot": "base_center",
+  "forward": "+z",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

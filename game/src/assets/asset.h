@@ -16,8 +16,9 @@
 //     "name": "church", "type": "building", "role": "church",   // role: what town/ship generators look up
 //     "file": "church.glb",                       // default file for every LOD
 //     "lods": [ { "node": "Church_LOD0", "dist": 0 },        // LODs by node name in one file ...
-//               { "node": "Church_LOD1", "dist": 40 },
-//               { "file": "church_far.glb", "dist": 120 } ], // ... or by separate file
+//               { "node": "Church_LOD1", "dist": 40 },        // used from this camera distance (1080p, 45 deg)
+//               { "file": "church_far.glb", "px": 24 } ],     // ... or by separate file; "px": used once the
+//                                                              //     model is smaller than this on a 1080p screen
 //     "scale":  { "fit": "height", "size": 0.45 },           // or { "factor": 0.01 }
 //     "pivot":  "base_center",                                // keep | center | base_center
 //     "pivot_offset": [0, 0, 0],                              // world units, after normalisation
@@ -52,7 +53,10 @@ typedef struct asset_matrule_t {
     int   bake_texture;       // sample baseColorTexture into vertex colours (default 1)
 } asset_matrule_t;
 
-typedef struct asset_lod_desc_t { char file[ASSET_PATH]; char node[64]; float dist; } asset_lod_desc_t;
+// Each LOD after the first says when it takes over: at `dist` world units of camera distance
+// (converted to a pixel size for the reference 1080p view at load, so it holds at any
+// resolution), or directly at `px` pixels of projected size. One of the two; px wins if both.
+typedef struct asset_lod_desc_t { char file[ASSET_PATH]; char node[64]; float dist, px; } asset_lod_desc_t;
 
 typedef struct asset_desc_t {
     char name[64];
@@ -71,11 +75,17 @@ typedef struct asset_desc_t {
 typedef struct asset_lod_t {
     float    *verts; int nverts;          // MB_FLOATS (12) floats per vertex, world scale, pivot applied
     unsigned *idx;   int nidx;
-    float     dist;                       // use from this camera distance on
+    float     dist;                       // use from this camera distance on (0 when the LOD is given in px)
+    float     px;                         // or: use once the projected size is below this many reference pixels (0 = from dist)
     int       gpu;                        // renderer-owned flag: 1 once uploaded (verts/idx may then be freed)
 } asset_lod_t;
 
-typedef enum asset_state_t { ASSET_UNLOADED, ASSET_LOADED, ASSET_FAILED } asset_state_t;
+// UNLOADED -> (asset_request) LOADING -> LOADED | FAILED. Loading runs on the job system
+// (core/jobs.h): file reads on the IO lane, glTF parsing + texture decoding + mesh processing on
+// the DECODE lane, and the commit (state, LODs, bounds) on the MAIN lane, so the state only ever
+// changes on the render thread and nothing here needs a lock. GPU upload follows through the
+// hook set by the renderer (asset_set_upload_hook), one budgeted MAIN job per LOD.
+typedef enum asset_state_t { ASSET_UNLOADED, ASSET_LOADING, ASSET_LOADED, ASSET_FAILED } asset_state_t;
 
 typedef struct asset_t {
     asset_desc_t  desc;
@@ -96,11 +106,16 @@ int      asset_register_desc(const char *desc_path);       // one descriptor fil
 int      asset_count(void);
 asset_t *asset_at(int index);
 asset_t *asset_find(const char *name);                     // registered asset, loaded or not
-asset_t *asset_get_role(asset_type_t type, const char *role);   // first loadable asset of a type with this role (NULL if none / failed)
-asset_t *asset_get(const char *name);                      // find + load on first use; NULL if unknown or failed
-int      asset_load(asset_t *a);                           // 1 ok; 0 with a->error (idempotent)
-void     asset_unload(asset_t *a);                         // frees CPU data, back to ASSET_UNLOADED
+asset_t *asset_get_role(asset_type_t type, const char *role);   // first asset of a type with this role that is LOADED; requests unloaded ones; NULL while loading / none / failed
+asset_t *asset_get(const char *name);                      // find + request on first use; NULL until LOADED (or if unknown / failed)
+void     asset_request(asset_t *a);                        // start loading in the background (no-op unless UNLOADED)
+int      asset_request_all(void);                          // request every registered asset; returns how many were started
+int      asset_load(asset_t *a);                           // blocking: request + wait. 1 ok; 0 with a->error (idempotent). Main thread only.
+void     asset_unload(asset_t *a);                         // frees CPU data, back to ASSET_UNLOADED (waits for a load in flight)
 void     asset_unload_all(void);
+unsigned asset_generation(void);                           // bumps whenever an asset finishes loading: caches keyed on asset availability (towns) include it in their signature
+int      asset_loading_count(void);                        // assets in flight right now (dashboard)
+void     asset_set_upload_hook(void (*hook)(asset_t *a, int lod));   // renderer: called on the MAIN lane for each LOD once an asset is LOADED
 void     asset_free_cpu(asset_t *a, int lod);              // renderer: drop the CPU copy after upload
 size_t   asset_cpu_bytes(void);                            // total held by the cache (CPU side)
 size_t   asset_gpu_bytes(void);                            // total uploaded by the renderer
@@ -115,12 +130,13 @@ int      asset_contains_xz(const asset_t *a, float ax, float az, float heading, 
 // The bias is a global quality knob (dashboard): 2 holds detailed LODs twice as far,
 // 0.5 drops to coarse LODs at half the authored distance.
 int          asset_pick_lod(const asset_t *a, float d);
+float        asset_lod_switch_dist(const asset_t *a, int lod);   // camera distance (reference view) from which `lod` is used, bias applied
 extern float asset_lod_bias;
 
 // building blocks, exposed for tests and tools
 int  asset_desc_parse(const char *json, size_t n, const char *dir, asset_desc_t *d, char *err, size_t errcap);
 int  asset_desc_validate(const asset_desc_t *d, char *err, size_t errcap);
-int  asset_build(asset_t *a);                              // loads files named in a->desc and fills the LODs
+int  asset_build(asset_t *a);                              // synchronous build (tools/tests): same as asset_load
 const char *asset_type_name(asset_type_t t);
 
 #endif

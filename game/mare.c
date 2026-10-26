@@ -1,12 +1,18 @@
 // MARE LIBERUM - 17th century naval trade & war RTS on the v3 framework.
-// Unity build: this file pulls in every module. See README.md for the layout.
+// Unity build: this file pulls in every module except the job system, which is the one C++
+// translation unit and is compiled and linked alongside it (game/docs/DESIGN_JOBS.md).
+// See README.md for the layout and game/build.sh / build.bat for the canonical builds.
 //
-//   linux:   cc game/mare.c -o mare -I. -lm -ldl -lpthread -lasound -O2
-//   windows: cl game\mare.c -I. /O2
-//   osx:     cc -ObjC game/mare.c -o mare -I. -framework cocoa -framework iokit -framework audiotoolbox -O2
+//   linux:   cc -c game/mare.c -I. -O2 && c++ -std=c++17 -c game/src/core/jobs.cpp -O2 &&
+//            c++ mare.o jobs.o -o mare -lm -ldl -lpthread -lasound
+//   windows: cl /std:c11 /std:c++17 game\mare.c game\src\core\jobs.cpp -I. /O2 /Fe:mare.exe
+//   osx:     cc -ObjC -c game/mare.c -I. -O2 && c++ -std=c++17 -c game/src/core/jobs.cpp -O2 &&
+//            c++ mare.o jobs.o -o mare -framework cocoa -framework iokit -framework audiotoolbox
 
 #define V3_IMPLEMENTATION
 #include "v3.h"
+
+#include "src/core/jobs.h"   // C ABI over src/core/jobs.cpp (linked separately)
 
 // simulation (framework independent)
 #include "src/core/diag.c"
@@ -38,12 +44,19 @@
 #include "src/gfx/hdr.c"
 #include "src/gfx/lighting.c"
 #include "src/gfx/camera.c"
+#include "src/gfx/lod.c"
+#include "src/gfx/textures.c"
 #include "src/gfx/scene.c"
 #include "src/gfx/detailview.c"
 #include "src/ui/uikit.c"
 #include "src/ui/input.c"
 #include "src/ui/hud.c"
 #include "src/ui/dashboard.c"
+
+// How long the render thread may spend per frame on work the pool handed back to it (GPU
+// uploads). At 60 Hz the frame has ~16 ms: 2 ms of uploads is invisible, and anything that does
+// not fit simply lands in the next frame (see jobs_main_drain).
+#define JOBS_UPLOAD_BUDGET_MS 2.0
 
 static void print_report(int days) {
     printf("simulated %d days: %d log lines, %d lanes, %d fleets, %d trades, %d battles, %d captures\n", days, G.nlog, G.nlanes, game_count_fleets(), G.trades, G.battles, G.captures);
@@ -97,6 +110,10 @@ int main(int argc, char **argv) {
     }
     if (dev) { dc.metrics_csv = 1; dc.file_level = LOG_TRACE; }
     diag_init(&dc); atexit(diag_shutdown);
+    // The pool starts before anything that could submit to it. Registered after diag_shutdown so
+    // it runs first at exit, while logging still works. MARE_JOBS=0 forces synchronous mode.
+    { int nw = jobs_init(-1); atexit(jobs_shutdown);
+      LOG_INFO("jobs", "%s: %d worker threads, %d slots", nw ? "job system" : "job system (synchronous)", nw, jobs_slot_count()); }
     LOG_INFO("main", "mare liberum starting: seed %u nation %d dev %d headless %d", seed, autostart, dev, headless);
     if (headless) {   // balance run without a window
         world_init(seed); nav_init(); game_new(autostart ? autostart : NATION_NETHERLANDS, seed);
@@ -113,12 +130,14 @@ int main(int argc, char **argv) {
     { float hz = monitor_hz(0); if (hz < 10 && !flag("--fps")) { vsync(0); LOG_WARN("main", "monitor reports %.0f Hz: frame limiter disabled (use --fps=N to cap)", hz); } else LOG_INFO("main", "monitor %.0f Hz", hz); }
     LOG_INFO("gpu", "%s", rhi_info());
     world_init(seed); nav_init();
+    if (getenv("MARE_WAVES")) { sea_wave_amp = clampf((float)atof(getenv("MARE_WAVES")), 0.f, 4.f);
+        LOG_INFO("gpu", "wave height pinned to %.2f (MARE_WAVES)", sea_wave_amp); }
     if (getenv("MARE_LOD_BIAS")) { asset_lod_bias = clampf((float)atof(getenv("MARE_LOD_BIAS")), 0.01f, 16.f);   // pin the LOD knob for screenshot runs
         LOG_INFO("asset", "LOD bias pinned to %.2f (MARE_LOD_BIAS)", asset_lod_bias); }
-    { char manifest[512]; snprintf(manifest, sizeof manifest, "%s/manifest.json", asset_root());   // authored assets (GLB): register and preload
-      if (asset_registry_load(manifest)) { double t0 = diag_now(); for (int i = 0; i < asset_count(); ++i) asset_load(asset_at(i));
-        LOG_INFO("asset", "%d assets preloaded in %.0f ms (%.1f MB)", asset_count(), (diag_now()-t0)*1000, asset_cpu_bytes() / (1024.0*1024.0)); } }
+    { char manifest[512]; snprintf(manifest, sizeof manifest, "%s/manifest.json", asset_root());   // authored assets (GLB): register, then load in the background
+      if (asset_registry_load(manifest)) LOG_INFO("asset", "%d assets requested: parsing and decoding on the job system, GPU upload inside the frame budget", asset_request_all()); }
     { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); rhi_check_errors("render_init"); }
+    asset_set_upload_hook(scene_asset_upload);   // finished assets reach the GPU through the MAIN lane, one LOD per budgeted job
     U.show_debug = dev;
     if (getenv("MARE_PASSES")) { const char *p = getenv("MARE_PASSES");   // experiment: enable only the listed passes
         U.pass_terrain = !!strstr(p, "terrain"); U.pass_sea = !!strstr(p, "sea"); U.pass_ports = !!strstr(p, "ports"); U.pass_ships = !!strstr(p, "ships");
@@ -143,6 +162,9 @@ int main(int argc, char **argv) {
         m_gpu_sea = metric_id("gpu.sea_ms"), m_gpu_resolve = metric_id("gpu.resolve_ms"), m_gpu_total = metric_id("gpu.total_ms");
     int m_vram = metric_id("mem.vram_mb"), m_ram = metric_id("mem.ram_mb");
     int m_asset_gpu = metric_id("asset.gpu_mb"), m_asset_inst = metric_id("asset.instances");
+    int p_upload = prof_id("jobs.upload"), m_jobs_main = metric_id("jobs.main_ran"), m_jobs_queued = metric_id("jobs.queued");
+    int m_lod_pops = metric_id("lod.pops"), m_lod_fading = metric_id("lod.fading"), m_asset_loading = metric_id("asset.loading");
+    int m_lod_tris = metric_id("lod.asset_tris"), m_lod_budget = metric_id("lod.budget_scale"), m_icons_clustered = metric_id("lod.icons_clustered");
     double last = time_ss(); float sim_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
     while (app_swap(.color = 0xFF000000)) {
@@ -190,24 +212,47 @@ int main(int argc, char **argv) {
             prof_end(p_sim);
             if (U.toast_timer > 0) U.toast_timer -= dt;
         }
+        // MARE_ZOOM="d0,d1,seconds[,lon,lat]" flies the camera distance from d0 to d1 over the given
+        // time (and back, looping): the scripted full-range zoom the LOD work is measured with
+        // (lod.pops must stay 0, frame.dt_ms must stay flat while assets stream in and out).
+        static const char *zoom_env; static int zoom_read;
+        if (!zoom_read) { zoom_env = getenv("MARE_ZOOM"); zoom_read = 1; if (zoom_env) LOG_INFO("main", "scripted zoom %s (MARE_ZOOM)", zoom_env); }
+        if (zoom_env && !U.in_menu && detailview_mode() == DV_OFF) {
+            float d0 = 60, d1 = 900, secs = 10, lo = 1e9f, la = 1e9f; sscanf(zoom_env, "%f,%f,%f,%f,%f", &d0, &d1, &secs, &lo, &la);
+            float ph = fmodf((float)(diag_now() - t_run0) / maxf(secs, 0.1f), 2.f); if (ph > 1) ph = 2 - ph;   // there and back
+            cam.want_dist = cam.dist = lerpf(d0, d1, ph);
+            if (lo < 1e8f) { cam.want_tx = cam.tx = lon2x(lo); cam.want_tz = cam.tz = lat2z(la); }
+            cam_update(dt);
+        }
         if (cam_lock && detailview_mode() == DV_OFF) {   // the detail view drives the camera itself
             float lo = 0, la = 0, di = 60, ya = 0; sscanf(cam_lock, "%f,%f,%f,%f", &lo, &la, &di, &ya);
             cam.want_tx = cam.tx = lon2x(lo); cam.want_tz = cam.tz = lat2z(la);
             cam.want_dist = cam.dist = di; cam.want_yaw = cam.yaw = ya * 0.0174533f;
             cam_update(dt);
         }
+        // Work that finished on the pool and needs the GL context - asset uploads, LOD streaming
+        // (DESIGN_JOBS.md) - is run here, rate limited so a burst of ready meshes cannot turn
+        // into a 30 ms frame. Whatever does not fit waits for the next frame.
+        prof_begin(p_upload);
+        { int ran = jobs_main_drain(JOBS_UPLOAD_BUDGET_MS);
+          job_stats_t js; jobs_stats(&js);
+          metric_set(m_jobs_main, ran);
+          metric_set(m_jobs_queued, js.lane[JOB_LANE_WORKER].queued + js.lane[JOB_LANE_DECODE].queued
+                                  + js.lane[JOB_LANE_IO].queued + js.lane[JOB_LANE_MAIN].queued); }
+        prof_end(p_upload);
         if (territory_dirty == 2) render_territory_upload();
 
         // ---- 3d
-        RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness; RF.sun = norm3(vec3(0.45f, 0.75f, 0.35f)); RF.daylight = 1.f;
-        { static const char *sun_env; static int sun_read;   // MARE_SUN="x,y,z" pins the sun direction (shadow/lighting tests)
-          if (!sun_read) { sun_env = getenv("MARE_SUN"); sun_read = 1; if (sun_env) LOG_INFO("gpu", "sun pinned to %s (MARE_SUN)", sun_env); }
-          if (sun_env) { float sx = 0.45f, sy = 0.75f, sz = 0.35f; sscanf(sun_env, "%f,%f,%f", &sx, &sy, &sz); RF.sun = norm3(vec3(sx, maxf(sy, 0.08f), sz)); } }
-        RF.sky = lerp3(vec3(0.60f, 0.74f, 0.88f), vec3(0.36f, 0.30f, 0.24f), cam.mapness);
+        RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness;
+        RF.sea_center = vec3(cam.tx, 0, cam.tz);          // the sea's wave grid follows the look-at point
+        render_sun_update(G.day);                         // sun direction, daylight and sky colour (day/night cycle)
+        RF.sky = lerp3(RF.sky, vec3(0.36f, 0.30f, 0.24f), cam.mapness);   // the map view fades to parchment
         render_light_update();
         rhi_frame_stats_reset();
         prof_begin(p_gfx);
         // scene geometry is built once, then submitted to the shadow cascades and the main passes
+        lod_frame_begin((float)screen_h, 45.f * 0.0174533f, dt);   // screen-space LOD metric for this frame (camera.c: 45 degree vertical FOV)
+        lod_set_tier(cam.dist, cam.mapness);                       // which kind of scene this is, and its triangle budget
         if (!U.in_menu) {
             SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
             detailview_frame(dt);                 // transition clock + staged-scene animation (before the shadow pass)
@@ -232,7 +277,7 @@ int main(int argc, char **argv) {
             }
             rhi_gpu_end();
         }
-        prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !dv_on) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
+        prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !U.in_menu && dv_on) detailview_sea(); else if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
         if (!U.in_menu) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
         if (!U.in_menu && !dv_on) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
@@ -254,7 +299,9 @@ int main(int argc, char **argv) {
           rhi_mem_t mem = rhi_memory();
           metric_set(m_vram, (mem.textures + mem.targets + mem.buffers) / (1024.0*1024.0));
           metric_set(m_ram, diag_process_ram() / (1024.0*1024.0));
-          metric_set(m_asset_gpu, asset_gpu_bytes() / (1024.0*1024.0)); metric_set(m_asset_inst, scene_asset_instances); }
+          metric_set(m_asset_gpu, asset_gpu_bytes() / (1024.0*1024.0)); metric_set(m_asset_inst, scene_asset_instances);
+          metric_set(m_lod_pops, lod_pops); metric_set(m_lod_fading, lod_fading); metric_set(m_asset_loading, asset_loading_count());
+          metric_set(m_lod_tris, (double)lod_last_tris); metric_set(m_lod_budget, lod_budget_scale); metric_set(m_icons_clustered, scene_icons_clustered); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");
 

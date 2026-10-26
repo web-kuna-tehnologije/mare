@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.8.2 — background assets, screen-space LOD with cross-fades, authored sea (engine scale, steps 2-4)
+Design: [DESIGN_LOD.md](DESIGN_LOD.md), [DESIGN_JOBS.md](DESIGN_JOBS.md); plan in
+[ROADMAP](../../docs/ROADMAP.md).
+
+- **Assets load on the job system** (`assets/asset.c`): file reads on the IO lane, glTF
+  parsing + parallel texture decoding + mesh processing on the DECODE lane into a private copy,
+  commit on the MAIN lane (so `asset_t.state` only changes on the render thread), then one
+  budgeted GPU-upload job per LOD. New states `ASSET_LOADING`, `asset_request[_all]()`,
+  `asset_generation()` (town caches rebuild when an asset lands), `asset_set_upload_hook()`.
+  Start-up no longer waits: six Meshy buildings parsed concurrently in 322 ms each and were
+  resident 0.1 s after the window opened (the church alone used to block for 795 ms).
+  `core/diag.c` logging took a spinlock since workers log; `jobs_help()` added for callers that
+  wait on a state rather than a counter.
+- **Streamed textures** (`gfx/textures.c`): request once, poll; IO → DECODE → MAIN.
+- **Authored sea** (`gfx/sea.c`, `game/assets/sea`): a seamless tangent-space wave normal map
+  and a foam albedo cut from the reference sheet by `tools/sea_textures.py` (margin cross-fade
+  in both axes, vectors renormalised, high-passed albedo so the photo's gradient does not band
+  when tiled). The shader samples both at the swell and chop scales; bright streaks become
+  whitecaps over the depth colour. The procedural wave map covers until the tiles are resident.
+- **Screen-space LOD** (`gfx/lod.h/.c`): one metric for everything with levels of detail - the
+  projected diameter in pixels - with thresholds in reference-1080p pixels. Authored switch
+  distances convert at use; descriptors may also give `px` directly. Ships `[full, simplified,
+  icon]` at 80 / 26 px of fleet footprint, towns `[town, icon]` at 35 px, authored assets
+  their own LODs: the pixel equivalents of the old 75 / 230 / 260 unit rules, so a 12-ship
+  fleet and a great city stay 3D further out than a sloop and a hamlet, and 4K keeps the same
+  on-screen detail as 1080p.
+- **No popping** (`inst_t.dither`, `GLSL_DITHER`): per-instance state with ±12 % hysteresis and
+  a 0.3 s cross-fade; both levels draw with complementary ordered-dither masks in the mesh and
+  shadow passes (exact pixel partition, no sorting), icons fade with the complementary weight,
+  mid-fade reversals play back instead of snapping. `lod.pops` (jumps of 2+ levels) stays 0 on
+  the scripted 6 → 900 → 6 unit zoom (`MARE_ZOOM`; median frame 4.9 ms, `frame.cpu` < 1 ms
+  throughout, up to 83 instances mid-fade).
+- **Building set pipeline**: `tools/blender_export_glb.py` now exports LOD0-3 per `.blend`
+  (authored `*_LODn` nodes or decimation to 80k / 24k / 7k / 2k triangles, base colour only,
+  1k JPEG), `tools/gen_asset_descriptors.py` writes descriptors (`px` thresholds 220 / 90 / 30,
+  per-role heights) and the manifest. Towns place authored houses by tier (merchant houses on
+  the square, huts by the wall), plus warehouse / lighthouse / town hall when those roles exist;
+  the staged city view uses the same set at 1:1. Procedural boxes remain the fallback.
+- Dashboard: asset states include "loading", the Assets tab shows lane queue depths and LOD
+  fade/pop counters; `asset_lod_switch_dist()` for px-based LODs. Tests: `asset_test` now
+  drives `lod.c` (metric, hysteresis, fade, reversal, pops, determinism) and the asset
+  generation; all four suites pass.
+
+Known: no triangle budget yet, so the city view with ~150 authored houses is GPU-bound on
+integrated graphics (step 5); every LOD of every asset is resident (step 7).
+
+## 0.8.1 — job system (engine scale, step 1 of 10)
+First step of the engine-scale work planned in [ROADMAP](../../docs/ROADMAP.md): a thread pool
+every long-running piece of work will go through, so that tick processing, asset loading and
+(later) LOD streaming stop stalling the frame. Design: [DESIGN_JOBS.md](DESIGN_JOBS.md).
+
+- **`core/jobs.h` / `core/jobs.cpp`** — one worker pool of `cores - 1` threads serving four
+  lanes rather than a pool per kind of work: `WORKER` (frame-critical, drained first), `DECODE`
+  (glTF parsing, texture decode, mesh processing), `IO` (two dedicated threads, because a
+  blocking read should not cost a core) and `MAIN` (GPU uploads, run only by the render thread).
+  Join counters, `jobs_parallel_for`, per-lane statistics, and a budgeted `jobs_main_drain`
+  called once per frame (`jobs.upload` scope, `jobs.main_ran` / `jobs.queued` metrics).
+- **Waiting helps:** `jobs_wait` and `jobs_parallel_for` run queued jobs on the calling thread,
+  so a job may wait on jobs it spawned without deadlocking and the render thread never idles.
+- **Determinism by construction:** `parallel_for` chunk boundaries depend only on `(count,
+  grain)`, never on the worker count, so a reduction into per-chunk partials is bit-identical
+  however the chunks were scheduled. This is what will let the simulation tick move onto the
+  pool without breaking save/load determinism.
+- **First C++ in the project**, and deliberately the only one: C11 has no portable threads that
+  MSVC implements, so the pool is one C++17 translation unit behind a C ABI. `mare.c` stays the
+  C unity build. Rules for any future C++ island are in ONBOARDING.
+- **Synchronous mode** (`MARE_JOBS=0`, and the default before `jobs_init` / after
+  `jobs_shutdown`) runs every submit inline, so headless runs and race hunts need no special
+  casing. `MARE_JOBS=N` pins the worker count.
+- `tests/jobs_test.cpp` (new, in CTest and both build scripts) covers the lanes, counters,
+  chunk determinism across worker counts, nested waits, the MAIN-lane thread affinity and
+  budget, back-pressure at 3x queue capacity, and shutdown. Build plumbing updated for the
+  second translation unit (`build.sh`, `build.bat` — `cl` rejects `/std:c11` with `/std:c++17`,
+  so the C++ unit is compiled separately — `CMakeLists.txt`, CI).
+
+Nothing submits real work to the pool yet; steps 2 (asset loading) and 7-9 (LOD streaming,
+tick, save/load) are its clients. Measured idle cost: `jobs.upload` averages 0.001 ms/frame.
+
 ## 0.8.0 — detail views: through the clouds to the battle and the city
 Spectator close-ups for the two reference concepts (`assets/ship_battle*.png`,
 `assets/city_view.png`), staged with the current low-poly models as 1:1 samples.

@@ -1,0 +1,44 @@
+{
+  "name": "three_story_townhouse",
+  "type": "building",
+  "role": "three_story_townhouse",
+  "lods": [
+    {
+      "file": "three_story_townhouse_LOD0.glb",
+      "node": "three_story_townhouse_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "three_story_townhouse_LOD1.glb",
+      "node": "three_story_townhouse_LOD1",
+      "px": 220
+    },
+    {
+      "file": "three_story_townhouse_LOD2.glb",
+      "node": "three_story_townhouse_LOD2",
+      "px": 90
+    },
+    {
+      "file": "three_story_townhouse_LOD3.glb",
+      "node": "three_story_townhouse_LOD3",
+      "px": 30
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 0.44
+  },
+  "pivot": "base_center",
+  "forward": "+z",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

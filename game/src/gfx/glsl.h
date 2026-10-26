@@ -105,6 +105,73 @@
     "  return normalize(N + d * strength);\n" \
     "}\n"
 
+// LOD cross-fade (gfx/lod.h, inst_t.dither): an ordered 4x4 Bayer threshold per pixel. d > 0
+// discards the pixels whose threshold is below d (the level fading out keeps a 1-d share),
+// d < 0 discards the complement (the level fading in keeps a -d share). Both levels of a fading
+// instance therefore partition the screen exactly, in every pass that uses this (main, shadow).
+#define GLSL_DITHER \
+    /* the 4x4 Bayer matrix as bit arithmetic (GLSL 1.30 has no const arrays worth trusting): \
+       M2(x,y) = 2*((x^y)&1) + (y&1); M4 = 4*M2(x&1,y&1) + M2(x>>1,y>>1) */ \
+    "float dither_bayer4(vec2 p) {\n" \
+    "  int x = int(mod(p.x, 4.0)), y = int(mod(p.y, 4.0));\n" \
+    "  int m = 4 * (2 * ((x ^ y) & 1) + (y & 1)) + (2 * (((x >> 1) ^ (y >> 1)) & 1) + ((y >> 1) & 1));\n" \
+    "  return (float(m) + 0.5) / 16.0;\n" \
+    "}\n" \
+    "void dither_clip(float d) {\n" \
+    "  if (d == 0.0) return;\n" \
+    "  float b = dither_bayer4(gl_FragCoord.xy);\n" \
+    "  if (d > 0.0 ? b < d : b >= -d) discard;\n" \
+    "}\n"
+
+// ---------------------------------------------------------------------------
+// Gerstner waves (gfx/sea.c). Shared by the sea pass, which displaces its grid by them, and by
+// the instanced mesh pass, which lifts and tilts every floating instance onto the same surface -
+// otherwise ships would sail through the swell instead of riding it.
+//
+// Wavelengths are world units (1 unit is roughly 25 m: a ship of the line is 2.09 units long),
+// so the set below is a 90 m swell, a 55 m cross sea and two shorter chops. `scale` stretches
+// the whole field for scenes with different units - the detail view passes DV_SHIP_SCALE, which
+// is exactly the ratio between its units and the map's, so the sea keeps its physical size
+// relative to the ships in both.
+#define GLSL_WAVES \
+    "const vec4 WAVE[4] = vec4[4](vec4( 0.94, 0.34, 3.60, 0.78),\n" \
+    "                             vec4( 0.70,-0.71, 2.20, 0.62),\n" \
+    "                             vec4(-0.45, 0.89, 1.25, 0.50),\n" \
+    "                             vec4( 0.99,-0.14, 0.70, 0.42));\n" \
+    "const float WAVE_STEEP = 0.030;\n" \
+    /* Gerstner sum at world point p: returns the displacement, the two surface tangents (so \
+       the caller gets an exact normal with no finite differences) and a crest factor. */ \
+    "vec3 wave_sum(vec2 p, float t, float amp, float scale, out vec3 tan_x, out vec3 tan_z, out float crest) {\n" \
+    "  vec3 d = vec3(0.0); tan_x = vec3(1.0, 0.0, 0.0); tan_z = vec3(0.0, 0.0, 1.0); crest = 0.0;\n" \
+    "  if (amp <= 0.0) return d;\n" \
+    "  for (int i = 0; i < 4; ++i) {\n" \
+    "    vec2 dir = normalize(WAVE[i].xy);\n" \
+    "    float len = WAVE[i].z * scale;\n" \
+    "    float k = 6.28318 / len;\n" \
+    "    float a = WAVE[i].w * amp * len * WAVE_STEEP;\n" \
+    "    float spd = sqrt(9.81 / max(k, 1e-5)) * 0.42;\n" \
+    "    float ph = k * (dot(dir, p) - spd * t);\n" \
+    "    float s = sin(ph), c = cos(ph);\n" \
+    "    float q = min(WAVE[i].w, 1.0);\n" \
+    "    d.xz += dir * (q * a * c);\n" \
+    "    d.y  += a * s;\n" \
+    "    tan_x += vec3(-dir.x * dir.x * q * a * k * s, dir.x * a * k * c, -dir.x * dir.y * q * a * k * s);\n" \
+    "    tan_z += vec3(-dir.x * dir.y * q * a * k * s, dir.y * a * k * c, -dir.y * dir.y * q * a * k * s);\n" \
+    "    crest += max(s, 0.0) * WAVE[i].w;\n" \
+    "  }\n" \
+    "  crest = clamp((crest - 1.35) * 1.6, 0.0, 1.0);\n" \
+    "  return d;\n" \
+    "}\n" \
+    "float wave_depth_fade(sampler2D hm, vec2 p, vec4 geo, float wk, float scale, float local_depth) {\n" \
+    "  float dep = local_depth;\n" \
+    "  if (local_depth <= 0.0) {\n" \
+    "    float lon = p.x / wk, lat = -p.y / wk;\n" \
+    "    vec2 uv = vec2((lon - geo.x)/(geo.y-geo.x), (geo.w - lat)/(geo.w-geo.z));\n" \
+    "    dep = max(-texture(hm, uv).r, 0.0);\n" \
+    "  }\n" \
+    "  return smoothstep(0.0, 1.1 * scale, dep);\n" \
+    "}\n"
+
 // uniform names declared by GLSL_LIGHT, to append to a pipeline's uniform list
 #define GLSL_LIGHT_UNIFORMS \
     "u_sun", "u_suncol", "u_ambsky", "u_ambgnd", "u_shadowmap", \

@@ -20,7 +20,9 @@
 #include "../../ext/ext-image/ext-image/3rd/stb_image.h"
 #include "../src/core/diag.c"
 #include "../src/assets/gltf.c"
+#define ASSET_NO_JOBS            // headless: every pipeline stage runs inline (the job system's synchronous mode)
 #include "../src/assets/asset.c"
+#include "../src/gfx/lod.c"      // screen-space LOD selector: pure math, no GL
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
@@ -338,11 +340,14 @@ static void test_asset_build(void) {
     const char *manifest = "{\"assets\":[\"asset_test_thing.asset.json\",\"missing.asset.json\"]}";
     write_file("asset_test_manifest.json", manifest, strlen(manifest));
 
+    unsigned gen0 = asset_generation();
     int n = asset_registry_load("asset_test_manifest.json");
     CHECK(n == 1, "registry registered %d assets, want 1", n);
     CHECK(asset_count() == 1 && asset_find("thing") && !asset_find("nothing"), "registry lookup");
     asset_t *a = asset_get("thing");
     CHECK(a != NULL, "asset_get failed: %s", asset_find("thing") ? asset_find("thing")->error : "?");
+    CHECK(asset_generation() == gen0 + 1, "a finished load bumps the asset generation (%u -> %u)", gen0, asset_generation());
+    CHECK(asset_loading_count() == 0, "nothing left in flight after a synchronous load");
     if (!a) return;
     CHECK(a->state == ASSET_LOADED && a->nlods == 2, "state/lods");
     // LOD0 extent: x 0..4, y 1..3, z 0..2. Forward +z -> +x maps (x,y,z) to (z, y, -x):
@@ -403,8 +408,68 @@ static void test_asset_build(void) {
     remove("asset_test_ghost.asset.json"); remove("asset_test_nonode.asset.json");
 }
 
+// --------------------------------------------------------------------------
+// screen-space LOD selection (gfx/lod.c): metric, thresholds, hysteresis, cross-fade, pops
+
+static void test_lod(void) {
+    const float fov = 45.f * 0.0174533f;
+    lod_reset();
+    lod_frame_begin(1080, fov, 1.f / 60);
+    // metric: k = 1080 / (2 tan 22.5) = 1303.9; a 1-unit radius at that distance covers 2 px
+    CHECK(FEQ(lod_px(1.f, 1303.9f) / 2.f, 1.f) || fabsf(lod_px(1.f, 1303.9f) - 2.f) < 0.01f, "px metric: %.3f", lod_px(1.f, 1303.9f));
+    CHECK(fabsf(lod_px(3.5f, 260.f) - 35.1f) < 0.2f, "size-2 town at 260 units is ~35 px (calibration): %.1f", lod_px(3.5f, 260.f));
+    CHECK(fabsf(lod_px_ref(1.f, 100.f) - lod_px(1.f, 100.f)) < 1e-3f, "reference view equals a 1080p view");
+    lod_frame_begin(2160, fov, 1.f / 60);
+    CHECK(fabsf(lod_px(1.f, 100.f) - 2.f * lod_px_ref(1.f, 100.f)) < 1e-3f, "4K doubles the pixel size, thresholds stay in reference pixels");
+    lod_frame_begin(1080, fov, 1.f / 60);
+
+    static const float thr[2] = { 80.f, 26.f };
+    unsigned k = lod_key(LODK_FLEET, 7, 0);
+    CHECK(k != 0 && k != lod_key(LODK_FLEET, 8, 0) && k != lod_key(LODK_PORT, 7, 0), "keys differ by id and kind");
+    lod_pick_t p = lod_select(k, thr, 3, 100, 0);
+    CHECK(p.lod == 0 && p.lod2 < 0, "first sight: level 0 without a fade (%d %d)", p.lod, p.lod2);
+    p = lod_select(k, thr, 3, 75, 0);
+    CHECK(p.lod == 0 && p.lod2 < 0, "hysteresis: 75 px is inside the 12%% band below 80, stays at 0 (%d %d)", p.lod, p.lod2);
+    p = lod_select(k, thr, 3, 68, 0);
+    CHECK(p.lod == 0 && p.lod2 == 1 && p.t > 0 && p.t < 1, "68 px crosses the band: fade 0 -> 1 starts (%d %d %.2f)", p.lod, p.lod2, p.t);
+    CHECK(lod_dither(&p, 0) == p.t && lod_dither(&p, 1) == -p.t && lod_dither(&p, 2) == 0, "dither: +t out, -t in");
+    CHECK(FEQ(lod_weight(&p, 0) + lod_weight(&p, 1), 1.f) && lod_weight(&p, 2) == 0, "weights of the two levels sum to 1");
+    CHECK(lod_draws(&p, 0) && lod_draws(&p, 1) && !lod_draws(&p, 2), "both fading levels draw");
+    for (int f = 0; f < 30; ++f) { lod_frame_begin(1080, fov, 1.f / 60); p = lod_select(k, thr, 3, 68, 0); }   // 0.5 s > LOD_FADE_S
+    CHECK(p.lod == 1 && p.lod2 < 0 && p.t == 0, "fade completes after LOD_FADE_S (%d %d %.2f)", p.lod, p.lod2, p.t);
+    CHECK(lod_fading == 0, "nothing fading once settled");
+    lod_frame_begin(1080, fov, 1.f / 60); p = lod_select(k, thr, 3, 86, 0);
+    CHECK(p.lod == 1 && p.lod2 < 0, "86 px is inside the band above 80: stays at 1");
+    lod_frame_begin(1080, fov, 1.f / 60); p = lod_select(k, thr, 3, 95, 0);
+    CHECK(p.lod == 1 && p.lod2 == 0, "95 px: fades back to 0 (%d %d)", p.lod, p.lod2);
+    // reversing mid-fade plays the fade back rather than snapping
+    for (int f = 0; f < 6; ++f) { lod_frame_begin(1080, fov, 1.f / 60); p = lod_select(k, thr, 3, 95, 0); }
+    float t_before = p.t;
+    lod_frame_begin(1080, fov, 1.f / 60); p = lod_select(k, thr, 3, 60, 0);
+    // (the reversed clock plus this frame's advance of dt / LOD_FADE_S = 0.056)
+    CHECK(p.lod == 0 && p.lod2 == 1 && fabsf(p.t - (1.f - t_before + (1.f / 60) / LOD_FADE_S)) < 0.01f, "reversal keeps the visible mix (%d %d %.2f vs %.2f)", p.lod, p.lod2, p.t, 1.f - t_before);
+    // a two-level jump is clamped to one step (and counted), so nothing can pop on screen
+    unsigned k2 = lod_key(LODK_PORT, 3, 0);
+    lod_frame_begin(1080, fov, 1.f / 60); lod_pick_t q = lod_select(k2, thr, 3, 500, 0);
+    CHECK(q.lod == 0, "starts at level 0");
+    lod_frame_begin(1080, fov, 1.f / 60); q = lod_select(k2, thr, 3, 1, 0);
+    CHECK(lod_pops == 1 && q.lod == 0 && q.lod2 == 1, "a 0 -> 2 jump is clamped to 0 -> 1 (%d, %d -> %d)", lod_pops, q.lod, q.lod2);
+    for (int f = 0; f < 60; ++f) { lod_frame_begin(1080, fov, 1.f / 60); q = lod_select(k2, thr, 3, 1, 0); }   // two fades, one per level
+    CHECK(q.lod == 2 && q.lod2 < 0, "and walks on to level 2 one cross-fade at a time (%d %d)", q.lod, q.lod2);
+    // map view / icon-only
+    lod_frame_begin(1080, fov, 1.f / 60); p = lod_select(lod_key(LODK_PORT, 4, 0), thr, 3, 0, 0);
+    CHECK(p.lod == 2 && lod_weight(&p, 2) == 1.f, "0 px (map view) is the icon level at full weight");
+    // determinism: the same sequence from a reset gives the same picks
+    lod_reset(); lod_frame_begin(1080, fov, 1.f / 60);
+    lod_pick_t a1 = lod_select(k, thr, 3, 100, 0); lod_frame_begin(1080, fov, 1.f / 60); lod_pick_t a2 = lod_select(k, thr, 3, 68, 0);
+    lod_reset(); lod_frame_begin(1080, fov, 1.f / 60);
+    lod_pick_t b1 = lod_select(k, thr, 3, 100, 0); lod_frame_begin(1080, fov, 1.f / 60); lod_pick_t b2 = lod_select(k, thr, 3, 68, 0);
+    CHECK(a1.lod == b1.lod && a2.lod == b2.lod && a2.lod2 == b2.lod2 && a2.t == b2.t, "selection is deterministic");
+}
+
 int main(void) {
     diag_init(&(diag_config_t){ .logdir = "test_logs", .console_level = LOG_ERROR });
+    test_lod();
     test_glb_scene();
     test_gltf_data_uri();
     test_validation();

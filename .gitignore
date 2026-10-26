@@ -12,6 +12,8 @@
 /mare
 /sim_test
 /diag_test
+/asset_test
+/jobs_test
 **/logs/
 **/test_logs/
 **/test_diag_logs/

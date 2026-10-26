@@ -53,7 +53,7 @@ typedef struct rhi_target_t { unsigned fbo; rhi_texture_t color, depth; int w, h
 // geometry: vertex buffer (+ optional u32 index buffer, + optional streamed instance buffer)
 typedef struct rhi_geometry_t {
     unsigned vao, vbo, ebo, ibo;         // backend-private
-    int nverts, nindices, inst_stride, inst_capacity;
+    int nverts, nindices, inst_stride, inst_capacity, vstride;
 } rhi_geometry_t;
 
 // device
@@ -94,6 +94,7 @@ void rhi_texture_bind(int slot, const rhi_texture_t *t);
 rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, int nverts,
                                  const unsigned *indices, int nindices);  // indices optional
 void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n); // stream per-frame instance data (grows the buffer)
+void rhi_geometry_free(rhi_geometry_t *g);           // release the buffers (LOD streaming evicts meshes)
 void rhi_draw(rhi_geometry_t *g, int ninstances);    // indexed if indices exist; ninstances 0 = plain draw
 
 // per-frame statistics (draw calls, instances drawn, triangles, bytes streamed to the GPU);

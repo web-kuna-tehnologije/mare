@@ -17,12 +17,17 @@
 #include "../world/regions.h"
 #include "../assets/asset.h"
 #include "detailview.h"
+#include "lod.h"
 
 _Static_assert(MB_FLOATS == 12, "asset.c emits 12-float builder vertices (ASSET_VERT_FLOATS)");
 
-#define LOD0_DIST         75.f
-#define LOD1_DIST        230.f
-#define PORT_DETAIL_DIST 260.f
+// Levels of detail are chosen in screen space (lod.h): ships have [full mesh, simplified, icon],
+// towns [town, icon], authored assets their own LODs plus the town's icon hand-over. Each
+// instance keeps hysteresis and cross-fade state under a stable key.
+static const float ship_thr[2] = { LOD_PX_SHIP_SIMPLE, LOD_PX_SHIP_ICON };
+static const float town_thr[1] = { LOD_PX_TOWN_ICON };
+static float port_icon_w[MAX_PORTS], fleet_icon_w[MAX_FLEETS];   // icon alpha per port / fleet slot, from this frame's picks
+static float icon_w_time = -1;                                    // RF.time the weights were computed for (stale -> icons draw fully)
 
 scene_hints_t SH;
 int scene_culled_ports, scene_culled_ships;   // skipped by frustum culling this frame (dashboard)
@@ -92,29 +97,37 @@ void scene_build_ships(void) {
     for (int i = 0; i < G.nfleets; ++i) {
         const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
         float x, z, heading, vel; fleet_anim_pos(i, f, dt, &x, &z, &heading, &vel);
-        float d = cam_distance(x, z);
-        if (d > LOD1_DIST || cam.mapness > 0.6f) continue;   // icons handle it
+        float d = cam_distance(x, z), r = 1.4f * 1.35f + f->nships * 0.2f;   // same footprint the picker uses
+        float px = cam.mapness > 0.6f ? 0.f : lod_px(r, d);                   // map view: everything is an icon
+        lod_pick_t pk = lod_select(lod_key(LODK_FLEET, f->id, 0), ship_thr, 3, px, 1);
+        fleet_icon_w[i] = lod_weight(&pk, 2);
+        if (!lod_draws(&pk, 0) && !lod_draws(&pk, 1)) continue;             // icon only
         if (!cam_sphere_visible(frustum, x, 0, z, f->nships * 1.5f + CULL_MARGIN)) { scene_culled_ships++; continue; }
         unsigned col = f->role == ROLE_PIRATE ? rgb(20,20,20) : nations_info[f->nation].color;
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;
         // Battle view: a fleet that fired recently is being watched - it keeps the full mesh and
-        // its whole line of ships out to LOD1_DIST, so a spectated battle reads ship for ship
-        // instead of collapsing to 4 simplified hulls. A frame budget caps the extra detail: a
-        // melee stops promoting at ~BATTLE_DETAIL_MAX ships and falls back to distance LODs.
+        // its whole line of ships at the simplified level too, so a spectated battle reads ship
+        // for ship instead of collapsing to 4 simplified hulls. A frame budget caps the extra
+        // detail: a melee stops promoting at ~BATTLE_DETAIL_MAX ships and falls back to LODs.
         int in_battle = f->at_port < 0 && f->last_fire > G.day - 0.3f;
-        int lod = d < LOD0_DIST ? 0 : 1, nshow = lod == 1 ? mini(f->nships, 4) : f->nships;
-        if (in_battle && lod == 1 && battle_lod0_budget >= f->nships) { lod = 0; nshow = f->nships; battle_lod0_budget -= f->nships; }
         float hx = cosf(heading), hz = -sinf(heading);
         // how hard the ship works: moored ships barely move, ships under way roll with their
         // speed, and a storm throws everything around
         const event_t *storm = storm_at(f->x, f->z);
         float rock = (f->at_port >= 0 ? 0.25f : 0.55f + 0.45f * clampf(vel / 9.f, 0, 1))
                    * (storm ? 1.f + 1.6f * storm->strength : 1.f);
-        for (int s = 0; s < nshow; ++s) {
-            float sc = ship_scale(f->ships[s].type);
-            float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
-            inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
-            *in = (inst_t){ x + hx*along - hz*side, 0, z + hz*along + hx*side, heading, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0 };
+        for (int pass = 0; pass < 2; ++pass) {                                // the level shown, then the one fading in
+            int level = pass == 0 ? pk.lod : pk.lod2;
+            if (level < 0 || level > 1) continue;
+            int lod = level, nshow = lod == 1 ? mini(f->nships, 4) : f->nships;
+            if (in_battle && lod == 1 && battle_lod0_budget >= f->nships) { lod = 0; nshow = f->nships; battle_lod0_budget -= f->nships; }
+            float dith = lod_dither(&pk, level);
+            for (int s = 0; s < nshow; ++s) {
+                float sc = ship_scale(f->ships[s].type);
+                float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
+                inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
+                *in = (inst_t){ x + hx*along - hz*side, 0, z + hz*along + hx*side, heading, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0, dith };
+            }
         }
         if (sel || hov) dd_circle(vec3(x, 0.1f, z), vec3(0,1,0), (sel ? 1.6f : 1.4f) * 1.35f + f->nships * 0.2f, .color = rgb_linear(sel ? rgb(255, 240, 120) : rgb(220, 220, 220)));
         // Gunsmoke: a couple of puffs off the engaged broadside that swell, drift and thin out.
@@ -133,6 +146,7 @@ void scene_build_ships(void) {
     }
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) mesh_set_instances(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n);
     mesh_set_instances(&mesh_puff, puffs.v, puffs.n);
+    icon_w_time = RF.time;
 }
 
 // submit the instances uploaded by scene_build_* with whatever pipeline is bound (main or shadow)
@@ -155,7 +169,18 @@ int scene_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
 static mesh_t    asset_mesh[ASSET_MAX][ASSET_MAX_LODS];
 static instlist_t asset_inst[ASSET_MAX][ASSET_MAX_LODS];
 static int asset_used[ASSET_MAX];        // has an instance list this frame
+static float asset_last_use[ASSET_MAX];  // RF.time an instance of this asset was last submitted
 int scene_asset_instances;               // dashboard: authored-asset instances drawn this frame
+int scene_assets_evicted;                // assets dropped from the GPU this session (dashboard)
+
+// Residency (DESIGN_LOD.md step 7). The wanted set is a property of the view tier: close in,
+// every authored asset belongs on the GPU and is requested ahead of being asked for; zoomed out
+// past the point where buildings are drawn at all, assets that have not been touched for a
+// while are evicted once the GPU budget is exceeded, coldest first. A reload goes back through
+// the job system (disk -> parse -> upload) and the town draws its procedural fallback in the
+// meantime, so streaming costs detail, never objects.
+#define ASSET_GPU_BUDGET  (192u * 1024u * 1024u)
+#define ASSET_EVICT_SECS  12.f
 
 // GPU mesh for one asset LOD, uploaded on first use (CPU copy freed after). Shared with the
 // detail view (detailview.c), which draws the same meshes in its own staged scenes.
@@ -172,10 +197,28 @@ mesh_t *scene_asset_mesh(asset_t *a, int lod) {
     return &asset_mesh[ai][lod];
 }
 
-static void asset_push(asset_t *a, inst_t in, float camdist) {
-    int ai = (int)(a - asset_at(0)), lod = asset_pick_lod(a, camdist);
-    scene_asset_mesh(a, lod);
-    *instlist_push(&asset_inst[ai][lod]) = in;
+// the renderer's upload hook (asset.c calls it on the MAIN lane, one LOD per budgeted job)
+void scene_asset_upload(asset_t *a, int lod) { scene_asset_mesh(a, lod); }
+
+// One instance of an authored asset: its LOD is picked in screen space from the authored
+// switch distances (converted to pixels for the reference view, scaled by the LOD bias), with
+// the instance's own hysteresis/fade state. When the whole town is dissolving into its icon,
+// that fade takes precedence over the asset's own (one dither pattern per instance).
+static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float town_dither);
+void scene_asset_instance(asset_t *a, inst_t in, unsigned key, float camdist) { asset_push(a, in, key, camdist, 0.f); }
+static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float town_dither) {
+    int ai = (int)(a - asset_at(0));
+    asset_last_use[ai] = RF.time;
+    float r = a->radius * (in.scale > 0 ? in.scale : 1.f), thr[ASSET_MAX_LODS];
+    for (int l = 1; l < a->nlods; ++l) thr[l - 1] = a->lod[l].px > 0 ? a->lod[l].px / asset_lod_bias : lod_px_ref(r, a->lod[l].dist * asset_lod_bias);
+    lod_pick_t pk = lod_select(key, thr, a->nlods, lod_px(r, camdist), a->nlods - 1);
+    for (int pass = 0; pass < 2; ++pass) {
+        int level = pass == 0 ? pk.lod : pk.lod2;
+        if (level < 0) continue;
+        scene_asset_mesh(a, level);
+        in.dither = town_dither != 0.f ? town_dither : lod_dither(&pk, level);
+        *instlist_push(&asset_inst[ai][level]) = in;
+    }
     asset_used[ai] = 1;
 }
 
@@ -183,20 +226,63 @@ static void asset_push(asset_t *a, inst_t in, float camdist) {
 int scene_asset_lod_count(int asset_index, int lod) {
     return asset_index >= 0 && asset_index < ASSET_MAX && lod >= 0 && lod < ASSET_MAX_LODS ? asset_inst[asset_index][lod].n : 0;
 }
-static void assets_clear(void) {
+// Free every GPU mesh of one asset and put it back to UNLOADED, so the next request reloads it.
+static void scene_asset_evict(int ai) {
+    asset_t *a = asset_at(ai);
+    if (!a || a->state != ASSET_LOADED) return;
+    for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[ai][l].geo.vao) { rhi_geometry_free(&asset_mesh[ai][l].geo); asset_mesh[ai][l].ninst = 0; }
+    LOG_DEBUG("gfx", "evicting asset '%s' (%.1f MB, unused %.0f s)", a->desc.name, a->gpu_bytes / (1024.0*1024.0), RF.time - asset_last_use[ai]);
+    asset_unload(a);                     // frees any CPU copy, clears the LOD table, bumps the generation
+    scene_assets_evicted++;
+}
+
+// Once per frame: hold the wanted set for the current tier.
+static void scene_assets_residency(void) {
+    int tier = lod_tier();
+    if (tier <= TIER_REGIONAL) {         // close enough that buildings are drawn: everything belongs here
+        for (int i = 0; i < asset_count(); ++i) { asset_t *a = asset_at(i); if (a->state == ASSET_UNLOADED) asset_request(a); }
+        return;
+    }
+    if (asset_gpu_bytes() <= ASSET_GPU_BUDGET) return;
+    int coldest = -1;
+    for (int i = 0; i < asset_count(); ++i) {
+        const asset_t *a = asset_at(i);
+        if (a->state != ASSET_LOADED || !a->gpu_bytes) continue;
+        if (RF.time - asset_last_use[i] < ASSET_EVICT_SECS) continue;
+        if (coldest < 0 || asset_last_use[i] < asset_last_use[coldest]) coldest = i;
+    }
+    if (coldest >= 0) scene_asset_evict(coldest);   // one per frame: eviction is never a stall either
+}
+
+// The per-frame asset instance lists are shared with the detail view (detailview.c), which
+// stages its own buildings through the same three calls.
+void scene_assets_begin(void) {
+    scene_assets_residency();
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) { for (int l = 0; l < ASSET_MAX_LODS; ++l) instlist_clear(&asset_inst[i][l]); asset_used[i] = 0; }
     scene_asset_instances = 0;
 }
-static void assets_set_instances(void) {
-    for (int i = 0; i < asset_count(); ++i) if (asset_used[i])
-        for (int l = 0; l < ASSET_MAX_LODS; ++l) { mesh_set_instances(&asset_mesh[i][l], asset_inst[i][l].v, asset_inst[i][l].n); scene_asset_instances += asset_inst[i][l].n; }
+void scene_assets_end(void) {
+    long long tris = 0;
+    for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) {
+        const asset_t *a = asset_at(i);
+        for (int l = 0; l < ASSET_MAX_LODS; ++l) {
+            mesh_set_instances(&asset_mesh[i][l], asset_inst[i][l].v, asset_inst[i][l].n);
+            scene_asset_instances += asset_inst[i][l].n;
+            if (l < a->nlods) tris += (long long)(a->lod[l].nidx / 3) * asset_inst[i][l].n;
+        }
+    }
+    // closes the director's loop: next frame's thresholds are scaled to meet the tier's budget
+    lod_budget_report(tris);
 }
-static int assets_submit(void) {
+int scene_assets_submit(void) {
     int n = 0;
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i])
         for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[i][l].geo.vao) { mesh_draw(&asset_mesh[i][l]); n += asset_mesh[i][l].ninst; }
     return n;
 }
+#define assets_clear scene_assets_begin
+#define assets_set_instances scene_assets_end
+#define assets_submit scene_assets_submit
 
 // ---------------------------------------------------------------------------
 // ports (towns are regenerated each frame from a per-port seed: cheap and always in sync)
@@ -213,7 +299,8 @@ static void tc_push(int mesh, inst_t in) { town_cache_t *c = tc_cur; if (c->n % 
 static void tc_push_asset(asset_t *a, inst_t in) { tc_push(TM_ASSET, in); tc_cur->items[tc_cur->n - 1].asset = (short)(a - asset_at(0)); }
 static unsigned town_signature(const port_t *p) {
     unsigned col = p->size > 0 ? nations_info[p->nation].color : 0xFFBBBBBB;
-    return 0x9E3779B1u * (unsigned)(p->size + 1) ^ 0x85EBCA6Bu * (unsigned)(p->building[B_FORT] + 1) ^ 0xC2B2AE35u * (unsigned)(mini((int)(p->pop / 12), 63) + 1) ^ col ^ (unsigned)(p->merged_into >= 0) << 31;
+    // asset_generation: a town built while its church was still loading is rebuilt once it lands
+    return 0x9E3779B1u * (unsigned)(p->size + 1) ^ 0x85EBCA6Bu * (unsigned)(p->building[B_FORT] + 1) ^ 0xC2B2AE35u * (unsigned)(mini((int)(p->pop / 12), 63) + 1) ^ col ^ (unsigned)(p->merged_into >= 0) << 31 ^ 0x27D4EB2Fu * asset_generation();
 }
 
 // Town layout. Pieces are placed with a footprint list so they do not stand inside each
@@ -238,6 +325,25 @@ static void ground_range(float x, float z, float h, float *lo, float *hi) {
     }
 }
 
+// Authored buildings (game/assets, exported by tools/blender_export_glb.py) take the place of
+// the procedural boxes wherever a matching role has finished loading; asset_get_role() returns
+// NULL for roles that are absent or still in flight, and the town cache's signature carries
+// asset_generation(), so a town built from boxes is rebuilt with real houses the moment they
+// land. Tiers follow the reference town: tall merchant houses on the square, artisans and
+// shops in the middle ring, poor houses and wooden huts by the walls.
+static const char *const town_roles_rich[] = { "wealthy_townhouse", "merchant_house", "three_story_townhouse", "inn" };
+static const char *const town_roles_mid[]  = { "two_story_townhouse", "artisan_house", "shop", "bakery", "blacksmith", "small_stone_house" };
+static const char *const town_roles_poor[] = { "poor_house", "small_wooden_house", "small_stone_house" };
+static asset_t *town_house_asset(float ring, int size, unsigned *seed) {   // ring 0 = square .. 1 = wall
+    const char *const *roles; int n;
+    float tier = ring + (rnd_f(seed) - 0.5f) * 0.35f;
+    if (tier < 0.3f && size >= 2) { roles = town_roles_rich; n = 4; }
+    else if (tier < 0.7f)          { roles = town_roles_mid;  n = 6; }
+    else                           { roles = town_roles_poor; n = 3; }
+    int start = rnd_int(seed, n);
+    for (int k = 0; k < n; ++k) { asset_t *a = asset_get_role(ASSET_BUILDING, roles[(start + k) % n]); if (a) return a; }
+    return NULL;
+}
 static void town_build(const port_t *p, int index) {
     unsigned seed = 1000 + index * 7919;
     float ang = atan2f(p->z - p->lz, p->x - p->lx);
@@ -256,7 +362,9 @@ static void town_build(const port_t *p, int index) {
     // big pieces first: tower on the square, authored church (role "church") landward of it
     if (p->size >= 2) {
         float ts = 0.35f + 0.12f*p->size;
-        tc_push(TM_TOWER, (inst_t){ p->lx, fy - 0.05f, p->lz, 0, ts, 0.8f,0.78f,0.72f, 0,0,0,0 });
+        asset_t *hall = p->size >= 3 ? asset_get_role(ASSET_BUILDING, "town_hall") : NULL;
+        if (hall) { tc_push_asset(hall, (inst_t){ p->lx, fy - 0.02f, p->lz, -ang + 3.14159f, 1.f, 1,1,1, 0,0,0,0 }); ts = asset_footprint_radius(hall) / 0.45f; }
+        else tc_push(TM_TOWER, (inst_t){ p->lx, fy - 0.05f, p->lz, 0, ts, 0.8f,0.78f,0.72f, 0,0,0,0 });
         fp[nfp++] = (footprint_t){ p->lx, p->lz, ts * 0.45f };
         asset_t *church = asset_get_role(ASSET_BUILDING, "church");
         if (church) {
@@ -284,19 +392,43 @@ static void town_build(const port_t *p, int index) {
     float roof[3]; if (med) { roof[0]=0.68f; roof[1]=0.32f; roof[2]=0.20f; } else if (colonial) { roof[0]=0.55f; roof[1]=0.42f; roof[2]=0.22f; } else { roof[0]=0.30f; roof[1]=0.32f; roof[2]=0.36f; }
     for (int k = 0; k < nh * 4 && placed < nh && nfp < TOWN_MAX_FOOTPRINTS; ++k) {
         float s = 0.16f + rnd_f(&seed) * 0.12f, half = 0.55f * s;        // roof overhang is the widest part
-        float a = rnd_f(&seed) * 6.2832f, r = sqrtf(rnd_f(&seed)) * maxf(wall_inner - half, 0.1f);
+        float a = rnd_f(&seed) * 6.2832f, ring = sqrtf(rnd_f(&seed)), r = ring * maxf(wall_inner - half, 0.1f);
         float hx = p->lx + cosf(a) * r, hz = p->lz + sinf(a) * r;
         float rot = rnd_f(&seed) * 3.14f, wc = 0.75f + rnd_f(&seed) * 0.2f;
+        asset_t *house = town_house_asset(ring, p->size, &seed);
+        if (house) { half = asset_footprint_radius(house); s = house->bmax[1] - house->bmin[1]; }
         if (!world_is_land(hx, hz)) continue;
         float lo, hi; ground_range(hx, hz, half, &lo, &hi);
         if (lo < TOWN_MIN_HEIGHT || hi - lo > s * 0.6f) continue;         // beach or too steep
         if (!fp_free(fp, nfp, hx, hz, half * 1.05f)) continue;
-        float wr = med ? wc : colonial ? wc*0.9f : wc*0.7f, wg = med ? wc*0.92f : colonial ? wc*0.8f : wc*0.55f, wb = med ? wc*0.75f : colonial ? wc*0.6f : wc*0.45f;
         float hy = lo - 0.03f;                                              // the lowest corner touches ground; the rest is buried a little
-        tc_push(TM_HOUSE, (inst_t){ hx, hy, hz, rot, s, wr, wg, wb, 0,0,0,0 });
-        tc_push(TM_ROOF,  (inst_t){ hx, hy + s, hz, rot, s, roof[0], roof[1], roof[2], 0,0,0,0 });
+        if (house) {
+            // face the square (doors towards the street), with a little scatter
+            tc_push_asset(house, (inst_t){ hx, hy, hz, -atan2f(p->lz - hz, p->lx - hx) + (rnd_f(&seed) - 0.5f) * 0.6f, 1.f, 1,1,1, 0,0,0,0 });
+        } else {
+            float wr = med ? wc : colonial ? wc*0.9f : wc*0.7f, wg = med ? wc*0.92f : colonial ? wc*0.8f : wc*0.55f, wb = med ? wc*0.75f : colonial ? wc*0.6f : wc*0.45f;
+            tc_push(TM_HOUSE, (inst_t){ hx, hy, hz, rot, s, wr, wg, wb, 0,0,0,0 });
+            tc_push(TM_ROOF,  (inst_t){ hx, hy + s, hz, rot, s, roof[0], roof[1], roof[2], 0,0,0,0 });
+        }
         fp[nfp++] = (footprint_t){ hx, hz, half };
         placed++;
+    }
+    // harbour front: a warehouse landward of the pier, a lighthouse at the shore, when authored
+    if (p->size >= 1) {
+        asset_t *wh = asset_get_role(ASSET_BUILDING, "harbor_warehouse"); if (!wh) wh = asset_get_role(ASSET_BUILDING, "warehouse");
+        asset_t *lh = p->size >= 2 ? asset_get_role(ASSET_BUILDING, "lighthouse") : NULL;
+        asset_t *spots[2] = { wh, lh }; float offs[2] = { 0.55f, -0.75f };   // along the shore, either side of the pier
+        for (int i = 0; i < 2; ++i) {
+            asset_t *a = spots[i]; if (!a) continue;
+            float ar = asset_footprint_radius(a);
+            float sx = -sinf(ang), sz = cosf(ang);                            // shore direction (perpendicular to land->sea)
+            float bx = p->lx + sx * offs[i] + cosf(ang) * 0.15f, bz = p->lz + sz * offs[i] + sinf(ang) * 0.15f, lo, hi;
+            if (!world_is_land(bx, bz) || nfp >= TOWN_MAX_FOOTPRINTS) continue;
+            ground_range(bx, bz, ar * 0.7f, &lo, &hi);
+            if (lo < 0.05f || hi - lo > 0.3f || !fp_free(fp, nfp, bx, bz, ar)) continue;
+            tc_push_asset(a, (inst_t){ bx, lo - 0.02f, bz, -ang + 3.14159f, 1.f, 1,1,1, 0,0,0,0 });   // facing the water
+            fp[nfp++] = (footprint_t){ bx, bz, ar };
+        }
     }
 
     if (fort) {
@@ -312,16 +444,17 @@ static void town_build(const port_t *p, int index) {
     }
 }
 
-void scene_reset_caches(void) { for (int i = 0; i < MAX_PORTS; ++i) town_cache[i].sig = 0, town_cache[i].n = 0; scene_reset_anim(); }   // world/heights may have changed (new game, load)
+void scene_reset_caches(void) { for (int i = 0; i < MAX_PORTS; ++i) town_cache[i].sig = 0, town_cache[i].n = 0; scene_reset_anim(); lod_reset(); }   // world/heights may have changed (new game, load)
 
-static void town_instances(const port_t *p, int index) {
+// `dither` is the town's own mesh-to-icon fade this frame (0 when fully a town)
+static void town_instances(const port_t *p, int index, float dither) {
     town_cache_t *c = &town_cache[index]; unsigned sig = town_signature(p);
     if (c->sig != sig || !c->items) { c->n = 0; c->sig = sig; tc_cur = c; town_build(p, index); }
     static instlist_t *lists[6] = { &houses, &roofs, &towers, &walls, &piers, &flagpoles };
     for (int i = 0; i < c->n; ++i) {
         const town_item_t *it = &c->items[i];
-        if (it->mesh == TM_ASSET) { asset_t *a = asset_at(it->asset); if (a && a->state == ASSET_LOADED) asset_push(a, it->in, cam_distance(it->in.x, it->in.z)); }
-        else *instlist_push(lists[it->mesh]) = it->in;
+        if (it->mesh == TM_ASSET) { asset_t *a = asset_at(it->asset); if (a && a->state == ASSET_LOADED) asset_push(a, it->in, lod_key(LODK_TOWN_ITEM, index, i), cam_distance(it->in.x, it->in.z), dither); }
+        else { inst_t *in = instlist_push(lists[it->mesh]); *in = it->in; in->dither = dither; }
     }
 }
 
@@ -332,9 +465,13 @@ void scene_build_ports(void) {
     assets_clear();
     for (int i = 0; i < G.nports; ++i) {
         const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
-        if (cam_distance(p->x, p->z) > PORT_DETAIL_DIST || cam.mapness > 0.5f) continue;
-        if (!cam_sphere_visible(frustum, p->x, 0, p->z, 2.5f + 0.5f * p->size + CULL_MARGIN)) { scene_culled_ports++; continue; }
-        town_instances(p, i);
+        float d = cam_distance(p->x, p->z), r = 2.5f + 0.5f * p->size;
+        float px = cam.mapness > 0.5f ? 0.f : lod_px(r, d);
+        lod_pick_t pk = lod_select(lod_key(LODK_PORT, i, 0), town_thr, 2, px, 0);
+        port_icon_w[i] = lod_weight(&pk, 1);
+        if (!lod_draws(&pk, 0)) continue;                                       // icon only
+        if (!cam_sphere_visible(frustum, p->x, 0, p->z, r + CULL_MARGIN)) { scene_culled_ports++; continue; }
+        town_instances(p, i, lod_dither(&pk, 0));
         int sel = i == SH.sel_port, hov = i == SH.hover_port;
         if (sel || hov) dd_circle(vec3(p->x, 0.1f, p->z), vec3(0,1,0), 2.2f + 0.4f*p->size, .color = rgb_linear(sel ? rgb(255,240,120) : rgb(220,220,220)));
         if (p->blockaded_by) dd_circle(vec3(p->x, 0.15f, p->z), vec3(0,1,0), 3.5f, .color = rgb_linear(rgb(255,60,40)), .dashed = 1);
@@ -365,24 +502,84 @@ static void icon(float x, float z, float heading, float size, int shape, float a
     icon_t *ic = icon_push(); *ic = (icon_t){ x, 0.3f, z, heading, size, (float)shape, alpha, outline, col_r(col), col_g(col), col_b(col), 0 };
 }
 
+// Clustering (DESIGN_LOD.md step 6). Zoomed out to a continent, several hundred markers land on
+// top of each other and the map turns into a smear of dots that is both unreadable and a draw
+// call per dot. Markers closer together than ICON_CLUSTER_PX are therefore merged into the most
+// important one of the group, grown a little to show it stands for several. Selection and hover
+// always survive as themselves, so what the player is pointing at never disappears into a blob.
+#define ICON_CLUSTER_PX 34.f
+typedef struct icon_group_t { int cell_x, cell_y, best, count; float prio; } icon_group_t;
+static icon_group_t icon_groups[MAX_PORTS + 64];
+static int n_icon_groups;
+int scene_icons_clustered;        // markers merged away this frame (dashboard)
+
+// Returns the group this marker belongs to, creating it if the cell is free. `prio` picks the
+// representative; -1 means "never cluster this one".
+static icon_group_t *icon_cluster(float sx, float sy, int index, float prio) {
+    int cx = (int)floorf(sx / ICON_CLUSTER_PX), cy = (int)floorf(sy / ICON_CLUSTER_PX);
+    for (int i = 0; i < n_icon_groups; ++i) {
+        icon_group_t *g = &icon_groups[i];
+        if (g->cell_x != cx || g->cell_y != cy) continue;
+        g->count++;
+        if (prio > g->prio) { g->prio = prio; g->best = index; }
+        return g;
+    }
+    if (n_icon_groups >= (int)(sizeof icon_groups / sizeof *icon_groups)) return NULL;
+    icon_group_t *g = &icon_groups[n_icon_groups++];
+    g->cell_x = cx; g->cell_y = cy; g->best = index; g->count = 1; g->prio = prio;
+    return g;
+}
+
 void scene_push_icons(void) {
+    // icon alpha is the mesh-to-icon fade weight from this frame's scene build; when the mesh
+    // passes did not run this frame (pass toggles, menu) icons simply draw in full
+    int fresh = icon_w_time == RF.time;
+    int clustering = lod_tier() >= TIER_STRATEGIC;
+    scene_icons_clustered = 0;
+    n_icon_groups = 0;
     for (int i = 0; i < G.nports; ++i) { const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
-        if (cam_distance(p->x, p->z) <= PORT_DETAIL_DIST && cam.mapness <= 0.5f) continue;
+        float w = fresh ? port_icon_w[i] : 1.f;
+        if (w <= 0.002f) continue;
+        int important = i == SH.sel_port || i == SH.hover_port;
+        int count = 1;
+        if (clustering && !important) {
+            float sx, sy;
+            if (!cam_project(p->x, 0.3f, p->z, &sx, &sy)) continue;
+            icon_group_t *g = icon_cluster(sx, sy, i, (float)p->size + (p->nation == G.player ? 0.5f : 0.f));
+            if (g && g->best != i) { scene_icons_clustered++; continue; }   // a bigger neighbour speaks for it
+            if (g) count = g->count;
+        }
         unsigned col = p->size > 0 ? nations_info[p->nation].color : 0xFFBBBBBB;
         float sz = p->size <= 0 ? 5.f : 6.f + 2.5f * p->size;
-        icon(p->x, p->z, 0, sz, p->size <= 0 ? ICON_DIAMOND : ICON_DISC, p->size <= 0 ? 0.8f : 1.f, 1.f, col);
-        if (p->blockaded_by) icon(p->x, p->z, 0, sz + 8, ICON_RING, 0.9f, 0, rgb(255,50,25));
-        if (p->haven && p->size > 0) icon(p->x, p->z, 0.785f, sz * 0.6f, ICON_CROSS, 1, 0, rgb(12,12,12));
-        if (i == SH.sel_port || i == SH.hover_port) icon(p->x, p->z, 0, sz + 10, ICON_RING, 0.9f, 0, rgb(255,240,128));
+        if (count > 1) sz *= 1.f + 0.16f * logf((float)count) / 0.693f;      // grows with log2 of the group
+        icon(p->x, p->z, 0, sz, p->size <= 0 ? ICON_DIAMOND : ICON_DISC, (p->size <= 0 ? 0.8f : 1.f) * w, 1.f, col);
+        if (count > 1) icon(p->x, p->z, 0, sz + 7, ICON_RING, 0.55f * w, 0, col);   // a group, not one great city
+        if (p->blockaded_by) icon(p->x, p->z, 0, sz + 8, ICON_RING, 0.9f * w, 0, rgb(255,50,25));
+        if (p->haven && p->size > 0) icon(p->x, p->z, 0.785f, sz * 0.6f, ICON_CROSS, w, 0, rgb(12,12,12));
+        if (important) icon(p->x, p->z, 0, sz + 10, ICON_RING, 0.9f * w, 0, rgb(255,240,128));
     }
+    int port_groups = n_icon_groups;   // fleets cluster among themselves, never into a town
     for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
+        float w = fresh ? fleet_icon_w[i] : 1.f;
+        if (w <= 0.002f) continue;
         float x, z, heading; scene_fleet_pos(f, &x, &z, &heading);
-        if (cam_distance(x, z) <= LOD1_DIST && cam.mapness <= 0.6f) continue;
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;
+        int count = 1;
+        if (clustering && !sel && !hov) {
+            float sx, sy;
+            if (!cam_project(x, 0.8f, z, &sx, &sy)) continue;
+            icon_group_t *g = icon_cluster(sx, sy, i, (float)f->nships + (is_player(f->nation) ? 8.f : 0.f));
+            if (g && g->best != i) { scene_icons_clustered++; continue; }
+            if (g) count = g->count;
+        }
         unsigned col = f->role == ROLE_PIRATE ? rgb(25,25,25) : nations_info[f->nation].color;
-        icon(x, z, heading, sel ? 13.f : is_player(f->nation) ? 11.f : 9.f, ICON_ARROW, 1, 1, col);
-        if (sel || hov) icon(x, z, 0, 20, ICON_RING, 0.9f, 0, rgb(255,240,128));
+        float sz = sel ? 13.f : is_player(f->nation) ? 11.f : 9.f;
+        if (count > 1) sz *= 1.f + 0.14f * logf((float)count) / 0.693f;
+        icon(x, z, heading, sz, ICON_ARROW, w, 1, col);
+        if (count > 1) icon(x, z, 0, sz + 6, ICON_RING, 0.5f * w, 0, col);
+        if (sel || hov) icon(x, z, 0, 20, ICON_RING, 0.9f * w, 0, rgb(255,240,128));
     }
+    (void)port_groups;
     if (SH.show_regions || cam.mapness > 0.4f) for (int i = 0; i < G.ninland; ++i) { const inland_t *s = &G.inland[i]; if (!s->alive) continue;   // mines and farms of the hinterlands
         icon(s->x, s->z, 0, 6 + 2 * minf(s->pop, 4), ICON_SQUARE, 0.95f, 1, goods[s->good].color); }
     if (cam.mapness > 0.4f) for (int i = 0; i < G.nevents; ++i) { const event_t *e = &G.events[i]; if (e->type == EV_STORM) icon(e->x, e->z, RF.time*0.8f, 22, ICON_STORM, 0.9f, 0, rgb(64,64,90)); }

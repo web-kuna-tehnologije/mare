@@ -1,14 +1,16 @@
 // Scene assembly: decides per frame what to draw and at which LOD.
 //
-//   ships:  < 75 units full mesh (all ships in line-ahead), < 230 simplified (max 4), else icon
-//   ports:  < 260 units procedural town (houses by population, tower, fort walls, pier, flag), else icon
+//   ships:  full mesh (all ships in line-ahead) above ~80 px on screen, simplified (max 4) above ~26 px, else icon
+//   ports:  procedural town (houses by population, tower, fort walls, pier, flag) above ~35 px, else icon
 //   map view (mapness > 0.5): everything becomes icons; trade lanes are drawn
+// Levels are picked in screen space with hysteresis and cross-fades (gfx/lod.h).
 // Towns are regenerated from a per-port seed each frame (cheap, always in sync with the state).
 
 #ifndef MARE_SCENE_H
 #define MARE_SCENE_H
 
 #include "../core/types.h"
+#include "gpu.h"
 
 typedef struct scene_hints_t {   // filled by the UI each frame before drawing
     int sel_fleet_id, hover_fleet_id, sel_port, hover_port;
@@ -18,9 +20,18 @@ typedef struct scene_hints_t {   // filled by the UI each frame before drawing
 extern scene_hints_t SH;
 extern int scene_culled_ports, scene_culled_ships;   // frustum-culled this frame (dashboard stats)
 extern int scene_asset_instances;                    // authored-asset (GLB) instances drawn this frame
+extern int scene_icons_clustered;                    // distant markers merged into a neighbour this frame
+extern int scene_assets_evicted;                     // authored assets dropped from the GPU this session
 int scene_asset_lod_count(int asset_index, int lod); // of those, instances of one asset at one LOD (dashboard)
 struct asset_t; struct mesh_t;
 struct mesh_t *scene_asset_mesh(struct asset_t *a, int lod);  // GPU mesh of an asset LOD, uploaded on first use (shared with detailview.c)
+void scene_asset_upload(struct asset_t *a, int lod);          // asset.c upload hook (MAIN lane): same as above, budgeted per frame
+// authored-asset instance lists, shared with the detail view: begin, push instances (LOD picked
+// in screen space under `key`, see lod.h), end (uploads instance buffers), submit (draws)
+void scene_assets_begin(void);
+void scene_asset_instance(struct asset_t *a, inst_t in, unsigned key, float camdist);
+void scene_assets_end(void);
+int  scene_assets_submit(void);
 
 void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading);   // draw position (docked fleets are moored around the harbour)
 void scene_reset_caches(void);    // also resets the fleet movement animation

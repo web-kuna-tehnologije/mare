@@ -1,0 +1,44 @@
+{
+  "name": "two_story_townhouse",
+  "type": "building",
+  "role": "two_story_townhouse",
+  "lods": [
+    {
+      "file": "two_story_townhouse_LOD0.glb",
+      "node": "two_story_townhouse_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "two_story_townhouse_LOD1.glb",
+      "node": "two_story_townhouse_LOD1",
+      "px": 220
+    },
+    {
+      "file": "two_story_townhouse_LOD2.glb",
+      "node": "two_story_townhouse_LOD2",
+      "px": 90
+    },
+    {
+      "file": "two_story_townhouse_LOD3.glb",
+      "node": "two_story_townhouse_LOD3",
+      "px": 30
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 0.36
+  },
+  "pivot": "base_center",
+  "forward": "+z",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

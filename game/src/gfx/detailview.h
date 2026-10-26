@@ -22,6 +22,7 @@ void detailview_exit(void);                    // back through the clouds to the
 void detailview_frame(float dt);               // animate + upload instances (before the shadow pass)
 int  detailview_submit(void);                  // draw stage + instances (main pass and shadow pass)
 int  detailview_submit_smoke(void);            // gunsmoke, after the translucent bind
+void detailview_sea(void);                     // the staged scene's water (same shader and waves as the map)
 void detailview_clouds(void);                  // cloud overlay, after hdr_resolve (no-op when clear)
 
 #endif

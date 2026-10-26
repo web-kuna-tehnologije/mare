@@ -17,7 +17,11 @@ typedef struct render_frame_t {
     float flatten;                  // 0..1 flattens terrain heights (map view)
     float daylight;                 // global light multiplier (1 = day)
     vec3  suncol;                   // linear sun radiance (sun colour * intensity * daylight)
+    vec3  suntint;                  // sun colour multiplier (warm at dawn/dusk, blue at night)
     vec3  ambsky, ambgnd;           // linear hemispheric ambient (sky above, bounce below)
+    vec3  sea_center;               // xz the sea's detail grid centres on (the camera's look-at point)
+    float tod;                      // time of day 0..1 (0 = midnight); drives the sun when the cycle is on
+    float ambfloor;                 // 0 at night .. 1 in full day; keeps the ambient above a moonlit floor
 } render_frame_t;
 extern render_frame_t RF;
 extern int screen_w, screen_h;      // framebuffer size, sampled once per frame (v3's app_width() queries X11 and GL every call)
@@ -32,6 +36,11 @@ void detail_init(void);
 const rhi_texture_t *detail_waves(void);
 const rhi_texture_t *detail_grain(void);
 
+// streamed textures (textures.c): request once, poll each frame; NULL until resident
+int  texture_request(const char *path, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap);
+const rhi_texture_t *texture_get(int handle);
+int  texture_state(int handle);          // 1 loading, 2 ready, 3 failed
+
 // HDR (hdr.c): 3D passes render into an RGBA16F target between hdr_begin and hdr_resolve
 void hdr_begin(int w, int h, float r, float g, float b);   // bind + clear the HDR target (recreated on resize)
 void hdr_resolve(int w, int h);                            // tonemap to the backbuffer; UI draws after this
@@ -39,6 +48,12 @@ extern float hdr_exposure;                                 // tonemap multiplier
 
 // lighting & shadows (lighting.c): one directional sun shared by every 3D pass
 void  render_light_update(void);         // fills RF.suncol/ambsky/ambgnd from RF.sun and RF.daylight
+// Day/night: turns a time of day into the sun direction, daylight level and sky colour, so the
+// shadows actually move. Pinned by MARE_SUN, disabled by MARE_DAYNIGHT=0 (both keep the old
+// fixed afternoon sun, which is what the screenshot comparisons use).
+void  render_sun_update(float day);
+extern int   daynight_enabled;
+extern float daynight_period_days;       // simulated days per full cycle
 void  light_bind(const rhi_pipeline_t *p);  // sets the GLSL_LIGHT uniforms (sun, ambient, shadow atlas)
 void  shadow_render(void);               // renders the 3 cascades of the sun shadow atlas (before the main passes)
 extern int shadow_enabled;               // 0 disables the shadow pass and the lookup
@@ -48,7 +63,12 @@ unsigned rgb_linear(unsigned srgb_col);  // packed sRGB colour -> packed linear 
 
 // passes
 void terrain_draw(float planes[6][4]);   // frustum planes from cam_frustum(); chunks pick a LOD by distance
-void sea_draw(void);
+void sea_draw(void);                     // world grid (flat) + the camera-centred wave grid
+void sea_draw_local(float depth, float scale, float radius);   // staged scenes: the wave grid alone at a constant depth
+extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
+extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene
+extern float sea_local_depth;            // >0 makes every wave lookup use this depth (staged scenes have no heightmap)
+extern float sea_clip_z; extern int sea_clip_on;   // staged scenes: the shoreline, as a world-z plane
 void meshes_bind(void);             // bind the instanced-mesh program (call before mesh_draw / scene_draw_*)
 void meshes_bind_depth(const mat44 *lightvp);   // depth-only instanced pipeline for the shadow pass
 void meshes_bind_smoke(void);       // translucent instanced pipeline for gunsmoke (after sea_draw)

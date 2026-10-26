@@ -1,0 +1,44 @@
+{
+  "name": "wealthy_townhouse",
+  "type": "building",
+  "role": "wealthy_townhouse",
+  "lods": [
+    {
+      "file": "wealthy_townhouse_LOD0.glb",
+      "node": "wealthy_townhouse_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "wealthy_townhouse_LOD1.glb",
+      "node": "wealthy_townhouse_LOD1",
+      "px": 220
+    },
+    {
+      "file": "wealthy_townhouse_LOD2.glb",
+      "node": "wealthy_townhouse_LOD2",
+      "px": 90
+    },
+    {
+      "file": "wealthy_townhouse_LOD3.glb",
+      "node": "wealthy_townhouse_LOD3",
+      "px": 30
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 0.46
+  },
+  "pivot": "base_center",
+  "forward": "+z",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}
