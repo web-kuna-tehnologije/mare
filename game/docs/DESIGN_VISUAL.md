@@ -1,6 +1,6 @@
 # Design: visual rendering 0.9
 
-Status: **steps 1-6 done**; their sections are below. The plan below is the feature "visual rendering" broken into
+Status: **steps 1-7 done**; their sections are below. The plan below is the feature "visual rendering" broken into
 steps that each land fully working on all three platforms, with a measurement, before the next
 starts (the same rule the renderer and engine-scale plans followed; those are in
 DESIGN_RENDERER.md, DESIGN_JOBS.md and DESIGN_LOD.md). Each step has its own section below once
@@ -48,10 +48,13 @@ it is built.
        breaks in that band; bow wave, hull line and a V wake around the 24 ships nearest the
        look-at point (`sea_set_ships`, fed by scene.c and the staged battle), combined as a
        bounded union so a melee does not turn white. `MARE_FOAM` / dashboard knob.
-7. [ ] **Calm weather** - when the wind drops (doldrums, the lee of a storm): a glassy sea,
-       haze that softens the horizon, mist in the bays at dawn, drizzle; the existing storm
-       events get rain and spray. Weather state derived from the wind field and the events,
-       exposed to the shaders as one struct.
+7. [x] **Weather** (`gfx/weather.c`) - calm, haze, mist, overcast and rain as 0..1 factors
+       derived from the wind at the look-at point, the storm events near it and the hour,
+       smoothed over 3 s. Calm air leaves the sea glassy (roughness halved, more sky in the
+       water) and hazy; a storm overhead dims the sun, greys the sky, thickens the fog and
+       draws wind-slanted rain over the finished frame; the hour after sunrise near a shore in
+       calm air fills the bay with white mist. Fog gained a density and start distance
+       (`u_fog`, bound with the light block). `MARE_WEATHER=0|clear|calm|mist|storm`.
 8. [ ] **Sky: clouds and sun** - a cloud layer (fbm, lit, moving with the wind) that shadows the
        ground through the light pass, a sun disc with a glow where the sun is, the sky gradient
        following the time of day; the detail-view cloud overlay is extracted into `gfx/clouds.c`
@@ -222,6 +225,26 @@ Cost on the Intel iGPU, open sea at 22 units: `gpu.sea_ms` 2.8 tessellated again
 warped grid; the staged battle 1.6-1.8 either way. What it buys: real geometric chop from the
 displacement map, cells of a constant ~9 px from the camera to 300 units (the warped grid's grew
 from 0.14 to 7.6 units over 180), no fixed square, and patches that never slide with the camera.
+
+### Weather (step 7)
+
+One struct, five factors, each smoothed over three seconds so the weather drifts in instead of
+snapping when the camera crosses a storm's edge:
+
+| factor | from | what it drives |
+|---|---|---|
+| calm | wind at the look-at point below ~0.5 | sea roughness x0.45, Fresnel sky share x1.6, haze |
+| storm | inside a storm event, fading in over 40 units from its edge | overcast, rain, haze |
+| mist | calm x the hour after sunrise x water within 2 units of a shore | fog x3.5 from 40 units, sky whitened |
+| haze | 0.55 calm + 0.6 storm + 0.5 mist | fog density x(1 + 1.6 haze), fog start sliding from 250 to 40 units |
+| overcast / rain | storm | sun radiance x(1 - 0.6 overcast), sky greyed; rain streaks from 0.25 storm |
+
+The fog function took two uniforms it did not have (`u_fog`: density multiplier, start
+distance), bound in `light_bind` since every fog user binds the light block. Rain is three
+layers of hashed streaks over the tonemapped frame, slanted by the wind's component along the
+camera's right vector, faded out as the view turns into the map. The pinned states in
+`docs/screenshots/weather-*.png` are the same camera under `MARE_WEATHER=clear|calm|storm|mist`
+(mist with a low `MARE_SUN`); in play they come from the simulation's wind bands and storms.
 
 Rules carried over: every effect has a toggle (dashboard checkbox and an environment variable)
 so it can be measured off and on; GPU time per pass goes through `rhi_gpu_scope`; the two

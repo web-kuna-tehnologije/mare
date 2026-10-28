@@ -195,6 +195,7 @@ static const char *sea_fs =
     "in vec3 v_wpos; in vec3 v_nrm; in float v_slope; in float v_h; in float v_amp; in float v_edge; in float v_jac; in float v_crest;\n"
     "uniform sampler2D u_waves; uniform sampler2D u_albedo; uniform float u_has_albedo; uniform sampler2D u_hm;\n"
     "uniform float u_foam;\n"                   // foam strength knob (dashboard / MARE_FOAM), 1 = normal
+    "uniform float u_calm;\n"                   // weather: 1 = glassy (mirror-like roughness, more sky in the water)
     "uniform vec4 u_ships[24]; uniform float u_shiplen[24]; uniform int u_nships;\n"   // nearby ships: x, z, heading, speed; hull length
     "uniform float u_time; uniform float u_wave_scale; uniform float u_local_depth; uniform vec4 u_geo; uniform float u_k;\n"
     "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_daylight;\n"
@@ -246,13 +247,13 @@ static const char *sea_fs =
     // sharp GGX lobe sampled at one point per pixel then turns into a field of fireflies.
     // Measuring how much the normal actually swings per pixel and folding that variance into
     // roughness fixes it at every distance, instead of guessing with a distance curve.
-    "  float rough = mix(0.45, 0.13, detail);\n"
+    "  float rough = mix(0.45, 0.13, detail) * mix(1.0, 0.45, u_calm);\n"   // calm air leaves the surface glassy
     "  vec3 ndx = dFdx(n), ndy = dFdy(n);\n"
     "  float nvar = dot(ndx, ndx) + dot(ndy, ndy);\n"
     "  rough = clamp(sqrt(rough*rough + nvar * 2.0), 0.0, 1.0);\n"
     "  vec3 col3d = sun_shade(c, n, vdir, v_wpos, rough, 0.0, dist);\n"
     "  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, vdir), 0.0), 5.0);\n"
-    "  col3d += srgb_to_linear(u_sky) * u_ambsky * fres * 1.4;\n"
+    "  col3d += srgb_to_linear(u_sky) * u_ambsky * fres * (1.4 + 0.8 * u_calm);\n"
     // --- foam (DESIGN_VISUAL.md step 6). Four sources, one white.
     // Whitecaps: where the Gerstner displacement folds the surface - the horizontal Jacobian
     // drops below 1 as the crest compresses - plus the steepest faces. Textured by the foam
@@ -313,7 +314,7 @@ static const char *sea_fs =
     "  fragColor = vec4(col, alpha);\n"
     "}\n";
 
-static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_ships", "u_shiplen", "u_nships", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
+static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                       "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                       "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", GLSL_LIGHT_UNIFORMS, 0 };
 
@@ -525,6 +526,7 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
     rhi_set_i1(rhi_uniform(p,"u_albedo"), 2); rhi_texture_bind(2, alb ? alb : detail_waves());
     rhi_set_f1(rhi_uniform(p,"u_has_albedo"), alb ? 1.f : 0.f);
     rhi_set_f1(rhi_uniform(p,"u_foam"), sea_foam);
+    rhi_set_f1(rhi_uniform(p,"u_calm"), RF.calm);
     rhi_set_i1(rhi_uniform(p,"u_nships"), sea_nships);
     if (sea_nships) { rhi_set_f4v(rhi_uniform(p,"u_ships"), sea_ships, sea_nships); rhi_set_f1v(rhi_uniform(p,"u_shiplen"), sea_ship_len, sea_nships); }
     { const rhi_texture_t *dsp = texture_get(sea_tex_disp);

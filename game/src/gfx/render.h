@@ -22,6 +22,8 @@ typedef struct render_frame_t {
     vec3  sea_center;               // xz the sea's detail grid centres on (the camera's look-at point)
     float tod;                      // time of day 0..1 (0 = midnight); drives the sun when the cycle is on
     float ambfloor;                 // 0 at night .. 1 in full day; keeps the ambient above a moonlit floor
+    float fog_density, fog_start;   // weather (gfx/weather.c): fog multiplier and the distance it starts at (1, 250 in clear air)
+    float calm, overcast;           // weather: glassy-sea factor, storm-overhead factor
 } render_frame_t;
 extern render_frame_t RF;
 extern int screen_w, screen_h;      // framebuffer size, sampled once per frame (v3's app_width() queries X11 and GL every call)

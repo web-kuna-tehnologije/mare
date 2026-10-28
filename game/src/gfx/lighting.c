@@ -68,7 +68,7 @@ void render_light_update(void) {
     float ambd = lerpf(0.72f, 1.f, clampf(RF.ambfloor, 0.f, 1.f));
     // Sun radiance is tuned so a mid-grey albedo under full sun lands near 0.6 after tonemapping.
     vec3 base = srgb_to_linear3(vec3(1.00f, 0.96f, 0.88f));
-    RF.suncol = scale3(vec3(base.x * tint.x, base.y * tint.y, base.z * tint.z), 3.1f * d);
+    RF.suncol = scale3(vec3(base.x * tint.x, base.y * tint.y, base.z * tint.z), 3.1f * d * (1.f - 0.6f * RF.overcast));   // a storm overhead dims the sun (weather.c)
     // Hemispheric ambient: sky from above, warm bounce from the ground below.
     RF.ambsky = scale3(srgb_to_linear3(ambcol), 0.55f * ambd);
     RF.ambgnd = scale3(srgb_to_linear3(vec3(0.33f, 0.30f, 0.25f)), 0.30f * ambd);
@@ -130,6 +130,7 @@ void render_sun_update(float day) {
 }
 
 void light_bind(const rhi_pipeline_t *p) {
+    rhi_set_f2(rhi_uniform(p, "u_fog"), RF.fog_density > 0 ? RF.fog_density : 1.f, RF.fog_start > 0 ? RF.fog_start : 250.f);
     rhi_set_f3(rhi_uniform(p, "u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
     rhi_set_f3(rhi_uniform(p, "u_suncol"), RF.suncol.x, RF.suncol.y, RF.suncol.z);
     rhi_set_f3(rhi_uniform(p, "u_ambsky"), RF.ambsky.x, RF.ambsky.y, RF.ambsky.z);

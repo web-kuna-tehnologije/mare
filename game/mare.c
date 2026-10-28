@@ -47,6 +47,7 @@
 #include "src/gfx/lod.c"
 #include "src/gfx/occlusion.c"
 #include "src/gfx/occquery.c"
+#include "src/gfx/weather.c"
 #include "src/gfx/textures.c"
 #include "src/gfx/scene.c"
 #include "src/gfx/detailview.c"
@@ -175,6 +176,7 @@ int main(int argc, char **argv) {
     if (getenv("MARE_SEA_NYQUIST")) { sea_nyquist = atoi(getenv("MARE_SEA_NYQUIST")) != 0; LOG_INFO("gpu", "sea grid-aware wave fade %s (MARE_SEA_NYQUIST)", sea_nyquist ? "on" : "off"); }
     if (getenv("MARE_SHADOW_LOD")) { shadow_caster_lod = atoi(getenv("MARE_SHADOW_LOD")) != 0; LOG_INFO("gpu", "shadow casters use the coarse LOD: %s (MARE_SHADOW_LOD)", shadow_caster_lod ? "yes" : "no"); }
     int m_shadow_tris = metric_id("gfx.shadow_tris");
+    int m_wx_rain = metric_id("weather.rain"), m_wx_haze = metric_id("weather.haze"), m_wx_calm = metric_id("weather.calm");
     // Autosave clock (balance.h AUTOSAVE_SECS, MARE_AUTOSAVE_S overrides; 0 disables). Counts
     // unpaused play only, so a game left paused overnight is not rewritten every three minutes.
     float autosave_secs = AUTOSAVE_SECS; if (getenv("MARE_AUTOSAVE_S")) { autosave_secs = (float)atof(getenv("MARE_AUTOSAVE_S")); LOG_INFO("main", "autosave every %.0f s (MARE_AUTOSAVE_S)", autosave_secs); }
@@ -309,6 +311,7 @@ int main(int argc, char **argv) {
         render_sun_update(G.day);                         // sun direction, daylight and sky colour (day/night cycle)
         { static int freeze = -1; if (freeze < 0) { const char *e = getenv("MARE_SEA_FREEZE"); freeze = e ? atoi(e) != 0 : 0; if (freeze) LOG_INFO("gpu", "sea clocks frozen (MARE_SEA_FREEZE)"); }
           sea_update_waves(G.day, freeze ? 0.f : dt); }   // the wave set follows the wind at the look-at point
+        weather_update(dt);                               // calm / haze / mist / storm from the wind, the storms and the hour (weather.h)
         RF.sky = lerp3(RF.sky, vec3(0.36f, 0.30f, 0.24f), cam.mapness);   // the map view fades to parchment
         render_light_update();
         rhi_frame_stats_reset();
@@ -351,6 +354,7 @@ int main(int argc, char **argv) {
         }
         rhi_gpu_begin(g_resolve); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer; labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
+        if (!U.in_menu) weather_overlay();                                          // rain over the finished frame
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
           if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot);
             const char *sd = getenv("MARE_SHADOWDUMP"); if (sd) shadow_dump(sd);
@@ -371,7 +375,8 @@ int main(int argc, char **argv) {
           metric_set(m_lod_tris, (double)lod_last_tris); metric_set(m_lod_budget, lod_budget_scale); metric_set(m_icons_clustered, scene_icons_clustered);
           metric_set(m_occ_ports, scene_occluded_ports); metric_set(m_occ_ships, scene_occluded_ships); metric_set(m_occ_samples, occ_samples);
           metric_set(m_occq_hidden, scene_occluded_assets); metric_set(m_occq_queries, occq_queried); metric_set(m_occq_moving, occq_moving);
-          metric_set(m_shadow_tris, (double)scene_shadow_tris); }
+          metric_set(m_shadow_tris, (double)scene_shadow_tris);
+          metric_set(m_wx_rain, WX.rain); metric_set(m_wx_haze, WX.haze); metric_set(m_wx_calm, WX.calm); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");
 

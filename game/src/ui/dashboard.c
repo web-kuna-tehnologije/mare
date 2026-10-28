@@ -17,6 +17,7 @@
 #include "../gfx/lod.h"
 #include "../gfx/occlusion.h"
 #include "../gfx/occquery.h"
+#include "../gfx/weather.h"
 
 enum { TAB_PERF, TAB_METRICS, TAB_JOBS, TAB_LOD, TAB_ASSETS, TAB_LOG, TAB_SYSTEM, TAB_COUNT };
 static int tab = TAB_PERF;
@@ -336,6 +337,9 @@ static void tab_system(void) {
         if (ui_btn("Tess level -")) sea_tess_level_max = maxi(4, sea_tess_level_max / 2);
         if (ui_btn("Tess level +")) sea_tess_level_max = mini(64, sea_tess_level_max * 2);
         mu_label(ui_ctx, "finest subdivision of a sea patch edge (cells ~9 px)"); }
+    mu_label(ui_ctx, va("weather: calm %.2f haze %.2f mist %.2f storm %.2f rain %.2f | fog x%.2f from %.0f | sun x%.2f%s",
+                        WX.calm, WX.haze, WX.mist, WX.storm, WX.rain, RF.fog_density, RF.fog_start, 1.f - 0.6f * RF.overcast,
+                        weather_enabled ? "" : " (OFF)"));
     ROW(3, 150, 150, -1, 22);
     if (ui_btn("Foam -")) sea_foam = maxf(0.f, sea_foam - 0.25f);
     if (ui_btn("Foam +")) sea_foam = minf(3.f, sea_foam + 0.25f);

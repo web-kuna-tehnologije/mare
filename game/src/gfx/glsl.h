@@ -10,9 +10,11 @@
 
 #define GLSL_VERSION ifdef(V3_MACOS, "#version 150\n", "#version 130\n")
 
+// u_fog: x = density multiplier, y = start distance (weather.c; 1 and 250 in clear air)
 #define GLSL_FOG \
+    "uniform vec2 u_fog;\n" \
     "vec3 fog_apply(vec3 c, float dist, float mapness, vec3 sky) {\n" \
-    "  float f = 1.0 - exp(-max(dist-250.0,0.0)*0.0016);\n" \
+    "  float f = 1.0 - exp(-max(dist - u_fog.y, 0.0) * 0.0016 * u_fog.x);\n" \
     "  return mix(c, sky, f*(1.0-mapness)*0.85);\n" \
     "}\n"
 
@@ -201,6 +203,6 @@
 // uniform names declared by GLSL_LIGHT, to append to a pipeline's uniform list
 #define GLSL_LIGHT_UNIFORMS \
     "u_sun", "u_suncol", "u_ambsky", "u_ambgnd", "u_shadowmap", \
-    "u_shadowvp0", "u_shadowvp1", "u_shadowvp2", "u_shadowsplit", "u_shadow_on", "u_shadow_texel", "u_shadow_wtexel", "u_shadow_debug"
+    "u_shadowvp0", "u_shadowvp1", "u_shadowvp2", "u_shadowsplit", "u_shadow_on", "u_shadow_texel", "u_shadow_wtexel", "u_shadow_debug", "u_fog"
 
 #endif

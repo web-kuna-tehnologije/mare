@@ -83,6 +83,19 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   in the metrics CSV); frame time is the reliable number there.
 
 ## Visual rendering 0.9
+- **L** The Intel driver (32.0.101.6733) crashes in `glLinkProgram` if a tessellation control
+  shader reads `gl_TessLevelOuter/Inner` after writing them; ours never does. Any future
+  control shader must follow the same rule (DESIGN_VISUAL.md, tessellation).
+- **L** The tessellated sea costs ~1 ms more GPU than the warped grid on the integrated GPU in
+  open water (`gpu.sea_ms` 2.8 vs 1.8); `MARE_SEA_TESS=0` or the dashboard's tess-level knob
+  trade detail for time. The two other authored sea maps (`sea_texture_normals.png`,
+  `tesselation_texture.png`) do not tile and are not used until `tools/sea_textures.py
+  --seamless` has been run on them.
+- **L** Ship foam is computed for the 24 ships nearest the look-at point; a crowded harbour's
+  outer ships foam only as they come within that set. Moored ships leave no wake by design.
+- **L** Weather states are pinned per run with `MARE_WEATHER`; in play the mist needs calm air
+  at dawn next to a shore, which at the default day/night period happens for a minute or so per
+  cycle.
 - **M** Over deep ocean a straight-edged darker region can appear a couple of hundred units out:
   it is the seabed terrain showing through the translucent water where the terrain chunk
   coverage changes, not a sea artefact (it is still there with `MARE_WAVES=0`, and gone with

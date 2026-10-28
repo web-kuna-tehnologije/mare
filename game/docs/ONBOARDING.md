@@ -32,7 +32,11 @@ zoom there and back after an optional hold, for LOD/streaming measurements), `MA
 `MARE_AUTOSAVE_S=N` (autosave interval, 0 disables; the evidence runs use 4), `MARE_OCCQ=0|1|2`
 (GPU occlusion culling off / on / query-only), `MARE_OCCLUSION=0` (terrain occlusion ray),
 `MARE_SHADOW_LOD=0` (cascades cast from the drawn LOD instead of the coarse one),
-`MARE_SEA_NYQUIST=0` (show the wave aliasing the grid-aware fade removes), `MARE_ANISO=N`.
+`MARE_SEA_NYQUIST=0` (show the wave aliasing the grid-aware fade removes), `MARE_ANISO=N`,
+`MARE_SEA_TESS=0` (warped sea grid instead of tessellation), `MARE_FOAM=x` (foam strength),
+`MARE_WEATHER=0|clear|calm|mist|storm`, `MARE_PAN=lonA,latA,lonB,latB,seconds[,dist[,yaw]]`
+(scripted pan) and `MARE_SEA_FREEZE=1` (freeze the wave clock: with these two, a pan and a
+teleport to the same point must give identical frames).
 
 Asset export: `python3 tools/export_assets.py --check` prints what it would export from the
 `.blend` tree (outside the repo), `--validate` runs Blender on each source without writing, and

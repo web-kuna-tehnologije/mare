@@ -104,6 +104,11 @@ Status as of the current codebase. Each entry names the module that owns it.
   waves.
 - Shadow cascades cast from a coarse per-asset mesh; anisotropic filtering at the driver
   maximum on every mipmapped texture.
+- Tessellated sea (GL 4.0, warped-grid fallback) with the authored displacement map as
+  geometric chop; foam from the wave Jacobian, surf in the shoaling band, bow and wake foam
+  around nearby ships.
+- Weather: calm air leaves the sea glassy and hazy, dawn mist fills calm bays, storms dim the
+  sun, grey the sky, thicken the fog and rain over the frame (`gfx/weather.c`).
 
 ## UI (`src/ui`)
 - Main menu (nation choice/load), top bar (date, speed, treasury, income, toggles, error badge),

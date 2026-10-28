@@ -1,7 +1,13 @@
 # Changelog
 
-## 0.9.0 (in progress) — visual rendering, steps 1-6
+## 0.9.0 (in progress) — visual rendering, steps 1-7
 Plan and measurements: [DESIGN_VISUAL.md](DESIGN_VISUAL.md).
+
+- **Weather** (`gfx/weather.c`): calm / haze / mist / overcast / rain derived from the wind at
+  the look-at point, nearby storm events and the hour, smoothed over 3 s. Glassy sea and haze
+  in calm air, dawn mist in the bays, a dimmed sun, grey sky, thick fog and wind-slanted rain
+  under a storm. Fog gained density and start uniforms (`u_fog`). `MARE_WEATHER=0|clear|calm|
+  mist|storm` pins a state; `weather.*` metrics; dashboard System line.
 
 - **Waves anchored to the world** (fix): the wind-following wave set rotated with every pan and
   swept its crests sideways. Sets are now frozen once built and cross-faded by amplitude when
