@@ -77,6 +77,10 @@ extern float sea_wind_amp;               // wave height factor of the set(s) on 
 extern float sea_wind_now_str;           // wind strength right now at the look-at point (weather)
 extern int   sea_set_changes;            // wave sets built this run (a pan across wind bands cross-fades, never drifts)
 extern int   sea_nyquist;                // 1 = fade waves finer than the detail grid (MARE_SEA_NYQUIST=0 to compare)
+extern float sea_foam;                   // foam strength knob (1 normal, 0 none; MARE_FOAM)
+void sea_set_ships(const float *xzhs, const float *len, int n);   // ships to foam around this frame (x, z, heading, speed; hull length), max 24
+extern int   sea_tess_on;                // tessellated patches in use (GL 4.0; MARE_SEA_TESS=0 forces the warped grid)
+extern int   sea_tess_level_max;         // finest subdivision per patch edge (dashboard)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene
 extern float sea_local_depth;            // >0 makes every wave lookup use this depth (staged scenes have no heightmap)

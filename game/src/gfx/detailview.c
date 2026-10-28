@@ -387,6 +387,10 @@ void detailview_frame(float dt) {
             (p->scale + t01 * 6.f) * env * 0.55f, 0.88f, 0.87f, 0.86f, 0, 0, 0, 0 }; }
     for (int t = 0; t < SHIP_COUNT; ++t) mesh_set_instances(&ship_mesh[t][0], dv.ships_il[t].v, dv.ships_il[t].n);
     mesh_set_instances(&mesh_puff, dv.puffs_il.v, dv.puffs_il.n);
+    { float fv[24 * 4], fl[24]; int n = 0;                 // the staged ships foam too (sea_set_ships)
+      for (int i = 0; i < dv.nships && n < 24; ++i) { const dv_ship_t *s = &dv.ship[i];
+          fv[n*4] = dv.cx + s->x; fv[n*4+1] = dv.cz + s->z; fv[n*4+2] = s->heading; fv[n*4+3] = s->speed * 2.f; fl[n] = ship_scale(s->type) * DV_SHIP_SCALE; n++; }   // hove-to for the fight: a modest wake
+      sea_set_ships(fv, fl, n); }
     if (dv.mode == DV_CITY) {
         // offset the prebuilt lists to the centre once per frame (cheap: a few hundred)
         static instlist_t sh[6];

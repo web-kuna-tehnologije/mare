@@ -1,7 +1,19 @@
 # Changelog
 
-## 0.9.0 (in progress) — visual rendering, steps 1-4
+## 0.9.0 (in progress) — visual rendering, steps 1-6
 Plan and measurements: [DESIGN_VISUAL.md](DESIGN_VISUAL.md).
+
+- **Waves anchored to the world** (fix): the wind-following wave set rotated with every pan and
+  swept its crests sideways. Sets are now frozen once built and cross-faded by amplitude when
+  the wind at the look-at point has moved enough; texture drift is accumulated. Pixel-identical
+  frames after a pan and after a teleport (`MARE_PAN`, `MARE_SEA_FREEZE`).
+- **Tessellated sea** (`rhi_tessellation_supported`, `tcs`/`tes` in `rhi_pipeline_desc_t`):
+  a world-snapped 50x50 patch lattice 300 units around the look-at point with ~9 px cells,
+  the authored displacement map (`game/assets/sea/sea_displacement.png`) as geometric chop,
+  a circular hand-over to the world grid; warped grid fallback (`MARE_SEA_TESS=0`). Works
+  around an Intel link crash on control shaders that read tess levels back.
+- **Foam**: Jacobian whitecaps, shoaling and a surf sheet off the beach, bow/hull/wake foam
+  around the 24 nearest ships (`sea_set_ships`), bounded union; `MARE_FOAM`.
 
 - **Wind-driven sea** (`gfx/sea.c`, `glsl.h`): the authored four-wave set is replaced by five
   Gerstner waves derived every frame from the wind at the look-at point - a fan around the wind

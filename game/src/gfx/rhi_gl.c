@@ -162,23 +162,65 @@ void rhi_read_depth(const rhi_target_t *t, float *depth) {
 // ---------------------------------------------------------------------------
 // pipelines
 
+#ifndef GL_TESS_CONTROL_SHADER
+#define GL_TESS_CONTROL_SHADER 0x8E88
+#define GL_TESS_EVALUATION_SHADER 0x8E87
+#define GL_PATCH_VERTICES 0x8E72
+#define GL_PATCHES 0x000E
+#endif
+int rhi_tessellation_supported(void) {
+    static int sup = -1;
+    if (sup < 0) {
+        const char *e = getenv("MARE_TESS");
+        sup = GLAD_GL_VERSION_4_0 && glPatchParameteri && glCreateShader ? 1 : 0;
+        if (e && !atoi(e)) sup = 0;
+        LOG_INFO("gpu", "tessellation %s%s", sup ? "available (GL 4.0)" : "unavailable", e && !atoi(e) ? " (disabled by MARE_TESS=0)" : "");
+    }
+    return sup;
+}
+// the framework's shader() helper knows vertex/fragment/geometry only; tessellation stages
+// compile here, with the same source dump on failure
+static unsigned rhi_stage(GLenum type, int n, const char **src, const char *what) {
+    LOG_DEBUG("rhi", "compiling %s stage (%d chars)", what, (int)strlen(src[n-1]));
+    GLuint id = glCreateShader(type);
+    if (!id) LOG_FATAL("rhi", "glCreateShader(%s) returned 0: GL error 0x%04x", what, (unsigned)glGetError());
+    glShaderSource(id, n, src, NULL); glCompileShader(id);
+    GLint ok; glGetShaderiv(id, GL_COMPILE_STATUS, &ok);
+    if (!ok) { char log[2048]; glGetShaderInfoLog(id, sizeof log, NULL, log); LOG_FATAL("rhi", "%s shader failed: %s", what, log); }
+    return id;
+}
+
 rhi_pipeline_t rhi_pipeline_make(const rhi_pipeline_desc_t *d) {
     rhi_pipeline_t p = { .depth_test = d->depth_test, .depth_write = d->depth_write, .blend = d->blend };
-    const char *v[2] = { GLSL_VERSION, d->vs }, *f[2] = { GLSL_VERSION, d->fs };
-    unsigned vsh = shader('v', 2, v), fsh = shader('f', 2, f);
+    int tess = d->tcs && d->tes;
+    // every stage of one program takes the same version header; tessellation needs 4.00
+    const char *ver = tess ? "#version 400\n" : GLSL_VERSION;
+    const char *v[2] = { ver, d->vs }, *f[2] = { ver, d->fs };
+    unsigned vsh = tess ? rhi_stage(GL_VERTEX_SHADER, 2, v, "vertex") : shader('v', 2, v);
+    unsigned fsh = tess ? rhi_stage(GL_FRAGMENT_SHADER, 2, f, "fragment") : shader('f', 2, f);
     p.id = glCreateProgram();
     glAttachShader(p.id, vsh); glAttachShader(p.id, fsh);
+    unsigned csh = 0, esh = 0;
+    if (tess) {
+        const char *c[2] = { ver, d->tcs }, *e[2] = { ver, d->tes };
+        csh = rhi_stage(GL_TESS_CONTROL_SHADER, 2, c, "tess control"); esh = rhi_stage(GL_TESS_EVALUATION_SHADER, 2, e, "tess evaluation");
+        glAttachShader(p.id, csh); glAttachShader(p.id, esh);
+        p.patches = d->patch_verts > 0 ? d->patch_verts : 4;
+        LOG_DEBUG("rhi", "tessellation stages attached, linking");
+    }
     for (int i = 0; i < d->layout->nattrs; ++i) glBindAttribLocation(p.id, i, d->layout->attrs[i].name);
     glLinkProgram(p.id);
     GLint ok; glGetProgramiv(p.id, GL_LINK_STATUS, &ok);
     if (!ok) { char log[2048]; glGetProgramInfoLog(p.id, sizeof log, 0, log); LOG_FATAL("rhi", "shader link failed: %s", log); }
     glDeleteShader(vsh); glDeleteShader(fsh);
+    if (csh) glDeleteShader(csh); if (esh) glDeleteShader(esh);
     for (int i = 0; d->uniforms && d->uniforms[i] && p.nuniforms < 24; ++i) { p.names[p.nuniforms] = d->uniforms[i]; p.locs[p.nuniforms] = glGetUniformLocation(p.id, d->uniforms[i]); p.nuniforms++; }
     LOG_DEBUG("rhi", "pipeline %u linked (%d attribs, %d uniforms)", p.id, d->layout->nattrs, p.nuniforms);
     return p;
 }
 
 static unsigned rhi_bound_vao;   // avoid redundant binds in per-chunk loops
+static int rhi_bound_patches;    // the bound pipeline tessellates: rhi_draw issues GL_PATCHES
 static rhi_stats_t rhi_stats;
 void rhi_frame_stats_reset(void) { memset(&rhi_stats, 0, sizeof rhi_stats); }
 rhi_stats_t rhi_frame_stats(void) { return rhi_stats; }
@@ -243,6 +285,8 @@ void rhi_gpu_collect(void) {
 void rhi_pipeline_bind(const rhi_pipeline_t *p) {
     glUseProgram(p->id);
     rhi_bound_vao = 0;   // v3 (debug draw, microui) may have bound its own VAO between passes
+    rhi_bound_patches = p->patches;
+    if (p->patches && glPatchParameteri) glPatchParameteri(GL_PATCH_VERTICES, p->patches);
     if (p->depth_test) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     glDepthMask(p->depth_write ? GL_TRUE : GL_FALSE);
     if (p->blend == RHI_BLEND_ALPHA) { glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
@@ -411,12 +455,13 @@ void rhi_color_write(int on) { glColorMask(on, on, on, on); }
 void rhi_draw(rhi_geometry_t *g, int ninstances) {
     if (g->vao != rhi_bound_vao) { glBindVertexArray(g->vao); rhi_bound_vao = g->vao; }
     rhi_stats.draws++; rhi_stats.instances += ninstances ? ninstances : 1;
-    rhi_stats.tris += (g->nindices ? g->nindices : g->nverts) / 3 * (ninstances ? ninstances : 1);
+    rhi_stats.tris += (g->nindices ? g->nindices : g->nverts) / 3 * (ninstances ? ninstances : 1);   // patches: the tessellator decides; counted as control points / 3
+    GLenum mode = rhi_bound_patches ? GL_PATCHES : GL_TRIANGLES;
     if (g->nindices) {
-        if (ninstances) glDrawElementsInstanced(GL_TRIANGLES, g->nindices, GL_UNSIGNED_INT, 0, ninstances);
-        else glDrawElements(GL_TRIANGLES, g->nindices, GL_UNSIGNED_INT, 0);
+        if (ninstances) glDrawElementsInstanced(mode, g->nindices, GL_UNSIGNED_INT, 0, ninstances);
+        else glDrawElements(mode, g->nindices, GL_UNSIGNED_INT, 0);
     } else {
-        if (ninstances) glDrawArraysInstanced(GL_TRIANGLES, 0, g->nverts, ninstances);
-        else glDrawArrays(GL_TRIANGLES, 0, g->nverts);
+        if (ninstances) glDrawArraysInstanced(mode, 0, g->nverts, ninstances);
+        else glDrawArrays(mode, 0, g->nverts);
     }
 }

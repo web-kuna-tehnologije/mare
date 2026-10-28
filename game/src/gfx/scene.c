@@ -110,6 +110,8 @@ void scene_build_ships(void) {
     float dt = clampf(RF.time - anim_prev_time, 0, 0.25f); anim_prev_time = RF.time;
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]);
     instlist_clear(&puffs);
+    // ships the sea foams around (sea_set_ships): the nearest to the look-at point, up to 24
+    float foam_v[24 * 4], foam_len[24], foam_d[24]; int nfoam = 0;
     for (int i = 0; i < G.nfleets; ++i) {
         const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
         float x, z, heading, vel; fleet_anim_pos(i, f, dt, &x, &z, &heading, &vel);
@@ -144,6 +146,14 @@ void scene_build_ships(void) {
                 float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
                 inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
                 *in = (inst_t){ x + hx*along - hz*side, 0, z + hz*along + hx*side, heading, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0, dith };
+                if (pass == 0 && f->at_port < 0) {           // moored ships leave no wake
+                    float dd = dist2d(in->x, in->z, cam.tx, cam.tz);
+                    if (dd < 90.f) {
+                        int k = nfoam < 24 ? nfoam++ : -1;
+                        if (k < 0) { float worst = -1; for (int q = 0; q < 24; ++q) if (foam_d[q] > worst) { worst = foam_d[q]; k = q; } if (worst <= dd) k = -1; }
+                        if (k >= 0) { foam_v[k*4] = in->x; foam_v[k*4+1] = in->z; foam_v[k*4+2] = heading; foam_v[k*4+3] = vel; foam_len[k] = sc; foam_d[k] = dd; }
+                    }
+                }
             }
         }
         if (sel || hov) dd_circle(vec3(x, 0.1f, z), vec3(0,1,0), (sel ? 1.6f : 1.4f) * 1.35f + f->nships * 0.2f, .color = rgb_linear(sel ? rgb(255, 240, 120) : rgb(220, 220, 220)));
@@ -163,6 +173,7 @@ void scene_build_ships(void) {
     }
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) mesh_set_instances(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n);
     mesh_set_instances(&mesh_puff, puffs.v, puffs.n);
+    sea_set_ships(foam_v, foam_len, nfoam);
     icon_w_time = RF.time;
 }
 

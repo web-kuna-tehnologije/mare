@@ -31,6 +31,7 @@ typedef struct rhi_texture_t  { unsigned id; int w, h; rhi_format_t fmt; } rhi_t
 typedef struct rhi_pipeline_t {
     unsigned id;                                   // backend program/pipeline object
     int   depth_test, depth_write; rhi_blend_t blend;
+    int   patches;                                 // >0: tessellated, draws GL_PATCHES of this many vertices
     int   nuniforms; const char *names[24]; int locs[24];   // cached uniform locations
 } rhi_pipeline_t;
 
@@ -41,6 +42,8 @@ typedef struct rhi_layout_t { const rhi_attr_t *attrs; int nattrs; int stride[2]
 
 typedef struct rhi_pipeline_desc_t {
     const char *vs, *fs;                 // GLSL bodies; the backend prepends its version header
+    const char *tcs, *tes;               // optional tessellation control/evaluation stages (GL 4.0; rhi_tessellation_supported)
+    int patch_verts;                     // control points per patch when tcs/tes are given (4 for quads)
     const rhi_layout_t *layout;          // attribute names bound in declaration order
     const char **uniforms;               // NULL-terminated names to pre-resolve (optional)
     int depth_test, depth_write;         // default off: set explicitly
@@ -132,6 +135,10 @@ void     rhi_query_begin(unsigned q);
 void     rhi_query_end(void);
 int      rhi_query_result(unsigned q, int *passed);   // 1 when the result is in (passed = any sample drew)
 void     rhi_color_write(int on);              // colour mask for depth-only proxy draws (restore to 1)
+
+// tessellation (DESIGN_VISUAL.md step 5): available on GL 4.0+ contexts; a pipeline with
+// tcs/tes draws its geometry as patches. Callers keep a non-tessellated fallback.
+int rhi_tessellation_supported(void);
 
 // anisotropic filtering (DESIGN_VISUAL.md step 2): applied to every mipmapped texture at
 // creation. 1 = off/unsupported. Changing it affects textures made afterwards; rhi_reanisotropy

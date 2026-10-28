@@ -24,6 +24,8 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <math.h>
+#include <string.h>
 #include "render.h"
 #include "glsl.h"
 #include "../core/types.h"
@@ -34,9 +36,24 @@
 
 const rhi_texture_t *terrain_heightmap_texture(void);
 
-static rhi_pipeline_t sea_prg, sea_detail_prg;
-static rhi_geometry_t sea_geo, sea_detail_geo;
-static int sea_tex_normal = -1, sea_tex_albedo = -1;   // textures.c handles
+static rhi_pipeline_t sea_prg, sea_detail_prg, sea_tess_prg;
+static rhi_geometry_t sea_geo, sea_detail_geo, sea_patch_geo;
+static int sea_tex_normal = -1, sea_tex_albedo = -1, sea_tex_disp = -1;   // textures.c handles
+int sea_tess_on;                 // the tessellated path is in use (GL 4.0 and not MARE_SEA_TESS=0)
+int sea_tess_level_max = 48;     // dashboard knob: finest subdivision of a patch edge
+
+// Tessellated sea (DESIGN_VISUAL.md step 5). Instead of the exponentially warped grid, a
+// lattice of SEA_PATCH_N x SEA_PATCH_N quad patches, SEA_PATCH_R units in radius around the
+// look-at point and *snapped to a world lattice* of the patch size, so the patches never slide
+// with the camera. The control shader picks each edge's subdivision from its projected length
+// (a cell of roughly SEA_TESS_PX pixels), the evaluation shader places the surface: heightmap,
+// Gerstner waves (with the cell size for the grid-aware fade, exactly as the warped grid did),
+// then the authored displacement map (game/assets/sea/sea_displacement.png) riding on top for
+// the chop a five-wave sum cannot give. The region is a disc; the world grid cuts a matching
+// hole. The warped grid stays as the fallback for GL 3 contexts (sea_tess_on == 0).
+#define SEA_PATCH_N   50
+#define SEA_PATCH_R   300.f
+#define SEA_TESS_PX   9.f      // target screen size of a tessellation cell
 
 #define SEA_DETAIL_N  192        // cells per side of the detail grid (74k triangles)
 #define SEA_DETAIL_R  180.f      // world units from the centre to its edge
@@ -47,7 +64,11 @@ static int sea_tex_normal = -1, sea_tex_albedo = -1;   // textures.c handles
 #define GLSL_SEA_VS_COMMON \
     "uniform mat4 u_vp; uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_k;\n" \
     "uniform float u_time; uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;\n" \
-    "out vec3 v_wpos; out vec3 v_nrm; out float v_slope; out float v_h; out float v_amp; out float v_edge;\n" \
+    "out vec3 v_wpos; out vec3 v_nrm; out float v_slope; out float v_h; out float v_amp; out float v_edge; out float v_jac; out float v_crest;\n" \
+    /* shoaling: a wave entering water shallower than its length steepens before it breaks. The \
+       boost peaks a little off the beach; the shallows fade still flattens the last metres so \
+       nothing breaks through the sand. */ \
+    "float shoal_boost(float dep, float scale) { float x = (dep - 0.95 * scale) / (0.5 * scale); return 1.0 + 0.7 * exp(-x * x); }\n" \
     /* raw heightmap value: negative below sea level; > 0.35 is land, which the sea discards */ \
     "float height_at(vec2 p) {\n" \
     "  if (u_local_depth > 0.0) return -u_local_depth;\n" \
@@ -62,7 +83,7 @@ static const char *sea_vs =
     GLSL_SEA_VS_COMMON
     "void main(){\n"
     "  v_wpos = vec3(a_pos.x, 0.0, a_pos.y);\n"
-    "  v_nrm = vec3(0.0, 1.0, 0.0); v_slope = 0.0; v_h = height_at(a_pos); v_amp = 0.0; v_edge = 0.0;\n"
+    "  v_nrm = vec3(0.0, 1.0, 0.0); v_slope = 0.0; v_h = height_at(a_pos); v_amp = 0.0; v_edge = 0.0; v_jac = 1.0; v_crest = 0.0;\n"
     "  gl_Position = u_vp * vec4(v_wpos, 1.0);\n"
     "}\n";
 
@@ -87,10 +108,11 @@ static const char *sea_detail_vs =
     "  float edge = 1.0 - smoothstep(0.55, 0.96, max(abs(a_pos.x), abs(a_pos.y)));\n"
     "  v_edge = edge;\n"
     "  float shal = smoothstep(0.0, 1.1 * u_wave_scale, dep);\n"
-    "  float amp = u_wave_amp * edge * shal;\n"
+    "  float amp = u_wave_amp * edge * shal * shoal_boost(dep, u_wave_scale);\n"
     "  v_amp = amp;\n"
     "  vec3 tx, tz; float crest;\n"
     "  vec3 d = wave_sum(p, amp, u_wave_scale, cell, tx, tz, crest);\n"
+    "  v_jac = tx.x * tz.z - tx.z * tz.x; v_crest = crest;\n"
     "  v_slope = 1.0 - normalize(cross(tz, tx)).y;\n"
     "  v_wpos = vec3(p.x + d.x, d.y, p.y + d.z);\n"
     "  v_nrm = normalize(cross(tz, tx));\n"
@@ -98,9 +120,82 @@ static const char *sea_detail_vs =
     "  gl_Position = u_vp * vec4(v_wpos, 1.0);\n"
     "}\n";
 
+// --- tessellation stages. The vertex stage places lattice corners; the control stage sets the
+// levels; the evaluation stage is where the old detail vertex shader's work happens.
+static const char *sea_tess_vs =
+    "in vec2 a_pos;\n"                       // lattice index (i, j) in [0, N]
+    "uniform vec3 u_origin;\n"               // xz of lattice corner (snapped), z component = patch size
+    "out vec2 v_lat;\n"
+    "void main(){ v_lat = u_origin.xy + a_pos * u_origin.z; }\n";
+
+// Levels are computed in locals and the built-ins are written once and never read back: the
+// Intel driver (32.0.101.6733) crashes inside glLinkProgram when a control shader reads
+// gl_TessLevelOuter/Inner after writing them (found by bisection; every other construct here
+// links). Outer[1] is the edge 0-1, [2] 1-2, [3] 2-3, [0] 3-0 for the (u, v) layout the
+// evaluation stage uses.
+static const char *sea_tess_tcs =
+    "layout(vertices = 4) out;\n"
+    "in vec2 v_lat[]; out vec2 tc_pos[]; patch out float tp_cell;\n"
+    "uniform vec3 u_campos; uniform vec2 u_tess; uniform float u_patch;\n"   // u_tess: x = pixels per world unit at distance 1 / target px, y = max level
+    "float lvl(vec2 a, vec2 b) { vec2 m = (a + b) * 0.5; float d = max(distance(vec3(m.x, 0.0, m.y), u_campos), 1.0); return clamp(u_tess.x * u_patch / d, 1.0, u_tess.y); }\n"
+    "void main(){ tc_pos[gl_InvocationID] = v_lat[gl_InvocationID];\n"
+    "  if (gl_InvocationID == 0) {\n"
+    "    float L0 = lvl(v_lat[3], v_lat[0]), L1 = lvl(v_lat[0], v_lat[1]), L2 = lvl(v_lat[1], v_lat[2]), L3 = lvl(v_lat[2], v_lat[3]);\n"
+    "    float I0 = max(L1, L3), I1 = max(L0, L2);\n"
+    "    gl_TessLevelOuter[0] = L0; gl_TessLevelOuter[1] = L1; gl_TessLevelOuter[2] = L2; gl_TessLevelOuter[3] = L3;\n"
+    "    gl_TessLevelInner[0] = I0; gl_TessLevelInner[1] = I1;\n"
+    "    tp_cell = u_patch / max(max(I0, I1), 1.0); } }\n";
+
+#define GLSL_SEA_TES_BODY \
+    "layout(quads, fractional_odd_spacing, ccw) in;\n" \
+    /* no derivatives in an evaluation stage: every lookup is an explicit LOD 0 (an implicit-LOD \
+       texture() here is where the Intel driver crashed at link time) */ \
+    "#define texture(s, uv) textureLod(s, uv, 0.0)\n" \
+    "in vec2 tc_pos[]; patch in float tp_cell;\n" \
+    "uniform vec3 u_center; uniform vec2 u_detail;\n"      /* u_detail.x = region radius */ \
+    "uniform sampler2D u_disp; uniform float u_has_disp; uniform vec2 u_drift1; uniform vec2 u_drift2;\n" \
+    GLSL_SEA_VS_COMMON \
+    GLSL_WAVES \
+    "void main(){\n" \
+    "  float u = gl_TessCoord.x, v = gl_TessCoord.y;\n" \
+    "  vec2 p = mix(mix(tc_pos[0], tc_pos[1], u), mix(tc_pos[3], tc_pos[2], u), v);\n" \
+    "  float h = height_at(p); float dep = max(-h, 0.0);\n" \
+    "  float r = distance(p, u_center.xz);\n" \
+    "  float edge = 1.0 - smoothstep(0.78 * u_detail.x, 0.97 * u_detail.x, r);\n" \
+    "  float shal = smoothstep(0.0, 1.1 * u_wave_scale, dep);\n" \
+    "  float amp = u_wave_amp * edge * shal * shoal_boost(dep, u_wave_scale);\n" \
+    "  v_amp = amp; v_edge = edge;\n" \
+    "  vec3 tx, tz; float crest;\n" \
+    "  vec3 d = wave_sum(p, amp, u_wave_scale, tp_cell, tx, tz, crest);\n" \
+    /* whitecaps read the big waves, not the chop: slope, Jacobian and crest come from the \
+       Gerstner surface before the displacement map is folded into the tangents */ \
+    "  v_slope = 1.0 - normalize(cross(tz, tx)).y;\n" \
+    "  v_jac = tx.x * tz.z - tx.z * tz.x; v_crest = crest;\n" \
+    /* authored displacement: fine chop on top of the wave sum, two scales drifting downwind, \
+       faded where a cell is too big to carry it (the same rule the waves obey) */ \
+    "  if (u_has_disp > 0.5 && amp > 0.0) {\n" \
+    "    vec2 q = p / u_wave_scale;\n" \
+    "    float fine = smoothstep(2.4 * tp_cell, 5.0 * tp_cell, 1.1 * u_wave_scale);\n" \
+    "    float dm = (texture(u_disp, q * 0.19 + u_drift1 * 0.8).r - 0.5) * 0.7 + (texture(u_disp, q * 0.90 + u_drift2 * 1.6).r - 0.5) * 0.3 * fine;\n" \
+    "    float da = 0.16 * amp * u_wave_scale * smoothstep(1.4 * tp_cell, 3.0 * tp_cell, 5.3 * u_wave_scale);\n" \
+    "    d.y += dm * da;\n" \
+    "    float e = 0.6 * u_wave_scale;\n"   /* finite-difference slope of the displacement, folded into the tangents */ \
+    "    float dmx = (texture(u_disp, (q + vec2(e, 0.0)) * 0.19 + u_drift1 * 0.8).r - texture(u_disp, (q - vec2(e, 0.0)) * 0.19 + u_drift1 * 0.8).r) * 0.7 * da / (2.0 * e);\n" \
+    "    float dmz = (texture(u_disp, (q + vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r - texture(u_disp, (q - vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r) * 0.7 * da / (2.0 * e);\n" \
+    "    tx.y += dmx; tz.y += dmz;\n" \
+    "  }\n" \
+    "  v_wpos = vec3(p.x + d.x, d.y, p.y + d.z);\n" \
+    "  v_nrm = normalize(cross(tz, tx));\n" \
+    "  v_h = h;\n" \
+    "  gl_Position = u_vp * vec4(v_wpos, 1.0);\n" \
+    "}\n"
+static const char *sea_tess_tes = GLSL_SEA_TES_BODY;
+
 static const char *sea_fs =
-    "in vec3 v_wpos; in vec3 v_nrm; in float v_slope; in float v_h; in float v_amp; in float v_edge;\n"
-    "uniform sampler2D u_waves; uniform sampler2D u_albedo; uniform float u_has_albedo;\n"
+    "in vec3 v_wpos; in vec3 v_nrm; in float v_slope; in float v_h; in float v_amp; in float v_edge; in float v_jac; in float v_crest;\n"
+    "uniform sampler2D u_waves; uniform sampler2D u_albedo; uniform float u_has_albedo; uniform sampler2D u_hm;\n"
+    "uniform float u_foam;\n"                   // foam strength knob (dashboard / MARE_FOAM), 1 = normal
+    "uniform vec4 u_ships[24]; uniform float u_shiplen[24]; uniform int u_nships;\n"   // nearby ships: x, z, heading, speed; hull length
     "uniform float u_time; uniform float u_wave_scale; uniform float u_local_depth; uniform vec4 u_geo; uniform float u_k;\n"
     "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_daylight;\n"
     "uniform vec2 u_drift1; uniform vec2 u_drift2;\n"   // accumulated downwind drift of the two ripple layers (sea_update_waves)
@@ -108,8 +203,17 @@ static const char *sea_fs =
     "uniform vec2 u_clip;\n"                     // x = world z the water stops at, y = 1 when that clip is on (staged city: the shore)
     "out vec4 fragColor;\n"
     GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_NMAP GLSL_FOG
+    "float depth_at(vec2 pp) {\n"              // water depth from the heightmap (staged scenes: constant)
+    "  if (u_local_depth > 0.0) return u_local_depth;\n"
+    "  float lon = pp.x / u_k, lat = -pp.y / u_k;\n"
+    "  vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));\n"
+    "  return max(-texture(u_hm, uv).r, 0.0);\n"
+    "}\n"
     "void main(){\n"
-    "  if (u_hole.w > 0.5 && abs(v_wpos.x - u_hole.x) < u_hole.z && abs(v_wpos.z - u_hole.y) < u_hole.z) discard;\n"
+    "  if (u_hole.w > 0.5) {\n"                 // the world grid gives way to the detail region: a square for the warped grid, a disc for the patches
+    "    if (u_hole.w > 1.5) { if (distance(v_wpos.xz, u_hole.xy) < u_hole.z) discard; }\n"
+    "    else if (abs(v_wpos.x - u_hole.x) < u_hole.z && abs(v_wpos.z - u_hole.y) < u_hole.z) discard;\n"
+    "  }\n"
     "  if (u_local_depth <= 0.0 && v_h > 0.35) discard;\n"              // land (the same threshold the sea has always used)
     "  if (u_clip.y > 0.5 && v_wpos.z > u_clip.x) discard;\n"           // staged scenes have no heightmap: the shore is a line
     "  float lon = v_wpos.x / u_k, lat = -v_wpos.z / u_k;\n"
@@ -149,15 +253,50 @@ static const char *sea_fs =
     "  vec3 col3d = sun_shade(c, n, vdir, v_wpos, rough, 0.0, dist);\n"
     "  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(n, vdir), 0.0), 5.0);\n"
     "  col3d += srgb_to_linear(u_sky) * u_ambsky * fres * 1.4;\n"
-    "  float foam = (1.0 - smoothstep(0.0, 0.45 * u_wave_scale, depth)) * (0.55 + 0.45*sin(depth*30.0/u_wave_scale - t*2.0 + w1)) * detail;\n"
-    "  col3d = mix(col3d, srgb_to_linear(vec3(0.85,0.9,0.92)) * (u_ambsky + u_suncol * 0.35), foam*0.7);\n"
-    "  col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10);\n"
-    // whitecaps where the Gerstner crests sharpen: the one cue that sells moving water
-    // Whitecaps come from the surface the fragment actually has, not from a value interpolated
-    // across a grid cell (which paints the cells themselves as diamonds): the steep faces near
-    // a crest foam, the flat troughs do not. The authored streaks ride on top of that.
-    "  float caps = smoothstep(0.022, 0.075, v_slope) * clamp(v_amp, 0.0, 1.0) * detail;\n"
-    "  col3d = mix(col3d, srgb_to_linear(vec3(0.93,0.96,0.98)) * (u_ambsky * 1.0 + u_suncol * 0.35), caps * 0.55);\n"
+    // --- foam (DESIGN_VISUAL.md step 6). Four sources, one white.
+    // Whitecaps: where the Gerstner displacement folds the surface - the horizontal Jacobian
+    // drops below 1 as the crest compresses - plus the steepest faces. Textured by the foam
+    // albedo so caps are patchy, not painted. Only the big waves count (v_jac/v_slope come from
+    // the wave sum, before the displacement map), and the amplitude gate keeps a calm sea bare.
+    "  float sc = u_wave_scale;\n"
+    "  float ws = clamp(v_amp, 0.0, 1.4);\n"
+    "  float fold = smoothstep(0.93 - 0.05 * ws, 0.74 - 0.05 * ws, v_jac);\n"
+    "  float steep = smoothstep(0.04, 0.10, v_slope) * 0.7;\n"
+    "  float caps = max(fold, steep) * smoothstep(0.25, 0.8, ws) * (0.5 + 1.0 * lum2) * detail;\n"
+    // Surf: in the shoaling band the steepened waves break into a foam sheet that runs up the
+    // beach. The shore direction is the depth gradient; the sheet's texture scrolls along it.
+    "  vec2 hp = v_wpos.xz; float he = 0.9 * sc;\n"
+    "  vec2 g = vec2(depth_at(hp + vec2(he, 0.0)) - depth_at(hp - vec2(he, 0.0)), depth_at(hp + vec2(0.0, he)) - depth_at(hp - vec2(0.0, he)));\n"
+    "  vec2 shoredir = length(g) > 1e-4 ? -normalize(g) : vec2(0.0);\n"
+    "  float band = smoothstep(1.8 * sc, 0.5 * sc, depth) * smoothstep(0.0, 0.16 * sc, depth);\n"
+    "  float surf_tex = smoothstep(0.22, 0.6, dot(texture(u_albedo, p * 0.7 + shoredir * (t * 0.22) + u_drift1 * 0.5).rgb, vec3(0.3, 0.5, 0.2)));\n"
+    "  float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;\n"
+    // Shoreline: the thin lapping line at the waterline, as before.
+    "  float foam = (1.0 - smoothstep(0.0, 0.45 * sc, depth)) * (0.55 + 0.45*sin(depth*30.0/sc - t*2.0 + w1)) * detail;\n"
+    // Ships: a bow wave, a thin line along the hull and a V wake that widens and thins astern,
+    // all scaling with speed; a running sea throws more white off the bow.
+    "  float shipk = 1.0;\n"                  // 1 - union of the ships' foam: overlapping wakes never add up to a sheet
+    "  for (int i = 0; i < u_nships; ++i) {\n"
+    "    vec2 dxz = v_wpos.xz - u_ships[i].xy; float L = max(u_shiplen[i], 0.2);\n"
+    "    if (dot(dxz, dxz) > 25.0 * L * L) continue;\n"
+    "    float ch = cos(u_ships[i].z), sh = -sin(u_ships[i].z);\n"          // forward = (cos h, -sin h), as scene.c
+    "    float along = dxz.x * ch + dxz.y * sh, across = abs(-dxz.x * sh + dxz.y * ch);\n"
+    "    float spd = clamp(u_ships[i].w / 5.0, 0.15, 1.0);\n"
+    "    float bowx = (along - 0.42 * L) / (0.22 * L), bowz = across / (0.24 * L);\n"
+    "    float bow = exp(-(bowx * bowx + bowz * bowz)) * (0.45 + 0.45 * min(ws, 1.0)) * spd;\n"
+    "    float hull = smoothstep(-0.5 * L, -0.42 * L, along) * (1.0 - smoothstep(0.36 * L, 0.44 * L, along)) * smoothstep(0.17 * L, 0.20 * L, across) * (1.0 - smoothstep(0.22 * L, 0.26 * L, across)) * 0.35 * spd;\n"
+    "    float back = -along - 0.4 * L;\n"
+    "    float ww = 0.18 * L + 0.24 * max(back, 0.0);\n"
+    "    float wake = step(0.0, back) * (1.0 - smoothstep(ww * 0.7, ww, across)) * exp(-back / (2.5 * L * spd + 0.3 * L)) * spd;\n"
+    "    wake *= (0.25 + 0.55 * lum2 + 0.5 * smoothstep(ww * 0.55, ww * 0.9, across)) * 0.55;\n"   // the V edges foam most
+    "    shipk *= 1.0 - clamp(bow + hull + wake, 0.0, 0.85);\n"
+    "  }\n"
+    "  float shipf = (1.0 - shipk) * detail;\n"
+    "  vec3 foamcol = srgb_to_linear(vec3(0.93, 0.96, 0.98)) * (u_ambsky * 1.0 + u_suncol * 0.35);\n"
+    "  float foamall = clamp((caps * 0.9 + surf * 0.8 + shipf + foam * 0.7) * u_foam, 0.0, 1.0);\n"
+    "  col3d = mix(col3d, foamcol, foamall);\n"
+    "  col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);\n"
+    "  float caps_a = foamall;\n"
     "  vec3 mapc = mix(vec3(0.62,0.72,0.80), vec3(0.50,0.62,0.74), 1.0 - exp(-depth*0.8));\n"
     "  float gx = abs(fract(lon/10.0 + 0.5) - 0.5) * 10.0, gy = abs(fract(lat/10.0 + 0.5) - 0.5) * 10.0;\n"
     "  float grid = 1.0 - smoothstep(0.0, 0.06, min(gx, gy));\n"
@@ -169,12 +308,12 @@ static const char *sea_fs =
     // transparency: the terrain below has already been drawn, so shallow water reveals the
     // seabed and deep water goes opaque; the map view stays solid parchment
     "  float alpha = mix(0.38, 0.92, smoothstep(0.0, 1.6 * u_wave_scale, depth));\n"   // clearer shallows, seabed reads through a little further out
-    "  alpha = max(alpha, max(foam, caps * 0.9) * 0.85);\n"        // surf and whitecaps stay visible over the seabed
+    "  alpha = max(alpha, caps_a * 0.9);\n"        // foam stays visible over the seabed
     "  alpha = mix(alpha, 1.0, u_mapness);\n"
     "  fragColor = vec4(col, alpha);\n"
     "}\n";
 
-static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
+static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_ships", "u_shiplen", "u_nships", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                       "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                       "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", GLSL_LIGHT_UNIFORMS, 0 };
 
@@ -183,6 +322,21 @@ void sea_init(void) {
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     sea_prg        = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = sea_vs,        .fs = sea_fs, .layout = &layout, .uniforms = sea_uniforms, .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_ALPHA });
     sea_detail_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = sea_detail_vs, .fs = sea_fs, .layout = &layout, .uniforms = sea_uniforms, .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_ALPHA });
+    sea_tess_on = rhi_tessellation_supported();
+    { const char *e = getenv("MARE_SEA_TESS"); if (e && !atoi(e)) sea_tess_on = 0; }
+    if (sea_tess_on) {
+        sea_tess_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = sea_tess_vs, .tcs = sea_tess_tcs, .tes = sea_tess_tes, .fs = sea_fs, .patch_verts = 4,
+                                                                 .layout = &layout, .uniforms = sea_uniforms, .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_ALPHA });
+        // patch lattice: (i, j) indices, four corners per patch counter-clockwise seen from above
+        int n = SEA_PATCH_N, vn = n + 1;
+        float *v = malloc((size_t)vn*vn*2*sizeof(float));
+        for (int y = 0; y < vn; ++y) for (int x = 0; x < vn; ++x) { v[(y*vn+x)*2] = (float)x; v[(y*vn+x)*2+1] = (float)y; }
+        unsigned *idx = malloc((size_t)n*n*4*sizeof(unsigned)); int m = 0;
+        for (int y = 0; y < n; ++y) for (int x = 0; x < n; ++x) { unsigned a = y*vn+x; idx[m++] = a; idx[m++] = a+1; idx[m++] = a+vn+1; idx[m++] = a+vn; }
+        sea_patch_geo = rhi_geometry_make(&layout, v, vn*vn, idx, m);
+        free(v); free(idx);
+        LOG_INFO("gpu", "sea: tessellated patches (%dx%d, radius %.0f, cells ~%.0f px, up to %d per edge), displacement map on", SEA_PATCH_N, SEA_PATCH_N, SEA_PATCH_R, SEA_TESS_PX, sea_tess_level_max);
+    } else LOG_INFO("gpu", "sea: warped grid (no tessellation on this context)");
     {   // world grid: static, covers the whole map
         int nx = 88, ny = 65;
         float *v = malloc((nx+1)*(ny+1)*2*sizeof(float));
@@ -206,6 +360,7 @@ void sea_init(void) {
     char path[600];
     snprintf(path, sizeof path, "%s/sea/sea_normal.png", asset_root()); sea_tex_normal = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
     snprintf(path, sizeof path, "%s/sea/sea_albedo.png", asset_root()); sea_tex_albedo = texture_request(path, RHI_FMT_SRGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
+    snprintf(path, sizeof path, "%s/sea/sea_displacement.png", asset_root()); sea_tex_disp = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +501,15 @@ void sea_bind_waves(const rhi_pipeline_t *p) {
 }
 
 int sea_nyquist = 1;         // fade waves the detail grid cannot sample (MARE_SEA_NYQUIST=0 shows the aliasing it removes)
+float sea_foam = 1.f;        // foam strength (dashboard / MARE_FOAM; 0 = none)
+#define SEA_MAX_SHIPS 24
+static float sea_ships[SEA_MAX_SHIPS * 4], sea_ship_len[SEA_MAX_SHIPS]; static int sea_nships;
+// Ships the water should foam around this frame: x, z, heading, speed (world units/s) and hull
+// length. scene.c gives the fleets near the look-at point, detailview.c its staged ships.
+void sea_set_ships(const float *xzhs, const float *len, int n) {
+    sea_nships = n > SEA_MAX_SHIPS ? SEA_MAX_SHIPS : n;
+    if (sea_nships > 0) { memcpy(sea_ships, xzhs, sea_nships * 4 * sizeof(float)); memcpy(sea_ship_len, len, sea_nships * sizeof(float)); }
+}
 float sea_wave_amp = 1.f;    // global wave height knob (dashboard / MARE_WAVES; 0 = flat water)
 float sea_wave_scale = 1.f;  // set per scene; the instanced meshes read it too, so ships ride the same swell
 float sea_local_depth = 0.f;
@@ -360,6 +524,12 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
     rhi_set_i1(rhi_uniform(p,"u_waves"), 1); rhi_texture_bind(1, nrm ? nrm : detail_waves());
     rhi_set_i1(rhi_uniform(p,"u_albedo"), 2); rhi_texture_bind(2, alb ? alb : detail_waves());
     rhi_set_f1(rhi_uniform(p,"u_has_albedo"), alb ? 1.f : 0.f);
+    rhi_set_f1(rhi_uniform(p,"u_foam"), sea_foam);
+    rhi_set_i1(rhi_uniform(p,"u_nships"), sea_nships);
+    if (sea_nships) { rhi_set_f4v(rhi_uniform(p,"u_ships"), sea_ships, sea_nships); rhi_set_f1v(rhi_uniform(p,"u_shiplen"), sea_ship_len, sea_nships); }
+    { const rhi_texture_t *dsp = texture_get(sea_tex_disp);
+      rhi_set_i1(rhi_uniform(p,"u_disp"), 5); rhi_texture_bind(5, dsp ? dsp : detail_waves());
+      rhi_set_f1(rhi_uniform(p,"u_has_disp"), dsp ? 1.f : 0.f); }
     rhi_set_f4(rhi_uniform(p,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(rhi_uniform(p,"u_k"), WORLD_K);
     rhi_set_f1(rhi_uniform(p,"u_time"), RF.time);
@@ -377,16 +547,36 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
 // detail grid only exists while the camera is close enough for it to matter
 static float sea_amp_now(void) { return sea_wave_amp * sea_wind_amp * (1.f - RF.mapness); }
 
+// The tessellated detail region: patches on a world lattice around the look-at point.
+// `radius` and `scale` as for the warped grid. Shared by the map and the staged scenes.
+static void sea_draw_patches(float cx, float cz, float radius, float scale, float local_depth, float amp) {
+    float patch = 2.f * radius / SEA_PATCH_N;
+    float ox = floorf((cx - radius) / patch) * patch, oz = floorf((cz - radius) / patch) * patch;   // snapped, so patches never slide
+    rhi_pipeline_bind(&sea_tess_prg);
+    sea_bind_common(&sea_tess_prg, scale, local_depth);
+    rhi_set_f3(rhi_uniform(&sea_tess_prg,"u_origin"), ox, oz, patch);
+    rhi_set_f1(rhi_uniform(&sea_tess_prg,"u_patch"), patch);
+    rhi_set_f3(rhi_uniform(&sea_tess_prg,"u_center"), cx, 0, cz);
+    rhi_set_f2(rhi_uniform(&sea_tess_prg,"u_detail"), radius, 0.f);
+    float kpx = screen_h / (2.f * tanf(45.f * 0.0174533f * 0.5f));            // pixels per world unit at distance 1 (camera.c FOV)
+    rhi_set_f2(rhi_uniform(&sea_tess_prg,"u_tess"), kpx / SEA_TESS_PX, (float)sea_tess_level_max);
+    rhi_set_f1(rhi_uniform(&sea_tess_prg,"u_wave_amp"), amp);
+    rhi_set_f4(rhi_uniform(&sea_tess_prg,"u_hole"), 0, 0, 0, 0);
+    rhi_draw(&sea_patch_geo, 0);
+}
+
 void sea_draw(void) {
     float amp = sea_amp_now();
     int detail = amp > 0.001f && RF.mapness < 0.995f;
     float cx = RF.sea_center.x, cz = RF.sea_center.z;
+    float hole_r = sea_tess_on ? SEA_PATCH_R * 0.985f : SEA_DETAIL_R * 0.98f;
     rhi_pipeline_bind(&sea_prg);
     sea_bind_common(&sea_prg, 1.f, 0.f);
     rhi_set_f1(rhi_uniform(&sea_prg,"u_wave_amp"), 0.f);
-    rhi_set_f4(rhi_uniform(&sea_prg,"u_hole"), cx, cz, detail ? SEA_DETAIL_R * 0.98f : 0.f, detail ? 1.f : 1.f);
+    rhi_set_f4(rhi_uniform(&sea_prg,"u_hole"), cx, cz, detail ? hole_r : 0.f, detail ? (sea_tess_on ? 2.f : 1.f) : 0.f);
     rhi_draw(&sea_geo, 0);
     if (!detail) return;
+    if (sea_tess_on) { sea_draw_patches(cx, cz, SEA_PATCH_R, 1.f, 0.f, amp); return; }
     rhi_pipeline_bind(&sea_detail_prg);
     sea_bind_common(&sea_detail_prg, 1.f, 0.f);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_center"), cx, 0, cz);
@@ -401,6 +591,7 @@ void sea_draw(void) {
 // `clip_z` (when `clip_on`) is the shoreline: a staged scene has no heightmap, so the water's
 // landward limit is given as a plane rather than discovered from the terrain.
 void sea_draw_local(float depth, float scale, float radius) {
+    if (sea_tess_on) { sea_draw_patches(RF.sea_center.x, RF.sea_center.z, radius, scale, depth, sea_wave_amp * sea_wind_amp); return; }
     rhi_pipeline_bind(&sea_detail_prg);
     sea_bind_common(&sea_detail_prg, scale, depth);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_center"), RF.sea_center.x, 0, RF.sea_center.z);

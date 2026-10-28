@@ -329,9 +329,17 @@ static void tab_system(void) {
     mu_label(ui_ctx, va("world %dx%d cells, nav %dx%d, %d ports, fleets %d (slots %d/%d)", LM_W, LM_H, NAV_W, NAV_H, G.nports, game_count_fleets(), G.nfleets, MAX_FLEETS));
     mu_label(ui_ctx, va("state struct %u bytes | sim day %.2f | seed %u | rng %08x", (unsigned)sizeof G, G.day, G.seed, G.rng));
     mu_label(ui_ctx, va("build %s %s | save v%u", __DATE__, __TIME__, (unsigned)SAVE_VERSION));
-    mu_label(ui_ctx, va("sea: wave set from wind %.0f deg / %.2f (now %.2f) -> height x%.2f, %d waves, %d set changes this run%s",
+    mu_label(ui_ctx, va("sea: wave set from wind %.0f deg / %.2f (now %.2f) -> height x%.2f, %d waves, %d set changes this run%s | %s",
                         atan2f(sea_wind_dz, sea_wind_dx) * 57.2958f, sea_wind_str, sea_wind_now_str, sea_wind_amp, SEA_WAVES, sea_set_changes,
-                        sea_nyquist ? "" : ", grid-aware fade OFF"));
+                        sea_nyquist ? "" : ", grid-aware fade OFF", sea_tess_on ? va("tessellated, max level %d", sea_tess_level_max) : "warped grid (no tessellation)"));
+    if (sea_tess_on) { ROW(3, 150, 150, -1, 22);
+        if (ui_btn("Tess level -")) sea_tess_level_max = maxi(4, sea_tess_level_max / 2);
+        if (ui_btn("Tess level +")) sea_tess_level_max = mini(64, sea_tess_level_max * 2);
+        mu_label(ui_ctx, "finest subdivision of a sea patch edge (cells ~9 px)"); }
+    ROW(3, 150, 150, -1, 22);
+    if (ui_btn("Foam -")) sea_foam = maxf(0.f, sea_foam - 0.25f);
+    if (ui_btn("Foam +")) sea_foam = minf(3.f, sea_foam + 0.25f);
+    mu_label(ui_ctx, va("foam x%.2f: whitecaps (Jacobian), surf in the shoaling band, bow/hull/wake around ships", sea_foam));
     mu_label(ui_ctx, va("HDR RGBA16F, linear/sRGB, PBR | exposure %.2f | shadows %s (%d casters)",
                         hdr_exposure, shadow_enabled ? "on" : "off", shadow_casters_drawn));
     { rhi_stats_t st = rhi_frame_stats();

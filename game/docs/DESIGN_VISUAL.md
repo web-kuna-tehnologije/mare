@@ -1,6 +1,6 @@
 # Design: visual rendering 0.9
 
-Status: **steps 1-4 done**; their sections are below. The sea textures for step 5 are in place. The plan below is the feature "visual rendering" broken into
+Status: **steps 1-6 done**; their sections are below. The plan below is the feature "visual rendering" broken into
 steps that each land fully working on all three platforms, with a measurement, before the next
 starts (the same rule the renderer and engine-scale plans followed; those are in
 DESIGN_RENDERER.md, DESIGN_JOBS.md and DESIGN_LOD.md). Each step has its own section below once
@@ -32,18 +32,22 @@ it is built.
        changes with the wind never makes the crests jump. The waves-change-speed-with-the-camera
        artefact is fixed by fading out every wave the detail grid cannot sample at that point
        (`MARE_SEA_NYQUIST=0` shows what it removes).
-5. [ ] **Tessellated sea with the authored displacement map** - a GL 4 tessellation path behind
-       the RHI (control/evaluation shaders, distance-based levels) replacing the exponentially
-       warped detail grid, displaced by `game/assets/sea/sea_displacement.png` (the 1024px
-       grayscale map from `assets/sea/displacement_map.png`, which already tiles: measured edge
-       difference 0.8/255 against a 5.1 neighbour difference). This also removes the fixed
-       180-unit detail square, and with it the Nyquist fade step 4 needs. The other two maps in
-       `assets/sea` do **not** tile (`sea_texture_normals.png` 90.4, `tesselation_texture.png`
-       31.2) and must go through `tools/sea_textures.py --seamless` before use.
-6. [ ] **Foam and breaking waves** - whitecaps on crests from the Gerstner Jacobian (fold =
-       foam), persisting a moment and advected downwind; surf: waves that reach the shallows
-       steepen and break into a foam band over the beach; bow and wake foam around moving ships
-       and splash around ships in a storm.
+5. [x] **Tessellated sea with the authored displacement map** - `rhi_pipeline_desc_t` takes
+       control/evaluation stages and draws patches (GL 4.0; `rhi_tessellation_supported`). The
+       sea's detail region is a 50x50 lattice of quad patches snapped to a world lattice around
+       the look-at point, 300 units in radius (a disc; the world grid cuts a matching hole),
+       each edge subdivided to ~9 px cells up to 48 per edge. The evaluation stage places the
+       heightmap, the wave sum with the cell size for the grid-aware fade, and the authored
+       displacement map `game/assets/sea/sea_displacement.png` on top for the chop five waves
+       cannot give. The warped grid remains the fallback (`MARE_SEA_TESS=0`). The other two maps
+       in `assets/sea` do not tile (`tools/sea_textures.py --seamless` prepares them) and are
+       not used yet.
+6. [x] **Foam** - whitecaps where the Gerstner Jacobian folds the surface (plus the steepest
+       faces), gated by wave height and textured by the foam albedo; a shoaling boost steepens
+       waves off the beach and a surf sheet, scrolling shoreward along the depth gradient,
+       breaks in that band; bow wave, hull line and a V wake around the 24 ships nearest the
+       look-at point (`sea_set_ships`, fed by scene.c and the staged battle), combined as a
+       bounded union so a melee does not turn white. `MARE_FOAM` / dashboard knob.
 7. [ ] **Calm weather** - when the wind drops (doldrums, the lee of a storm): a glassy sea,
        haze that softens the horizon, mist in the bays at dawn, drizzle; the existing storm
        events get rain and spray. Weather state derived from the wind field and the events,
@@ -187,6 +191,37 @@ without a step.
 Ships ride exactly this water: `meshes_bind_waves` uploads the same wave set to the instanced
 mesh pipelines, which pass `cell = 0` (a hull samples the surface at a point, so nothing
 aliases).
+
+### The camera-speed artefact, second cause (step 4 follow-up)
+
+The grid-aliasing fade was real but was not the cause the user saw. The wave set followed the
+wind at the look-at point with a 2 s smoothing, so panning rotated every wave direction by a
+few degrees over a few seconds - and a plane wave whose direction rotates by angle `a` sweeps
+its crests sideways by `r * a` at distance `r` from the phase origin. Hundreds of units from the
+origin that is several units per second, faster than the waves travel: the swell visibly sped
+up or slowed down with the pan, in whichever direction the wind at the new place differed.
+
+A wave set is now frozen once built. When the wind at the look-at point has swung more than
+12 degrees or changed strength by 0.22 since the current set was built, a second set is built
+and the two are **cross-faded by amplitude** over 6 s (`u_wave_blend`): two static fields
+blending move no crest anywhere. The ripple-texture drift became an accumulated offset for the
+same reason (`direction * time` jumps when the direction changes). Proof, with the new
+`MARE_PAN` and `MARE_SEA_FREEZE` hooks: with the wave clock frozen, the frame after a 3 s pan to
+a point is **pixel-identical** (0 of 1,440,000 pixels) to the frame after teleporting there,
+while the live-clock control differs in 25 %.
+
+### Tessellation (step 5)
+
+The Intel driver (32.0.101.6733) crashes inside `glLinkProgram` when a tessellation control
+shader reads `gl_TessLevelOuter/Inner` back after writing them (bisected from a trivial program
+up: every other construct, every version header from 4.00 to 4.60 and the compatibility profile
+link). The levels are therefore computed in locals and the built-ins written once. The
+evaluation stage also samples with explicit LOD (no derivatives exist there).
+
+Cost on the Intel iGPU, open sea at 22 units: `gpu.sea_ms` 2.8 tessellated against 1.8 for the
+warped grid; the staged battle 1.6-1.8 either way. What it buys: real geometric chop from the
+displacement map, cells of a constant ~9 px from the camera to 300 units (the warped grid's grew
+from 0.14 to 7.6 units over 180), no fixed square, and patches that never slide with the camera.
 
 Rules carried over: every effect has a toggle (dashboard checkbox and an environment variable)
 so it can be measured off and on; GPU time per pass goes through `rhi_gpu_scope`; the two

@@ -171,6 +171,7 @@ int main(int argc, char **argv) {
     int m_occ_ports = metric_id("gfx.occluded_ports"), m_occ_ships = metric_id("gfx.occluded_ships"), m_occ_samples = metric_id("gfx.occ_samples");
     int m_occq_hidden = metric_id("gfx.occluded_assets"), m_occq_queries = metric_id("gfx.occ_queries"), m_occq_moving = metric_id("gfx.cam_moving");
     if (getenv("MARE_OCCLUSION")) { occlusion_enabled = atoi(getenv("MARE_OCCLUSION")) != 0; LOG_INFO("gpu", "occlusion culling %s (MARE_OCCLUSION)", occlusion_enabled ? "on" : "off"); }
+    if (getenv("MARE_FOAM")) { sea_foam = clampf((float)atof(getenv("MARE_FOAM")), 0.f, 3.f); LOG_INFO("gpu", "sea foam x%.2f (MARE_FOAM)", sea_foam); }
     if (getenv("MARE_SEA_NYQUIST")) { sea_nyquist = atoi(getenv("MARE_SEA_NYQUIST")) != 0; LOG_INFO("gpu", "sea grid-aware wave fade %s (MARE_SEA_NYQUIST)", sea_nyquist ? "on" : "off"); }
     if (getenv("MARE_SHADOW_LOD")) { shadow_caster_lod = atoi(getenv("MARE_SHADOW_LOD")) != 0; LOG_INFO("gpu", "shadow casters use the coarse LOD: %s (MARE_SHADOW_LOD)", shadow_caster_lod ? "yes" : "no"); }
     int m_shadow_tris = metric_id("gfx.shadow_tris");
