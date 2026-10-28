@@ -134,35 +134,43 @@
 // is exactly the ratio between its units and the map's, so the sea keeps its physical size
 // relative to the ships in both.
 // Gerstner wave field (gfx/sea.c, DESIGN_VISUAL.md step 4). The wave set is not authored here:
-// sea.c derives it every frame from the wind at the sea's centre - directions spread around the
-// wind direction, wavelengths and heights growing with its strength - and uploads it as
-// u_wave/u_wave_phase. The phase is *accumulated on the CPU* rather than computed as speed*time,
-// so a wave whose length changes because the wind changed keeps its crests where they were
-// instead of jumping (and nothing drifts as RF.time grows large).
+// sea.c derives it from the wind at the sea's centre - directions spread around the wind
+// direction, wavelengths and heights growing with its strength - and uploads it as
+// u_wave/u_wave_phase. Phase is *accumulated on the CPU* rather than computed as speed*time.
+//
+// Two sets, cross-faded by u_wave_blend. A wave set must never change continuously while it is
+// on screen: a direction that rotates by even a degree sweeps its crests sideways by (distance
+// from the phase origin) x (angle), which hundreds of units from the origin is faster than the
+// waves travel - the "swell speeds up when I pan the camera" artefact. So when the wind at the
+// look-at point has changed enough, sea.c builds a *new* static set and fades the old one out
+// over several seconds; two static fields blending by amplitude move no crest anywhere.
 #define SEA_WAVES 5
+#define SEA_WAVE_SLOTS 10
 #define GLSL_WAVES \
-    "uniform vec4 u_wave[5];\n"            /* xy = unit direction, z = wavelength, w = steepness weight */ \
-    "uniform float u_wave_phase[5];\n"     /* accumulated phase, radians */ \
-    "uniform vec2 u_wind;\n"               /* unit wind direction (the surface detail scrolls along it) */ \
+    "uniform vec4 u_wave[10];\n"           /* xy = unit direction, z = wavelength, w = steepness weight; 0-4 set A, 5-9 set B */ \
+    "uniform float u_wave_phase[10];\n"    /* accumulated phase, radians */ \
+    "uniform float u_wave_blend;\n"        /* 0 = set A only .. 1 = set B only */ \
     "const float WAVE_STEEP = 0.030;\n" \
     /* Gerstner sum at world point p: returns the displacement, the two surface tangents (so \
        the caller gets an exact normal with no finite differences) and a crest factor. \
        `cell` is the world size of one grid cell at this vertex, 0 where the surface is not a \
        grid (a ship riding the swell). A wave shorter than a few cells cannot be represented by \
        that grid: sampling it anyway aliases it into a pattern that slides as the grid moves \
-       with the camera, which is what made the swell appear to speed up and slow down while \
-       panning. Those waves are faded out instead, so what is drawn is only what is sampled. */ \
+       with the camera. Those waves are faded out instead, so what is drawn is only what is \
+       sampled. */ \
     "vec3 wave_sum(vec2 p, float amp, float scale, float cell, out vec3 tan_x, out vec3 tan_z, out float crest) {\n" \
     "  vec3 d = vec3(0.0); tan_x = vec3(1.0, 0.0, 0.0); tan_z = vec3(0.0, 0.0, 1.0); crest = 0.0;\n" \
     "  if (amp <= 0.0) return d;\n" \
     "  float wsum = 1e-4;\n" \
-    "  for (int i = 0; i < 5; ++i) {\n" \
+    "  for (int i = 0; i < 10; ++i) {\n" \
+    "    float setw = i < 5 ? 1.0 - u_wave_blend : u_wave_blend;\n" \
+    "    if (setw <= 0.001) continue;\n" \
     "    vec2 dir = u_wave[i].xy;\n" \
     "    float len = u_wave[i].z * scale;\n" \
     "    float fade = cell > 0.0 ? smoothstep(2.0 * cell, 4.0 * cell, len) : 1.0;\n" \
     "    if (fade <= 0.001) continue;\n" \
     "    float k = 6.28318 / max(len, 1e-4);\n" \
-    "    float w = u_wave[i].w * fade;\n" \
+    "    float w = u_wave[i].w * fade * setw;\n" \
     "    float a = w * amp * len * WAVE_STEEP;\n" \
     "    float ph = k * dot(dir, p) - u_wave_phase[i];\n" \
     "    float s = sin(ph), c = cos(ph);\n" \
@@ -188,7 +196,7 @@
     "}\n"
 
 // uniform names every pipeline that includes GLSL_WAVES must pre-resolve
-#define GLSL_WAVE_UNIFORMS "u_wave", "u_wave_phase", "u_wind"
+#define GLSL_WAVE_UNIFORMS "u_wave", "u_wave_phase", "u_wave_blend"
 
 // uniform names declared by GLSL_LIGHT, to append to a pipeline's uniform list
 #define GLSL_LIGHT_UNIFORMS \

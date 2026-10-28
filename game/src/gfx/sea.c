@@ -103,7 +103,7 @@ static const char *sea_fs =
     "uniform sampler2D u_waves; uniform sampler2D u_albedo; uniform float u_has_albedo;\n"
     "uniform float u_time; uniform float u_wave_scale; uniform float u_local_depth; uniform vec4 u_geo; uniform float u_k;\n"
     "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_daylight;\n"
-    "uniform vec2 u_wind;\n"                    // wind direction: the surface detail drifts along it
+    "uniform vec2 u_drift1; uniform vec2 u_drift2;\n"   // accumulated downwind drift of the two ripple layers (sea_update_waves)
     "uniform vec4 u_hole;\n"                     // xy = centre, z = half size, w = 1 when the world pass must cut the detail square out
     "uniform vec2 u_clip;\n"                     // x = world z the water stops at, y = 1 when that clip is on (staged city: the shore)
     "out vec4 fragColor;\n"
@@ -120,10 +120,8 @@ static const char *sea_fs =
     // two scrolling samples of the tileable wave normal map, large swell + fine chop, riding on
     // top of the Gerstner normal (which carries the shape, this carries the ripple)
     // the ripple detail drifts downwind, like the swell it sits on
-    "  vec2 wdrift = u_wind * t;\n"
-    "  vec2 wskew = vec2(u_wind.x * 0.91 - u_wind.y * 0.42, u_wind.x * 0.42 + u_wind.y * 0.91) * t;\n"   // 25 degrees off the wind
-    "  vec3 n1 = nmap_decode(texture(u_waves, p * 0.33 + wdrift * 0.030).rgb);\n"
-    "  vec3 n2 = nmap_decode(texture(u_waves, p * 1.15 + wskew * 0.058 + vec2(0.37, 0.11)).rgb);\n"
+    "  vec3 n1 = nmap_decode(texture(u_waves, p * 0.33 + u_drift1).rgb);\n"
+    "  vec3 n2 = nmap_decode(texture(u_waves, p * 1.15 + u_drift2 + vec2(0.37, 0.11)).rgb);\n"
     "  vec2 slope = (n1.xy / max(n1.z, 0.3) + n2.xy / max(n2.z, 0.3) * 0.6) * 0.42 * detail;\n"
     "  vec3 wn = normalize(v_nrm);\n"
     "  vec3 n = normalize(wn + vec3(slope.x, 0.0, slope.y));\n"
@@ -133,8 +131,8 @@ static const char *sea_fs =
     // authored surface: the foam albedo rides the swell layer (and a finer copy the chop), its
     // bright streaks become whitecaps over the depth colour and its tonal variation breaks up
     // the flat gradient; everything fades out with `detail` like the normals do
-    "  vec3 alb1 = texture(u_albedo, p * 0.33 + wdrift * 0.030).rgb;\n"
-    "  vec3 alb2 = texture(u_albedo, p * 1.15 + wskew * 0.058 + vec2(0.37, 0.11)).rgb;\n"
+    "  vec3 alb1 = texture(u_albedo, p * 0.33 + u_drift1).rgb;\n"
+    "  vec3 alb2 = texture(u_albedo, p * 1.15 + u_drift2 + vec2(0.37, 0.11)).rgb;\n"
     "  float lum1 = dot(alb1, vec3(0.3, 0.5, 0.2)), lum2 = dot(alb2, vec3(0.3, 0.5, 0.2));\n"
     "  float streak = max(smoothstep(0.22, 0.58, lum1), 0.5 * smoothstep(0.24, 0.62, lum2)) * u_has_albedo * detail;\n"
     "  c *= mix(1.0, clamp(0.80 + lum1 * 3.0, 0.7, 1.35), 0.30 * u_has_albedo * detail);\n"
@@ -176,7 +174,7 @@ static const char *sea_fs =
     "  fragColor = vec4(col, alpha);\n"
     "}\n";
 
-static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
+static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                       "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                       "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", GLSL_LIGHT_UNIFORMS, 0 };
 
@@ -221,84 +219,130 @@ void sea_init(void) {
 //               makes a longer, slower swell as well as a taller one
 //   height      amplitude follows wavelength (WAVE_STEEP caps the steepness) and the whole
 //               field scales with the wind: at the edge of the doldrums the sea is nearly glassy
-//   phase       accumulated per wave (see GLSL_WAVES), so changing a wavelength never makes the
-//               crests jump; each wave also gets a fixed random offset from the game seed, so
-//               two games do not get the same sea
+//   phase       accumulated per wave (see GLSL_WAVES); each wave also gets a fixed random
+//               offset from the game seed, so two games do not get the same sea
 //
-// The wind is sampled at the look-at point and smoothed over about two seconds: crossing from
-// one wind band into the next must turn the swell, not snap it.
-#define SEA_WIND_TAU   2.0f     // seconds the wave set takes to follow a change in the wind
-#define SEA_SPREAD_MAX 0.95f    // radians either side of the wind in a light air
-#define SEA_SPREAD_MIN 0.28f    // ... and in a strong one
-#define SEA_LEN0       3.6f     // longest wavelength at wind strength 1, world units
-#define SEA_LEN_RATIO  0.64f    // each wave shorter than the last by this factor
+// A set, once built, is frozen: its directions and wavelengths never change while it is on
+// screen (GLSL_WAVES explains why - a rotating direction is crest motion). When the wind at the
+// look-at point has moved more than SEA_RESET_ANGLE or changed strength by SEA_RESET_STR since
+// the current set was built, a second set is built from the new wind and the two are
+// cross-faded by amplitude over SEA_BLEND_S. The ripple textures drift by an *accumulated*
+// offset for the same reason: `direction * time` would jump when the direction changed.
+#define SEA_BLEND_S       6.0f    // seconds a set change takes to cross-fade
+#define SEA_RESET_ANGLE   0.21f   // radians of wind swing that calls for a new set (~12 degrees)
+#define SEA_RESET_STR     0.22f   // wind strength change (absolute) that calls for a new set
+#define SEA_SPREAD_MAX    0.95f   // radians either side of the wind in a light air
+#define SEA_SPREAD_MIN    0.28f   // ... and in a strong one
+#define SEA_LEN0          3.6f    // longest wavelength at wind strength 1, world units
+#define SEA_LEN_RATIO     0.64f   // each wave shorter than the last by this factor
 
 typedef struct sea_wave_t { float dir[2], len, steep; } sea_wave_t;
-static sea_wave_t sea_wave[SEA_WAVES];
-static float sea_wave_phase[SEA_WAVES];        // accumulated, radians
-static float sea_wave_jit[SEA_WAVES][3];       // per-wave randomness: angle, length, steepness
+typedef struct sea_set_t { sea_wave_t w[SEA_WAVES]; float phase[SEA_WAVES]; float wdx, wdz, str, amp; int valid; } sea_set_t;
+static sea_set_t sea_set[2];                   // [0] current, [1] the one fading in
+static float sea_blend;                        // 0 = set 0 alone .. 1 = set 1 alone
+static float sea_wave_jit[SEA_WAVES][4];       // per-wave randomness: angle, length, steepness, phase offset
 static int   sea_wave_seeded;
-float sea_wind_dx = 1.f, sea_wind_dz = 0.f, sea_wind_str = 1.f;   // smoothed, for the shaders and the dashboard
-float sea_wind_amp = 1.f;                                         // wave height factor from the wind
+static float sea_drift1[2], sea_drift2[2];     // accumulated texture offsets of the two ripple layers
+int   sea_set_changes;                         // sets built this run (dashboard, log)
+float sea_wind_dx = 1.f, sea_wind_dz = 0.f, sea_wind_str = 1.f;   // the wind the current set was built from (dashboard)
+float sea_wind_amp = 1.f;                                         // wave height factor of the current set
+float sea_wind_now_str = 1.f;                                     // the wind right now at the look-at point (weather)
 
 static float sea_hash01(unsigned h) {
     h ^= h >> 16; h *= 0x7FEB352Du; h ^= h >> 15; h *= 0x846CA68Bu; h ^= h >> 16;
     return (h & 0xFFFFFF) / (float)0x1000000;
 }
 
-// Once per frame, before anything draws water. `day` drives the wind model, `dt` the smoothing.
+static float sea_amp_for(float str) {
+    float s = clampf(str, 0.f, 1.6f);
+    // Height: the doldrums (strength ~0.35) leave a nearly flat sea, a strong westerly a heavy one.
+    return clampf(0.10f + 0.95f * (s - 0.18f), 0.06f, 1.55f);
+}
+
+static void sea_set_build(sea_set_t *set, float wdx, float wdz, float str) {
+    float s = clampf(str, 0.f, 1.6f);
+    float spread = lerpf(SEA_SPREAD_MAX, SEA_SPREAD_MIN, clampf((s - 0.3f) / 0.9f, 0.f, 1.f));
+    float base = atan2f(wdz, wdx);
+    float len0 = SEA_LEN0 * (0.70f + 0.45f * s);
+    for (int i = 0; i < SEA_WAVES; ++i) {
+        float t = (float)i / (SEA_WAVES - 1) * 2.f - 1.f;                  // -1 .. +1 across the fan
+        float ang = base + (t * 0.8f + sea_wave_jit[i][0] * 0.7f) * spread;
+        set->w[i].dir[0] = cosf(ang); set->w[i].dir[1] = sinf(ang);
+        set->w[i].len = len0 * powf(SEA_LEN_RATIO, (float)i) * sea_wave_jit[i][1];
+        // the long leading swell carries the most height; the short cross seas ride on it
+        set->w[i].steep = (0.62f - 0.07f * i) * sea_wave_jit[i][2];
+        set->phase[i] = sea_wave_jit[i][3];
+    }
+    set->wdx = wdx; set->wdz = wdz; set->str = str; set->amp = sea_amp_for(str); set->valid = 1;
+}
+
+// Once per frame, before anything draws water. `day` drives the wind model, `dt` the clocks.
 void sea_update_waves(float day, float dt) {
     if (!sea_wave_seeded) {
         sea_wave_seeded = 1;
         for (int i = 0; i < SEA_WAVES; ++i) {
             unsigned h = G.seed * 0x9E3779B1u + (unsigned)i * 0x85EBCA6Bu;
-            sea_wave_jit[i][0] = sea_hash01(h) - 0.5f;             // angle offset, +-0.5 of the band
-            sea_wave_jit[i][1] = 0.78f + 0.44f * sea_hash01(h ^ 0x51u);   // wavelength multiplier
-            sea_wave_jit[i][2] = 0.80f + 0.40f * sea_hash01(h ^ 0xA3u);   // steepness multiplier
-            sea_wave_phase[i]  = sea_hash01(h ^ 0xF7u) * 6.2831853f;      // so they do not all crest together at t=0
+            sea_wave_jit[i][0] = sea_hash01(h) - 0.5f;                     // angle offset, +-0.5 of the band
+            sea_wave_jit[i][1] = 0.78f + 0.44f * sea_hash01(h ^ 0x51u);    // wavelength multiplier
+            sea_wave_jit[i][2] = 0.80f + 0.40f * sea_hash01(h ^ 0xA3u);    // steepness multiplier
+            sea_wave_jit[i][3] = sea_hash01(h ^ 0xF7u) * 6.2831853f;       // so they do not all crest together at t=0
         }
     }
     float wdx, wdz, str;
     wind_at(RF.sea_center.x, RF.sea_center.z, day, &wdx, &wdz, &str);
-    float k = dt > 0 ? 1.f - expf(-dt / SEA_WIND_TAU) : 1.f;
-    sea_wind_dx += (wdx - sea_wind_dx) * k;
-    sea_wind_dz += (wdz - sea_wind_dz) * k;
-    sea_wind_str += (str - sea_wind_str) * k;
-    float l = sqrtf(sea_wind_dx * sea_wind_dx + sea_wind_dz * sea_wind_dz);
-    if (l > 1e-4f) { sea_wind_dx /= l; sea_wind_dz /= l; } else { sea_wind_dx = 1; sea_wind_dz = 0; }
-
-    float s = clampf(sea_wind_str, 0.f, 1.6f);
-    // Height: the doldrums (strength ~0.35) leave a nearly flat sea, a strong westerly a heavy one.
-    sea_wind_amp = clampf(0.10f + 0.95f * (s - 0.18f), 0.06f, 1.55f);
-    float spread = lerpf(SEA_SPREAD_MAX, SEA_SPREAD_MIN, clampf((s - 0.3f) / 0.9f, 0.f, 1.f));
-    float base = atan2f(sea_wind_dz, sea_wind_dx);
-    float len0 = SEA_LEN0 * (0.70f + 0.45f * s);
-    for (int i = 0; i < SEA_WAVES; ++i) {
-        float t = SEA_WAVES > 1 ? (float)i / (SEA_WAVES - 1) * 2.f - 1.f : 0.f;   // -1 .. +1 across the fan
-        float ang = base + (t * 0.8f + sea_wave_jit[i][0] * 0.7f) * spread;
-        sea_wave[i].dir[0] = cosf(ang); sea_wave[i].dir[1] = sinf(ang);
-        sea_wave[i].len = len0 * powf(SEA_LEN_RATIO, (float)i) * sea_wave_jit[i][1];
-        // the long leading swell carries the most height; the short cross seas ride on it
-        sea_wave[i].steep = (0.62f - 0.07f * i) * sea_wave_jit[i][2];
-        // deep-water dispersion: long waves run faster. Phase is integrated, never speed * time.
-        float kw = 6.2831853f / maxf(sea_wave[i].len, 1e-4f);
-        float spd = sqrtf(9.81f / kw) * 0.42f;
-        sea_wave_phase[i] += kw * spd * dt;
-        if (sea_wave_phase[i] > 6.2831853f) sea_wave_phase[i] -= 6.2831853f * floorf(sea_wave_phase[i] / 6.2831853f);
+    sea_wind_now_str = str;
+    if (!sea_set[0].valid) { sea_set_build(&sea_set[0], wdx, wdz, str); sea_blend = 0; sea_set_changes++; }
+    // Has the wind at the look-at point left the band the current set was built for? Only ask
+    // while no change is in progress: a pan across several wind cells produces a few discrete
+    // cross-fades, never a continuous drift.
+    if (!sea_set[1].valid) {
+        const sea_set_t *cur = &sea_set[0];
+        float dot = clampf(wdx * cur->wdx + wdz * cur->wdz, -1.f, 1.f);
+        if (acosf(dot) > SEA_RESET_ANGLE || fabsf(str - cur->str) > SEA_RESET_STR) {
+            sea_set_build(&sea_set[1], wdx, wdz, str); sea_blend = 0; sea_set_changes++;
+            LOG_DEBUG("gfx", "sea: new wave set %d (wind %.0f deg strength %.2f -> %.0f deg %.2f), cross-fading over %.0f s",
+                      sea_set_changes, atan2f(cur->wdz, cur->wdx) * 57.3f, cur->str, atan2f(wdz, wdx) * 57.3f, str, SEA_BLEND_S);
+        }
     }
+    if (sea_set[1].valid) {
+        sea_blend = minf(1.f, sea_blend + dt / SEA_BLEND_S);
+        if (sea_blend >= 1.f) { sea_set[0] = sea_set[1]; sea_set[1].valid = 0; sea_blend = 0; }
+    }
+    // clocks: each wave advances at its own deep-water speed; the ripple layers drift downwind
+    for (int k = 0; k < 2; ++k) {
+        sea_set_t *set = &sea_set[k]; if (!set->valid) continue;
+        for (int i = 0; i < SEA_WAVES; ++i) {
+            float kw = 6.2831853f / maxf(set->w[i].len, 1e-4f);
+            float spd = sqrtf(9.81f / kw) * 0.42f;
+            set->phase[i] += kw * spd * dt;
+            if (set->phase[i] > 6.2831853f) set->phase[i] -= 6.2831853f * floorf(set->phase[i] / 6.2831853f);
+        }
+    }
+    const sea_set_t *shown = sea_set[1].valid && sea_blend > 0.5f ? &sea_set[1] : &sea_set[0];
+    sea_wind_dx = shown->wdx; sea_wind_dz = shown->wdz; sea_wind_str = shown->str;
+    sea_wind_amp = lerpf(sea_set[0].amp, sea_set[1].valid ? sea_set[1].amp : sea_set[0].amp, sea_blend);
+    // the drift follows the *shown* set's wind, so the texture direction changes only with a set
+    // change - and as an offset, so even then nothing jumps
+    sea_drift1[0] += shown->wdx * 0.030f * dt; sea_drift1[1] += shown->wdz * 0.030f * dt;
+    float sx = shown->wdx * 0.91f - shown->wdz * 0.42f, sz = shown->wdx * 0.42f + shown->wdz * 0.91f;   // 25 degrees off the wind
+    sea_drift2[0] += sx * 0.058f * dt; sea_drift2[1] += sz * 0.058f * dt;
 }
 
 // Upload the wave set to any pipeline built with GLSL_WAVES (the sea and the instanced meshes,
 // so ships ride exactly the water they float on).
 void sea_bind_waves(const rhi_pipeline_t *p) {
-    float w[SEA_WAVES * 4];
-    for (int i = 0; i < SEA_WAVES; ++i) {
-        w[i*4+0] = sea_wave[i].dir[0]; w[i*4+1] = sea_wave[i].dir[1];
-        w[i*4+2] = sea_wave[i].len;    w[i*4+3] = sea_wave[i].steep;
+    float w[SEA_WAVE_SLOTS * 4], ph[SEA_WAVE_SLOTS];
+    for (int k = 0; k < 2; ++k) for (int i = 0; i < SEA_WAVES; ++i) {
+        const sea_set_t *set = sea_set[k].valid ? &sea_set[k] : &sea_set[0];
+        int n = k * SEA_WAVES + i;
+        w[n*4+0] = set->w[i].dir[0]; w[n*4+1] = set->w[i].dir[1]; w[n*4+2] = set->w[i].len; w[n*4+3] = set->w[i].steep;
+        ph[n] = set->phase[i];
     }
-    rhi_set_f4v(rhi_uniform(p, "u_wave"), w, SEA_WAVES);
-    rhi_set_f1v(rhi_uniform(p, "u_wave_phase"), sea_wave_phase, SEA_WAVES);
-    rhi_set_f2(rhi_uniform(p, "u_wind"), sea_wind_dx, sea_wind_dz);
+    rhi_set_f4v(rhi_uniform(p, "u_wave"), w, SEA_WAVE_SLOTS);
+    rhi_set_f1v(rhi_uniform(p, "u_wave_phase"), ph, SEA_WAVE_SLOTS);
+    rhi_set_f1(rhi_uniform(p, "u_wave_blend"), sea_set[1].valid ? sea_blend : 0.f);
+    rhi_set_f2(rhi_uniform(p, "u_drift1"), sea_drift1[0], sea_drift1[1]);
+    rhi_set_f2(rhi_uniform(p, "u_drift2"), sea_drift2[0], sea_drift2[1]);
 }
 
 int sea_nyquist = 1;         // fade waves the detail grid cannot sample (MARE_SEA_NYQUIST=0 shows the aliasing it removes)

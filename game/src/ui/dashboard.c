@@ -329,9 +329,9 @@ static void tab_system(void) {
     mu_label(ui_ctx, va("world %dx%d cells, nav %dx%d, %d ports, fleets %d (slots %d/%d)", LM_W, LM_H, NAV_W, NAV_H, G.nports, game_count_fleets(), G.nfleets, MAX_FLEETS));
     mu_label(ui_ctx, va("state struct %u bytes | sim day %.2f | seed %u | rng %08x", (unsigned)sizeof G, G.day, G.seed, G.rng));
     mu_label(ui_ctx, va("build %s %s | save v%u", __DATE__, __TIME__, (unsigned)SAVE_VERSION));
-    mu_label(ui_ctx, va("sea: wind %.0f deg strength %.2f -> wave height x%.2f, %d waves%s",
-                        atan2f(sea_wind_dz, sea_wind_dx) * 57.2958f, sea_wind_str, sea_wind_amp, SEA_WAVES,
-                        sea_nyquist ? ", grid-aware fade on" : ", grid-aware fade OFF"));
+    mu_label(ui_ctx, va("sea: wave set from wind %.0f deg / %.2f (now %.2f) -> height x%.2f, %d waves, %d set changes this run%s",
+                        atan2f(sea_wind_dz, sea_wind_dx) * 57.2958f, sea_wind_str, sea_wind_now_str, sea_wind_amp, SEA_WAVES, sea_set_changes,
+                        sea_nyquist ? "" : ", grid-aware fade OFF"));
     mu_label(ui_ctx, va("HDR RGBA16F, linear/sRGB, PBR | exposure %.2f | shadows %s (%d casters)",
                         hdr_exposure, shadow_enabled ? "on" : "off", shadow_casters_drawn));
     { rhi_stats_t st = rhi_frame_stats();

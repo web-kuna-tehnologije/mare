@@ -71,9 +71,11 @@ void sea_draw(void);                     // world grid (flat) + the camera-centr
 void sea_draw_local(float depth, float scale, float radius);   // staged scenes: the wave grid alone at a constant depth
 void sea_update_waves(float day, float dt);   // once per frame: derive the wave set from the wind (DESIGN_VISUAL.md step 4)
 void sea_bind_waves(const rhi_pipeline_t *p); // upload it to a pipeline built with GLSL_WAVES
-extern float sea_wind_dx, sea_wind_dz;   // smoothed wind direction the waves travel along
-extern float sea_wind_str;               // smoothed wind strength at the sea centre
-extern float sea_wind_amp;               // wave height factor derived from it
+extern float sea_wind_dx, sea_wind_dz;   // wind direction the current wave set was built from
+extern float sea_wind_str;               // and its strength
+extern float sea_wind_amp;               // wave height factor of the set(s) on screen
+extern float sea_wind_now_str;           // wind strength right now at the look-at point (weather)
+extern int   sea_set_changes;            // wave sets built this run (a pan across wind bands cross-fades, never drifts)
 extern int   sea_nyquist;                // 1 = fade waves finer than the detail grid (MARE_SEA_NYQUIST=0 to compare)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene

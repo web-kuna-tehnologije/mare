@@ -250,6 +250,19 @@ int main(int argc, char **argv) {
             if (lo < 1e8f) { cam.want_tx = cam.tx = lon2x(lo); cam.want_tz = cam.tz = lat2z(la); }
             cam_update(dt);
         }
+        // MARE_PAN="lonA,latA,lonB,latB,seconds[,dist[,yaw]]" slides the look-at point from A to B over
+        // the given time and holds it there: the test for the sea being anchored to the world and
+        // not to the camera (DESIGN_VISUAL.md step 4). With MARE_SEA_FREEZE=1 the frame after a
+        // 3 s pan must equal the frame after a 0.01 s teleport, pixel for pixel.
+        static const char *pan_env; static int pan_read;
+        if (!pan_read) { pan_env = getenv("MARE_PAN"); pan_read = 1; if (pan_env) LOG_INFO("main", "scripted pan %s (MARE_PAN)", pan_env); }
+        if (pan_env && !U.in_menu && detailview_mode() == DV_OFF) {
+            float la0 = 0, lo0 = 0, lo1 = 0, la1 = 0, secs = 3, di = 22, ya = 30; sscanf(pan_env, "%f,%f,%f,%f,%f,%f,%f", &lo0, &la0, &lo1, &la1, &secs, &di, &ya);
+            float ph = clampf((float)(diag_now() - t_run0 - 1.0) / maxf(secs, 0.01f), 0.f, 1.f);   // the first second settles
+            cam.want_tx = cam.tx = lon2x(lerpf(lo0, lo1, ph)); cam.want_tz = cam.tz = lat2z(lerpf(la0, la1, ph));
+            cam.want_dist = cam.dist = di; cam.want_yaw = cam.yaw = ya * 0.0174533f;
+            cam_update(dt);
+        }
         if (cam_lock && detailview_mode() == DV_OFF) {   // the detail view drives the camera itself
             float lo = 0, la = 0, di = 60, ya = 0; sscanf(cam_lock, "%f,%f,%f,%f", &lo, &la, &di, &ya);
             cam.want_tx = cam.tx = lon2x(lo); cam.want_tz = cam.tz = lat2z(la);
@@ -293,7 +306,8 @@ int main(int argc, char **argv) {
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness;
         RF.sea_center = vec3(cam.tx, 0, cam.tz);          // the sea's wave grid follows the look-at point
         render_sun_update(G.day);                         // sun direction, daylight and sky colour (day/night cycle)
-        sea_update_waves(G.day, dt);                      // the wave set follows the wind at the look-at point
+        { static int freeze = -1; if (freeze < 0) { const char *e = getenv("MARE_SEA_FREEZE"); freeze = e ? atoi(e) != 0 : 0; if (freeze) LOG_INFO("gpu", "sea clocks frozen (MARE_SEA_FREEZE)"); }
+          sea_update_waves(G.day, freeze ? 0.f : dt); }   // the wave set follows the wind at the look-at point
         RF.sky = lerp3(RF.sky, vec3(0.36f, 0.30f, 0.24f), cam.mapness);   // the map view fades to parchment
         render_light_update();
         rhi_frame_stats_reset();
