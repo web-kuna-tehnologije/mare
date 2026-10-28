@@ -31,6 +31,11 @@
 
 int shadow_enabled = 1;
 int shadow_casters_drawn;
+// How far from the camera casters are taken, and how far the cascades reach (DESIGN_VISUAL.md
+// step 10). It used to be cam.dist * 1.2 + 40, capped at 300: in the city view that is 57 units,
+// so a building a street away cast nothing. The cascades now cover the distance at which meshes
+// are still drawn, and scene.c collects casters from the same radius - and only from it.
+float shadow_radius = 300.f;
 
 static rhi_target_t shadow_atlas;
 static mat44 cascade_vp[SHADOW_CASCADES];
@@ -240,7 +245,8 @@ void shadow_render(void) {
     // Cascades only need to reach as far as the meshes themselves: past PORT_DETAIL_DIST the
     // towns and ships are replaced by icons, so there is nothing left to cast. Beyond this the
     // lookup returns "lit".
-    float zfar = clampf(cam.dist * 1.2f + 40.f, 50.f, 300.f);
+    float zfar = clampf(cam.dist * 2.6f + 70.f, 120.f, 650.f);
+    shadow_radius = zfar;
     float znear = cam.znear;
     for (int i = 0; i < SHADOW_CASCADES; ++i) {
         float t0 = i / (float)SHADOW_CASCADES, t1 = (i + 1) / (float)SHADOW_CASCADES;

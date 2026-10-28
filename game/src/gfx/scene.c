@@ -73,6 +73,17 @@ void scene_fleet_pos(const fleet_t *f, float *x, float *z, float *heading) {
 // well under one step). Large jumps - new game, load, teleport, slot reuse - snap instead.
 
 static instlist_t ship_inst[SHIP_COUNT][2];
+// Shadow casters beyond what the main pass draws (DESIGN_VISUAL.md step 10). A town or a fleet
+// that is far enough to be an icon, behind the camera, or hidden by a building still throws a
+// shadow onto the terrain; it was simply never submitted. Those instances are collected into
+// their own lists, appended after the drawn ones before the single upload, and the main pass
+// draws the prefix while the shadow pass draws all of it - the same partition the occlusion
+// queries use, so there is still one instance buffer per mesh and no mid-frame re-upload.
+static instlist_t ship_cast[SHIP_COUNT];
+static int ship_vis[SHIP_COUNT][2];
+static int scene_caster_only;            // town_instances/asset_push are collecting casters, not draws
+int scene_shadow_ports, scene_shadow_fleets;   // collected this frame for their shadows alone (dashboard)
+static void instlist_append(instlist_t *dst, const instlist_t *src) { for (int i = 0; i < src->n; ++i) *instlist_push(dst) = src->v[i]; }
 static instlist_t puffs;                 // gunsmoke from recent broadsides
 
 typedef struct fleet_anim_t { int id; float x, z, heading, speed; } fleet_anim_t;
@@ -82,16 +93,25 @@ static float anim_prev_time;
 #define ANIM_RATE  7.0f     // 1/s: time constant ~0.14 s, shorter than one simulation step
 #define ANIM_SNAP  9.0f     // world units: beyond this the fleet did not sail there
 
+// Tick window (scene.h): with SIM_TICK_SECONDS at 15 the simulation moves a fleet several days
+// at once, so the draw position is carried to the new one over the rest of the interval instead
+// of chasing it with a fixed rate. The snap threshold grows with the days a tick covered, since
+// a fleet legitimately sails further in five days than in a tenth of one.
+static float tick_period = 0.3f, tick_days = SIM_STEP, tick_left = 0.f;
+void scene_set_tick(float period_s, float days, float left_s) { tick_period = period_s; tick_days = days; tick_left = left_s; }
+float scene_smoke_window(void) { return maxf(GUNSMOKE_DAYS, tick_days); }
+
 void scene_reset_anim(void) { memset(fleet_anim, 0, sizeof fleet_anim); }
 
 // smoothed draw position for fleet slot `i`; also reports how fast it is actually moving
 static void fleet_anim_pos(int i, const fleet_t *f, float dt, float *x, float *z, float *heading, float *speed) {
     float tx, tz, th; scene_fleet_pos(f, &tx, &tz, &th);
     fleet_anim_t *a = &fleet_anim[i];
-    if (a->id != f->id || dist2d(a->x, a->z, tx, tz) > ANIM_SNAP) {
+    if (a->id != f->id || dist2d(a->x, a->z, tx, tz) > ANIM_SNAP + 14.f * tick_days) {
         *a = (fleet_anim_t){ f->id, tx, tz, th, 0 };
     } else {
-        float k = 1.f - expf(-dt * ANIM_RATE);
+        // arrive exactly when the next tick lands; fall back to the old rate for short ticks
+        float k = tick_period > 0.6f ? clampf(dt / maxf(tick_left, dt), 0.f, 1.f) : 1.f - expf(-dt * ANIM_RATE);
         float nx = a->x + (tx - a->x) * k, nz = a->z + (tz - a->z) * k;
         a->speed = dt > 1e-5f ? lerpf(a->speed, dist2d(a->x, a->z, nx, nz) / dt, 0.2f) : a->speed;
         a->x = nx; a->z = nz;
@@ -108,8 +128,9 @@ void scene_build_ships(void) {
     int occ = scene_occlusion_active();
     int battle_lod0_budget = BATTLE_DETAIL_MAX;
     float dt = clampf(RF.time - anim_prev_time, 0, 0.25f); anim_prev_time = RF.time;
-    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]);
+    for (int t = 0; t < SHIP_COUNT; ++t) { for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]); instlist_clear(&ship_cast[t]); }
     instlist_clear(&puffs);
+    scene_shadow_fleets = 0;
     // ships the sea foams around (sea_set_ships): the nearest to the look-at point, up to 24
     float foam_v[24 * 4], foam_len[24], foam_d[24]; int nfoam = 0;
     for (int i = 0; i < G.nfleets; ++i) {
@@ -119,16 +140,32 @@ void scene_build_ships(void) {
         float px = cam.mapness > 0.6f ? 0.f : lod_px(r, d);                   // map view: everything is an icon
         lod_pick_t pk = lod_select(lod_key(LODK_FLEET, f->id, 0), ship_thr, 3, px, 1);
         fleet_icon_w[i] = lod_weight(&pk, 2);
-        if (!lod_draws(&pk, 0) && !lod_draws(&pk, 1)) continue;             // icon only
-        if (!cam_sphere_visible(frustum, x, 0, z, f->nships * 1.5f + CULL_MARGIN)) { scene_culled_ships++; continue; }
-        if (occ && occ_hidden_sphere(x, z, f->nships * 1.5f + 1.f, SHIP_TOP)) { scene_occluded_ships++; continue; }
+        int draws = lod_draws(&pk, 0) || lod_draws(&pk, 1);                 // else: icon only
+        if (draws && !cam_sphere_visible(frustum, x, 0, z, f->nships * 1.5f + CULL_MARGIN)) { scene_culled_ships++; draws = 0; }
+        if (draws && occ && occ_hidden_sphere(x, z, f->nships * 1.5f + 1.f, SHIP_TOP)) { scene_occluded_ships++; draws = 0; }
+        if (!draws) {
+            // not drawn, but inside the shadow radius: its hulls still cast, at the simplified LOD
+            if (shadow_enabled && d < shadow_radius && cam.mapness < 0.5f && f->at_port < 0) {
+                unsigned ccol = f->role == ROLE_PIRATE ? rgb(20,20,20) : nations_info[f->nation].color;
+                float chx = cosf(heading), chz = -sinf(heading);
+                int nshow = mini(f->nships, 4);
+                for (int s = 0; s < nshow; ++s) {
+                    float sc = ship_scale(f->ships[s].type);
+                    float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
+                    *instlist_push(&ship_cast[f->ships[s].type]) =
+                        (inst_t){ x + chx*along - chz*side, 0, z + chz*along + chx*side, heading, sc, col_r(ccol), col_g(ccol), col_b(ccol), 0, 0, 1, 0, 0 };
+                }
+                scene_shadow_fleets++;
+            }
+            continue;
+        }
         unsigned col = f->role == ROLE_PIRATE ? rgb(20,20,20) : nations_info[f->nation].color;
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;
         // Battle view: a fleet that fired recently is being watched - it keeps the full mesh and
         // its whole line of ships at the simplified level too, so a spectated battle reads ship
         // for ship instead of collapsing to 4 simplified hulls. A frame budget caps the extra
         // detail: a melee stops promoting at ~BATTLE_DETAIL_MAX ships and falls back to LODs.
-        int in_battle = f->at_port < 0 && f->last_fire > G.day - 0.3f;
+        int in_battle = f->at_port < 0 && f->last_fire > G.day - maxf(0.3f, scene_smoke_window());
         float hx = cosf(heading), hz = -sinf(heading);
         // how hard the ship works: moored ships barely move, ships under way roll with their
         // speed, and a storm throws everything around
@@ -159,9 +196,9 @@ void scene_build_ships(void) {
         if (sel || hov) dd_circle(vec3(x, 0.1f, z), vec3(0,1,0), (sel ? 1.6f : 1.4f) * 1.35f + f->nships * 0.2f, .color = rgb_linear(sel ? rgb(255, 240, 120) : rgb(220, 220, 220)));
         // Gunsmoke: a couple of puffs off the engaged broadside that swell, drift and thin out.
         // (This used to be a debug-draw wire sphere, which read as a gold scribble on the water.)
-        float age = G.day - f->last_fire;
-        if (age >= 0 && age < GUNSMOKE_DAYS && f->at_port < 0) {
-            float t = age / GUNSMOKE_DAYS, env = sinf(3.14159f * t);
+        float age = G.day - f->last_fire, smoke_win = scene_smoke_window();
+        if (age >= 0 && age < smoke_win && f->at_port < 0) {
+            float t = age / smoke_win, env = sinf(3.14159f * t);
             static int logged; if (!logged) { logged = 1; LOG_DEBUG("gfx", "gunsmoke: first broadside rendered (%s)", f->name); }
             for (int k = 0; k < 2; ++k) {
                 float along = (k ? -0.7f : 0.55f) * 1.35f;
@@ -171,6 +208,10 @@ void scene_build_ships(void) {
             }
         }
     }
+    for (int t = 0; t < SHIP_COUNT; ++t) {   // drawn hulls first, then the ones that only cast
+        for (int l = 0; l < 2; ++l) ship_vis[t][l] = ship_inst[t][l].n;
+        instlist_append(&ship_inst[t][1], &ship_cast[t]);
+    }
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) mesh_set_instances(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n);
     mesh_set_instances(&mesh_puff, puffs.v, puffs.n);
     sea_set_ships(foam_v, foam_len, nfoam);
@@ -178,12 +219,17 @@ void scene_build_ships(void) {
 }
 
 // submit the instances uploaded by scene_build_* with whatever pipeline is bound (main or shadow)
-static int submit_ship_meshes(void) {
+static int submit_ship_meshes(int shadow) {
     int n = 0;
-    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) { mesh_draw(&ship_mesh[t][l]); n += ship_mesh[t][l].ninst; }
+    for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) {
+        mesh_t *m = &ship_mesh[t][l]; int all = m->ninst;
+        if (!shadow && ship_vis[t][l] < all) m->ninst = ship_vis[t][l];
+        mesh_draw(m); n += m->ninst;
+        m->ninst = all;
+    }
     return n;
 }
-int scene_submit_ships(void) { return submit_ship_meshes(); }
+int scene_submit_ships(void) { return submit_ship_meshes(0); }
 
 // gunsmoke, drawn after the sea with the translucent pipeline (meshes_bind_smoke)
 int scene_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
@@ -268,6 +314,13 @@ static int asset_vis[ASSET_MAX][ASSET_MAX_LODS];   // per list: instances the ma
 static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float town_dither) {
     int ai = (int)(a - asset_at(0));
     asset_last_use[ai] = RF.time;
+    // Collecting casters only (a town the main pass does not draw): the coarse caster mesh is
+    // the whole job - no LOD pick, no occlusion query, nothing in the drawn lists.
+    if (scene_caster_only) {
+        if (shadow_caster_lod) { inst_t sh = in; sh.dither = 0; sh.fx1 = 0; *instlist_push(&asset_shadow_inst[ai]) = sh; }
+        asset_used[ai] = 1;
+        return;
+    }
     // GPU occlusion (occquery.h): ask for this frame's answer and apply the last one. A hidden
     // instance stays in the list (the shadow pass needs it) flagged in fx1.
     if (occq_active()) { occq_request(key, a, &in); if (!occq_visible(key)) { in.fx1 = 1.f; scene_occluded_assets++; } }
@@ -397,6 +450,14 @@ int scene_assets_submit(void) {
 // ports (towns are regenerated each frame from a per-port seed: cheap and always in sync)
 
 static instlist_t houses, roofs, towers, walls, piers, flagpoles;
+// Shadow casters beyond what the main pass draws (DESIGN_VISUAL.md step 10). A town that is far
+// enough to be an icon, behind the camera, or hidden by another building still throws a shadow
+// onto the terrain; it was simply never submitted. Those pieces are collected into their own
+// lists, appended after the drawn ones before the single upload, and the main pass draws the
+// prefix while the shadow pass draws all of it - the same partition the occlusion queries use,
+// so there is still one instance buffer per mesh and no mid-frame re-upload.
+static instlist_t sh_houses, sh_roofs, sh_towers, sh_walls, sh_piers, sh_flagpoles;
+static int town_vis[6];
 
 // per-port cache of the town instances: rebuilt only when what it depends on changes
 enum { TM_HOUSE, TM_ROOF, TM_TOWER, TM_WALL, TM_PIER, TM_FLAG, TM_ASSET };
@@ -559,7 +620,9 @@ void scene_reset_caches(void) { for (int i = 0; i < MAX_PORTS; ++i) town_cache[i
 static void town_instances(const port_t *p, int index, float dither) {
     town_cache_t *c = &town_cache[index]; unsigned sig = town_signature(p);
     if (c->sig != sig || !c->items) { c->n = 0; c->sig = sig; tc_cur = c; town_build(p, index); }
-    static instlist_t *lists[6] = { &houses, &roofs, &towers, &walls, &piers, &flagpoles };
+    static instlist_t *draw_lists[6] = { &houses, &roofs, &towers, &walls, &piers, &flagpoles };
+    static instlist_t *cast_lists[6] = { &sh_houses, &sh_roofs, &sh_towers, &sh_walls, &sh_piers, &sh_flagpoles };
+    instlist_t **lists = scene_caster_only ? cast_lists : draw_lists;
     for (int i = 0; i < c->n; ++i) {
         const town_item_t *it = &c->items[i];
         if (it->mesh == TM_ASSET) { asset_t *a = asset_at(it->asset); if (a && a->state == ASSET_LOADED) asset_push(a, it->in, lod_key(LODK_TOWN_ITEM, index, i), cam_distance(it->in.x, it->in.z), dither); }
@@ -572,6 +635,8 @@ void scene_build_ports(void) {
     scene_culled_ports = scene_occluded_ports = 0;
     int occ = scene_occlusion_active();
     instlist_clear(&houses); instlist_clear(&roofs); instlist_clear(&towers); instlist_clear(&walls); instlist_clear(&piers); instlist_clear(&flagpoles);
+    instlist_clear(&sh_houses); instlist_clear(&sh_roofs); instlist_clear(&sh_towers); instlist_clear(&sh_walls); instlist_clear(&sh_piers); instlist_clear(&sh_flagpoles);
+    scene_shadow_ports = 0;
     assets_clear();
     for (int i = 0; i < G.nports; ++i) {
         const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
@@ -579,13 +644,25 @@ void scene_build_ports(void) {
         float px = cam.mapness > 0.5f ? 0.f : lod_px(r, d);
         lod_pick_t pk = lod_select(lod_key(LODK_PORT, i, 0), town_thr, 2, px, 0);
         port_icon_w[i] = lod_weight(&pk, 1);
-        if (!lod_draws(&pk, 0)) continue;                                       // icon only
-        if (!cam_sphere_visible(frustum, p->x, 0, p->z, r + CULL_MARGIN)) { scene_culled_ports++; continue; }
-        if (occ && occ_hidden_sphere(p->x, p->z, r + 1.f, world_height(p->x, p->z) + TOWN_TOP)) { scene_occluded_ports++; continue; }
+        int draws = lod_draws(&pk, 0);                                          // else: icon only
+        if (draws && !cam_sphere_visible(frustum, p->x, 0, p->z, r + CULL_MARGIN)) { scene_culled_ports++; draws = 0; }
+        if (draws && occ && occ_hidden_sphere(p->x, p->z, r + 1.f, world_height(p->x, p->z) + TOWN_TOP)) { scene_occluded_ports++; draws = 0; }
+        if (!draws) {
+            // not drawn, but inside the shadow radius: collect its pieces as casters only
+            if (shadow_enabled && d < shadow_radius && cam.mapness < 0.5f) {
+                scene_caster_only = 1; town_instances(p, i, 0.f); scene_caster_only = 0; scene_shadow_ports++;
+            }
+            continue;
+        }
         town_instances(p, i, lod_dither(&pk, 0));
         int sel = i == SH.sel_port, hov = i == SH.hover_port;
         if (sel || hov) dd_circle(vec3(p->x, 0.1f, p->z), vec3(0,1,0), 2.2f + 0.4f*p->size, .color = rgb_linear(sel ? rgb(255,240,120) : rgb(220,220,220)));
         if (p->blockaded_by) dd_circle(vec3(p->x, 0.15f, p->z), vec3(0,1,0), 3.5f, .color = rgb_linear(rgb(255,60,40)), .dashed = 1);
+    }
+    {   // the drawn instances first, then the caster-only ones: one upload, two draw counts
+        instlist_t *dl[6] = { &houses, &roofs, &towers, &walls, &piers, &flagpoles };
+        instlist_t *cl[6] = { &sh_houses, &sh_roofs, &sh_towers, &sh_walls, &sh_piers, &sh_flagpoles };
+        for (int k = 0; k < 6; ++k) { town_vis[k] = dl[k]->n; instlist_append(dl[k], cl[k]); }
     }
     mesh_set_instances(&mesh_pier, piers.v, piers.n); mesh_set_instances(&mesh_house, houses.v, houses.n);
     mesh_set_instances(&mesh_roof, roofs.v, roofs.n); mesh_set_instances(&mesh_tower, towers.v, towers.n);
@@ -593,18 +670,24 @@ void scene_build_ports(void) {
     assets_set_instances();
 }
 
-static int submit_town_meshes(void) {
-    mesh_draw(&mesh_pier); mesh_draw(&mesh_house); mesh_draw(&mesh_roof);
-    mesh_draw(&mesh_tower); mesh_draw(&mesh_wall); mesh_draw(&mesh_flagpole);
-    return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n;
+static int submit_town_meshes(int shadow) {
+    mesh_t *m[6] = { &mesh_house, &mesh_roof, &mesh_tower, &mesh_wall, &mesh_pier, &mesh_flagpole };
+    int n = 0;
+    for (int k = 0; k < 6; ++k) {
+        int all = m[k]->ninst;
+        if (!shadow && town_vis[k] < all) m[k]->ninst = town_vis[k];
+        mesh_draw(m[k]); n += m[k]->ninst;
+        m[k]->ninst = all;
+    }
+    return n;
 }
-int scene_submit_ports(void) { return submit_town_meshes() + assets_submit(); }
+int scene_submit_ports(void) { return submit_town_meshes(0) + assets_submit(); }
 
 // shadow casters: every town piece and every ship (piers shadow the water, flagpoles the
 // squares). Gunsmoke is deliberately left out: a hard-edged shadow from a smoke ball looks wrong.
 int scene_submit_shadow(void) {
     int n = detailview_mode() != DV_OFF ? detailview_submit_shadow()   // the staged scene is the only caster set
-                                        : submit_town_meshes() + scene_assets_submit_shadow() + submit_ship_meshes();
+                                        : submit_town_meshes(1) + scene_assets_submit_shadow() + submit_ship_meshes(1);
     return n;
 }
 

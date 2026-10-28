@@ -179,13 +179,17 @@ int main(int argc, char **argv) {
     if (getenv("MARE_FOAM")) { sea_foam = clampf((float)atof(getenv("MARE_FOAM")), 0.f, 3.f); LOG_INFO("gpu", "sea foam x%.2f (MARE_FOAM)", sea_foam); }
     if (getenv("MARE_SEA_NYQUIST")) { sea_nyquist = atoi(getenv("MARE_SEA_NYQUIST")) != 0; LOG_INFO("gpu", "sea grid-aware wave fade %s (MARE_SEA_NYQUIST)", sea_nyquist ? "on" : "off"); }
     if (getenv("MARE_SHADOW_LOD")) { shadow_caster_lod = atoi(getenv("MARE_SHADOW_LOD")) != 0; LOG_INFO("gpu", "shadow casters use the coarse LOD: %s (MARE_SHADOW_LOD)", shadow_caster_lod ? "yes" : "no"); }
-    int m_shadow_tris = metric_id("gfx.shadow_tris");
+    int m_shadow_tris = metric_id("gfx.shadow_tris"), m_shadow_ports = metric_id("gfx.shadow_ports"), m_shadow_fleets = metric_id("gfx.shadow_fleets"), m_shadow_radius = metric_id("gfx.shadow_radius");
     int m_wx_rain = metric_id("weather.rain"), m_wx_haze = metric_id("weather.haze"), m_wx_calm = metric_id("weather.calm");
+    int m_eff_speed = metric_id("sim.speed_eff"), m_cam_dist = metric_id("sim.cam_dist"), m_city_view = metric_id("sim.city_view");
     // Autosave clock (balance.h AUTOSAVE_SECS, MARE_AUTOSAVE_S overrides; 0 disables). Counts
     // unpaused play only, so a game left paused overnight is not rewritten every three minutes.
     float autosave_secs = AUTOSAVE_SECS; if (getenv("MARE_AUTOSAVE_S")) { autosave_secs = (float)atof(getenv("MARE_AUTOSAVE_S")); LOG_INFO("main", "autosave every %.0f s (MARE_AUTOSAVE_S)", autosave_secs); }
     U.autosave_in = autosave_secs;
-    double last = time_ss(); float sim_acc = 0;
+    float tick_secs = SIM_TICK_SECONDS;
+    if (getenv("MARE_TICK_S")) { tick_secs = clampf((float)atof(getenv("MARE_TICK_S")), 0.05f, 120.f); LOG_INFO("main", "simulation tick every %.2f s (MARE_TICK_S)", tick_secs); }
+    else LOG_INFO("main", "simulation ticks every %.0f s (or %.0f simulated days, whichever comes first)", tick_secs, SIM_TICK_MAX_DAYS);
+    double last = time_ss(); float sim_acc = 0, tick_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
     while (app_swap(.color = 0xFF000000)) {
         if (autoquit && diag_now() - t_run0 > atof(autoquit)) break;
@@ -228,17 +232,36 @@ int main(int argc, char **argv) {
             float eff_speed = G.speed;
             if (detailview_mode() == DV_CITY) { U.city_view = 1; eff_speed = minf(G.speed, 0.05f); }
             else if (detailview_mode() == DV_OFF && cam.dist < CAM_CITY_DIST) {
-                int over_town = 0, battle_near = 0;
+                int over_town = 0, battle_near = 0; float bw = maxf(0.3f, scene_smoke_window());
                 for (int i = 0; i < G.nports; ++i) { const port_t *p = &G.ports[i];
                     if (!port_is_gone(p) && p->size >= 1 && dist2d(p->x, p->z, cam.tx, cam.tz) < 8.f) { over_town = 1; break; } }
                 for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i];
-                    if (f->alive && f->at_port < 0 && f->last_fire > G.day - 0.3f && dist2d(f->x, f->z, cam.tx, cam.tz) < 30.f) { battle_near = 1; break; } }
+                    if (f->alive && f->at_port < 0 && f->last_fire > G.day - bw && dist2d(f->x, f->z, cam.tx, cam.tz) < 30.f) { battle_near = 1; break; } }
                 if (over_town && !battle_near) { U.city_view = 1; eff_speed = minf(G.speed, 0.05f); }
             }
+            // One tick every SIM_TICK_SECONDS (or SIM_TICK_MAX_DAYS, whichever comes first),
+            // advancing all the time that has accumulated as a burst of SIM_STEP sub-steps: the
+            // world runs at its usual speed and the simulation is bit-for-bit what it was, there
+            // are simply far fewer tick events. scene.c glides the fleets across the interval.
             int steps = 0;
-            if (eff_speed > 0) { sim_acc += dt * eff_speed; while (sim_acc >= SIM_STEP && steps < 40) { game_tick(SIM_STEP); sim_acc -= SIM_STEP; steps++; }
-                if (steps >= 40 && sim_acc >= SIM_STEP) { LOG_WARN("main", "simulation behind real time: dropping %.1f days (frame %.0f ms at speed x%.0f)", sim_acc, dt*1000, G.speed); sim_acc = 0; } }
+            if (eff_speed > 0) {
+                sim_acc += dt * eff_speed; tick_acc += dt;
+                // the first tick after a load fires as soon as there is a step to run, so the
+                // world is not frozen for the first SIM_TICK_SECONDS of a session
+                static int first_tick = 1;
+                if (tick_acc >= tick_secs || sim_acc >= SIM_TICK_MAX_DAYS || (first_tick && sim_acc >= SIM_STEP)) {
+                    first_tick = 0;
+                    float days0 = sim_acc;
+                    int cap = (int)(SIM_TICK_MAX_DAYS / SIM_STEP) + 2;
+                    while (sim_acc >= SIM_STEP && steps < cap) { game_tick(SIM_STEP); sim_acc -= SIM_STEP; steps++; }
+                    if (steps >= cap && sim_acc >= SIM_STEP) { LOG_WARN("main", "simulation behind real time: dropping %.1f days (speed x%.1f)", sim_acc, G.speed); sim_acc = 0; }
+                    scene_set_tick(tick_acc, days0 - sim_acc, tick_secs);
+                    tick_acc = 0;
+                }
+            } else { tick_acc = 0; scene_set_tick(tick_secs, 0.f, tick_secs); }
+            scene_set_tick(tick_secs, scene_smoke_window(), maxf(tick_secs - tick_acc, 0.0001f));
             metric_set(m_steps, steps);
+            metric_set(m_eff_speed, eff_speed); metric_set(m_cam_dist, cam.dist); metric_set(m_city_view, U.city_view);
             prof_end(p_sim);
             if (U.toast_timer > 0) U.toast_timer -= dt;
             if (autosave_secs > 0 && eff_speed > 0) {
@@ -357,12 +380,13 @@ int main(int argc, char **argv) {
         }
         if (U.pass_sea && sea_refract) hdr_capture_scene();   // the frame so far: what the water refracts
         prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !U.in_menu && dv_on) detailview_sea(); else if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
+        if (!U.in_menu) sky_draw_overhead();   // the cloud layer from above, over the map (after the water, before the translucent passes)
         if (!U.in_menu) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
         if (!U.in_menu && !dv_on) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
         }
-        rhi_gpu_begin(g_resolve); hdr_ao_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // SSAO from the depth, then tonemap to the backbuffer; labels/panels draw on top
+        rhi_gpu_begin(g_resolve); hdr_ao_pass(); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // SSAO from the depth, then tonemap to the backbuffer; labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
         if (!U.in_menu) weather_overlay();                                          // rain over the finished frame
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
@@ -386,6 +410,7 @@ int main(int argc, char **argv) {
           metric_set(m_occ_ports, scene_occluded_ports); metric_set(m_occ_ships, scene_occluded_ships); metric_set(m_occ_samples, occ_samples);
           metric_set(m_occq_hidden, scene_occluded_assets); metric_set(m_occq_queries, occq_queried); metric_set(m_occq_moving, occq_moving);
           metric_set(m_shadow_tris, (double)scene_shadow_tris);
+          metric_set(m_shadow_ports, scene_shadow_ports); metric_set(m_shadow_fleets, scene_shadow_fleets); metric_set(m_shadow_radius, shadow_radius);
           metric_set(m_wx_rain, WX.rain); metric_set(m_wx_haze, WX.haze); metric_set(m_wx_calm, WX.calm); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");

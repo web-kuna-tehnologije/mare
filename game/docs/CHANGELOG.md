@@ -1,7 +1,27 @@
 # Changelog
 
-## 0.9.0 — visual rendering, all nine steps
+## 0.9.0 — visual rendering
 Plan and measurements: [DESIGN_VISUAL.md](DESIGN_VISUAL.md).
+
+### Pass 10: fixes from playing it
+- **Tessellation is a near-camera path** (`SEA_TESS_DIST` 90 units), not the default at every zoom.
+- **Water is blue-grey, transparent and no longer plastic**: new body colours and absorption,
+  per-channel Fresnel (dispersion) for the sky reflection, and a sparkle term from the
+  sub-ripple normals in place of one smooth specular lobe.
+- **Shadows from the whole cull radius**: cascades reach `cam.dist * 2.6 + 70` (max 650) and
+  casters are collected from that radius rather than from the drawn set, so towns that are
+  icons, behind the camera or hidden still cast. 30-69 towns and 23-34 fleets per frame that
+  previously cast nothing. Nothing outside the radius is submitted.
+- **Volumetric fog** with an analytic height integral and sun in-scattering, driven by the
+  weather; **clouds visible from above** when zoomed out, cut against the depth buffer and faded
+  past 1400 units; **bloom** so the sun disc, its glow and the glitter path read as a light.
+- **Cloud noise is gradient noise**, which removes the soft rectangles the value-noise lattice
+  painted across the ground through the cloud shadows. Whole cloud system measured at
+  +0.1 ms GPU.
+- **One simulation tick every 15 s** (`SIM_TICK_SECONDS`, or 6 simulated days, whichever comes
+  first) instead of ~3 a second. The world keeps its speed (0.334 days/s measured against 0.333
+  asked for) and the simulation is bit-for-bit unchanged, because a tick runs the accumulated
+  time as a burst of `SIM_STEP` sub-steps; fleets glide across the interval. `MARE_TICK_S`.
 
 - **Sea at water level**: an inner 32x32 patch lattice (14-unit radius, cells to 0.02 units)
   replaces the 0.25-unit facets up close; the eye is held above the wave crest (or the ground)

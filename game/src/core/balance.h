@@ -116,6 +116,14 @@
 
 // simulation
 #define SIM_STEP 0.1f            // days per fixed step
+// How often the simulation runs, in real seconds. The world keeps its speed: a tick advances
+// however many days have accumulated since the last one, as a burst of SIM_STEP sub-steps, so
+// balance, events and save/load determinism are exactly what they were - only the number of
+// tick *events* changes. Fleets are interpolated across the whole interval (gfx/scene.c), so
+// nothing on screen slows down or stutters. Capped in days as well, so speed 4 does not jump a
+// month and a half at once. MARE_TICK_S overrides.
+#define SIM_TICK_SECONDS  15.f
+#define SIM_TICK_MAX_DAYS  6.f
 // Simulation speeds in days per real second, selected with keys 1-4 and the HUD buttons.
 // Deliberately slow: at one day per three seconds a voyage reads as a voyage, and fleets are
 // watchable rather than teleporting between ticks. Speed 4 stays a fast-forward for long waits.

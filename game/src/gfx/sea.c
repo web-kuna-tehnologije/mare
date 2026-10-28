@@ -62,6 +62,10 @@ int sea_tess_level_max = 48;     // dashboard knob: finest subdivision of a patc
 #define SEA_INNER_N   32
 #define SEA_INNER_R   14.f
 int sea_inner_on = 1;          // dashboard / MARE_SEA_INNER=0
+// Tessellation earns its cost only where a cell is bigger than a pixel. Past SEA_TESS_DIST the
+// warped grid draws the same water for a third of the GPU time, so the patches are a near-camera
+// path, not the default (MARE_SEA_TESS=0 turns them off entirely).
+#define SEA_TESS_DIST 90.f
 
 #define SEA_DETAIL_N  192        // cells per side of the detail grid (74k triangles)
 #define SEA_DETAIL_R  180.f      // world units from the centre to its edge
@@ -248,8 +252,10 @@ static const char *sea_fs =
     "  vec3 wn = normalize(v_nrm);\n"
     "  vec3 n = normalize(wn + vec3(slope.x, 0.0, slope.y));\n"
     "  float w1 = sin(p.x*3.1 + p.y*1.3 + t*1.7);\n"   // keeps the foam band animated
-    "  vec3 deep = vec3(0.02,0.10,0.24), shallow = vec3(0.16,0.56,0.60);\n"
-    "  vec3 c = srgb_to_linear(mix(shallow, deep, 1.0 - exp(-depth*0.9)));\n"
+    // North Atlantic, not a lagoon: a blue-grey body colour. The old pair ran to cyan because
+    // the shallow end was a tropical green-blue and the absorption killed red hardest.
+    "  vec3 deep = vec3(0.035,0.070,0.115), shallow = vec3(0.21,0.285,0.325);\n"
+    "  vec3 c = srgb_to_linear(mix(shallow, deep, 1.0 - exp(-depth*0.75)));\n"
     // --- refraction (step 5 follow-up). The scene behind the surface, sampled where the
     // surface normal bends the view; what comes back is absorbed by the water column (red
     // first), so past a few units of depth the seabed - and whether a terrain chunk was drawn
@@ -268,8 +274,11 @@ static const char *sea_fs =
     // clear colour, which is sky, not sea floor: the water column's own colour stands in. This
     // is what used to show as a straight-edged lighter wedge over deep water.
     "    if (dz >= 0.99999) bg = c;\n"
-    "    vec3 absorb = vec3(2.1, 1.05, 0.62) / u_wave_scale;\n"
-    "    vec3 tr = exp(-absorb * depth * 1.6);\n"
+    // Absorption with green nearer red than blue: what comes back reads grey-blue rather than
+    // teal. The shallower coefficient also lets the bottom show through further out - the
+    // transparency the water was missing.
+    "    vec3 absorb = vec3(1.55, 1.12, 0.78) / u_wave_scale;\n"
+    "    vec3 tr = exp(-absorb * depth * 1.05);\n"
     "    refr = mix(c, bg, tr); refr_on = 1.0;\n"
     "  }\n"
     // authored surface: the foam albedo rides the swell layer (and a finer copy the chop), its
@@ -298,11 +307,20 @@ static const char *sea_fs =
     // still reads at water level, where a real sea is dark glass, not a mirror of the haze.
     "  vec3 nf = normalize(wn + vec3(slope.x, 0.0, slope.y) * 0.25);\n"
     "  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(nf, vdir), 0.0), 5.0);\n"
-    "  fres = min(fres, 0.62 + 0.2 * u_calm);\n"
-    "  vec3 skyrefl = srgb_to_linear(u_sky) * (0.42 + 0.4 * u_calm) + u_ambsky * 0.35;\n"
-    "  vec3 glint = sun_shade(vec3(0.0), n, vdir, v_wpos, rough, 0.0, dist) * 0.32;\n"   // albedo 0: the specular lobe alone, in the sun's shadow where it should be
+    "  fres = min(fres, 0.58 + 0.2 * u_calm);\n"
+    // Dispersion: the three channels leave the surface at slightly different angles, so a
+    // grazing reflection is faintly cool at the edge and warm inside it. A single achromatic
+    // lobe is what makes water read as moulded plastic.
+    "  vec3 fres3 = clamp(vec3(fres) * vec3(0.93, 1.0, 1.09), 0.0, 1.0);\n"
+    "  vec3 skyrefl = srgb_to_linear(u_sky) * (0.40 + 0.4 * u_calm) + u_ambsky * 0.32;\n"
+    "  vec3 glint = sun_shade(vec3(0.0), n, vdir, v_wpos, rough, 0.0, dist) * 0.26;\n"   // albedo 0: the specular lobe alone, in the sun's shadow where it should be
+    // Sparkle: the sub-ripple normals the shading normal has already averaged away, put back as
+    // a narrow glitter. A real sea's highlight is thousands of points, not one smooth patch.
+    "  vec3 nsp = normalize(wn + vec3(slope.x, 0.0, slope.y) * 2.6);\n"
+    "  float sp = pow(max(dot(nsp, normalize(u_sun + vdir)), 0.0), 190.0);\n"
+    "  glint += u_suncol * sp * 0.22 * detail * (1.0 - 0.6 * u_calm);\n"
     "  vec3 body = sun_shade(c, n, vdir, v_wpos, 0.9, 0.0, dist);\n"                   // the little diffuse the suspended sediment gives
-    "  vec3 col3d = mix(mix(body, refr * (0.55 + 0.45 * u_ambsky.g * 3.0), refr_on), skyrefl, fres) + glint;\n"
+    "  vec3 col3d = mix(mix(body, refr * (0.62 + 0.45 * u_ambsky.g * 3.0), refr_on), skyrefl, fres3) + glint;\n"
     // --- foam (DESIGN_VISUAL.md step 6). Four sources, one white.
     // Whitecaps: where the Gerstner displacement folds the surface - the horizontal Jacobian
     // drops below 1 as the crest compresses - plus the steepest faces. Textured by the foam
@@ -650,18 +668,21 @@ static void sea_draw_patches(float cx, float cz, float radius, float scale, floa
     if (inner) sea_draw_lattice(cx, cz, inner_r, SEA_INNER_N, scale, local_depth, amp, 1, outer_patch, 0.f);
 }
 
+int sea_tess_now;    // the tessellated path is in use this frame (dashboard)
+
 void sea_draw(void) {
     float amp = sea_amp_now();
     int detail = amp > 0.001f && RF.mapness < 0.995f;
     float cx = RF.sea_center.x, cz = RF.sea_center.z;
-    float hole_r = sea_tess_on ? SEA_PATCH_R * 0.985f : SEA_DETAIL_R * 0.98f;
+    sea_tess_now = sea_tess_on && cam.dist < SEA_TESS_DIST;
+    float hole_r = sea_tess_now ? SEA_PATCH_R * 0.985f : SEA_DETAIL_R * 0.98f;
     rhi_pipeline_bind(&sea_prg);
     sea_bind_common(&sea_prg, 1.f, 0.f);
     rhi_set_f1(rhi_uniform(&sea_prg,"u_wave_amp"), 0.f);
-    rhi_set_f4(rhi_uniform(&sea_prg,"u_hole"), cx, cz, detail ? hole_r : 0.f, detail ? (sea_tess_on ? 2.f : 1.f) : 0.f);
+    rhi_set_f4(rhi_uniform(&sea_prg,"u_hole"), cx, cz, detail ? hole_r : 0.f, detail ? (sea_tess_now ? 2.f : 1.f) : 0.f);
     rhi_draw(&sea_geo, 0);
     if (!detail) return;
-    if (sea_tess_on) { sea_draw_patches(cx, cz, SEA_PATCH_R, 1.f, 0.f, amp); return; }
+    if (sea_tess_now) { sea_draw_patches(cx, cz, SEA_PATCH_R, 1.f, 0.f, amp); return; }
     rhi_pipeline_bind(&sea_detail_prg);
     sea_bind_common(&sea_detail_prg, 1.f, 0.f);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_center"), cx, 0, cz);
@@ -676,7 +697,8 @@ void sea_draw(void) {
 // `clip_z` (when `clip_on`) is the shoreline: a staged scene has no heightmap, so the water's
 // landward limit is given as a plane rather than discovered from the terrain.
 void sea_draw_local(float depth, float scale, float radius) {
-    if (sea_tess_on) { sea_draw_patches(RF.sea_center.x, RF.sea_center.z, radius, scale, depth, sea_wave_amp * sea_wind_amp); return; }
+    sea_tess_now = sea_tess_on && cam.dist < SEA_TESS_DIST * scale;
+    if (sea_tess_now) { sea_draw_patches(RF.sea_center.x, RF.sea_center.z, radius, scale, depth, sea_wave_amp * sea_wind_amp); return; }
     rhi_pipeline_bind(&sea_detail_prg);
     sea_bind_common(&sea_detail_prg, scale, depth);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_center"), RF.sea_center.x, 0, RF.sea_center.z);

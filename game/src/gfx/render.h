@@ -24,6 +24,8 @@ typedef struct render_frame_t {
     float ambfloor;                 // 0 at night .. 1 in full day; keeps the ambient above a moonlit floor
     float fog_density, fog_start;   // weather (gfx/weather.c): fog multiplier and the distance it starts at (1, 250 in clear air)
     float calm, overcast;           // weather: glassy-sea factor, storm-overhead factor
+    float vfog_density, vfog_height, vfog_sun;   // volumetric fog (weather.c -> hdr.c): density at sea level, scale height, sun in-scatter
+    vec3  vfog_color;               // its colour, sRGB
 } render_frame_t;
 extern render_frame_t RF;
 extern int screen_w, screen_h;      // framebuffer size, sampled once per frame (v3's app_width() queries X11 and GL every call)
@@ -40,10 +42,13 @@ extern int terrain_ao_on;                // baked horizon occlusion on the terra
 // sky and clouds (sky.c, DESIGN_VISUAL.md step 8)
 void sky_update(float dt);                    // cover from the weather, drift with the wind
 void sky_draw(void);                          // first thing into the HDR target: gradient, sun disc, cloud layer
+void sky_draw_overhead(void);                 // after the scene: the cloud layer seen from above, over the map
 void sky_bind_clouds(const rhi_pipeline_t *p);// u_cloud for GLSL_CLOUDS users (light_bind calls it)
 extern float sky_cloud_cover; extern int sky_enabled;
 // ambient occlusion (step 9): half-resolution SSAO from the HDR depth, applied in the tonemap
 void hdr_ao_pass(void);                       // after the opaque passes and the water, before hdr_resolve
+void hdr_bloom_pass(void);                    // bright pass + blur, before hdr_resolve
+extern float hdr_bloom; extern int hdr_bloom_enabled;
 extern float hdr_ssao_strength;               // 0 = off (MARE_SSAO), 1 = full
 extern int   hdr_ssao_enabled;
 void hdr_capture_scene(void);                 // copy the HDR colour so far (before the water) for refraction
@@ -66,6 +71,7 @@ void hdr_resolve(int w, int h);                            // tonemap to the bac
 extern float hdr_exposure;                                 // tonemap multiplier (1 = neutral)
 
 // lighting & shadows (lighting.c): one directional sun shared by every 3D pass
+extern float shadow_radius;              // casters are taken from this distance around the camera, and the cascades cover it
 void  render_light_update(void);         // fills RF.suncol/ambsky/ambgnd from RF.sun and RF.daylight
 // Day/night: turns a time of day into the sun direction, daylight level and sky colour, so the
 // shadows actually move. Pinned by MARE_SUN, disabled by MARE_DAYNIGHT=0 (both keep the old
@@ -97,7 +103,8 @@ extern int   sea_refract;                // refract the frame behind the water (
 extern int   sea_inner_on;               // fine inner patch lattice near the look-at point (MARE_SEA_INNER=0)
 float sea_height_at(float x, float z);   // wave surface height at a world point this frame (CPU mirror of the shader sum)
 void sea_set_ships(const float *xzhs, const float *len, int n);   // ships to foam around this frame (x, z, heading, speed; hull length), max 24
-extern int   sea_tess_on;                // tessellated patches in use (GL 4.0; MARE_SEA_TESS=0 forces the warped grid)
+extern int   sea_tess_on;                // tessellated patches available (GL 4.0; MARE_SEA_TESS=0 forces the warped grid)
+extern int   sea_tess_now;               // ... and in use this frame (only within SEA_TESS_DIST of the water)
 extern int   sea_tess_level_max;         // finest subdivision per patch edge (dashboard)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene

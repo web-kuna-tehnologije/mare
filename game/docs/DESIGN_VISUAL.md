@@ -1,6 +1,6 @@
 # Design: visual rendering 0.9
 
-Status: **all nine steps done**; their sections are below. The plan below is the feature "visual rendering" broken into
+Status: **all nine steps done**, plus a tenth pass of fixes from playing it; their sections are below. The plan below is the feature "visual rendering" broken into
 steps that each land fully working on all three platforms, with a measurement, before the next
 starts (the same rule the renderer and engine-scale plans followed; those are in
 DESIGN_RENDERER.md, DESIGN_JOBS.md and DESIGN_LOD.md). Each step has its own section below once
@@ -303,6 +303,69 @@ half resolution from the HDR depth after the water (eight hemisphere samples in 
 bilinear taps and applied in the tonemap. City view: 5.1 % of pixels darker by more than 6/255
 with it on, 0.4 % lighter - the contact creases under piers, hulls and house walls, nothing
 else. Off in the map view and beyond 220 units.
+
+## Step 10: the pass after playing it
+
+Nine complaints from actually flying the camera around, and what each turned out to be.
+
+**Tessellation everywhere.** The patches were drawn at every zoom, where past a hundred units a
+cell is well under a pixel and the warped grid draws the same water for a third of the GPU
+time. They are now a near-camera path only (`SEA_TESS_DIST`, 90 units; `sea_tess_now` on the
+dashboard says which is live).
+
+**Water like plastic, and the wrong colour.** The body colours ran to cyan (a tropical shallow
+plus absorption that killed red hardest). They are now blue-grey - deep `(0.035, 0.070, 0.115)`,
+shallow `(0.21, 0.285, 0.325)` - with absorption `(1.55, 1.12, 0.78)` whose green sits nearer
+red than blue, so the transmitted light reads grey-blue instead of teal, and a gentler
+coefficient lets the bottom show further out. The plastic look was one smooth achromatic
+specular lobe: the sky reflection is now weighted by a **per-channel** Fresnel (dispersion -
+a grazing reflection is faintly cool at its edge), and the sub-ripple normals the shading
+normal averages away come back as a narrow **sparkle** term. A real sea's highlight is
+thousands of points, not one patch.
+
+**Buildings only cast shadows close up.** The cascades reached `cam.dist * 1.2 + 40` capped at
+300 - 57 units in the city view, so a building a street away cast nothing. They now reach
+`cam.dist * 2.6 + 70` up to 650, and - the actual fix - casters are collected from *that radius*
+rather than from the drawn set: a town that is far enough to be an icon, behind the camera, or
+hidden by another building still has its pieces submitted to the shadow pass. They go into the
+same instance buffers after the drawn ones, so the main pass draws the prefix and the shadow
+pass draws all of it (the partition the occlusion queries already used; still one upload).
+Nothing outside the radius is collected at all. Measured: 30-69 towns and 23-34 fleets per
+frame now cast that previously did not.
+
+**Volumetric fog.** Density falls off exponentially with height, so the integral along the view
+ray has a closed form - no marching, and a valley fills while a hilltop stays clear. Looking
+towards the sun through it, the fog returns his light, so haze glows and a storm stays flat.
+Driven by the weather (`RF.vfog_*`), so clear air is left alone.
+
+**Clouds only visible at sea level.** The sky pass intersects the cloud plane with rays going
+*up*, which is useless once the camera climbs past 60 units - and the RTS camera is above that
+from a moderate zoom out. A second pass after the scene intersects the downward ray with the
+same plane, keeps the hit only where it is nearer than the depth buffer, and fades it out past
+1400 units so the layer reads as weather over the coast rather than a lid over the Atlantic.
+
+**Cloud shadows in rectangles.** The noise was *value* noise: one number per lattice corner, so
+a threshold through it follows the lattice and painted the ground in soft 50-unit rectangles.
+It is now **gradient** noise - a dot product with a random direction per corner, zero at every
+corner, so no lattice structure survives - with a quintic fade, a rotated base lattice and
+rotated octaves. Measured cost of the whole cloud system at a 150-unit zoom: `gpu.total_ms`
+8.6 with cover 0.5 against 8.5 with clouds off.
+
+**Nothing showing the sun is there.** A quarter-resolution bright pass and a separable blur,
+added back in the tonemap. The scene is HDR, so what survives the threshold is the sun disc,
+its glow and the glitter path on the water - `docs/screenshots/sky-sun-bloom.png`.
+
+**The camera going under water** and **pyramid waves up close** were the step 5 follow-up above.
+
+**Tick rate.** `SIM_TICK_SECONDS` (15) with `SIM_TICK_MAX_DAYS` (6): the simulation runs once
+per fifteen real seconds, advancing all the time that has accumulated as a burst of `SIM_STEP`
+sub-steps. The world keeps its speed - 0.334 days/s measured against the 0.333 the speed table
+asks for - and balance, events and save/load determinism are bit-for-bit what they were, since
+the sub-step is unchanged; only the number of tick *events* drops, from about three a second to
+one every fifteen. Fleets are carried to their new position over exactly the remaining interval
+(`scene_set_tick`), so they glide rather than jump, and the gunsmoke window widens to at least
+one tick so a broadside is still visible. The day cap means speed 4 ticks every two seconds
+instead of jumping six weeks. `MARE_TICK_S` overrides.
 
 Rules carried over: every effect has a toggle (dashboard checkbox and an environment variable)
 so it can be measured off and on; GPU time per pass goes through `rhi_gpu_scope`; the two

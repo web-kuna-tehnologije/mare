@@ -83,6 +83,27 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   in the metrics CSV); frame time is the reliable number there.
 
 ## Visual rendering 0.9
+- **M** Over deep ocean, straight-edged darker polygons still appear a few hundred units out at
+  mid zoom. They are the seabed terrain seen through the water where terrain chunk coverage and
+  LOD change, not a sea artefact: they are there with `MARE_CLOUDS=0` and with the sea's
+  refraction on or off. The refraction removed the version of this that showed over *deep*
+  water; what is left is the shallow shelf, where the water legitimately transmits the bottom.
+  A terrain fix (seabed chunks drawn to the same LOD as their neighbours), not a water one.
+- **L** The simulation ticks once every 15 s, so the date advances in jumps of about five days
+  at speed 1 and the chronicle arrives in batches. Fleets are interpolated across the interval
+  and so move continuously, but they are always showing the position of the last tick, up to
+  15 s behind the simulation. `MARE_TICK_S=0.3` restores the old cadence.
+- **L** Cloud shadows evaluate four octaves of gradient noise per lit fragment. Measured at
+  +0.1 ms on the integrated GPU at a 150-unit zoom, but it scales with how much of the screen is
+  lit geometry; `MARE_CLOUDS=0` removes the cost entirely.
+- **L** The overhead cloud pass only runs when the camera is above the layer (60 units, roughly
+  `cam.dist > 75`), so there is a band of zoom where clouds are visible neither above nor below.
+- **L** Bloom uses a fixed threshold of 1.05 in exposure-scaled linear light; at high dashboard
+  exposure settings more of the scene blooms than intended. `MARE_BLOOM=0`.
+- **L** Unattended screenshot runs are not input-isolated: a stray scroll or key from the
+  desktop reaches the window and moves the camera or pauses the clock, which shows up as a
+  frozen or slowed simulation in a capture. Two measurements in this session were voided by it
+  before the `sim.speed_eff` / `sim.cam_dist` metrics made it obvious.
 - **L** The Intel driver (32.0.101.6733) crashes in `glLinkProgram` if a tessellation control
   shader reads `gl_TessLevelOuter/Inner` after writing them; ours never does. Any future
   control shader must follow the same rule (DESIGN_VISUAL.md, tessellation).

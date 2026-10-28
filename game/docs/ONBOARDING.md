@@ -37,7 +37,8 @@ zoom there and back after an optional hold, for LOD/streaming measurements), `MA
 `MARE_WEATHER=0|clear|calm|mist|storm`, `MARE_PAN=lonA,latA,lonB,latB,seconds[,dist[,yaw]]`
 (scripted pan) and `MARE_SEA_FREEZE=1` (freeze the wave clock: with these two, a pan and a
 teleport to the same point must give identical frames), `MARE_SEA_REFRACT=0`, `MARE_SEA_INNER=0`,
-`MARE_SKY=0`, `MARE_CLOUDS=x` (pin cloud cover), `MARE_SSAO=x`, `MARE_TERRAIN_AO=0`.
+`MARE_SKY=0`, `MARE_CLOUDS=x` (pin cloud cover), `MARE_SSAO=x`, `MARE_TERRAIN_AO=0`,
+`MARE_BLOOM=x`, `MARE_TICK_S=N` (seconds between simulation ticks; 15 by default).
 
 Asset export: `python3 tools/export_assets.py --check` prints what it would export from the
 `.blend` tree (outside the repo), `--validate` runs Blender on each source without writing, and

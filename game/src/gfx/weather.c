@@ -56,6 +56,14 @@ void weather_update(float dt) {
     RF.fog_density = 1.f + 1.6f * WX.haze + 2.5f * WX.mist;
     RF.fog_start = lerpf(250.f, 40.f, clampf(WX.haze + WX.mist, 0.f, 1.f));
     RF.calm = WX.calm; RF.overcast = WX.overcast;
+    // Volumetric fog: nearly nothing in clear air, a shallow dense layer in dawn mist, a deep
+    // one under a storm. The sun in-scatter is what makes haze glow towards the sun and a
+    // storm stay flat.
+    RF.vfog_density = 0.00035f + 0.0042f * WX.mist + 0.0022f * WX.haze + 0.0016f * WX.storm;
+    RF.vfog_height  = lerpf(26.f, 11.f, clampf(WX.mist, 0.f, 1.f));
+    RF.vfog_sun     = (0.55f + 0.5f * WX.haze) * (1.f - 0.8f * WX.overcast);
+    RF.vfog_color   = lerp3(lerp3(vec3(0.62f, 0.68f, 0.78f), vec3(0.88f, 0.90f, 0.93f), WX.mist),
+                            vec3(0.45f, 0.47f, 0.52f), WX.overcast);
     // the sky: grey under a storm, whitened by mist (mare.c blends the map parchment after this)
     RF.sky = lerp3(RF.sky, vec3(0.52f, 0.54f, 0.58f), WX.overcast * 0.75f);
     RF.sky = lerp3(RF.sky, vec3(0.86f, 0.88f, 0.90f), WX.mist * 0.7f);

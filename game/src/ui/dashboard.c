@@ -340,9 +340,12 @@ static void tab_system(void) {
     mu_label(ui_ctx, va("weather: calm %.2f haze %.2f mist %.2f storm %.2f rain %.2f | fog x%.2f from %.0f | sun x%.2f%s",
                         WX.calm, WX.haze, WX.mist, WX.storm, WX.rain, RF.fog_density, RF.fog_start, 1.f - 0.6f * RF.overcast,
                         weather_enabled ? "" : " (OFF)"));
-    mu_label(ui_ctx, va("sky: clouds %.2f cover%s | SSAO %s x%.2f | terrain horizon AO %s | sea: refraction %s, inner lattice %s",
+    mu_label(ui_ctx, va("sky: clouds %.2f cover%s | SSAO %s x%.2f | terrain AO %s | bloom %s x%.2f | sea: refraction %s, inner lattice %s, tessellation %s",
                         sky_cloud_cover, sky_enabled ? "" : " (sky pass OFF)", hdr_ssao_enabled ? "on" : "off", hdr_ssao_strength, terrain_ao_on ? "on" : "off",
-                        sea_refract ? "on" : "off", sea_inner_on ? "on" : "off"));
+                        hdr_bloom_enabled ? "on" : "off", hdr_bloom, sea_refract ? "on" : "off", sea_inner_on ? "on" : "off",
+                        sea_tess_now ? "near" : sea_tess_on ? "idle (far)" : "off"));
+    mu_label(ui_ctx, va("shadows: casters within %.0f units | %d towns + %d fleets collected for shadows alone | %d caster tris/cascade | volumetric fog %.4f density, %.0f m scale height",
+                        shadow_radius, scene_shadow_ports, scene_shadow_fleets, scene_shadow_tris, RF.vfog_density, RF.vfog_height));
     ROW(4, 120, 120, 120, -1, 22);
     if (ui_btn("SSAO -")) { hdr_ssao_strength = maxf(0.f, hdr_ssao_strength - 0.1f); hdr_ssao_enabled = hdr_ssao_strength > 0; }
     if (ui_btn("SSAO +")) { hdr_ssao_strength = minf(1.f, hdr_ssao_strength + 0.1f); hdr_ssao_enabled = 1; }

@@ -111,8 +111,14 @@ Status as of the current codebase. Each entry names the module that owns it.
   sun, grey the sky, thicken the fog and rain over the frame (`gfx/weather.c`).
 - Water refracts the scene behind it with depth absorption and reflects the sky by Fresnel; an
   inner patch lattice keeps waves smooth at water level and the camera is held above them.
-- Sky pass with sun disc and a wind-driven cloud layer that shadows the ground (`gfx/sky.c`);
-  baked terrain horizon occlusion and screen-space ambient occlusion.
+- Sky pass with sun disc, bloom and a wind-driven gradient-noise cloud layer that shadows the
+  ground and is visible from above when zoomed out (`gfx/sky.c`); volumetric height fog with sun
+  in-scattering; baked terrain horizon occlusion and screen-space ambient occlusion.
+- Shadow cascades reach the mesh cull radius and take their casters from it, so towns drawn as
+  icons or hidden behind buildings still cast onto the terrain.
+- The simulation ticks once every 15 real seconds (`SIM_TICK_SECONDS`) rather than three times a
+  second, advancing the accumulated time in one burst of fixed sub-steps; the world runs at the
+  same speed and fleets are interpolated across the interval.
 
 ## UI (`src/ui`)
 - Main menu (nation choice/load), top bar (date, speed, treasury, income, toggles, error badge),

@@ -23,6 +23,13 @@ extern int scene_occluded_ports, scene_occluded_ships; // hidden behind terrain 
 extern int scene_occluded_assets;                    // authored instances hidden by the GPU queries this frame (occquery.h)
 extern int shadow_caster_lod;                        // 1 = cascades cast from each asset's coarsest LOD (MARE_SHADOW_LOD=0 disables)
 extern int scene_shadow_tris;                        // authored triangles one cascade submits (dashboard)
+extern int scene_shadow_ports, scene_shadow_fleets;  // towns / fleets collected for their shadows alone this frame
+// The simulation's tick window (mare.c, SIM_TICK_SECONDS): how long the current tick's result
+// has to be interpolated over, how many days it advanced, and how much of that interval is
+// left. Fleets glide to their new position over exactly `left` seconds, so a 15-second tick
+// looks like continuous sailing rather than a jump every 15 seconds.
+void scene_set_tick(float period_s, float days, float left_s);
+float scene_smoke_window(void);                      // gunsmoke/battle window in days: at least one tick
 int  scene_assets_submit_shadow(void);               // caster meshes for a shadow cascade
 int  scene_occlusion_active(void);                   // occlusion tests run this frame (enabled, 3D view, not a staged scene)
 extern int scene_asset_instances;                    // authored-asset (GLB) instances drawn this frame
