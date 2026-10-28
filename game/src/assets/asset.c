@@ -571,7 +571,7 @@ static void asset_stage_commit(void *p) {   // MAIN lane: publish the result
     a->scale = t->scale; memcpy(a->bmin, t->bmin, sizeof a->bmin); memcpy(a->bmax, t->bmax, sizeof a->bmax); a->radius = t->radius;
     a->coll_radius = t->coll_radius; memcpy(a->coll_half, t->coll_half, sizeof a->coll_half);
     a->cpu_bytes = t->cpu_bytes; memcpy(a->error, t->error, sizeof a->error);
-    a->load_ms = (diag_now() - j->t0) * 1000;
+    a->load_ms = (diag_now() - j->t0) * 1000; a->stage = 0;
     if (j->ok) {
         a->state = ASSET_LOADED;
         asset_gen++;
@@ -604,6 +604,7 @@ static void asset_stage_build(void *p) {    // DECODE lane: parse, decode textur
     for (int i = 0; i < j->nfiles; ++i) { free(j->bytes[i]); j->bytes[i] = NULL; }
     if (j->ok) j->ok = asset_build_models(t, models, j->model_of);
     for (int i = 0; i < nmodels; ++i) gltf_free(&models[i]);
+    j->a->stage = 3;
     jobs_submit(JOB_LANE_MAIN, asset_stage_commit, j, 0);
 }
 
@@ -613,6 +614,7 @@ static void asset_stage_read(void *p) {     // IO lane: pull every distinct file
         j->bytes[i] = asset_read_bin(j->path[i], &j->size[i]);
         if (!j->bytes[i]) { snprintf(j->tmp.error, sizeof j->tmp.error, "%s: cannot read '%s'", j->path[i] + strlen(j->tmp.desc.dir) + 1, j->path[i]); j->ok = 0; }
     }
+    j->a->stage = 2;
     jobs_submit(JOB_LANE_DECODE, asset_stage_build, j, 0);
 }
 
@@ -630,10 +632,19 @@ void asset_request(asset_t *a) {
         j->model_of[i] = j->nfiles++;
     }
     a->error[0] = 0; a->cpu_bytes = 0; a->nlods = 0;
-    a->state = ASSET_LOADING;
+    a->state = ASSET_LOADING; a->stage = 1;
     // No join counter: the chain is fire-and-forget and the state flips on the MAIN lane. A
     // blocking caller (asset_load) helps the pool until it sees the state change.
     jobs_submit(JOB_LANE_IO, asset_stage_read, j, 0);
+}
+void asset_pipeline_counts(int *io, int *decode, int *commit, int *upload) {
+    int c[4] = { 0, 0, 0, 0 }, up = 0;
+    for (int i = 0; i < nassets; ++i) {
+        const asset_t *a = &assets[i];
+        if (a->state == ASSET_LOADING) c[(unsigned)a->stage < 4 ? a->stage : 0]++;
+        else if (a->state == ASSET_LOADED && upload_hook) for (int l = 0; l < a->nlods; ++l) if (!a->lod[l].gpu) { up++; break; }
+    }
+    if (io) *io = c[1]; if (decode) *decode = c[2]; if (commit) *commit = c[3]; if (upload) *upload = up;
 }
 int asset_request_all(void) { int n = 0; for (int i = 0; i < nassets; ++i) if (assets[i].state == ASSET_UNLOADED) { asset_request(&assets[i]); n++; } return n; }
 

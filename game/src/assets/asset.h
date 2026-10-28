@@ -97,6 +97,7 @@ typedef struct asset_t {
     size_t cpu_bytes;                     // vertex + index memory held on the CPU
     size_t gpu_bytes;                     // what the renderer uploaded (asset_lod_t.gpu set by scene.c)
     double load_ms;
+    int    stage;                         // while LOADING, which lane holds it: 1 IO read, 2 DECODE build, 3 MAIN commit pending (dashboard only, written by the stage that finishes)
     char  error[256];
 } asset_t;
 
@@ -115,6 +116,7 @@ void     asset_unload(asset_t *a);                         // frees CPU data, ba
 void     asset_unload_all(void);
 unsigned asset_generation(void);                           // bumps whenever an asset finishes loading: caches keyed on asset availability (towns) include it in their signature
 int      asset_loading_count(void);                        // assets in flight right now (dashboard)
+void     asset_pipeline_counts(int *io, int *decode, int *commit, int *upload);   // in flight per stage, plus LOADED assets with LODs still waiting for the GPU (dashboard)
 void     asset_set_upload_hook(void (*hook)(asset_t *a, int lod));   // renderer: called on the MAIN lane for each LOD once an asset is LOADED
 void     asset_free_cpu(asset_t *a, int lod);              // renderer: drop the CPU copy after upload
 size_t   asset_cpu_bytes(void);                            // total held by the cache (CPU side)

@@ -1,9 +1,12 @@
 # Design: world LOD management
 
-Status: **steps 3 and 4 done** (`gfx/lod.h` / `lod.c`, the dither field in `inst_t`, the
-cross-fade in the mesh and shadow shaders, icon alpha coupled to the mesh fade; `asset_test`
-covers the selector). Steps 5-7 (tiers and budgets, icon clustering, streaming and residency) are
-still as described below. The "what exists" section documents the state before step 3.
+Status: **steps 3-7 and 10 done** (`gfx/lod.h` / `lod.c`, the dither field in `inst_t`, the
+cross-fade in the mesh and shadow shaders, icon alpha coupled to the mesh fade, the view tiers
+and the budget director, icon clustering, per-asset residency in `scene.c`, the dashboard LOD
+tab; `asset_test` covers the selector). The "what exists" section documents the state before
+step 3; "Streaming and residency" below is the design, of which the per-asset wanted set and
+eviction are built and the camera-velocity prediction and per-LOD residency are not (see
+KNOWN_ISSUES).
 
 ## What exists and where it breaks
 
@@ -153,4 +156,10 @@ Each `(asset, lod)` pair is in one of `NOT_RESIDENT / REQUESTED / CPU_READY / GP
   boundary is a comparable screenshot per change, as in the earlier renderer steps.
 * A scripted zoom from `CAM_MIN_DIST` to `CAM_MAX_DIST` with `--dev` records `lod.pops`,
   `jobs.main_ms` and `frame.dt_ms` to the metrics CSV: the pass criterion is no frame over 2x the
-  median and `lod.pops == 0`.
+  median and `lod.pops == 0`. `lod.pops` counts multi-level jumps the one-step clamp held back,
+  so a non-zero value is a camera teleport (the first frame of a `MARE_ZOOM` whose start
+  distance differs from the camera's), never a visible pop; `mare.c` logs it at DEBUG with the
+  camera distance so a run log settles which.
+* The dashboard **LOD** tab (step 10) shows the live tier, budget use and director scale, the
+  instance counters, and GPU residency per asset and LOD; `tools/metrics_summary.py`
+  summarises a capture. The step 5-10 captures are tabulated in DESIGN_JOBS.md.

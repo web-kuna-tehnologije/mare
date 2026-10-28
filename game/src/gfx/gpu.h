@@ -40,7 +40,9 @@ void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz
 //   sway (roll animation 0/1), sel (highlight 0..1), bob (vertical bobbing 0/1), xlen (>0: stretch along x, for walls/piers)
 //   dither: LOD cross-fade (gfx/lod.h). 0 = opaque; +t keeps a (1-t) share of the pixels, -t the
 //   complementary t share, through one ordered 4x4 pattern, so the two LODs of a fading instance
-//   partition the screen exactly (no holes, no double coverage, no sorting). fx1..3 are reserved.
+//   partition the screen exactly (no holes, no double coverage, no sorting).
+//   fx1: 1 when the instance is hidden from the camera this frame (occquery.h): the main pass
+//   leaves it out, the shadow pass still draws it. fx2, fx3 are reserved.
 typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway, sel, bob, xlen; float dither, fx1, fx2, fx3; } inst_t;
 typedef struct mesh_t { rhi_geometry_t geo; int ninst; } mesh_t;
 extern const rhi_layout_t mesh_layout;                // builder vertices + inst_t instances (meshes.c program)

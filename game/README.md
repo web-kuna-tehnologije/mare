@@ -123,6 +123,14 @@ Run with `--dev` (or press **F3** at any time) for the developer dashboard:
 * **Metrics** – counters with rates per second and gauges with min/max: `nav.astar_calls/nodes/unreachable`,
   `nav.dijkstra_rows`, `sim.fleets_alive`, `sim.trades`, `sim.battles`, `sim.captures`, `sim.active_events`,
   `sim.player_treasury`, `sim.lanes`, `sim.ships_sunk`, `frame.sim_steps`, `frame.dt_ms`, `frame.fps`.
+* **Jobs** – the thread pool: per-lane busy % over a half-second window, queue depth now / peak and a
+  history graph, jobs per second, inline runs and time blocked in `jobs_wait`, the asset pipeline's
+  stages in flight (IO / DECODE / MAIN / uploading), streamed textures, and the save/load state with
+  the last save's main-thread snapshot cost and IO-lane write time, plus the autosave countdown.
+* **LOD** – the view tier and every tier's triangle budget, triangles submitted vs budget and the
+  director's threshold scale, tracked / fading / clamped-jump counters, icon clustering and culling
+  counts, the LOD bias knob, and GPU residency per asset (state, MB, which LODs are on the GPU, idle
+  seconds, instances per LOD this frame).
 * **Log** – the in-memory ring (last 512 records) filtered by level and module, autoscrolling.
 * **System** – renderer, GL version, world/nav sizes, state size, build; buttons to emit test warnings/errors and run a
   GL error check. The top bar shows a red **N err** badge whenever errors were logged.

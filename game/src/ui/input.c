@@ -190,8 +190,9 @@ void input_frame(float dt, int ui_blocked) {
     if (KDOWN(GLFW_KEY_ESCAPE)) { if (U.route_mode) U.route_mode = 0; else if (U.show_help) U.show_help = 0; else { U.sel_fleet_id = 0; U.sel_port = -1; } }
     if (KDOWN(GLFW_KEY_F1)) U.show_help ^= 1;
     if (KDOWN(GLFW_KEY_F3)) U.show_debug ^= 1;
-    if (KDOWN(GLFW_KEY_F5)) { int ok = game_save("mare_save.bin"); toast(ok ? "Game saved" : "Save failed"); printf("save: %s\n", ok ? "ok" : "failed"); }
-    if (KDOWN(GLFW_KEY_F9)) { if (game_load("mare_save.bin")) { ui_select_fleet(0); scene_reset_caches(); toast("Game loaded"); } else toast("No compatible saved game"); }
+    // save and load run on the IO lane; mare.c polls for the result and reacts (toast, cache reset)
+    if (KDOWN(GLFW_KEY_F5)) toast(game_save_async("mare_save.bin") ? "Saving..." : "Cannot save while a game is loading");
+    if (KDOWN(GLFW_KEY_F9)) toast(game_load_async("mare_save.bin") ? "Loading..." : "Please wait: save or load in progress");
     if (key_down('h')) { int c = G.nations[G.player].capital; if (c >= 0) cam_goto(G.ports[c].x, G.ports[c].z); }
     if (key_down('f') && U.sel_fleet_id) cam.follow_fleet_id = cam.follow_fleet_id == U.sel_fleet_id ? 0 : U.sel_fleet_id;
     if (key_down('b')) {   // battle view: through the clouds to the freshest fight (a staged exercise if the seas are quiet)

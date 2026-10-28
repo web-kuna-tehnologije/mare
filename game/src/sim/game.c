@@ -2,7 +2,8 @@
 // Sections: world setup (port snapping to harbour + town positions, population/building/stock
 // seeding from data tables, nations, starting fleets) · master tick (order matters: economy before
 // settlements before fleets; daily stat rollover; territory refresh) · save/load (raw game_t with
-// magic/version/size header; caches rebuilt after a load, state untouched on failure).
+// magic/version/size header; caches rebuilt after a load, state untouched on failure) · the
+// asynchronous save/load the game uses (snapshot on the main thread, file work on the IO lane).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,7 @@
 #include "../data/geo_ports.h"
 #include "../world/world.h"
 #include "../world/nav.h"
+#include "../core/jobs.h"
 
 game_t G;
 
@@ -169,22 +171,124 @@ int game_count_fleets(void) { int k = 0; for (int i = 0; i < G.nfleets; ++i) k +
 // ---------------------------------------------------------------------------
 // save / load: the whole state struct, guarded by magic, version and size
 
-int game_save(const char *path) {
-    FILE *fp = fopen(path, "wb"); if (!fp) { LOG_ERROR("game", "cannot open %s for writing", path); return 0; }
-    G.magic = SAVE_MAGIC; G.version = SAVE_VERSION; G.size = sizeof G;
-    int ok = fwrite(&G, sizeof G, 1, fp) == 1;
+static int save_header_ok(const game_t *s) { return s->magic == SAVE_MAGIC && s->version == SAVE_VERSION && s->size == sizeof G; }
+
+// Caches outside G are rebuilt from it (ONBOARDING "State"); the nav rows come back through the
+// pool, which is the one measurable cost of a load (~300 ms for 111 ports on 8 chunks).
+static void game_apply_loaded(const game_t *src) {
+    G = *src;
+    nav_ports_reset(); nav_ports_precompute(); regions_generate(G.seed, 0); regions_refresh_devmap(); economy_refresh_caches(); world_compute_territory();
+}
+
+// Write a complete file beside the target, then replace the target: whatever happens during the
+// write, the previous save stays intact. (remove + rename rather than a bare rename, because MSVC's
+// rename refuses to overwrite.)
+static int save_write(const game_t *s, const char *path) {
+    char tmp[300]; snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    FILE *fp = fopen(tmp, "wb"); if (!fp) { LOG_ERROR("game", "cannot open %s for writing", tmp); return 0; }
+    int ok = fwrite(s, sizeof *s, 1, fp) == 1;
+    ok = (fclose(fp) == 0) && ok;
+    if (ok) { remove(path); ok = rename(tmp, path) == 0; }
+    if (!ok) { LOG_ERROR("game", "writing %s failed", path); remove(tmp); }
+    return ok;
+}
+
+static int save_read(game_t *dst, const char *path, int *found) {
+    FILE *fp = fopen(path, "rb"); *found = fp != NULL;
+    if (!fp) { LOG_WARN("game", "no save file at %s", path); return 0; }
+    int ok = fread(dst, sizeof *dst, 1, fp) == 1 && save_header_ok(dst);
     fclose(fp);
-    if (ok) LOG_INFO("game", "saved %s (%u bytes, day %.1f)", path, (unsigned)sizeof G, G.day); else LOG_ERROR("game", "short write saving %s", path);
+    if (!ok) LOG_ERROR("game", "rejected %s: magic %08x version %u size %u (expected %08x %u %u)", path, dst->magic, dst->version, dst->size, SAVE_MAGIC, SAVE_VERSION, (unsigned)sizeof G);
+    return ok;
+}
+
+int game_save(const char *path) {
+    G.magic = SAVE_MAGIC; G.version = SAVE_VERSION; G.size = sizeof G;
+    int ok = save_write(&G, path);
+    if (ok) LOG_INFO("game", "saved %s (%u bytes, day %.1f)", path, (unsigned)sizeof G, G.day);
     return ok;
 }
 
 int game_load(const char *path) {
-    FILE *fp = fopen(path, "rb"); if (!fp) { LOG_WARN("game", "no save file at %s", path); return 0; }
-    game_t *tmp = malloc(sizeof *tmp);
-    int ok = fread(tmp, sizeof *tmp, 1, fp) == 1 && tmp->magic == SAVE_MAGIC && tmp->version == SAVE_VERSION && tmp->size == sizeof G;
-    fclose(fp);
-    if (ok) { G = *tmp; nav_ports_reset(); nav_ports_precompute(); regions_generate(G.seed, 0); regions_refresh_devmap(); economy_refresh_caches(); world_compute_territory(); LOG_INFO("game", "loaded %s (day %.1f)", path, G.day); }
-    else LOG_ERROR("game", "rejected %s: magic %08x version %u size %u (expected %08x %u %u)", path, tmp->magic, tmp->version, tmp->size, SAVE_MAGIC, SAVE_VERSION, (unsigned)sizeof G);
+    game_t *tmp = malloc(sizeof *tmp); int found;
+    int ok = save_read(tmp, path, &found);
+    if (ok) { game_apply_loaded(tmp); LOG_INFO("game", "loaded %s (day %.1f)", path, G.day); }
     free(tmp);
     return ok;
+}
+
+// ---------------------------------------------------------------------------
+// asynchronous save / load (game.h). The main thread owns gio_kind and the request fields; the
+// IO job owns gio_buf and gio_ok while it runs, and the join counter's completion publishes them
+// back (acquire/release inside jobs.cpp), so no other synchronisation is needed.
+
+static game_t        *gio_buf;                 // heap: a game_t never goes on the stack
+static game_io_kind_t gio_kind;                // in flight
+static job_counter_t  gio_counter;
+static char           gio_path[256];
+static int            gio_ok;
+static double         gio_t0, gio_snapshot_ms;
+static int            gio_pending; static char gio_pending_path[256];
+static int m_save_ms = -1, m_load_ms = -1, m_snapshot_ms = -1, m_save_count = -1;
+
+static void gio_save_job(void *arg) { (void)arg; gio_ok = save_write(gio_buf, gio_path); }
+static void gio_load_job(void *arg) { (void)arg; int found; gio_ok = save_read(gio_buf, gio_path, &found); }
+
+static int gio_start(game_io_kind_t kind, const char *path, job_fn fn) {
+    if (!gio_buf) gio_buf = malloc(sizeof *gio_buf);
+    snprintf(gio_path, sizeof gio_path, "%s", path);
+    gio_kind = kind; gio_ok = 0; gio_t0 = diag_now(); gio_snapshot_ms = 0;
+    if (kind == GAME_IO_SAVE) {
+        G.magic = SAVE_MAGIC; G.version = SAVE_VERSION; G.size = sizeof G;
+        *gio_buf = G;                              // the only work the frame pays for
+        gio_snapshot_ms = (diag_now() - gio_t0) * 1000;
+    }
+    gio_counter = jobs_counter();
+    if (gio_counter) jobs_submit(JOB_LANE_IO, fn, NULL, gio_counter);
+    else fn(NULL);                                 // counter slab exhausted (never in practice): do it here, blocking, rather than lose track of the buffer
+    return 1;
+}
+
+int game_save_async(const char *path) {
+    if (!path || !*path) return 0;
+    if (gio_kind == GAME_IO_LOAD) { LOG_WARN("game", "save of %s refused: a load is in flight", path); return 0; }
+    if (gio_kind == GAME_IO_SAVE) { gio_pending = 1; snprintf(gio_pending_path, sizeof gio_pending_path, "%s", path); return 1; }
+    return gio_start(GAME_IO_SAVE, path, gio_save_job);
+}
+
+int game_load_async(const char *path) {
+    if (!path || !*path) return 0;
+    if (gio_kind != GAME_IO_IDLE) { LOG_WARN("game", "load of %s refused: %s in flight", path, gio_kind == GAME_IO_SAVE ? "a save is" : "a load is already"); return 0; }
+    gio_pending = 0;
+    return gio_start(GAME_IO_LOAD, path, gio_load_job);
+}
+
+game_io_kind_t game_io_state(void) { return gio_kind; }
+
+int game_io_poll(game_io_result_t *out) {
+    if (gio_kind == GAME_IO_IDLE) return 0;
+    if (gio_counter && !jobs_done(gio_counter)) return 0;
+    if (gio_counter) jobs_release(gio_counter);
+    gio_counter = 0;
+    game_io_result_t r; memset(&r, 0, sizeof r);
+    r.kind = gio_kind; r.ok = gio_ok; snprintf(r.path, sizeof r.path, "%s", gio_path);
+    if (m_save_ms < 0) { m_save_ms = metric_id("io.save_ms"); m_load_ms = metric_id("io.load_ms"); m_snapshot_ms = metric_id("save.snapshot_ms"); m_save_count = metric_id("save.count"); }
+    if (r.kind == GAME_IO_LOAD) {
+        if (r.ok) { double t = diag_now(); game_apply_loaded(gio_buf); r.snapshot_ms = (diag_now() - t) * 1000; }
+        r.ms = (diag_now() - gio_t0) * 1000;
+        if (r.ok) LOG_INFO("game", "loaded %s (day %.1f) in %.1f ms: read on the IO lane, state applied and caches rebuilt in %.1f ms", r.path, G.day, r.ms, r.snapshot_ms);
+        metric_set(m_load_ms, r.ms);
+    } else {
+        r.ms = (diag_now() - gio_t0) * 1000; r.snapshot_ms = gio_snapshot_ms;
+        if (r.ok) LOG_INFO("game", "saved %s (%u bytes, day %.1f): snapshot %.2f ms on the main thread, written on the IO lane after %.1f ms", r.path, (unsigned)sizeof G, gio_buf->day, r.snapshot_ms, r.ms);
+        metric_set(m_save_ms, r.ms); metric_set(m_snapshot_ms, r.snapshot_ms); if (r.ok) metric_add(m_save_count, 1);
+    }
+    gio_kind = GAME_IO_IDLE;
+    if (gio_pending) { gio_pending = 0; game_save_async(gio_pending_path); }
+    if (out) *out = r;
+    return 1;
+}
+
+void game_io_flush(void) {
+    while (gio_kind != GAME_IO_IDLE) if (!game_io_poll(NULL)) jobs_help();   // jobs_help sleeps briefly when the IO threads hold the work
 }

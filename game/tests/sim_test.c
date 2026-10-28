@@ -158,6 +158,38 @@ int main(int argc, char **argv) {
     game_advance(50);
     CHECK(G.day == after_a.day && G.trades == after_a.trades && G.battles == after_a.battles && G.nlog == after_a.nlog, "simulation after load is not deterministic (%d vs %d trades)", G.trades, after_a.trades);
     remove("test_save.bin");
+
+    // asynchronous save / load (game.h): the file written on the IO lane is byte-identical to
+    // the blocking save's, a load is refused while a save is in flight, a save requested during
+    // a save is queued and also written, no temp file is left behind, and a state applied by
+    // game_io_poll continues exactly as the blocking path does.
+    { game_io_result_t r; int done = 0;
+      CHECK(game_save("test_sync.bin"), "sync save failed");
+      CHECK(game_save_async("test_async.bin"), "async save refused");
+      CHECK(game_io_state() == GAME_IO_SAVE, "a save should be in flight until polled");
+      CHECK(!game_load_async("test_async.bin"), "a load must be refused while a save is in flight");
+      CHECK(game_save_async("test_async2.bin"), "a second save should be queued, not refused");
+      while (game_io_state() != GAME_IO_IDLE) { if (game_io_poll(&r)) { done++; CHECK(r.kind == GAME_IO_SAVE && r.ok, "async save %d failed (%s)", done, r.path); CHECK(r.snapshot_ms < 50, "snapshot took %.1f ms", r.snapshot_ms); } else jobs_help(); }
+      CHECK(done == 2, "expected two completed saves, got %d", done);
+      { static game_t a, b; const char *names[2] = { "test_async.bin", "test_async2.bin" };
+        FILE *fa = fopen("test_sync.bin", "rb"); CHECK(fa && fread(&a, sizeof a, 1, fa) == 1, "cannot read back the sync save"); if (fa) fclose(fa);
+        for (int k = 0; k < 2; ++k) { FILE *fb = fopen(names[k], "rb"); CHECK(fb && fread(&b, sizeof b, 1, fb) == 1, "cannot read back %s", names[k]); if (fb) fclose(fb);
+          CHECK(memcmp(&a, &b, sizeof a) == 0, "%s differs from the blocking save", names[k]);
+          char tmp[64]; snprintf(tmp, sizeof tmp, "%s.tmp", names[k]); FILE *ft = fopen(tmp, "rb"); CHECK(!ft, "%s was left behind", tmp); if (ft) fclose(ft); } }
+      snapshot = G; game_advance(50); after_a = G;
+      CHECK(game_load_async("test_async.bin"), "async load refused");
+      CHECK(!game_save_async("test_never.bin"), "a save must be refused while a load is in flight");
+      while (!game_io_poll(&r)) jobs_help();
+      CHECK(r.kind == GAME_IO_LOAD && r.ok, "async load failed");
+      CHECK(memcmp(&G, &snapshot, sizeof G) == 0, "state applied by the async load differs from what was saved");
+      game_advance(50);
+      CHECK(G.day == after_a.day && G.trades == after_a.trades && G.battles == after_a.battles && G.nlog == after_a.nlog, "simulation after an async load is not deterministic (%d vs %d trades)", G.trades, after_a.trades);
+      before = G;
+      CHECK(game_load_async("test_missing.bin"), "a load of a missing file should start and then fail");
+      while (!game_io_poll(&r)) jobs_help();
+      CHECK(r.kind == GAME_IO_LOAD && !r.ok, "a missing file must be reported as a failed load");
+      CHECK(memcmp(&G, &before, sizeof G) == 0, "a failed async load modified the state");
+      remove("test_sync.bin"); remove("test_async.bin"); remove("test_async2.bin"); }
     int errors_before = diag_level_count(LOG_ERROR);
     FILE *bad = fopen("test_bad.bin", "wb"); fputs("garbage", bad); fclose(bad);
     before = G; CHECK(!game_load("test_bad.bin"), "garbage save was accepted"); CHECK(memcmp(&G, &before, sizeof G) == 0, "failed load modified the state"); remove("test_bad.bin");

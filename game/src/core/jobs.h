@@ -93,6 +93,7 @@ typedef struct job_lane_stats_t {
 
 typedef struct job_stats_t {
     int       workers, slots;
+    int       io_threads;                // dedicated IO lane threads (0 in synchronous mode)
     long long inline_runs;               // ran on the submitting thread (synchronous, or a full lane)
     double    wait_ms;                   // time blocked in jobs_wait with nothing to help with
     job_lane_stats_t lane[JOB_LANE_COUNT];

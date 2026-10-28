@@ -94,6 +94,9 @@ Status as of the current codebase. Each entry names the module that owns it.
 - Procedural ship meshes (hull loft, masts, billowed sails, nation stripe, flag) in 2 LODs + icon;
   procedural towns (houses by population, tower, fort walls, pier, flag); instanced rendering.
 - Screen-sized SDF icons; RTS camera with smooth 3D→map morph; picking and labels.
+- Occlusion culling: authored buildings hidden behind other buildings are tested with hardware
+  occlusion queries against the depth buffer and left out of the main pass (shadows still
+  cast); a terrain-horizon ray for towns and ships (DESIGN_VISUAL.md step 1).
 
 ## UI (`src/ui`)
 - Main menu (nation choice/load), top bar (date, speed, treasury, income, toggles, error badge),
@@ -102,14 +105,25 @@ Status as of the current codebase. Each entry names the module that owns it.
   positions), Stats & diplomacy (nations, wars, price trends, standing), Help, toasts, world labels.
 - Commands: select, sail, dock, attack, besiege, blockade, patrol, colonise site, claim coast,
   set route, auto-trade, follow, cycle fleets, save/load, map toggle.
+- Save (F5) and load (F9) run on the IO lane: the frame pays a ~1 MB snapshot (0.1-0.3 ms), the
+  file is written beside the old one and renamed over it when complete. Autosave every
+  `AUTOSAVE_SECS` (180 s) of unpaused play to `mare_autosave.bin`, loadable from the menu.
 
 ## Observability (`src/core/diag.c`, `src/ui/dashboard.c`)
 - Six-level logging to console (coloured), per-run file, cross-run error file with banners and
   crash records, in-memory ring; sequence-numbered, timestamped, sim-day-stamped records.
 - Metrics (counters with rates, gauges with min/max), profiler scopes with rolling stats, metrics
   CSV in dev mode, signal handlers.
-- Dev dashboard (F3 / `--dev`): performance graph and scope tree, metrics, filtered log, system
-  info, render-pass toggles, test buttons.
+- Dev dashboard (F3 / `--dev`): Performance (frame graph, scope tree, GPU passes, memory),
+  Metrics, **Jobs** (lane occupancy and queue depths with history, jobs/s, inline runs and
+  blocked-wait time, the asset pipeline's stages in flight, save/load state and cost, autosave
+  countdown), **LOD** (tier and budgets, the director's threshold scale, instance fade/pop
+  counters, GPU residency per asset and LOD, streamed textures), Assets, filtered Log, System;
+  `MARE_DASHTAB=` opens a tab for unattended runs.
+- Every frame over 25 ms is logged at DEBUG with the previous frame's CPU/GPU split, upload
+  jobs, assets loading and save/load state, so a hitch in a run log can be attributed.
+- `tools/metrics_summary.py` turns a metrics CSV into a median / p99 / max table per column:
+  the format the ROADMAP's before/after captures use.
 
 ## Concurrency (`src/core/jobs.h`, `jobs.cpp`)
 - Thread pool of `cores - 1` workers over four lanes: WORKER (frame-critical, served first),
@@ -118,6 +132,9 @@ Status as of the current codebase. Each entry names the module that owns it.
 - Join counters, `jobs_parallel_for` with worker-count-independent chunks (so parallel
   reductions stay bit-identical), waits that help instead of idling, per-lane statistics.
 - `MARE_JOBS=0` forces synchronous execution, `MARE_JOBS=N` pins the worker count.
+- Clients: asset loading (IO → DECODE → MAIN), streamed textures, the port-distance precompute
+  at game start (`parallel_for` on WORKER), save/load (`game_save_async` / `game_load_async`:
+  snapshot on the main thread, file work on IO, result polled once per frame).
 
 ## Assets and LOD (`src/assets`, `src/gfx/lod.c`, `src/gfx/textures.c`)
 - glTF/GLB asset runtime with JSON descriptors (scale fit, pivot, forward axis, material rules,
@@ -127,6 +144,12 @@ Status as of the current codebase. Each entry names the module that owns it.
   reference pixels (`px`) or authored distances, per-instance hysteresis and 0.3 s dithered
   cross-fades (meshes and shadows), mesh-to-icon dissolves; `lod.pops` / `lod.fading` metrics,
   `MARE_ZOOM` scripted zoom for measuring.
+- View tiers (city / battle / regional / strategic / continental) with a triangle budget each;
+  the director scales the thresholds when the frame is over budget so the smallest instances
+  hand over a level first. Icons cluster at continental zoom. Residency: every asset is wanted
+  up to the regional tier, beyond it the coldest assets are evicted once the GPU budget is
+  exceeded and reloaded through the pipeline on return (towns draw their procedural fallback
+  meanwhile).
 - Authored sea tiles (seamless normal map + foam albedo cut from the reference sheet by
   `tools/sea_textures.py`), streamed; the procedural map covers until they are resident.
 - Meshy building set: `tools/blender_export_glb.py` exports per-LOD GLBs (80k/24k/7k/2k

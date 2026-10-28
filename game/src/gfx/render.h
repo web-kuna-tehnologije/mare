@@ -33,6 +33,7 @@ void render_territory_upload(void); // push the territory map to the GPU when te
 // procedural detail normal maps (detail.c): tileable wave normals for the sea, surface grain
 // applied triplanar to the meshes (they carry no UVs)
 void detail_init(void);
+float terrain_max_height(void);          // highest heightmap value (occlusion ray early-out)
 const rhi_texture_t *detail_waves(void);
 const rhi_texture_t *detail_grain(void);
 
@@ -40,6 +41,9 @@ const rhi_texture_t *detail_grain(void);
 int  texture_request(const char *path, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap);
 const rhi_texture_t *texture_get(int handle);
 int  texture_state(int handle);          // 1 loading, 2 ready, 3 failed
+int  texture_count(void);                // streamed textures requested so far (dashboard)
+const char *texture_path(int handle);
+void texture_size(int handle, int *w, int *h);   // 0x0 until decoded
 
 // HDR (hdr.c): 3D passes render into an RGBA16F target between hdr_begin and hdr_resolve
 void hdr_begin(int w, int h, float r, float g, float b);   // bind + clear the HDR target (recreated on resize)

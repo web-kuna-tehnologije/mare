@@ -121,6 +121,10 @@
 // watchable rather than teleporting between ticks. Speed 4 stays a fast-forward for long waits.
 #define SIM_SPEEDS { 0.3333f, 0.5f, 1.0f, 3.0f }
 #define SIM_SPEED_DEFAULT 0.3333f
+// Autosave (mare.c): every so many seconds of unpaused play the state is written to
+// mare_autosave.bin on the IO lane; the frame that triggers it only pays the ~1 MB snapshot.
+// MARE_AUTOSAVE_S overrides it for a run (0 disables).
+#define AUTOSAVE_SECS 180.f
 #define GUNSMOKE_DAYS 0.12f      // how long a broadside's smoke hangs around (also the "recently fired" window)
 
 // Day and night (gfx/lighting.c). The cycle is driven by the simulated day, so it pauses with

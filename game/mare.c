@@ -45,6 +45,8 @@
 #include "src/gfx/lighting.c"
 #include "src/gfx/camera.c"
 #include "src/gfx/lod.c"
+#include "src/gfx/occlusion.c"
+#include "src/gfx/occquery.c"
 #include "src/gfx/textures.c"
 #include "src/gfx/scene.c"
 #include "src/gfx/detailview.c"
@@ -165,6 +167,14 @@ int main(int argc, char **argv) {
     int p_upload = prof_id("jobs.upload"), m_jobs_main = metric_id("jobs.main_ran"), m_jobs_queued = metric_id("jobs.queued");
     int m_lod_pops = metric_id("lod.pops"), m_lod_fading = metric_id("lod.fading"), m_asset_loading = metric_id("asset.loading");
     int m_lod_tris = metric_id("lod.asset_tris"), m_lod_budget = metric_id("lod.budget_scale"), m_icons_clustered = metric_id("lod.icons_clustered");
+    int m_jobs_busy = metric_id("jobs.busy_pct"), m_jobs_wait = metric_id("jobs.wait_ms"), m_jobs_io_q = metric_id("jobs.io_queued");
+    int m_occ_ports = metric_id("gfx.occluded_ports"), m_occ_ships = metric_id("gfx.occluded_ships"), m_occ_samples = metric_id("gfx.occ_samples");
+    int m_occq_hidden = metric_id("gfx.occluded_assets"), m_occq_queries = metric_id("gfx.occ_queries"), m_occq_moving = metric_id("gfx.cam_moving");
+    if (getenv("MARE_OCCLUSION")) { occlusion_enabled = atoi(getenv("MARE_OCCLUSION")) != 0; LOG_INFO("gpu", "occlusion culling %s (MARE_OCCLUSION)", occlusion_enabled ? "on" : "off"); }
+    // Autosave clock (balance.h AUTOSAVE_SECS, MARE_AUTOSAVE_S overrides; 0 disables). Counts
+    // unpaused play only, so a game left paused overnight is not rewritten every three minutes.
+    float autosave_secs = AUTOSAVE_SECS; if (getenv("MARE_AUTOSAVE_S")) { autosave_secs = (float)atof(getenv("MARE_AUTOSAVE_S")); LOG_INFO("main", "autosave every %.0f s (MARE_AUTOSAVE_S)", autosave_secs); }
+    U.autosave_in = autosave_secs;
     double last = time_ss(); float sim_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
     while (app_swap(.color = 0xFF000000)) {
@@ -173,6 +183,13 @@ int main(int argc, char **argv) {
         { app_state_t st = app_state(); screen_w = maxi(1, st.w); screen_h = maxi(1, st.h); glfwGetWindowSize(st.handle, &window_w, &window_h); window_w = maxi(1, window_w); window_h = maxi(1, window_h); }   // once per frame
         double now = time_ss(); float dt = minf((float)(now - last), 0.1f); last = now;
         RF.time += dt; metric_set(m_dt, dt * 1000); metric_set(m_fps, fps());
+        // Evidence for the stall hunt (DESIGN_JOBS.md step 10): any frame over 25 ms after the
+        // first second is logged with where the previous frame's time went, so a hitch in a run
+        // log can be attributed (CPU scope, GPU, uploads, a save in flight) instead of guessed.
+        if (dt > 0.025f && diag_now() - t_run0 > 1.0 && prof_frame_index() > 10)
+            LOG_DEBUG("main", "long frame %.1f ms: previous frame cpu %.1f ms, gpu %.1f ms, %.0f main-lane jobs, %d assets loading, save/load %s, cam dist %.0f",
+                      dt * 1000, prof_get(p_frame)->last_ms, metric_value(m_gpu_total), metric_value(m_jobs_main), asset_loading_count(),
+                      game_io_state() == GAME_IO_IDLE ? "idle" : "in flight", cam.dist);
 
         mu_Container *dbg = ui_root_container("debug");   // the framework's own window: keep it out of the way
         if (dbg) dbg->rect = mu_rect(-5000, -5000, 10, 10);
@@ -211,15 +228,21 @@ int main(int argc, char **argv) {
             metric_set(m_steps, steps);
             prof_end(p_sim);
             if (U.toast_timer > 0) U.toast_timer -= dt;
+            if (autosave_secs > 0 && eff_speed > 0) {
+                U.autosave_in -= dt;
+                if (U.autosave_in <= 0) { U.autosave_in = autosave_secs; game_save_async("mare_autosave.bin"); }   // refused only during a load; the next tick retries
+            }
         }
-        // MARE_ZOOM="d0,d1,seconds[,lon,lat]" flies the camera distance from d0 to d1 over the given
-        // time (and back, looping): the scripted full-range zoom the LOD work is measured with
-        // (lod.pops must stay 0, frame.dt_ms must stay flat while assets stream in and out).
+        // MARE_ZOOM="d0,d1,seconds[,lon,lat[,delay]]" flies the camera distance from d0 to d1 over
+        // the given time (and back, looping): the scripted full-range zoom the LOD work is measured
+        // with (lod.pops must stay 0, frame.dt_ms must stay flat while assets stream in and out).
+        // `delay` holds the camera at d0 for that many seconds first, so a measurement can start
+        // once the start-up asset loads have landed and the towns around d0 are built.
         static const char *zoom_env; static int zoom_read;
         if (!zoom_read) { zoom_env = getenv("MARE_ZOOM"); zoom_read = 1; if (zoom_env) LOG_INFO("main", "scripted zoom %s (MARE_ZOOM)", zoom_env); }
         if (zoom_env && !U.in_menu && detailview_mode() == DV_OFF) {
-            float d0 = 60, d1 = 900, secs = 10, lo = 1e9f, la = 1e9f; sscanf(zoom_env, "%f,%f,%f,%f,%f", &d0, &d1, &secs, &lo, &la);
-            float ph = fmodf((float)(diag_now() - t_run0) / maxf(secs, 0.1f), 2.f); if (ph > 1) ph = 2 - ph;   // there and back
+            float d0 = 60, d1 = 900, secs = 10, lo = 1e9f, la = 1e9f, delay = 0; sscanf(zoom_env, "%f,%f,%f,%f,%f,%f", &d0, &d1, &secs, &lo, &la, &delay);
+            float ph = fmodf(maxf(0.f, (float)(diag_now() - t_run0) - delay) / maxf(secs, 0.1f), 2.f); if (ph > 1) ph = 2 - ph;   // there and back
             cam.want_dist = cam.dist = lerpf(d0, d1, ph);
             if (lo < 1e8f) { cam.want_tx = cam.tx = lon2x(lo); cam.want_tz = cam.tz = lat2z(la); }
             cam_update(dt);
@@ -238,8 +261,29 @@ int main(int argc, char **argv) {
           job_stats_t js; jobs_stats(&js);
           metric_set(m_jobs_main, ran);
           metric_set(m_jobs_queued, js.lane[JOB_LANE_WORKER].queued + js.lane[JOB_LANE_DECODE].queued
-                                  + js.lane[JOB_LANE_IO].queued + js.lane[JOB_LANE_MAIN].queued); }
+                                  + js.lane[JOB_LANE_IO].queued + js.lane[JOB_LANE_MAIN].queued);
+          metric_set(m_jobs_io_q, js.lane[JOB_LANE_IO].queued);
+          metric_set(m_jobs_wait, js.wait_ms);
+          // pool utilisation over the last half second: busy time on the pool lanes / (window x workers)
+          static double busy_prev, busy_t0; double busy_now = js.lane[JOB_LANE_WORKER].busy_ms + js.lane[JOB_LANE_DECODE].busy_ms;
+          if (now - busy_t0 >= 0.5) { if (busy_t0 > 0 && js.workers > 0) metric_set(m_jobs_busy, 100.0 * (busy_now - busy_prev) / ((now - busy_t0) * 1000.0 * js.workers)); busy_prev = busy_now; busy_t0 = now; } }
         prof_end(p_upload);
+        // A save or load that finished on the IO lane: the state swap (load) happens inside the
+        // poll, here on the main thread between the simulation step and the scene build.
+        { game_io_result_t r;
+          static float io_worst_dt;                       // the evidence that a save does not hitch: the worst frame while the IO lane worked
+          if (game_io_state() != GAME_IO_IDLE) io_worst_dt = maxf(io_worst_dt, dt);
+          if (game_io_poll(&r)) {
+              int autosave = strstr(r.path, "autosave") != NULL;
+              LOG_INFO("main", "%s %s %s: worst frame while it was in flight %.1f ms (snapshot/apply %.2f ms, %.1f ms end to end)",
+                       r.kind == GAME_IO_SAVE ? (autosave ? "autosave" : "save") : "load", r.path, r.ok ? "done" : "FAILED", io_worst_dt * 1000, r.snapshot_ms, r.ms);
+              io_worst_dt = 0;
+              if (r.kind == GAME_IO_SAVE) { if (r.ok) toast(autosave ? "Autosaved (%s)" : "Game saved (%s)", ui_date(G.day)); else toast("Save failed: see the log"); }
+              else if (r.ok) { ui_select_fleet(0); scene_reset_caches();
+                               if (U.in_menu) { int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; }
+                               toast("Game loaded (%s)", ui_date(G.day)); }
+              else toast("No compatible saved game found");
+          } }
         if (territory_dirty == 2) render_territory_upload();
 
         // ---- 3d
@@ -253,6 +297,8 @@ int main(int argc, char **argv) {
         // scene geometry is built once, then submitted to the shadow cascades and the main passes
         lod_frame_begin((float)screen_h, 45.f * 0.0174533f, dt);   // screen-space LOD metric for this frame (camera.c: 45 degree vertical FOV)
         lod_set_tier(cam.dist, cam.mapness);                       // which kind of scene this is, and its triangle budget
+        occ_frame_begin(&RF.campos.x, terrain_max_height());        // terrain occlusion rays start from this eye (occlusion.h)
+        occq_frame_begin();                                         // GPU occlusion answers from the last frames (occquery.h)
         if (!U.in_menu) {
             SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
             detailview_frame(dt);                 // transition clock + staged-scene animation (before the shadow pass)
@@ -276,6 +322,7 @@ int main(int argc, char **argv) {
                 prof_begin(p_ships); if (U.pass_ships) scene_submit_ships(); prof_end(p_ships);
             }
             rhi_gpu_end();
+            occq_flush();                       // bounding-box queries against the depth the opaque pass just wrote
         }
         prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !U.in_menu && dv_on) detailview_sea(); else if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
         if (!U.in_menu) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
@@ -301,7 +348,10 @@ int main(int argc, char **argv) {
           metric_set(m_ram, diag_process_ram() / (1024.0*1024.0));
           metric_set(m_asset_gpu, asset_gpu_bytes() / (1024.0*1024.0)); metric_set(m_asset_inst, scene_asset_instances);
           metric_set(m_lod_pops, lod_pops); metric_set(m_lod_fading, lod_fading); metric_set(m_asset_loading, asset_loading_count());
-          metric_set(m_lod_tris, (double)lod_last_tris); metric_set(m_lod_budget, lod_budget_scale); metric_set(m_icons_clustered, scene_icons_clustered); }
+          if (lod_pops) LOG_DEBUG("lod", "%d multi-level jumps clamped this frame (cam dist %.1f, %d fading, %d assets loading): a camera teleport or a town rebuilt around a newly landed asset, walked one level per fade - not a visible pop", lod_pops, cam.dist, lod_fading, asset_loading_count());
+          metric_set(m_lod_tris, (double)lod_last_tris); metric_set(m_lod_budget, lod_budget_scale); metric_set(m_icons_clustered, scene_icons_clustered);
+          metric_set(m_occ_ports, scene_occluded_ports); metric_set(m_occ_ships, scene_occluded_ships); metric_set(m_occ_samples, occ_samples);
+          metric_set(m_occq_hidden, scene_occluded_assets); metric_set(m_occq_queries, occq_queried); metric_set(m_occq_moving, occq_moving); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");
 
@@ -310,7 +360,7 @@ int main(int argc, char **argv) {
         if (U.in_menu) {
             int pick = hud_menu();
             if (pick > 0) { game_new(pick, seed); scene_reset_caches(); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; U.show_help = 1; }
-            else if (pick < 0) { if (game_load("mare_save.bin")) { scene_reset_caches(); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; } else toast("No compatible saved game found"); }
+            else if (pick < 0) game_load_async(pick == -2 ? "mare_autosave.bin" : "mare_save.bin");   // applied by the poll above; the menu shows "Loading..." meanwhile
         } else { if (U.pass_panels) hud_panels(); dashboard_panel(); }
         prof_end(p_panels);
         prof_end(p_frame);

@@ -321,6 +321,44 @@ void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n) {
     rhi_stats.upload_bytes += (size_t)n * g->inst_stride;
 }
 
+// ---------------------------------------------------------------------------
+// occlusion queries (rhi.h): GL 3.3 boolean queries; the conservative variant (GL 4.3) is used
+// when the loader has its token, since a proxy box only needs "might be visible".
+#ifndef GL_ANY_SAMPLES_PASSED
+#define GL_ANY_SAMPLES_PASSED 0x8C2F
+#endif
+#ifndef GL_ANY_SAMPLES_PASSED_CONSERVATIVE
+#define GL_ANY_SAMPLES_PASSED_CONSERVATIVE 0x8D6A
+#endif
+#ifndef GL_QUERY_RESULT_AVAILABLE
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
+#endif
+#ifndef GL_QUERY_RESULT
+#define GL_QUERY_RESULT 0x8866
+#endif
+static int occq_target = 0;
+int rhi_occlusion_supported(void) { return glGenQueries && glBeginQuery && glEndQuery && glGetQueryObjectui64v ? 1 : 0; }
+unsigned rhi_query_make(void) { unsigned q = 0; if (rhi_occlusion_supported()) glGenQueries(1, &q); return q; }
+void rhi_query_begin(unsigned q) {
+    if (!q) return;
+    if (!occq_target) {   // probe once: GL 4.3 drivers accept the conservative target, older ones error
+        while (glGetError()) {}
+        glBeginQuery(GL_ANY_SAMPLES_PASSED_CONSERVATIVE, q);
+        if (glGetError()) { occq_target = GL_ANY_SAMPLES_PASSED; glBeginQuery(occq_target, q); } else { occq_target = GL_ANY_SAMPLES_PASSED_CONSERVATIVE; }
+        return;
+    }
+    glBeginQuery(occq_target, q);
+}
+void rhi_query_end(void) { if (occq_target) glEndQuery(occq_target); }
+int rhi_query_result(unsigned q, int *passed) {
+    if (!q) { *passed = 1; return 1; }
+    GLuint64 avail = 0; glGetQueryObjectui64v(q, GL_QUERY_RESULT_AVAILABLE, &avail);
+    if (!avail) return 0;
+    GLuint64 r = 1; glGetQueryObjectui64v(q, GL_QUERY_RESULT, &r);
+    *passed = r != 0; return 1;
+}
+void rhi_color_write(int on) { glColorMask(on, on, on, on); }
+
 void rhi_draw(rhi_geometry_t *g, int ninstances) {
     if (g->vao != rhi_bound_vao) { glBindVertexArray(g->vao); rhi_bound_vao = g->vao; }
     rhi_stats.draws++; rhi_stats.instances += ninstances ? ninstances : 1;

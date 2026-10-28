@@ -25,9 +25,12 @@ Useful flags: `--nation=4 --seed=7` (skip the menu), `--skip=365` (pre-simulate)
 (dashboard, verbose log, metrics CSV), `--simulate=730` (headless balance report), `--fps=N`,
 `--log-level=debug`, `--log-dir=PATH`. Environment: `MARE_LOG_LEVEL`, `MARE_PASSES=terrain,sea`
 (restrict render passes for profiling), `MARE_AUTOQUIT_S=30`, `MARE_JOBS=0|N` (synchronous
-job system / pinned worker count), `MARE_ZOOM=d0,d1,seconds[,lon,lat]` (scripted camera zoom
-there and back, for LOD/streaming measurements), `MARE_CAM=lon,lat,dist[,yaw]` and
-`MARE_SCREENSHOT=file.ppm` (pinned camera + capture), `MARE_DETAIL=battle|city`.
+job system / pinned worker count), `MARE_ZOOM=d0,d1,seconds[,lon,lat[,delay]]` (scripted camera
+zoom there and back after an optional hold, for LOD/streaming measurements), `MARE_CAM=lon,lat,dist[,yaw]` and
+`MARE_SCREENSHOT=file.ppm` (pinned camera + capture), `MARE_DETAIL=battle|city`,
+`MARE_DASHTAB=performance|metrics|jobs|lod|assets|log|system` (open the dashboard on a tab),
+`MARE_AUTOSAVE_S=N` (autosave interval, 0 disables; the evidence runs use 4), `MARE_OCCQ=0|1|2`
+(GPU occlusion culling off / on / query-only) and `MARE_OCCLUSION=0` (terrain occlusion ray).
 
 Asset tooling (Windows dev box: Blender 5.2 and Python with PIL):
 `blender -b src.blend --python tools/blender_export_glb.py -- game/assets/<name> <name>` exports
@@ -109,7 +112,9 @@ reloaded game continues bit-identically — keep it that way (see rules below).
 * **State**: anything the simulation needs to resume goes in `game_t` (bump `SAVE_VERSION` when
   the layout changes). Caches outside `G` must be rebuildable from `G` (`economy_refresh_caches`,
   `nav_ports_reset`) and must not change results (the nav distance rows are computed
-  synchronously for exactly this reason).
+  synchronously for exactly this reason). The game saves and loads through
+  `game_save_async` / `game_load_async` + `game_io_poll` (IO lane); `game_save` / `game_load`
+  are the blocking equivalents for tests and tools, and write the same bytes.
 * **References**: fleets by `id` (`fleet_by_id`), ports by index (ports are never removed; a
   merged settlement is flagged `merged_into` — always skip `port_is_gone()` ports).
 * **Randomness**: only `rnd_*(&G.rng, ...)` in simulation code; `rnd_chance(&G.rng, p_per_day, dt)`
@@ -159,12 +164,16 @@ reloaded game continues bit-identically — keep it that way (see rules below).
 
 1. Reproduce headlessly if you can: `./mare --simulate=DAYS --seed=N --nation=X --log-level=debug`
    prints the chronicle and a nation table; `logs/mare_<stamp>.log` has every DEBUG record.
-2. In the window, **F3** opens the dashboard: Performance (frame graph, scope tree), Metrics,
-   Log (level/module filters), System (GL info, test buttons, pass toggles). The top bar shows a
-   red `N err` badge when anything was logged at ERROR; `logs/mare_errors.log` accumulates WARN+
-   across runs with run banners and crash lines.
+2. In the window, **F3** opens the dashboard: Performance (frame graph, scope tree, GPU
+   passes), Metrics, Jobs (lanes, queues, pipeline stages, save/load), LOD (tier, budget,
+   residency), Assets, Log (level/module filters), System (GL info, test buttons, pass
+   toggles). The top bar shows a red `N err` badge when anything was logged at ERROR;
+   `logs/mare_errors.log` accumulates WARN+ across runs with run banners and crash lines.
 3. `MARE_PASSES=...` + `MARE_AUTOQUIT_S=25 ./mare --dev` and `logs/mare_metrics.csv` give
-   reproducible per-pass timings (see README "Performance notes" for the method).
+   reproducible per-pass timings (see README "Performance notes" for the method);
+   `python3 tools/metrics_summary.py logs/mare_metrics.csv --after 3` prints the median / p99 /
+   max table the ROADMAP captures use. A hitch shows up in the run log as a DEBUG `long frame`
+   record with the previous frame's CPU/GPU split and what the pool was doing.
 4. Debug keys (dashboard open): F6 storm at the camera, F7 pirates, F8 +100k ducats.
 5. Tests: `./game/build.sh test [years]`. `VERBOSE=1 ./sim_test` prints fleets found on land.
    Add a scenario to `sim_test.c` whenever you fix a simulation bug.

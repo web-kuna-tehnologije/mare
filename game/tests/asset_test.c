@@ -23,6 +23,7 @@
 #define ASSET_NO_JOBS            // headless: every pipeline stage runs inline (the job system's synchronous mode)
 #include "../src/assets/asset.c"
 #include "../src/gfx/lod.c"      // screen-space LOD selector: pure math, no GL
+#include "../src/gfx/occlusion.c" // terrain occlusion rays: pure math over a height callback
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
@@ -467,9 +468,43 @@ static void test_lod(void) {
     CHECK(a1.lod == b1.lod && a2.lod == b2.lod && a2.lod2 == b2.lod2 && a2.t == b2.t, "selection is deterministic");
 }
 
+// Terrain occlusion (occlusion.c) over synthetic ground: a ridge 3 units high along x = 5,
+// with a gap in it at z in [8, 12].
+static float ridge_height(float x, float z) {
+    if (x > 4.f && x < 6.f && !(z > 8.f && z < 12.f)) return 3.f;
+    return 0.f;
+}
+static float flat_height(float x, float z) { (void)x; (void)z; return 0.f; }
+static void test_occlusion(void) {
+    float eye_low[3] = { 0.f, 1.5f, 0.f }, eye_gap[3] = { 0.f, 1.5f, 10.f }, eye_high[3] = { 0.f, 60.f, 0.f };
+    occ_frame_begin(eye_low, 3.f);
+    CHECK(occ_ray_hidden(ridge_height, 10.f, 0.5f, 0.f, 0.5f, NULL), "a low point behind the ridge must be hidden");
+    CHECK(!occ_ray_hidden(ridge_height, 10.f, 6.0f, 0.f, 0.5f, NULL), "a point above the ridge is visible");
+    CHECK(!occ_ray_hidden(flat_height, 10.f, 0.5f, 0.f, 0.5f, NULL), "flat ground hides nothing");
+    CHECK(!occ_ray_hidden(ridge_height, 5.5f, 3.3f, 0.f, 0.f, NULL), "a house standing on the ridge is visible (ground must clear the ray by the margin)");
+    CHECK(occ_ray_hidden(ridge_height, 7.f, 0.5f, 0.f, 0.5f, NULL) && !occ_ray_hidden(ridge_height, 7.f, 0.5f, 0.f, 3.5f, NULL), "the skip distance excludes the object's own footprint from the march");
+    { const float box[4] = { 4.f, -2.f, 6.f, 2.f };
+      CHECK(!occ_ray_hidden(ridge_height, 5.f, 0.5f, 0.f, 0.f, box), "samples inside the exclusion box are ignored (a chunk cannot hide behind itself)"); }
+    CHECK(occ_sphere_hidden(ridge_height, 10.f, 0.f, 1.f, 1.f), "a short object fully behind the ridge is hidden");
+    CHECK(!occ_sphere_hidden(ridge_height, 10.f, 0.f, 1.f, 5.f), "a tall object shows its top over the ridge");
+    // the same objects seen along z = 10, where the ridge has its gap
+    occ_frame_begin(eye_gap, 3.f);
+    CHECK(!occ_ray_hidden(ridge_height, 10.f, 0.5f, 10.f, 0.5f, NULL), "a point seen through the gap is visible");
+    CHECK(occ_ray_hidden(ridge_height, 10.f, 0.5f, 6.f, 0.5f, NULL), "beside the gap the ridge still hides");
+    CHECK(!occ_sphere_hidden(ridge_height, 10.f, 7.f, 2.f, 1.f), "an object with one lateral extreme reaching the gap stays visible");
+    CHECK(occ_sphere_hidden(ridge_height, 10.f, 4.f, 2.f, 1.f), "an object whose extremes both face ridge is hidden");
+    int before = occ_samples;
+    occ_frame_begin(eye_high, 3.f);
+    CHECK(!occ_sphere_hidden(ridge_height, 10.f, 0.f, 1.f, 1.f), "from 60 units up nothing is hidden");
+    CHECK(occ_samples <= 12, "the ray must stop once it climbs above the terrain ceiling (%d samples)", occ_samples);
+    CHECK(occ_tests == 1 && before > 0, "frame counters reset and count (%d tests, %d samples before)", occ_tests, before);
+    CHECK(!occ_ray_hidden(ridge_height, 1.f, 0.f, 0.f, 0.f, NULL), "a point right under the eye is never hidden");
+}
+
 int main(void) {
     diag_init(&(diag_config_t){ .logdir = "test_logs", .console_level = LOG_ERROR });
     test_lod();
+    test_occlusion();
     test_glb_scene();
     test_gltf_data_uri();
     test_validation();

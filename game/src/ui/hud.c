@@ -316,7 +316,14 @@ int hud_menu(void) {
         if (ui_btn(nations_info[n].name)) chosen = n;
         int ports = 0; for (int i = 0; i < GEO_NPORTS; ++i) ports += geo_ports[i].nation == n && geo_ports[i].size > 0;
         mu_label(ui_ctx, va("%d ports, %s", ports, blurb[n])); mu_pop_id(ui_ctx); }
-    ROW(1, -1, 24); if (ui_btn("Load saved game")) chosen = -1;
+    if (game_io_state() == GAME_IO_LOAD) { ROW(1, -1, 24); mu_label(ui_ctx, "Loading..."); }
+    else {
+        static int autosave_checked, autosave_exists;   // probe the file once per menu visit, not every frame
+        if (!autosave_checked) { FILE *f = fopen("mare_autosave.bin", "rb"); autosave_exists = f != NULL; if (f) fclose(f); autosave_checked = 1; }
+        ROW(2, 220, -1, 24); if (ui_btn("Load saved game")) chosen = -1;
+        if (autosave_exists) { if (ui_btn("Load autosave")) chosen = -2; }
+        if (chosen) autosave_checked = 0;
+    }
     mu_end_window(ui_ctx);
     return chosen;
 }

@@ -1,10 +1,11 @@
 # Design: job system (multithreading)
 
-Status: **steps 1 and 2 done** - `core/jobs.h` + `core/jobs.cpp` and `tests/jobs_test.cpp`
-exist, the pool starts with the game, the render thread drains the MAIN lane every frame, and
-the asset runtime (`assets/asset.c`) and the streamed textures (`gfx/textures.c`) load through
-the lanes exactly as the pipeline below describes. Steps 7-9 of the plan in `docs/ROADMAP.md`
-(LOD streaming, the tick, save/load) are the remaining clients.
+Status: **all steps done** - `core/jobs.h` + `core/jobs.cpp` and `tests/jobs_test.cpp`
+exist, the pool starts with the game, the render thread drains the MAIN lane every frame, the
+asset runtime (`assets/asset.c`) and the streamed textures (`gfx/textures.c`) load through the
+lanes exactly as the pipeline below describes, the port-distance rows are precomputed on the
+WORKER lane, and save/load runs on the IO lane (`sim/game.c`, "Save and load" below). The
+dashboard Jobs tab and the before/after table are at the end.
 
 The game is single-threaded: one thread parses GLBs at startup (~800 ms for one asset), runs
 every simulation tick, builds every instance list and submits every draw call. That is why a
@@ -179,14 +180,50 @@ grid and the port positions, so computing them eagerly and in parallel produces 
 values the lazy path produced. `sim_test` links the real job system and runs with the pool
 active, so its save/load bit-identity check is now also the determinism check for this.
 
-## Observability
+## Save and load (step 9)
+
+A save is two things: a consistent copy of `game_t`, and a file write. Only the first has to
+happen on the main thread, and it is a 1.1 MB `memcpy` - 0.1 to 0.3 ms measured, taken between
+the simulation step and the scene build, so it is never mid-tick. `game_save_async(path)`
+takes that copy into a heap buffer and submits one IO-lane job that writes `<path>.tmp`,
+closes it, removes the old file and renames the new one over it. The previous save is therefore
+intact until a complete new one exists (remove + rename rather than a bare rename because MSVC's
+`rename` refuses to overwrite). `game_load_async(path)` reads and validates (magic, version,
+size) on the IO lane into the same buffer; `game_io_poll()`, called once per frame by `mare.c`,
+notices the join counter completing, and for a load swaps the state in and rebuilds the caches
+right there - which is where the one real cost of a load sits: the nav rows, ~300 ms on 8
+chunks. A save never blocks the frame; a load is one deliberate pause.
+
+Rules that keep it simple: one operation in flight (a save requested while a save is writing is
+queued and snapshots when it starts; a load is refused while anything is in flight, and a save
+is refused while a load is); the buffer is owned by the IO job until the counter completes,
+and the counter's acquire/release is the only synchronisation; the blocking `game_save` /
+`game_load` remain for tests and tools and write the same bytes, which `sim_test` asserts.
+Autosave is a `mare.c` policy (`AUTOSAVE_SECS` of unpaused play, `mare_autosave.bin`,
+`MARE_AUTOSAVE_S` overrides) and uses nothing the manual save does not.
+
+## Observability (step 10)
 
 `jobs_stats()` fills a POD with, per lane: jobs submitted, executed, currently queued and busy
-milliseconds, plus the inline-run count and how long threads blocked in `jobs_wait` with nothing
-to help with. Today `mare.c` publishes `jobs.main_ran` and `jobs.queued` as metrics and times
-the drain in the `jobs.upload` profiler scope (0.001 ms with an idle pool). Step 10 adds the
-dashboard **Jobs** tab: lane occupancy bars, queue depths and the asset pipeline's in-flight
-stages.
+milliseconds, plus the worker and IO thread counts, the inline-run count and how long threads
+blocked in `jobs_wait` with nothing to help with. `mare.c` publishes `jobs.main_ran`,
+`jobs.queued`, `jobs.io_queued`, `jobs.wait_ms` and `jobs.busy_pct` (pool busy time over the
+last half second divided by workers) as metrics, times the drain in the `jobs.upload` scope,
+and the save path publishes `save.snapshot_ms`, `io.save_ms`, `io.load_ms` and `save.count`.
+The dashboard **Jobs** tab shows the lanes as a table - threads, busy % over a half-second
+window, queued now and peak, jobs/s, executed, busy total - over a queue-depth history graph,
+then the asset pipeline's stages in flight (`asset_t.stage` is written by the stage that
+finishes: IO read, DECODE build, MAIN commit pending, plus LODs still waiting for an upload
+slot), the streamed textures, and the save/load state with the last save's two costs and the
+autosave countdown. Any frame over 25 ms is logged at DEBUG with the previous frame's CPU
+scope, GPU time, upload jobs, assets loading and save/load state, so a hitch in a run log is
+attributed rather than guessed; `tools/metrics_summary.py` reduces a metrics CSV to the
+median / p99 / max table used below.
+
+Stalls are measured, not guessed: `jobs_wait` records how long the calling thread blocked with
+nothing to help with, which is exactly the "stall during tick processing or world traversal"
+the system exists to remove. In every capture below that total is 4-18 ms for the whole run,
+all of it the main thread joining the start-up precompute.
 
 Stalls are measured, not guessed: `jobs_wait` records how long the calling thread blocked with
 nothing to help with, which is exactly the "stall during tick processing or world traversal" the
@@ -212,3 +249,49 @@ first frame, and the renderer initialises for another 38 ms (step 2 moves that o
 thread). And the map view already spends more CPU than the battle does, on terrain, overlays
 and icons walking every port and fleet at every zoom - which is what the LOD director and icon
 clustering are for (steps 5 and 6).
+
+### After, 0.8.3, every step landed
+
+Same box (Intel integrated graphics, 240 Hz monitor so the limiter is off), Release, `--dev
+--skip=120`, 20 s per view, **nine** authored assets (church + eight Meshy houses, 4 LODs each,
+66 MB on the GPU), autosave forced every 4 s (`MARE_AUTOSAVE_S=4`). Steady-state rows exclude
+the first 3 s; `tools/metrics_summary.py <csv> --after 3`.
+
+| | fully zoomed-out map (`MARE_CAM=-30,25,900`) | staged 50-ship battle (`MARE_DETAIL=battle`) |
+|---|---|---|
+| `frame.dt_ms` median / worst after start-up | 4.5 / **6.1** (was 4.0 / 90.4) | 4.4 / **5.9** (was 4.0 / 90.2) |
+| `frame.cpu` avg / max | 0.32 / 0.99 ms | 0.21 / 0.42 ms |
+| `gpu.total_ms` avg / max | 0.91 / 1.55 | 1.81 / 2.69 |
+| draw calls / instances | 203 / 353 | 31 / 146 |
+| VRAM / RAM | 105.8 / 280 MB (9 assets resident) | 105.9 / 281 MB |
+| `jobs.upload` | 0.00 ms avg | 0.00 ms avg |
+| `jobs.wait_ms`, whole run | 4.2 ms (start-up join) | 9.4 ms |
+| autosaves / worst frame while one was writing | 4 / **5.1 ms** | 4 / **5.1 ms** |
+| save snapshot (main thread) / write (IO lane) | 0.09-0.33 ms / 3.0-5.1 ms | 0.10-0.27 ms / 2.8-4.5 ms |
+| start-up: houses / church / nav rows | 365 ms concurrently / 931 ms / 307 ms | 967 ms concurrently / 968 ms / 301 ms |
+| first frame (GL warm-up, unchanged) | 92.8 ms | 91.4 ms |
+
+What changed in the numbers: the worst frame after start-up is the median plus a millisecond,
+with nine assets instead of one resident and four saves written during each run. The one
+start-up stall that remains is the first present (~92 ms), which no amount of threading moves.
+
+**Scripted full-range zoom** (`MARE_ZOOM=6,900,12,-6.0,37.3,3`: Seville, 6 to 900 units and
+back in 24 s after a 3 s hold, 29 s runs), once with autosave every 4 s and once with it off:
+
+| | autosave every 4 s | autosave off |
+|---|---|---|
+| `frame.dt_ms` median / p99 / worst | 5.2 / 19.0 / 25.5 | 5.4 / 22.3 / 27.5 |
+| `frame.cpu` median / max | 0.41 / 4.4 ms | 0.34 / 0.72 ms |
+| frames over 25 ms | 26, all at 6-10 units | 29, all at 6-10 units (two at 40-45) |
+| authored triangles max / director scale max | 2.16 M / 1.47 | 2.17 M / 1.49 |
+| instances mid-fade max | 72 | 72 |
+| autosaves / worst frame while writing | 7 / 4.0-14.1 ms | - |
+
+The long frames are the city tier over Seville with ~2.1 M authored triangles at LOD 0 plus
+their shadows on the integrated GPU (CPU 0.5 ms in each of those frames, the director already
+at x1.47): the step-5 limit recorded in KNOWN_ISSUES, present identically with saving on and
+off, so not a stall and not the save's. Elsewhere in the 24 s of motion, with ~70 instances
+cross-fading at once, nothing crossed 25 ms. `lod.pops` (clamp activations) fired in two
+places only: 37 in the 0.3 s after the church landed mid-run and the town's item list was
+rebuilt around it, and single activations for ~0.1 s as the director's scale relaxed across
+the city/battle boundary - each walked one level per fade, which is what the clamp is for.

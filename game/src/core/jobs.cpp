@@ -432,6 +432,7 @@ extern "C" void jobs_stats(job_stats_t *out) {
     memset(out, 0, sizeof *out);
     out->workers = g_nworkers;
     out->slots = g_slots;
+    out->io_threads = g_nio;
     out->inline_runs = g_inline_runs.load(std::memory_order_relaxed);
     out->wait_ms = g_wait_us.load(std::memory_order_relaxed) / 1000.0;
     for (int l = 0; l < JOB_LANE_COUNT; ++l) {

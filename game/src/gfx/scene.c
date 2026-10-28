@@ -18,6 +18,8 @@
 #include "../assets/asset.h"
 #include "detailview.h"
 #include "lod.h"
+#include "occlusion.h"
+#include "occquery.h"
 
 _Static_assert(MB_FLOATS == 12, "asset.c emits 12-float builder vertices (ASSET_VERT_FLOATS)");
 
@@ -31,6 +33,19 @@ static float icon_w_time = -1;                                    // RF.time the
 
 scene_hints_t SH;
 int scene_culled_ports, scene_culled_ships;   // skipped by frustum culling this frame (dashboard)
+int scene_occluded_assets;                     // authored instances the GPU queries hid this frame (left out of the main pass)
+int scene_occluded_ports, scene_occluded_ships; // skipped because terrain hides them (occlusion.c)
+static int p_occ = -1;
+// Occlusion only means something in the 3D view: the map is flat and the staged scenes have no
+// heightmap. The eye is the camera; the tallest thing that can hide a mast is a mast-high town.
+int scene_occlusion_active(void) { return occlusion_enabled && cam.mapness < 0.5f && detailview_mode() == DV_OFF; }
+#define SHIP_TOP  4.5f    // masts of the largest hull, world units above the water
+#define TOWN_TOP  6.0f    // church tower / fort keep above the town's ground
+static int occ_hidden_sphere(float x, float z, float r, float top) {
+    if (p_occ < 0) p_occ = prof_id("gfx.occlusion");
+    prof_begin(p_occ); int hid = occ_sphere_hidden(world_height, x, z, r, top); prof_end(p_occ);
+    return hid;
+}
 static float frustum[6][4];
 // Margin so that objects just outside the view still cast their shadows into it: the sun sits
 // high, so a shadow reaches at most ~0.8x the caster's height, plus the object's own radius.
@@ -89,7 +104,8 @@ static void fleet_anim_pos(int i, const fleet_t *f, float dt, float *x, float *z
 
 void scene_build_ships(void) {
     cam_frustum(frustum);
-    scene_culled_ships = 0;
+    scene_culled_ships = scene_occluded_ships = 0;
+    int occ = scene_occlusion_active();
     int battle_lod0_budget = BATTLE_DETAIL_MAX;
     float dt = clampf(RF.time - anim_prev_time, 0, 0.25f); anim_prev_time = RF.time;
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) instlist_clear(&ship_inst[t][l]);
@@ -103,6 +119,7 @@ void scene_build_ships(void) {
         fleet_icon_w[i] = lod_weight(&pk, 2);
         if (!lod_draws(&pk, 0) && !lod_draws(&pk, 1)) continue;             // icon only
         if (!cam_sphere_visible(frustum, x, 0, z, f->nships * 1.5f + CULL_MARGIN)) { scene_culled_ships++; continue; }
+        if (occ && occ_hidden_sphere(x, z, f->nships * 1.5f + 1.f, SHIP_TOP)) { scene_occluded_ships++; continue; }
         unsigned col = f->role == ROLE_PIRATE ? rgb(20,20,20) : nations_info[f->nation].color;
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;
         // Battle view: a fleet that fired recently is being watched - it keeps the full mesh and
@@ -206,9 +223,14 @@ void scene_asset_upload(asset_t *a, int lod) { scene_asset_mesh(a, lod); }
 // that fade takes precedence over the asset's own (one dither pattern per instance).
 static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float town_dither);
 void scene_asset_instance(asset_t *a, inst_t in, unsigned key, float camdist) { asset_push(a, in, key, camdist, 0.f); }
+static int scene_submit_for_shadow;      // scene_submit_shadow sets this: the shadow pass draws occluded instances too
+static int asset_vis[ASSET_MAX][ASSET_MAX_LODS];   // per list: instances the main pass draws (the visible ones, partitioned to the front)
 static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float town_dither) {
     int ai = (int)(a - asset_at(0));
     asset_last_use[ai] = RF.time;
+    // GPU occlusion (occquery.h): ask for this frame's answer and apply the last one. A hidden
+    // instance stays in the list (the shadow pass needs it) flagged in fx1.
+    if (occq_active()) { occq_request(key, a, &in); if (!occq_visible(key)) { in.fx1 = 1.f; scene_occluded_assets++; } }
     float r = a->radius * (in.scale > 0 ? in.scale : 1.f), thr[ASSET_MAX_LODS];
     for (int l = 1; l < a->nlods; ++l) thr[l - 1] = a->lod[l].px > 0 ? a->lod[l].px / asset_lod_bias : lod_px_ref(r, a->lod[l].dist * asset_lod_bias);
     lod_pick_t pk = lod_select(key, thr, a->nlods, lod_px(r, camdist), a->nlods - 1);
@@ -222,6 +244,8 @@ static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float
     asset_used[ai] = 1;
 }
 
+size_t scene_asset_gpu_budget(void) { return ASSET_GPU_BUDGET; }
+float  scene_asset_idle_s(int ai) { return ai >= 0 && ai < ASSET_MAX && asset_last_use[ai] > 0 ? (float)(RF.time - asset_last_use[ai]) : -1.f; }
 // dashboard accessors: instances per asset and LOD this frame
 int scene_asset_lod_count(int asset_index, int lod) {
     return asset_index >= 0 && asset_index < ASSET_MAX && lod >= 0 && lod < ASSET_MAX_LODS ? asset_inst[asset_index][lod].n : 0;
@@ -258,6 +282,7 @@ static void scene_assets_residency(void) {
 // stages its own buildings through the same three calls.
 void scene_assets_begin(void) {
     scene_assets_residency();
+    scene_occluded_assets = 0;
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) { for (int l = 0; l < ASSET_MAX_LODS; ++l) instlist_clear(&asset_inst[i][l]); asset_used[i] = 0; }
     scene_asset_instances = 0;
 }
@@ -266,8 +291,18 @@ void scene_assets_end(void) {
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) {
         const asset_t *a = asset_at(i);
         for (int l = 0; l < ASSET_MAX_LODS; ++l) {
-            mesh_set_instances(&asset_mesh[i][l], asset_inst[i][l].v, asset_inst[i][l].n);
-            scene_asset_instances += asset_inst[i][l].n;
+            // Occluded instances (fx1, occquery.h) are moved to the end of the list before the
+            // one upload of the frame: the shadow pass draws all n, the main pass the first
+            // asset_vis. No second upload, so no mid-frame write to a buffer the GPU is reading.
+            instlist_t *L = &asset_inst[i][l]; int nvis = L->n;
+            if (scene_occluded_assets) {
+                int w = 0;
+                for (int k = 0; k < L->n; ++k) if (L->v[k].fx1 <= 0.f) { if (w != k) { inst_t t = L->v[w]; L->v[w] = L->v[k]; L->v[k] = t; } w++; }
+                nvis = w;
+            }
+            asset_vis[i][l] = nvis;
+            mesh_set_instances(&asset_mesh[i][l], L->v, L->n);
+            scene_asset_instances += L->n;
             if (l < a->nlods) tris += (long long)(a->lod[l].nidx / 3) * asset_inst[i][l].n;
         }
     }
@@ -277,7 +312,12 @@ void scene_assets_end(void) {
 int scene_assets_submit(void) {
     int n = 0;
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i])
-        for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[i][l].geo.vao) { mesh_draw(&asset_mesh[i][l]); n += asset_mesh[i][l].ninst; }
+        for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[i][l].geo.vao) {
+            mesh_t *m = &asset_mesh[i][l]; int all = m->ninst;
+            if (!scene_submit_for_shadow && asset_vis[i][l] < all) m->ninst = asset_vis[i][l];   // main pass: the visible prefix only
+            mesh_draw(m); n += m->ninst;
+            m->ninst = all;
+        }
     return n;
 }
 #define assets_clear scene_assets_begin
@@ -444,7 +484,7 @@ static void town_build(const port_t *p, int index) {
     }
 }
 
-void scene_reset_caches(void) { for (int i = 0; i < MAX_PORTS; ++i) town_cache[i].sig = 0, town_cache[i].n = 0; scene_reset_anim(); lod_reset(); }   // world/heights may have changed (new game, load)
+void scene_reset_caches(void) { for (int i = 0; i < MAX_PORTS; ++i) town_cache[i].sig = 0, town_cache[i].n = 0; scene_reset_anim(); lod_reset(); occq_reset(); }   // world/heights may have changed (new game, load)
 
 // `dither` is the town's own mesh-to-icon fade this frame (0 when fully a town)
 static void town_instances(const port_t *p, int index, float dither) {
@@ -460,7 +500,8 @@ static void town_instances(const port_t *p, int index, float dither) {
 
 void scene_build_ports(void) {
     cam_frustum(frustum);
-    scene_culled_ports = 0;
+    scene_culled_ports = scene_occluded_ports = 0;
+    int occ = scene_occlusion_active();
     instlist_clear(&houses); instlist_clear(&roofs); instlist_clear(&towers); instlist_clear(&walls); instlist_clear(&piers); instlist_clear(&flagpoles);
     assets_clear();
     for (int i = 0; i < G.nports; ++i) {
@@ -471,6 +512,7 @@ void scene_build_ports(void) {
         port_icon_w[i] = lod_weight(&pk, 1);
         if (!lod_draws(&pk, 0)) continue;                                       // icon only
         if (!cam_sphere_visible(frustum, p->x, 0, p->z, r + CULL_MARGIN)) { scene_culled_ports++; continue; }
+        if (occ && occ_hidden_sphere(p->x, p->z, r + 1.f, world_height(p->x, p->z) + TOWN_TOP)) { scene_occluded_ports++; continue; }
         town_instances(p, i, lod_dither(&pk, 0));
         int sel = i == SH.sel_port, hov = i == SH.hover_port;
         if (sel || hov) dd_circle(vec3(p->x, 0.1f, p->z), vec3(0,1,0), 2.2f + 0.4f*p->size, .color = rgb_linear(sel ? rgb(255,240,120) : rgb(220,220,220)));
@@ -491,8 +533,11 @@ int scene_submit_ports(void) {
 // shadow casters: every town piece and every ship (piers shadow the water, flagpoles the
 // squares). Gunsmoke is deliberately left out: a hard-edged shadow from a smoke ball looks wrong.
 int scene_submit_shadow(void) {
-    if (detailview_mode() != DV_OFF) return detailview_submit();   // the staged scene is the only caster set
-    return scene_submit_ports() + submit_ship_meshes();
+    scene_submit_for_shadow = 1;
+    int n = detailview_mode() != DV_OFF ? detailview_submit()      // the staged scene is the only caster set
+                                        : scene_submit_ports() + submit_ship_meshes();
+    scene_submit_for_shadow = 0;
+    return n;
 }
 
 // ---------------------------------------------------------------------------

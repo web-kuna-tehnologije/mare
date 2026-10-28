@@ -18,6 +18,7 @@ typedef struct ui_state_t {
     char toast[160]; float toast_timer; // transient notification at the top of the screen
     float saved_dist;                   // zoom level to return to after map view (M key)
     int city_view;                      // camera is in the city view over a town: the clock crawls (mare.c)
+    float autosave_in;                  // seconds of play until the next autosave (mare.c; dashboard Jobs tab)
     int pass_terrain, pass_sea, pass_ports, pass_ships, pass_overlays, pass_icons, pass_labels, pass_panels; // dev: render pass toggles (1 = on)
 } ui_state_t;
 extern ui_state_t U;
@@ -51,7 +52,7 @@ const char *ui_order(const fleet_t *f);              // human readable current o
 
 // ---- panels (hud.c) -------------------------------------------------------------------------------
 void hud_panels(void);                               // top bar, selection, fleets, chronicle, stats, help
-int  hud_menu(void);                                 // main menu; returns chosen nation, -1 for load, 0 nothing
+int  hud_menu(void);                                 // main menu; returns chosen nation, -1 load mare_save.bin, -2 load the autosave, 0 nothing
 void hud_labels(void);                               // world labels, toast, ticker (inside the overlay)
 void hud_on_log(const logline_t *l);                 // chronicle listener: toasts for important lines
 void dashboard_panel(void);                          // dev dashboard (dashboard.c), shown when U.show_debug

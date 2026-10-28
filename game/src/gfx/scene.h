@@ -19,9 +19,14 @@ typedef struct scene_hints_t {   // filled by the UI each frame before drawing
 } scene_hints_t;
 extern scene_hints_t SH;
 extern int scene_culled_ports, scene_culled_ships;   // frustum-culled this frame (dashboard stats)
+extern int scene_occluded_ports, scene_occluded_ships; // hidden behind terrain this frame (occlusion.h)
+extern int scene_occluded_assets;                    // authored instances hidden by the GPU queries this frame (occquery.h)
+int  scene_occlusion_active(void);                   // occlusion tests run this frame (enabled, 3D view, not a staged scene)
 extern int scene_asset_instances;                    // authored-asset (GLB) instances drawn this frame
 extern int scene_icons_clustered;                    // distant markers merged into a neighbour this frame
 extern int scene_assets_evicted;                     // authored assets dropped from the GPU this session
+size_t scene_asset_gpu_budget(void);                 // bytes of authored-asset meshes the residency policy keeps (dashboard)
+float  scene_asset_idle_s(int asset_index);          // seconds since an instance of this asset was last drawn (-1 never)
 int scene_asset_lod_count(int asset_index, int lod); // of those, instances of one asset at one LOD (dashboard)
 struct asset_t; struct mesh_t;
 struct mesh_t *scene_asset_mesh(struct asset_t *a, int lod);  // GPU mesh of an asset LOD, uploaded on first use (shared with detailview.c)

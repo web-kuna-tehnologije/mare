@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.9.0 (in progress) — visual rendering, step 1: occlusion culling
+Plan and measurements: [DESIGN_VISUAL.md](DESIGN_VISUAL.md).
+
+- **GPU occlusion culling for authored buildings** (`gfx/occquery.c`, `rhi_query_*`): every
+  authored instance's bounding box is tested against the depth buffer after the opaque pass
+  with a hardware occlusion query; instances whose last answer was "hidden" are left out of
+  the main pass (the shadow pass still draws them), answers apply a frame later, and nothing is
+  culled while the camera moves. Keys are the LOD selector's per-instance keys. City tier over
+  Seville: 104 of 155 houses culled, 16.8 → 15.3 ms; the rest of the frame is the shadow pass
+  (step 3). Toggles: dashboard "occlusion", `MARE_OCCQ=0|1|2` (2 = measure the queries' cost).
+- **Terrain-horizon occlusion measured and shelved** (`gfx/occlusion.c`, `tools/occ_probe.c`):
+  a ray-march over the heightmap hides 1 town in 37k camera placements and no terrain chunk -
+  the relief is 7 units high and the camera never pitches below 12 degrees. The ray stays for
+  towns and ships (it costs nothing: 218 heightmap reads for the whole probe), the chunk test
+  was removed. `asset_test` covers the ray on synthetic terrain.
+- Metrics `gfx.occluded_assets`, `gfx.occ_queries`, `gfx.cam_moving`, `gfx.occluded_ports`,
+  `gfx.occluded_ships`; `gfx.occ_queries` profiler scope; the Performance tab's occlusion line.
+
+## 0.8.3 — LOD director, residency, async save/load, Jobs and LOD dashboards (engine scale, steps 5-10)
+Design: [DESIGN_LOD.md](DESIGN_LOD.md), [DESIGN_JOBS.md](DESIGN_JOBS.md) (with the before/after
+table); plan in [ROADMAP](../../docs/ROADMAP.md). The engine-scale plan is complete.
+
+- **View tiers and the LOD director** (`gfx/lod.c`): city / battle / regional / strategic /
+  continental, derived from the camera, each with a triangle budget. The scene build reports
+  what it submitted and the director scales the hand-over thresholds for the next frame so the
+  smallest instances drop a level first and recover as soon as there is room
+  (`lod.asset_tris`, `lod.budget_scale`).
+- **Icons and clustering**: marker alpha coupled to the mesh fade, size by importance, and
+  screen-space clustering of distant markers at continental zoom (`lod.icons_clustered`).
+- **Residency** (`gfx/scene.c`): every authored asset is wanted up to the regional tier; past it,
+  assets untouched for 12 s are evicted coldest-first once the 192 MB GPU budget is exceeded
+  and reloaded through IO → DECODE → MAIN on return, the town drawing its procedural pieces
+  meanwhile. Shared cloud cover (`gfx/clouds.c`) for zooms that outrun the streamer.
+- **Simulation on the pool**: the 111 port-distance rows (~15 ms of Dijkstra each) are
+  precomputed in parallel at game start and after a load - 301-307 ms on 8 chunks instead of
+  ~1.7 s serial, and no Dijkstra inside a tick any more. The per-entity tick phases measured at
+  1-2 us each and stay sequential (DESIGN_JOBS.md, "What is not worth parallelising").
+- **Asynchronous save / load** (`sim/game.c`: `game_save_async`, `game_load_async`,
+  `game_io_poll`): the frame copies the ~1.1 MB state (0.1-0.3 ms measured) and the IO lane
+  writes `<name>.tmp`, renamed over the previous save only when complete; a load reads and
+  validates on the IO lane and the poll swaps the state in and rebuilds the caches (~300 ms,
+  the nav rows). One operation in flight: a save during a save is queued, a load during
+  anything is refused. F5/F9 and the menu use it; **autosave** every 180 s of unpaused play
+  to `mare_autosave.bin` (`AUTOSAVE_SECS`, `MARE_AUTOSAVE_S` overrides), loadable from the
+  menu. `sim_test` checks the asynchronous files are byte-identical to the blocking save's,
+  the queue/refuse rules, that no `.tmp` is left, and that a state applied by the poll
+  continues bit-identically.
+- **Dashboard Jobs tab**: per-lane busy % over a half-second window, queue depth now / peak
+  with a history graph, jobs/s, executed and busy totals, inline runs, time blocked in
+  `jobs_wait`, the asset pipeline's stages in flight (`asset_t.stage`,
+  `asset_pipeline_counts`), streamed textures, save/load state and cost, autosave countdown,
+  save buttons. **LOD tab**: tier and every tier's budget, triangles vs budget and the
+  director scale, tracked / fading / clamped-jump counters, clustering and culling counts,
+  the bias knob, GPU residency per asset and LOD with idle time, streamed textures. Seven
+  tabs; `MARE_DASHTAB=jobs|lod|...` opens one unattended.
+- **Metrics and evidence**: `jobs.busy_pct`, `jobs.wait_ms`, `jobs.io_queued`,
+  `save.snapshot_ms`, `io.save_ms`, `io.load_ms`, `save.count`; a DEBUG `long frame` record
+  for any frame over 25 ms with the previous frame's CPU/GPU split, upload jobs, assets
+  loading and save/load state; a DEBUG record whenever the LOD clamp acts, with the camera
+  distance; `tools/metrics_summary.py` (median / p99 / max per CSV column);
+  `MARE_ZOOM=...,delay` holds the camera before a scripted zoom starts.
+- **Measured** (Release, 24-core Windows box, Intel integrated graphics, 240 Hz, `--dev
+  --skip=120`, nine authored assets resident, autosave forced every 4 s; details in
+  DESIGN_JOBS.md): fully zoomed-out map 4.5 ms median / 6.1 ms worst after start-up (was
+  4.0 / 90.4 with one asset), staged battle 4.4 / 5.9 (was 4.0 / 90.2); the worst frame while
+  an autosave was being written was 4.0-5.1 ms in both; start-up parses eight houses in
+  365-380 ms concurrently and the church in ~1 s, all off the render thread. The scripted
+  6 → 900 → 6 zoom over Seville runs at 5.2 ms median; its only frames over 25 ms are at
+  6-10 units with ~2.1 M authored triangles at LOD 0 on the iGPU, identically with autosave
+  on and off (the step-5 GPU limit in KNOWN_ISSUES, not a stall: CPU 0.5 ms). `lod.pops`
+  recorded clamp activations only when the church landed mid-run and the town rebuilt, and
+  as the director relaxed across the city/battle boundary - walked one level per fade, no
+  visible pop. The first frame still costs ~92 ms of GL warm-up.
+
+Known: residency is per asset and the wanted set is the tier's, not velocity-predicted; a load
+pauses ~300 ms for the nav rows; the city tier is GPU-bound on integrated graphics.
+
 ## 0.8.2 — background assets, screen-space LOD with cross-fades, authored sea (engine scale, steps 2-4)
 Design: [DESIGN_LOD.md](DESIGN_LOD.md), [DESIGN_JOBS.md](DESIGN_JOBS.md); plan in
 [ROADMAP](../../docs/ROADMAP.md).

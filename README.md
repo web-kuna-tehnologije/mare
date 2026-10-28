@@ -39,7 +39,7 @@ artefaktima uspješnog workflowa.
 | Lijevi klik | Odabir luke ili flote |
 | Desni klik s odabranom flotom | Plovidba, pristajanje, napad ili kolonizacija |
 | Space / 1–4 | Pauza / brzina simulacije |
-| F5 / F9 | Spremanje / učitavanje |
+| F5 / F9 | Spremanje / učitavanje (u pozadini; automatsko spremanje svaka 3 min igre u `mare_autosave.bin`) |
 | F1 / F3 | Pomoć / razvojna nadzorna ploča |
 
 ## Uključene funkcije
@@ -52,7 +52,7 @@ artefaktima uspješnog workflowa.
 - 3D teren i more, modeli gradova i brodova, LOD te strateški prikaz regija.
 - Spremanje igre, dijagnostički zapisi, metrike i testovi simulacije.
 
-Ovo je razvojna verzija 0.7.1. Dodatne ideje iz transkripta koje još nisu
+Ovo je razvojna verzija 0.8.3. Dodatne ideje iz transkripta koje još nisu
 implementirane nalaze se u [planu razvoja](docs/ROADMAP.md).
 
 ## Nastavak razvoja

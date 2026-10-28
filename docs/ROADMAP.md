@@ -20,6 +20,13 @@ ideas are planned features, not claims of completed work.
 6. River links and Market/Docks capacity effects validated by throughput tests.
 7. Copper hull upgrades and iron shipyard discounts with explicit resource costs.
 
+## Next: visual rendering 0.9 (game/docs/DESIGN_VISUAL.md)
+
+Nine steps, in order: occlusion culling, anisotropic filtering, static shadow caching, the
+wind-driven sea (replacing the fixed wave set and fixing the camera-speed artefact),
+tessellation and normal maps, foam and breaking waves, calm weather, clouds and the sun,
+ambient occlusion. Each step lands with a toggle and a before/after capture.
+
 ## Presentation and long-term foundations
 
 - Smoother region borders and more historical pins.
@@ -70,10 +77,23 @@ working on all three platforms, with tests and a measurement, before the next st
        save/load determinism check now covers that work. The per-entity phases (economy,
        movement, regions) measure at 1-2 us each and are left sequential on purpose: see
        DESIGN_JOBS.md, "What is not worth parallelising".
-9. [ ] **Async save / load** - snapshot and write on the IO lane, autosave without a hitch.
-10. [ ] **Observability and evidence** - dashboard Jobs and LOD tabs, lane and queue metrics,
-        before/after captures at the two worst views (fully zoomed-out map, 50-ship battle) and
-        a scripted full-range zoom; FEATURES, CHANGELOG, KNOWN_ISSUES and ONBOARDING updated.
+9. [x] **Async save / load** - `game_save_async` snapshots the state on the main thread (a
+       ~1 MB copy, 0.1-0.3 ms) and writes it on the IO lane to `<name>.tmp`, renamed over the
+       old save when complete; `game_load_async` reads and validates on the IO lane and the
+       state is swapped in by a per-frame poll. Autosave every 180 s of unpaused play
+       (`mare_autosave.bin`, loadable from the menu). Measured: the worst frame while an
+       autosave was in flight is indistinguishable from the run's normal frames; `sim_test`
+       checks the asynchronous files are byte-identical to the blocking save's and that a
+       state applied by the poll continues bit-identically.
+10. [x] **Observability and evidence** - dashboard **Jobs** tab (lane occupancy, queue depths
+        with history, jobs/s, inline runs, blocked-wait time, pipeline stages in flight,
+        save/load state) and **LOD** tab (tier and budgets, director scale, instance counters,
+        GPU residency per asset and LOD, streamed textures); `jobs.busy_pct`, `jobs.wait_ms`,
+        `jobs.io_queued`, `save.snapshot_ms`, `io.save_ms`, `io.load_ms` metrics; `long frame`
+        DEBUG records attributing any frame over 25 ms; `tools/metrics_summary.py`; the
+        before/after table in DESIGN_JOBS.md for the fully zoomed-out map, the 50-ship battle
+        and the scripted full-range zoom; FEATURES, CHANGELOG, KNOWN_ISSUES, ONBOARDING, both
+        READMEs updated.
 
 Draw submission stays single-threaded (the GL context belongs to the render thread); batching
 and instance-buffer reuse already keep it cheap.

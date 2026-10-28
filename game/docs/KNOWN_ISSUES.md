@@ -53,13 +53,25 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   full-width `ROW(1, -1, 0)` (`ui_text_full` does this) or it wraps into a narrow column.
 - **L** Chronicle keeps the last 160 lines only; the technical run log has everything.
 
-## Assets, LOD and streaming (engine scale 0.8, in progress)
-- **M** No triangle budget yet (plan step 5): the staged city with ~150 authored houses and the
-  map at town height are GPU-bound on integrated graphics (Intel iGPU: 20-80 ms frames at
-  LOD 0/1). The generated descriptors keep LOD 0 only above 220 px for that reason; the LOD
-  director will budget per tier.
-- **L** Every registered asset is requested at start-up and every LOD is uploaded once built
-  (~6-9 MB per building); residency/eviction and camera-predicted streaming are step 7.
+## Assets, LOD and streaming (engine scale 0.8)
+- **M** The director budgets triangles per tier by scaling the hand-over thresholds, which is a
+  quality knob, not a hard cap: a frame can still exceed the budget by the amount one level
+  step saves, and on integrated graphics the city tier stays GPU-bound at LOD 0/1 (Intel iGPU:
+  20-80 ms frames). The generated descriptors keep LOD 0 only above 220 px for that reason.
+- **L** Residency is per asset, not per LOD: an evicted building comes back with all its LODs
+  (~6-9 MB each through IO → DECODE → MAIN), and the wanted set is the tier's, not predicted
+  from camera velocity yet. Every asset is requested at start-up.
+- **L** `lod.pops` counts multi-level jumps the one-step clamp held back, so it cannot be a
+  visible pop. It fires when the camera teleports (a scripted zoom whose start distance differs
+  from the camera's, a detail-view entry), when an asset lands and a town's item list is rebuilt
+  so `(port, item)` keys change meaning, and briefly when the director's threshold scale
+  relaxes across a tier boundary; `mare.c` logs each occurrence at DEBUG with the camera
+  distance. Keying town pieces by piece identity rather than index would remove the second
+  cause.
+- **M** On integrated graphics the city tier over a large town (~2 M authored triangles at
+  LOD 0 plus shadows) runs at ~26 ms per frame with the CPU at 0.5 ms: GPU-bound, and the
+  director's scale alone does not bring it under 16 ms. A per-tier LOD 0 ban or a lower city
+  budget on such GPUs is the knob.
 - **L** A town or asset fading between two LODs carries one dither pattern per instance, so a
   town dissolving into its icon overrides the asset's own LOD fade for that moment.
 - **L** The first frame after the window opens costs ~90 ms (GL warm-up, first present) on
@@ -69,6 +81,19 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   ones are.
 - **L** GPU timer readings in the detail view can stay stale for seconds (same value repeated
   in the metrics CSV); frame time is the reliable number there.
+
+## Visual rendering 0.9
+- **L** Occlusion-query answers apply a frame or more late, so culling is suspended whenever the
+  camera moves; a building that becomes visible while the camera is still (a ship sailing out
+  from behind it does not count - only authored buildings are tested) can be absent for up to
+  the query round trip (one to three frames on Intel).
+- **L** One run on the Intel driver spent ~400 ms a frame for ten seconds while the first
+  version re-uploaded instance buffers between the shadow and main passes and no query answer
+  arrived; the re-upload is gone (lists are partitioned before their single upload) and a
+  query unanswered for 90 frames is abandoned, and the stall has not recurred in six runs.
+  `MARE_OCCQ=0` turns the queries off if it does.
+- **L** Terrain never occludes anything at this relief and camera pitch (measured, see
+  DESIGN_VISUAL.md); the terrain ray for towns and ships is kept but does nothing visible.
 
 ## Observability
 - **L** `mare_metrics.csv` re-emits a header (prefixed `# columns changed`) when new scopes or
@@ -91,11 +116,17 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   glibc, F-keys never registered). Patched in `ext/ext-input/ext-keyboard/keyboard(glfw3).h`.
 - Windows x64 Release and both test suites were verified locally on 2026-09-06, with
   a visual check of the running 3D game. Linux/macOS status depends on CI results.
-- Save files are the raw `game_t` (≈950 KB) guarded by magic/version/size; they are not portable
-  across compilers with different struct padding (x64 MSVC/GCC/Clang agree in practice).
+- Save files are the raw `game_t` (≈1.1 MB) guarded by magic/version/size; they are not portable
+  across compilers with different struct padding (x64 MSVC/GCC/Clang agree in practice). They
+  are written to `<name>.tmp` and renamed over the previous file (remove + rename, since MSVC's
+  `rename` will not overwrite), so a crash mid-write leaves the previous save intact; a crash
+  between the remove and the rename would leave only the `.tmp`.
+- Loading is asynchronous for the file read but the state swap rebuilds the caches on the main
+  thread, and the port-distance rows cost ~300 ms of that (111 ports, parallel on 8 chunks): a
+  load is one deliberate pause, not a hitch-free operation. A save never blocks the frame.
 
 ## Performance envelope
 - Simulation ≈ 1 ms per 0.1-day step (≈110 ports, ≈130 fleets); speed 4 (20 days/s) uses ~20% of a
   core. Above ~40 steps per frame days are dropped with a logged warning.
-- First-time Dijkstra rows cost ~22 ms each (one per port, lazily); expect small hitches in the
-  first minutes of a new game and after founding a colony (one row).
+- Port-distance rows are precomputed in parallel at game start and after a load (~300 ms); a
+  founded colony still computes one row (~15 ms) inside the tick that founds it.

@@ -78,3 +78,6 @@ const rhi_texture_t *texture_get(int handle) {
     return &texs[handle].tex;
 }
 int texture_state(int handle) { return handle < 0 || handle >= ntexs ? TEX_FAILED : texs[handle].state; }
+int texture_count(void) { return ntexs; }
+const char *texture_path(int handle) { return handle < 0 || handle >= ntexs ? "" : texs[handle].path; }
+void texture_size(int handle, int *w, int *h) { int ok = handle >= 0 && handle < ntexs && texs[handle].state == TEX_READY; if (w) *w = ok ? texs[handle].w : 0; if (h) *h = ok ? texs[handle].h : 0; }

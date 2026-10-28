@@ -122,6 +122,15 @@ int   rhi_gpu_timers_supported(void);
 
 // GPU memory accounting: bytes the RHI has allocated for textures, render targets, vertex,
 // index and instance buffers. This is what *we* asked for, not what the driver committed.
+// occlusion queries (occquery.c): "did any sample of the draws between begin and end pass the
+// depth test". Results arrive a frame or more later; poll with rhi_query_result.
+int      rhi_occlusion_supported(void);
+unsigned rhi_query_make(void);                 // 0 if unsupported
+void     rhi_query_begin(unsigned q);
+void     rhi_query_end(void);
+int      rhi_query_result(unsigned q, int *passed);   // 1 when the result is in (passed = any sample drew)
+void     rhi_color_write(int on);              // colour mask for depth-only proxy draws (restore to 1)
+
 typedef struct rhi_mem_t { size_t textures, targets, buffers; int ntextures, nbuffers; } rhi_mem_t;
 rhi_mem_t rhi_memory(void);
 

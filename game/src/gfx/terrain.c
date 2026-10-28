@@ -14,6 +14,8 @@
 render_frame_t RF;
 int screen_w = 1, screen_h = 1, window_w = 1, window_h = 1;
 int terrain_chunks_drawn, terrain_tris_drawn, terrain_show_regions;
+static float terrain_hmax = 1e9f;        // highest heightmap value, for the occlusion ray early-out
+float terrain_max_height(void) { return terrain_hmax; }
 
 #define CHUNK 64
 #define CHUNKS_X ((LM_W + CHUNK-1)/CHUNK)
@@ -141,6 +143,7 @@ void terrain_init(void) {
     for (int cy = 0; cy < CHUNKS_Y; ++cy) for (int cx = 0; cx < CHUNKS_X; ++cx) {
         chunk_t *c = &chunks[cy*CHUNKS_X+cx]; float mn = 1e9f, mx = -1e9f;
         for (int y = cy*CHUNK; y <= (cy+1)*CHUNK && y < LM_H; ++y) for (int x = cx*CHUNK; x <= (cx+1)*CHUNK && x < LM_W; ++x) { float h = heightmap[y*LM_W+x]; mn = minf(mn, h); mx = maxf(mx, h); }
+        if (cx == 0 && cy == 0) terrain_hmax = mx; else terrain_hmax = maxf(terrain_hmax, mx);
         c->minh = mn; c->maxh = mx; c->water_only = mx < -0.05f;
         c->x0 = lon2x(LON0 + cx*CHUNK/(float)CELLS_PER_DEG); c->x1 = c->x0 + CHUNK/(float)CELLS_PER_DEG*WORLD_K;
         c->z0 = lat2z(LAT1 - cy*CHUNK/(float)CELLS_PER_DEG); c->z1 = c->z0 + CHUNK/(float)CELLS_PER_DEG*WORLD_K;
