@@ -171,6 +171,9 @@ int main(int argc, char **argv) {
     int m_occ_ports = metric_id("gfx.occluded_ports"), m_occ_ships = metric_id("gfx.occluded_ships"), m_occ_samples = metric_id("gfx.occ_samples");
     int m_occq_hidden = metric_id("gfx.occluded_assets"), m_occq_queries = metric_id("gfx.occ_queries"), m_occq_moving = metric_id("gfx.cam_moving");
     if (getenv("MARE_OCCLUSION")) { occlusion_enabled = atoi(getenv("MARE_OCCLUSION")) != 0; LOG_INFO("gpu", "occlusion culling %s (MARE_OCCLUSION)", occlusion_enabled ? "on" : "off"); }
+    if (getenv("MARE_SEA_NYQUIST")) { sea_nyquist = atoi(getenv("MARE_SEA_NYQUIST")) != 0; LOG_INFO("gpu", "sea grid-aware wave fade %s (MARE_SEA_NYQUIST)", sea_nyquist ? "on" : "off"); }
+    if (getenv("MARE_SHADOW_LOD")) { shadow_caster_lod = atoi(getenv("MARE_SHADOW_LOD")) != 0; LOG_INFO("gpu", "shadow casters use the coarse LOD: %s (MARE_SHADOW_LOD)", shadow_caster_lod ? "yes" : "no"); }
+    int m_shadow_tris = metric_id("gfx.shadow_tris");
     // Autosave clock (balance.h AUTOSAVE_SECS, MARE_AUTOSAVE_S overrides; 0 disables). Counts
     // unpaused play only, so a game left paused overnight is not rewritten every three minutes.
     float autosave_secs = AUTOSAVE_SECS; if (getenv("MARE_AUTOSAVE_S")) { autosave_secs = (float)atof(getenv("MARE_AUTOSAVE_S")); LOG_INFO("main", "autosave every %.0f s (MARE_AUTOSAVE_S)", autosave_secs); }
@@ -290,6 +293,7 @@ int main(int argc, char **argv) {
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness;
         RF.sea_center = vec3(cam.tx, 0, cam.tz);          // the sea's wave grid follows the look-at point
         render_sun_update(G.day);                         // sun direction, daylight and sky colour (day/night cycle)
+        sea_update_waves(G.day, dt);                      // the wave set follows the wind at the look-at point
         RF.sky = lerp3(RF.sky, vec3(0.36f, 0.30f, 0.24f), cam.mapness);   // the map view fades to parchment
         render_light_update();
         rhi_frame_stats_reset();
@@ -351,7 +355,8 @@ int main(int argc, char **argv) {
           if (lod_pops) LOG_DEBUG("lod", "%d multi-level jumps clamped this frame (cam dist %.1f, %d fading, %d assets loading): a camera teleport or a town rebuilt around a newly landed asset, walked one level per fade - not a visible pop", lod_pops, cam.dist, lod_fading, asset_loading_count());
           metric_set(m_lod_tris, (double)lod_last_tris); metric_set(m_lod_budget, lod_budget_scale); metric_set(m_icons_clustered, scene_icons_clustered);
           metric_set(m_occ_ports, scene_occluded_ports); metric_set(m_occ_ships, scene_occluded_ships); metric_set(m_occ_samples, occ_samples);
-          metric_set(m_occq_hidden, scene_occluded_assets); metric_set(m_occq_queries, occq_queried); metric_set(m_occq_moving, occq_moving); }
+          metric_set(m_occq_hidden, scene_occluded_assets); metric_set(m_occq_queries, occq_queried); metric_set(m_occq_moving, occq_moving);
+          metric_set(m_shadow_tris, (double)scene_shadow_tris); }
         ui_overlay_end();
         if (U.show_debug) rhi_check_errors("frame");
 

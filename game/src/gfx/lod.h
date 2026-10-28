@@ -22,7 +22,7 @@
 
 #define LOD_HYST    0.12f     // +-12% around a threshold before a level change is accepted
 #define LOD_FADE_S  0.30f     // seconds a cross-fade lasts
-#define LOD_MAX_LEVELS 6      // meshes + icon
+#define LOD_MAX_LEVELS 7      // meshes (ASSET_MAX_LODS) + icon
 
 // px thresholds calibrated against the old world-distance rules at 1080p / 45 degrees:
 // a size-2 town (r 3.5) became an icon at 260 units = 35 px, a lone sloop's fleet (r 2.4) went

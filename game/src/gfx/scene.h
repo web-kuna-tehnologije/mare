@@ -21,6 +21,9 @@ extern scene_hints_t SH;
 extern int scene_culled_ports, scene_culled_ships;   // frustum-culled this frame (dashboard stats)
 extern int scene_occluded_ports, scene_occluded_ships; // hidden behind terrain this frame (occlusion.h)
 extern int scene_occluded_assets;                    // authored instances hidden by the GPU queries this frame (occquery.h)
+extern int shadow_caster_lod;                        // 1 = cascades cast from each asset's coarsest LOD (MARE_SHADOW_LOD=0 disables)
+extern int scene_shadow_tris;                        // authored triangles one cascade submits (dashboard)
+int  scene_assets_submit_shadow(void);               // caster meshes for a shadow cascade
 int  scene_occlusion_active(void);                   // occlusion tests run this frame (enabled, 3D view, not a staged scene)
 extern int scene_asset_instances;                    // authored-asset (GLB) instances drawn this frame
 extern int scene_icons_clustered;                    // distant markers merged into a neighbour this frame

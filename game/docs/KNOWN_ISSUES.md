@@ -83,6 +83,20 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   in the metrics CSV); frame time is the reliable number there.
 
 ## Visual rendering 0.9
+- **M** Over deep ocean a straight-edged darker region can appear a couple of hundred units out:
+  it is the seabed terrain showing through the translucent water where the terrain chunk
+  coverage changes, not a sea artefact (it is still there with `MARE_WAVES=0`, and gone with
+  `MARE_PASSES=sea`). It predates the wind-driven sea.
+- **L** The sea's detail grid is a fixed 180-unit square around the look-at point; waves exist
+  only inside it. The surface detail now fades out with the grid so the boundary does not step,
+  but a camera low enough to see past 180 units sees flat water beyond. The tessellated sea
+  (DESIGN_VISUAL.md step 5) removes the square.
+- **L** The staged city detail view shows no cast shadows from its authored buildings (the
+  cascades are fitted to the world camera, not the staged scene). Unchanged by the caster work:
+  the two caster modes render it identically.
+- **L** 39 assets at ~8 MB of GPU meshes each is ~312 MB, over the 192 MB residency budget in
+  `gfx/scene.c`; once the full set is exported the streamer will cycle assets in and out in the
+  city tier. `tools/export_assets.py` warns about this.
 - **L** Occlusion-query answers apply a frame or more late, so culling is suspended whenever the
   camera moves; a building that becomes visible while the camera is still (a ship sailing out
   from behind it does not count - only authored buildings are tested) can be absent for up to

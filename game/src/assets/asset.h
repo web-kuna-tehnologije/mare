@@ -34,7 +34,7 @@
 #include <stddef.h>
 
 #define ASSET_MAX          256
-#define ASSET_MAX_LODS     4
+#define ASSET_MAX_LODS     5      // LOD0..LOD4 (tools/export_assets.py); the selector allows one more level for the icon
 #define ASSET_MAX_MATRULES 8
 #define ASSET_PATH         256
 

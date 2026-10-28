@@ -97,6 +97,13 @@ Status as of the current codebase. Each entry names the module that owns it.
 - Occlusion culling: authored buildings hidden behind other buildings are tested with hardware
   occlusion queries against the depth buffer and left out of the main pass (shadows still
   cast); a terrain-horizon ray for towns and ships (DESIGN_VISUAL.md step 1).
+- Wind-driven sea: five Gerstner waves built each frame from the wind at the look-at point -
+  direction, spread, wavelength and height all follow it, from a glassy doldrums to a heavy
+  westerly - with per-seed randomness, accumulated phase, downwind surface drift, and a
+  grid-aware fade that keeps the swell from aliasing as the camera moves. Ships ride the same
+  waves.
+- Shadow cascades cast from a coarse per-asset mesh; anisotropic filtering at the driver
+  maximum on every mipmapped texture.
 
 ## UI (`src/ui`)
 - Main menu (nation choice/load), top bar (date, speed, treasury, income, toggles, error badge),

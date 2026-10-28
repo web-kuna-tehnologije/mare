@@ -3,11 +3,51 @@
 // hence the attribute-by-name binding and no layout qualifiers (see glsl.h).
 
 #include <string.h>
+#include <stdlib.h>
 #include "rhi.h"
 #include "glsl.h"
 #include "../core/diag.h"
+#include "../core/util.h"
 
-void rhi_init(void) { /* context is created by v3's app_create; nothing to do on GL */ }
+// Anisotropic filtering (DESIGN_VISUAL.md step 2). Everything in this game is seen at a
+// grazing angle: the sea stretches to the horizon, roofs and roads lie almost edge-on under a
+// 12-28 degree camera. Trilinear filtering picks one mip level per pixel from the *largest*
+// axis of the footprint, so those surfaces take a far blurrier mip than they need and the sea's
+// ripples smear into grey a few units out. Anisotropy samples along the footprint instead.
+// The extension is in core GL since 4.6 and present as EXT_texture_filter_anisotropic on
+// everything older that matters; when it is missing the textures are plain trilinear.
+#ifndef GL_TEXTURE_MAX_ANISOTROPY
+#define GL_TEXTURE_MAX_ANISOTROPY 0x84FE
+#endif
+#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY 0x84FF
+#endif
+static float rhi_aniso_max, rhi_aniso;     // driver maximum, and what we ask for
+// Mipmapped textures made so far, so the dashboard knob can re-apply the level to textures that
+// already exist (the parameter is per texture object, set at creation).
+#define RHI_ANISO_TRACK 128
+static unsigned rhi_aniso_tex[RHI_ANISO_TRACK]; static int rhi_aniso_ntex;
+float rhi_anisotropy(void) { return rhi_aniso; }
+float rhi_anisotropy_max(void) { return rhi_aniso_max; }
+void rhi_set_anisotropy(float level) {
+    if (rhi_aniso_max < 2.f) return;
+    rhi_aniso = clampf(level, 1.f, rhi_aniso_max);
+    for (int i = 0; i < rhi_aniso_ntex; ++i) {
+        glBindTexture(GL_TEXTURE_2D, rhi_aniso_tex[i]);
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, rhi_aniso);
+    }
+}
+
+void rhi_init(void) {
+    // context is created by v3's app_create; query what the driver offers
+    while (glGetError()) {}
+    GLfloat m = 0; glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &m);
+    if (glGetError() || m < 2.f) { rhi_aniso_max = rhi_aniso = 1.f; LOG_WARN("gpu", "anisotropic filtering unsupported: textures stay trilinear"); return; }
+    rhi_aniso_max = m; rhi_aniso = m;
+    const char *e = getenv("MARE_ANISO");
+    if (e) { rhi_aniso = clampf((float)atof(e), 1.f, m); LOG_INFO("gpu", "anisotropic filtering pinned to %.0fx of %.0fx (MARE_ANISO)", rhi_aniso, m); }
+    else LOG_INFO("gpu", "anisotropic filtering %.0fx (driver maximum)", rhi_aniso);
+}
 const char *rhi_info(void) {
     static char buf[256];
     snprintf(buf, sizeof buf, "%s | %s", (const char*)glGetString(GL_RENDERER), (const char*)glGetString(GL_VERSION));
@@ -220,6 +260,8 @@ void rhi_set_f4(int loc, float x, float y, float z, float w) { glUniform4f(loc, 
 void rhi_set_i1(int loc, int x)                              { glUniform1i(loc, x); }
 void rhi_set_mat4(int loc, const float *m16)                 { glUniformMatrix4fv(loc, 1, GL_FALSE, m16); }
 void rhi_set_f3v(int loc, const float *v, int n)             { glUniform3fv(loc, n, v); }
+void rhi_set_f4v(int loc, const float *v, int n)             { glUniform4fv(loc, n, v); }
+void rhi_set_f1v(int loc, const float *v, int n)             { glUniform1fv(loc, n, v); }
 
 // ---------------------------------------------------------------------------
 // textures
@@ -249,7 +291,14 @@ rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filt
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter == RHI_FILTER_NEAREST ? GL_NEAREST : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wr);
-    if (filter == RHI_FILTER_MIPMAP) { glGenerateMipmap(GL_TEXTURE_2D); rhi_mem.textures += (size_t)w * h * format_bpp(fmt) / 3; }
+    if (filter == RHI_FILTER_MIPMAP) {
+        glGenerateMipmap(GL_TEXTURE_2D); rhi_mem.textures += (size_t)w * h * format_bpp(fmt) / 3;
+        // only mipmapped textures benefit: anisotropy is about which mip a grazing pixel takes
+        if (rhi_aniso_max > 1.f) {
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY, rhi_aniso);
+            if (rhi_aniso_ntex < RHI_ANISO_TRACK) rhi_aniso_tex[rhi_aniso_ntex++] = t.id;
+        }
+    }
     return t;
 }
 void rhi_texture_update(rhi_texture_t *t, const void *data) {

@@ -80,3 +80,29 @@ albedo.save(outdir + "/sea_albedo.png", optimize=True)
 tiled_preview(normal).save(outdir + "/sea_normal_tiled.png")
 tiled_preview(albedo).save(outdir + "/sea_albedo_tiled.png")
 print("wrote", outdir, "sea_normal.png sea_albedo.png (+ 2x2 tiled previews)")
+
+# ---------------------------------------------------------------------------
+# Making an arbitrary map tile (DESIGN_VISUAL.md step 5)
+#
+#   python tools/sea_textures.py --seamless <in.png> <out.png> [--normal] [--size 512]
+#
+# The maps dropped into assets/sea are authored as single images, not as tiles: measured with
+# tools/ppm2png-style edge checks, displacement_map.png already wraps (left/right edge
+# difference 0.8 of 255 against a neighbour-pixel difference of 5.1), but
+# sea_texture_normals.png (90.4) and tesselation_texture.png (31.2) do not, and repeating them
+# over the sea would draw a grid of seams across the water. This pass cross-fades a margin of
+# the image into its own opposite edge, exactly as the two tiles above are built, so the result
+# repeats without a seam. --normal blends as vectors and renormalises.
+if __name__ == "__main__" and "--seamless" in sys.argv:
+    a = sys.argv[sys.argv.index("--seamless") + 1:]
+    src, dst = a[0], a[1]
+    normal = "--normal" in a
+    size = int(a[a.index("--size") + 1]) if "--size" in a else 512
+    img = Image.open(src).convert("RGB")
+    side = min(img.size)
+    img = img.crop((0, 0, side, side))
+    globals()["W"] = side - 64
+    globals()["M"] = 64
+    tile = seamless(img, normal).resize((size, size), Image.LANCZOS)
+    tile.save(dst)
+    print("wrote %s (%dx%d, %s)" % (dst, size, size, "normal map" if normal else "colour/height"))

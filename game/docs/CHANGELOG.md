@@ -1,7 +1,37 @@
 # Changelog
 
-## 0.9.0 (in progress) — visual rendering, step 1: occlusion culling
+## 0.9.0 (in progress) — visual rendering, steps 1-4
 Plan and measurements: [DESIGN_VISUAL.md](DESIGN_VISUAL.md).
+
+- **Wind-driven sea** (`gfx/sea.c`, `glsl.h`): the authored four-wave set is replaced by five
+  Gerstner waves derived every frame from the wind at the look-at point - a fan around the wind
+  direction that narrows as it strengthens, wavelengths growing with it, height from glassy in
+  the doldrums to heavy in a westerly, and per-wave randomness hashed from the game seed. The
+  wind is smoothed over ~2 s and the phase is accumulated per wave, so a wavelength that changes
+  with the wind never makes the crests jump. Ships ride the same set.
+- **Waves no longer speed up and slow down with the camera**: the detail grid's cells grow from
+  0.14 to 7.6 world units, and waves shorter than a few cells were aliasing into a pattern fixed
+  to the camera-centred grid. `wave_sum` now fades out any wave the grid cannot sample at that
+  point. `MARE_SEA_NYQUIST=0` renders the artefact for comparison.
+- Surface detail and foam streaks drift downwind (the second layer 25 degrees off the first so
+  they do not reinforce into rays), and everything the detail grid adds over the flat world grid
+  fades out with the grid, so the two meet without a step.
+- **Shadow casters at a coarse LOD** (`gfx/scene.c`): the cascades cast from a private copy of
+  each asset's coarsest LOD (2k triangles rather than the 80k the main pass draws), with their
+  own instance buffer that includes the instances the occlusion queries hid. `gpu.shadow_ms`
+  5.15 vs 6.07 in the city tier and 2.29 vs 4.32 in the staged city; a low-sun town view differs
+  in 0.11 % of pixels. The cross-frame static cache first planned for this step is not viable -
+  the day/night cycle swings the sun ~5 degrees a second, so every cascade is dirty every frame.
+- **Anisotropic filtering** (`rhi_gl.c`): the driver maximum (16x here) on every mipmapped
+  texture, with a dashboard cycle and `MARE_ANISO=N`. The sea and the roofs are seen nearly
+  edge-on, which is where trilinear filtering blurs.
+- **Five LOD levels** (`ASSET_MAX_LODS` 4 -> 5) and the asset export pipeline:
+  `tools/export_assets.py` walks the whole `.blend` source tree, resolves Meshy filenames to
+  asset names, skips what is already exported and runs Blender headless per asset
+  (`--check` prints the plan, `--validate` runs Blender but writes nothing, `--jobs N`
+  parallel); `tools/blender_export_glb.py` exports LOD0..LOD4 (80k/24k/7k/2k/600 triangles);
+  `tools/gen_asset_descriptors.py` writes 5-LOD descriptors and knows ship parts.
+  `tools/ppm2png.py` converts the `MARE_SCREENSHOT` captures.
 
 - **GPU occlusion culling for authored buildings** (`gfx/occquery.c`, `rhi_query_*`): every
   authored instance's bounding box is tested against the depth buffer after the opaque pass

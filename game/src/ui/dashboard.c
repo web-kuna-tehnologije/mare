@@ -279,7 +279,7 @@ static void tab_lod(void) {
           ui_label_col(a->state == ASSET_LOADED ? "resident" : a->state == ASSET_LOADING ? (a->stage == 1 ? "IO" : a->stage == 2 ? "DECODE" : "MAIN") : a->state == ASSET_FAILED ? "FAILED" : "evicted",
                        a->state == ASSET_LOADED ? mu_color(160,220,160,255) : a->state == ASSET_FAILED ? mu_color(255,110,90,255) : mu_color(240,210,120,255));
           mu_label(ui_ctx, va("%.1f", a->gpu_bytes / mb));
-          { char res[16] = ""; int o = 0; for (int l = 0; l < a->nlods && o < 12; ++l) o += snprintf(res + o, sizeof res - o, "%s%c", l ? " " : "", a->lod[l].gpu ? '0' + l : '-'); mu_label(ui_ctx, a->nlods ? res : "-"); }
+          { char res[24] = ""; int o = 0; for (int l = 0; l < a->nlods && o < 20; ++l) o += snprintf(res + o, sizeof res - o, "%s%c", l ? " " : "", a->lod[l].gpu ? '0' + l : '-'); mu_label(ui_ctx, a->nlods ? res : "-"); }
           { float idle = scene_asset_idle_s(i); mu_label(ui_ctx, idle < 0 ? "never" : va("%.0f", idle)); }
           { char line[64]; int o = 0; for (int l = 0; l < a->nlods && o < 56; ++l) o += snprintf(line + o, sizeof line - o, "%s%d", l ? " / " : "", scene_asset_lod_count(i, l)); mu_label(ui_ctx, a->nlods ? line : "-"); }
           mu_pop_id(ui_ctx);
@@ -329,13 +329,24 @@ static void tab_system(void) {
     mu_label(ui_ctx, va("world %dx%d cells, nav %dx%d, %d ports, fleets %d (slots %d/%d)", LM_W, LM_H, NAV_W, NAV_H, G.nports, game_count_fleets(), G.nfleets, MAX_FLEETS));
     mu_label(ui_ctx, va("state struct %u bytes | sim day %.2f | seed %u | rng %08x", (unsigned)sizeof G, G.day, G.seed, G.rng));
     mu_label(ui_ctx, va("build %s %s | save v%u", __DATE__, __TIME__, (unsigned)SAVE_VERSION));
+    mu_label(ui_ctx, va("sea: wind %.0f deg strength %.2f -> wave height x%.2f, %d waves%s",
+                        atan2f(sea_wind_dz, sea_wind_dx) * 57.2958f, sea_wind_str, sea_wind_amp, SEA_WAVES,
+                        sea_nyquist ? ", grid-aware fade on" : ", grid-aware fade OFF"));
     mu_label(ui_ctx, va("HDR RGBA16F, linear/sRGB, PBR | exposure %.2f | shadows %s (%d casters)",
                         hdr_exposure, shadow_enabled ? "on" : "off", shadow_casters_drawn));
     { rhi_stats_t st = rhi_frame_stats();
       mu_label(ui_ctx, va("draws %d | instances %d | tris %dk | frustum-culled %d ports %d fleets | occluded %d buildings (GPU times: Perf tab)",
                           st.draws, st.instances, st.tris / 1000, scene_culled_ports, scene_culled_ships, scene_occluded_assets)); }
-    ROW(3, 150, 150, -1, 22);
+    ROW(4, 150, 110, 110, -1, 22);
+    if (ui_btn(rhi_anisotropy_max() > 1.f ? va("Anisotropy: %.0fx", rhi_anisotropy()) : "Anisotropy: n/a")) {
+        float n = rhi_anisotropy() * 2.f; rhi_set_anisotropy(n > rhi_anisotropy_max() ? 1.f : n);   // 1,2,4,8,16 and round
+    }
+    mu_label(ui_ctx, va("max %.0fx", rhi_anisotropy_max()));
+    mu_label(ui_ctx, "grazing-angle sharpness: sea, roofs, roads (MARE_ANISO pins it)");
+    ROW(4, 150, 170, 170, -1, 22);
     if (ui_btn(shadow_enabled ? "Shadows: on" : "Shadows: off")) shadow_enabled = !shadow_enabled;
+    if (ui_btn(shadow_caster_lod ? "Casters: coarse LOD" : "Casters: drawn LOD")) shadow_caster_lod = !shadow_caster_lod;
+    mu_label(ui_ctx, va("%d caster tris/cascade, %d casters", scene_shadow_tris, shadow_casters_drawn));
     if (ui_btn("Exposure -")) hdr_exposure = maxf(0.25f, hdr_exposure - 0.1f);
     if (ui_btn("Exposure +")) hdr_exposure = minf(4.0f, hdr_exposure + 0.1f);
     ROW(3, 150, 150, -1, 22);

@@ -30,7 +30,15 @@ zoom there and back after an optional hold, for LOD/streaming measurements), `MA
 `MARE_SCREENSHOT=file.ppm` (pinned camera + capture), `MARE_DETAIL=battle|city`,
 `MARE_DASHTAB=performance|metrics|jobs|lod|assets|log|system` (open the dashboard on a tab),
 `MARE_AUTOSAVE_S=N` (autosave interval, 0 disables; the evidence runs use 4), `MARE_OCCQ=0|1|2`
-(GPU occlusion culling off / on / query-only) and `MARE_OCCLUSION=0` (terrain occlusion ray).
+(GPU occlusion culling off / on / query-only), `MARE_OCCLUSION=0` (terrain occlusion ray),
+`MARE_SHADOW_LOD=0` (cascades cast from the drawn LOD instead of the coarse one),
+`MARE_SEA_NYQUIST=0` (show the wave aliasing the grid-aware fade removes), `MARE_ANISO=N`.
+
+Asset export: `python3 tools/export_assets.py --check` prints what it would export from the
+`.blend` tree (outside the repo), `--validate` runs Blender on each source without writing, and
+a plain run writes `game/assets/<name>/<name>_LOD0..4.glb`; follow it with
+`python3 tools/gen_asset_descriptors.py game/assets`. `tools/ppm2png.py` turns a
+`MARE_SCREENSHOT` capture into a PNG.
 
 Asset tooling (Windows dev box: Blender 5.2 and Python with PIL):
 `blender -b src.blend --python tools/blender_export_glb.py -- game/assets/<name> <name>` exports

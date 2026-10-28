@@ -69,6 +69,12 @@ unsigned rgb_linear(unsigned srgb_col);  // packed sRGB colour -> packed linear 
 void terrain_draw(float planes[6][4]);   // frustum planes from cam_frustum(); chunks pick a LOD by distance
 void sea_draw(void);                     // world grid (flat) + the camera-centred wave grid
 void sea_draw_local(float depth, float scale, float radius);   // staged scenes: the wave grid alone at a constant depth
+void sea_update_waves(float day, float dt);   // once per frame: derive the wave set from the wind (DESIGN_VISUAL.md step 4)
+void sea_bind_waves(const rhi_pipeline_t *p); // upload it to a pipeline built with GLSL_WAVES
+extern float sea_wind_dx, sea_wind_dz;   // smoothed wind direction the waves travel along
+extern float sea_wind_str;               // smoothed wind strength at the sea centre
+extern float sea_wind_amp;               // wave height factor derived from it
+extern int   sea_nyquist;                // 1 = fade waves finer than the detail grid (MARE_SEA_NYQUIST=0 to compare)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene
 extern float sea_local_depth;            // >0 makes every wave lookup use this depth (staged scenes have no heightmap)

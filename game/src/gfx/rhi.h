@@ -84,6 +84,8 @@ void rhi_set_f4(int loc, float x, float y, float z, float w);
 void rhi_set_i1(int loc, int x);
 void rhi_set_mat4(int loc, const float *m16);
 void rhi_set_f3v(int loc, const float *v, int n);
+void rhi_set_f4v(int loc, const float *v, int n);
+void rhi_set_f1v(int loc, const float *v, int n);
 
 // textures
 rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data);
@@ -130,6 +132,13 @@ void     rhi_query_begin(unsigned q);
 void     rhi_query_end(void);
 int      rhi_query_result(unsigned q, int *passed);   // 1 when the result is in (passed = any sample drew)
 void     rhi_color_write(int on);              // colour mask for depth-only proxy draws (restore to 1)
+
+// anisotropic filtering (DESIGN_VISUAL.md step 2): applied to every mipmapped texture at
+// creation. 1 = off/unsupported. Changing it affects textures made afterwards; rhi_reanisotropy
+// re-applies the current level to the textures that already exist (dashboard knob).
+float rhi_anisotropy(void);
+float rhi_anisotropy_max(void);
+void  rhi_set_anisotropy(float level);         // also re-applies to the mipmapped textures already made
 
 typedef struct rhi_mem_t { size_t textures, targets, buffers; int ntextures, nbuffers; } rhi_mem_t;
 rhi_mem_t rhi_memory(void);

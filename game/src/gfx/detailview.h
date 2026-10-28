@@ -20,7 +20,8 @@ void detailview_enter_battle(int fleet_id);    // around this fleet's battle; 0 
 void detailview_enter_city(int port);          // -1 = nearest living town
 void detailview_exit(void);                    // back through the clouds to the map
 void detailview_frame(float dt);               // animate + upload instances (before the shadow pass)
-int  detailview_submit(void);                  // draw stage + instances (main pass and shadow pass)
+int  detailview_submit(void);                  // draw stage + instances (main pass)
+int  detailview_submit_shadow(void);           // the same scene for a shadow cascade (coarse caster meshes)
 int  detailview_submit_smoke(void);            // gunsmoke, after the translucent bind
 void detailview_sea(void);                     // the staged scene's water (same shader and waves as the map)
 void detailview_clouds(void);                  // cloud overlay, after hdr_resolve (no-op when clear)

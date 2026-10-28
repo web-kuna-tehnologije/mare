@@ -46,7 +46,7 @@ static const char *meshes_vs =
     "  float wamp = u_wave_amp * i_misc.z;\n"
     "  if (wamp > 0.0) wamp *= wave_depth_fade(u_hm, i_pos.xz, u_geo, u_wk, u_wave_scale, u_local_depth);\n"
     "  vec3 wtx, wtz; float wcrest;\n"
-    "  vec3 wdisp = wave_sum(i_pos.xz, u_time, wamp, u_wave_scale, wtx, wtz, wcrest);\n"
+    "  vec3 wdisp = wave_sum(i_pos.xz, wamp, u_wave_scale, 0.0, wtx, wtz, wcrest);\n"
     "  vec3 wup = normalize(cross(wtz, wtx));\n"
     "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
     "  v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);\n"
@@ -111,7 +111,7 @@ static const char *depth_vs =
     "  float wamp = u_wave_amp * i_misc.z;\n"
     "  if (wamp > 0.0) wamp *= wave_depth_fade(u_hm, i_pos.xz, u_geo, u_wk, u_wave_scale, u_local_depth);\n"
     "  vec3 wtx, wtz; float wcrest;\n"
-    "  vec3 wdisp = wave_sum(i_pos.xz, u_time, wamp, u_wave_scale, wtx, wtz, wcrest);\n"
+    "  vec3 wdisp = wave_sum(i_pos.xz, wamp, u_wave_scale, 0.0, wtx, wtz, wcrest);\n"
     "  vec3 wup = normalize(cross(wtz, wtx));\n"
     "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
     "  gl_Position = u_vp * vec4(wp, 1.0);\n"
@@ -278,8 +278,8 @@ static void build_puff(void) {
 
 void meshes_init(void) {
     static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain",
-                                      "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_LIGHT_UNIFORMS, 0 };
-    static const char *depth_uniforms[] = { "u_vp", "u_time", "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", 0 };
+                                      "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *depth_uniforms[] = { "u_vp", "u_time", "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, 0 };
     meshes_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = meshes_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     depth_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = depth_vs, .fs = depth_fs, .layout = &mesh_layout, .uniforms = depth_uniforms, .depth_test = 1, .depth_write = 1 });
     smoke_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = smoke_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 0, .blend = RHI_BLEND_ALPHA });
@@ -291,7 +291,8 @@ void meshes_init(void) {
 // the wave uniforms every instanced pipeline needs so floating instances ride the same surface
 // the sea pass draws (render.h: sea_wave_amp / sea_wave_scale / sea_local_depth)
 static void meshes_bind_waves(const rhi_pipeline_t *p) {
-    rhi_set_f1(rhi_uniform(p,"u_wave_amp"), sea_wave_amp * (1.f - RF.mapness));
+    sea_bind_waves(p);
+    rhi_set_f1(rhi_uniform(p,"u_wave_amp"), sea_wave_amp * sea_wind_amp * (1.f - RF.mapness));
     rhi_set_f1(rhi_uniform(p,"u_wave_scale"), sea_wave_scale);
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), sea_local_depth);
     rhi_set_i1(rhi_uniform(p,"u_hm"), 4); rhi_texture_bind(4, terrain_heightmap_texture());

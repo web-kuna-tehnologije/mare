@@ -185,6 +185,19 @@ int scene_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
 
 static mesh_t    asset_mesh[ASSET_MAX][ASSET_MAX_LODS];
 static instlist_t asset_inst[ASSET_MAX][ASSET_MAX_LODS];
+// Shadow casters (DESIGN_VISUAL.md step 3). A shadow map texel covers a good fraction of a
+// house, so casting the 80k-triangle LOD 0 three times (once per cascade) buys nothing a 2k
+// silhouette does not. Each asset therefore gets a second geometry built from its coarsest
+// resident LOD, with its own instance buffer holding *every* instance of that asset this frame
+// (whatever LOD the main pass picked for it, and including the ones the occlusion queries hid -
+// a hidden house still casts a visible shadow). Separate buffers because the shadow pass runs
+// before the main pass: re-uploading the shared ones between the two passes is what cost 400 ms
+// a frame on the Intel driver when the occlusion work first tried it.
+static mesh_t    asset_shadow_mesh[ASSET_MAX];
+static int       asset_shadow_lod[ASSET_MAX];
+static instlist_t asset_shadow_inst[ASSET_MAX];
+int shadow_caster_lod = 1;               // 0 = cast with the drawn LOD (dashboard toggle / MARE_SHADOW_LOD=0)
+int scene_shadow_tris;                   // triangles the last shadow cascade submitted (dashboard)
 static int asset_used[ASSET_MAX];        // has an instance list this frame
 static float asset_last_use[ASSET_MAX];  // RF.time an instance of this asset was last submitted
 int scene_asset_instances;               // dashboard: authored-asset instances drawn this frame
@@ -214,8 +227,25 @@ mesh_t *scene_asset_mesh(asset_t *a, int lod) {
     return &asset_mesh[ai][lod];
 }
 
-// the renderer's upload hook (asset.c calls it on the MAIN lane, one LOD per budgeted job)
-void scene_asset_upload(asset_t *a, int lod) { scene_asset_mesh(a, lod); }
+// The renderer's upload hook (asset.c calls it on the MAIN lane, one LOD per budgeted job).
+// The caster geometry has to be made here, from the coarsest LOD, because scene_asset_mesh
+// frees the CPU copy as soon as it has uploaded it - by the time anything draws the asset there
+// is nothing left to build a second geometry from. A private geometry rather than a second
+// mesh_t over the drawn one: the shadow pass runs before the main pass and they need different
+// instance sets, and two mesh_t sharing a geometry would share its instance buffer.
+void scene_asset_upload(asset_t *a, int lod) {
+    int ai = (int)(a - asset_at(0));
+    if (lod == a->nlods - 1 && !asset_shadow_mesh[ai].geo.vao) {
+        asset_lod_t *L = &a->lod[lod];
+        if (L->verts && L->idx) {
+            asset_shadow_mesh[ai] = mesh_upload_indexed(L->verts, L->nverts, L->idx, L->nidx);
+            asset_shadow_lod[ai] = lod;
+            LOG_DEBUG("gfx", "asset '%s' casts shadows from LOD %d (%d tris, drawn LOD 0 is %d)",
+                      a->desc.name, lod, L->nidx / 3, a->lod[0].nidx / 3);
+        }
+    }
+    scene_asset_mesh(a, lod);
+}
 
 // One instance of an authored asset: its LOD is picked in screen space from the authored
 // switch distances (converted to pixels for the reference view, scaled by the LOD bias), with
@@ -223,7 +253,6 @@ void scene_asset_upload(asset_t *a, int lod) { scene_asset_mesh(a, lod); }
 // that fade takes precedence over the asset's own (one dither pattern per instance).
 static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float town_dither);
 void scene_asset_instance(asset_t *a, inst_t in, unsigned key, float camdist) { asset_push(a, in, key, camdist, 0.f); }
-static int scene_submit_for_shadow;      // scene_submit_shadow sets this: the shadow pass draws occluded instances too
 static int asset_vis[ASSET_MAX][ASSET_MAX_LODS];   // per list: instances the main pass draws (the visible ones, partitioned to the front)
 static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float town_dither) {
     int ai = (int)(a - asset_at(0));
@@ -231,6 +260,9 @@ static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float
     // GPU occlusion (occquery.h): ask for this frame's answer and apply the last one. A hidden
     // instance stays in the list (the shadow pass needs it) flagged in fx1.
     if (occq_active()) { occq_request(key, a, &in); if (!occq_visible(key)) { in.fx1 = 1.f; scene_occluded_assets++; } }
+    // one caster instance per instance, at the coarse LOD and without the cross-fade dither:
+    // the caster is a single mesh, so there is no second level to partition pixels with
+    if (shadow_caster_lod) { inst_t sh = in; sh.dither = 0; sh.fx1 = 0; *instlist_push(&asset_shadow_inst[ai]) = sh; }
     float r = a->radius * (in.scale > 0 ? in.scale : 1.f), thr[ASSET_MAX_LODS];
     for (int l = 1; l < a->nlods; ++l) thr[l - 1] = a->lod[l].px > 0 ? a->lod[l].px / asset_lod_bias : lod_px_ref(r, a->lod[l].dist * asset_lod_bias);
     lod_pick_t pk = lod_select(key, thr, a->nlods, lod_px(r, camdist), a->nlods - 1);
@@ -255,6 +287,7 @@ static void scene_asset_evict(int ai) {
     asset_t *a = asset_at(ai);
     if (!a || a->state != ASSET_LOADED) return;
     for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[ai][l].geo.vao) { rhi_geometry_free(&asset_mesh[ai][l].geo); asset_mesh[ai][l].ninst = 0; }
+    if (asset_shadow_mesh[ai].geo.vao) { rhi_geometry_free(&asset_shadow_mesh[ai].geo); asset_shadow_mesh[ai].ninst = 0; }
     LOG_DEBUG("gfx", "evicting asset '%s' (%.1f MB, unused %.0f s)", a->desc.name, a->gpu_bytes / (1024.0*1024.0), RF.time - asset_last_use[ai]);
     asset_unload(a);                     // frees any CPU copy, clears the LOD table, bumps the generation
     scene_assets_evicted++;
@@ -283,7 +316,7 @@ static void scene_assets_residency(void) {
 void scene_assets_begin(void) {
     scene_assets_residency();
     scene_occluded_assets = 0;
-    for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) { for (int l = 0; l < ASSET_MAX_LODS; ++l) instlist_clear(&asset_inst[i][l]); asset_used[i] = 0; }
+    for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) { for (int l = 0; l < ASSET_MAX_LODS; ++l) instlist_clear(&asset_inst[i][l]); instlist_clear(&asset_shadow_inst[i]); asset_used[i] = 0; }
     scene_asset_instances = 0;
 }
 void scene_assets_end(void) {
@@ -291,9 +324,11 @@ void scene_assets_end(void) {
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) {
         const asset_t *a = asset_at(i);
         for (int l = 0; l < ASSET_MAX_LODS; ++l) {
-            // Occluded instances (fx1, occquery.h) are moved to the end of the list before the
-            // one upload of the frame: the shadow pass draws all n, the main pass the first
-            // asset_vis. No second upload, so no mid-frame write to a buffer the GPU is reading.
+            // Occluded instances (fx1, occquery.h) are moved to the end of the list before its
+            // single upload: the main pass draws the visible prefix, and the shadow pass - when
+            // this asset has no caster mesh of its own - still draws all of them, since a hidden
+            // house casts a visible shadow. Changing mesh_t.ninst between the passes costs
+            // nothing; re-uploading the buffer between them is what cost 400 ms a frame once.
             instlist_t *L = &asset_inst[i][l]; int nvis = L->n;
             if (scene_occluded_assets) {
                 int w = 0;
@@ -302,19 +337,42 @@ void scene_assets_end(void) {
             }
             asset_vis[i][l] = nvis;
             mesh_set_instances(&asset_mesh[i][l], L->v, L->n);
-            scene_asset_instances += L->n;
-            if (l < a->nlods) tris += (long long)(a->lod[l].nidx / 3) * asset_inst[i][l].n;
+            scene_asset_instances += nvis;
+            if (l < a->nlods) tris += (long long)(a->lod[l].nidx / 3) * nvis;
         }
+        if (shadow_caster_lod && asset_shadow_inst[i].n && asset_shadow_mesh[i].geo.vao)
+            mesh_set_instances(&asset_shadow_mesh[i], asset_shadow_inst[i].v, asset_shadow_inst[i].n);
     }
     // closes the director's loop: next frame's thresholds are scaled to meet the tier's budget
     lod_budget_report(tris);
 }
+// Casters for the shadow cascades: one coarse mesh per asset (see asset_shadow_mesh). Falls
+// back to the drawn meshes for an asset whose CPU data was already freed when it was first seen.
+int scene_assets_submit_shadow(void) {
+    int n = 0;
+    scene_shadow_tris = 0;
+    for (int i = 0; i < asset_count(); ++i) {
+        if (!asset_used[i]) continue;
+        mesh_t *m = &asset_shadow_mesh[i];
+        if (shadow_caster_lod && m->geo.vao && m->ninst) {
+            mesh_draw(m); n += m->ninst;
+            scene_shadow_tris += (m->geo.nindices / 3) * m->ninst;
+            continue;
+        }
+        for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[i][l].geo.vao) {
+            mesh_draw(&asset_mesh[i][l]); n += asset_mesh[i][l].ninst;
+            scene_shadow_tris += (asset_mesh[i][l].geo.nindices / 3) * asset_mesh[i][l].ninst;
+        }
+    }
+    return n;
+}
+
 int scene_assets_submit(void) {
     int n = 0;
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i])
         for (int l = 0; l < ASSET_MAX_LODS; ++l) if (asset_mesh[i][l].geo.vao) {
             mesh_t *m = &asset_mesh[i][l]; int all = m->ninst;
-            if (!scene_submit_for_shadow && asset_vis[i][l] < all) m->ninst = asset_vis[i][l];   // main pass: the visible prefix only
+            m->ninst = asset_vis[i][l] < all ? asset_vis[i][l] : all;   // the visible prefix
             mesh_draw(m); n += m->ninst;
             m->ninst = all;
         }
@@ -524,19 +582,18 @@ void scene_build_ports(void) {
     assets_set_instances();
 }
 
-int scene_submit_ports(void) {
+static int submit_town_meshes(void) {
     mesh_draw(&mesh_pier); mesh_draw(&mesh_house); mesh_draw(&mesh_roof);
     mesh_draw(&mesh_tower); mesh_draw(&mesh_wall); mesh_draw(&mesh_flagpole);
-    return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n + assets_submit();
+    return piers.n + houses.n + roofs.n + towers.n + walls.n + flagpoles.n;
 }
+int scene_submit_ports(void) { return submit_town_meshes() + assets_submit(); }
 
 // shadow casters: every town piece and every ship (piers shadow the water, flagpoles the
 // squares). Gunsmoke is deliberately left out: a hard-edged shadow from a smoke ball looks wrong.
 int scene_submit_shadow(void) {
-    scene_submit_for_shadow = 1;
-    int n = detailview_mode() != DV_OFF ? detailview_submit()      // the staged scene is the only caster set
-                                        : scene_submit_ports() + submit_ship_meshes();
-    scene_submit_for_shadow = 0;
+    int n = detailview_mode() != DV_OFF ? detailview_submit_shadow()   // the staged scene is the only caster set
+                                        : submit_town_meshes() + scene_assets_submit_shadow() + submit_ship_meshes();
     return n;
 }
 

@@ -432,6 +432,22 @@ int detailview_submit(void) {
     return n;
 }
 
+// The staged scene as shadow casters: the same stage and ships, but the authored buildings
+// come from their coarse caster meshes (scene.c, DESIGN_VISUAL.md step 3).
+int detailview_submit_shadow(void) {
+    if (dv.phase == DVP_IDLE || dv.phase == DVP_OUT || !dv.stage_built) return 0;
+    int n = 0;
+    mesh_draw(&dv.stage); n++;
+    for (int t = 0; t < SHIP_COUNT; ++t) { mesh_draw(&ship_mesh[t][0]); n += ship_mesh[t][0].ninst; }
+    if (dv.mode == DV_CITY) {
+        mesh_draw(&mesh_house); mesh_draw(&mesh_roof); mesh_draw(&mesh_tower);
+        mesh_draw(&mesh_wall); mesh_draw(&mesh_pier); mesh_draw(&mesh_flagpole);
+        n += mesh_house.ninst + mesh_roof.ninst + mesh_tower.ninst + mesh_wall.ninst + mesh_pier.ninst + mesh_flagpole.ninst;
+        n += scene_assets_submit_shadow();
+    }
+    return n;
+}
+
 int detailview_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Design: visual rendering 0.9
 
-Status: **step 1 done** (occlusion culling; its section is below). The plan below is the feature "visual rendering" broken into
+Status: **steps 1-4 done**; their sections are below. The sea textures for step 5 are in place. The plan below is the feature "visual rendering" broken into
 steps that each land fully working on all three platforms, with a measurement, before the next
 starts (the same rule the renderer and engine-scale plans followed; those are in
 DESIGN_RENDERER.md, DESIGN_JOBS.md and DESIGN_LOD.md). Each step has its own section below once
@@ -13,25 +13,33 @@ it is built.
        measured first and found to hide nothing with this relief and camera; it stays, nearly
        free, for towns and ships. Toggles: dashboard "occlusion", `MARE_OCCQ=0|1|2`,
        `MARE_OCCLUSION=0`.
-2. [ ] **Anisotropic filtering** - `rhi_texture_make` asks the driver for its maximum anisotropy
-       and applies it to every mipmapped texture (asset base colour, sea normal/foam, detail
-       maps); dashboard shows the level, `MARE_ANISO=N` pins it. Fixes the smeared sea and
-       roofs at grazing angles.
-3. [ ] **Static shadow caching** - towns do not move: their casters are rendered into the
-       cascades only when the sun or the cascade's snapped centre changes, and kept otherwise;
-       ships (dynamic) are rendered every frame on top. Cuts the shadow pass to the ships in a
-       steady view.
-4. [ ] **Wind-driven sea** - the fixed four-wave set and the value-noise wobble go. A wave set is
-       generated from the wind at the sea's centre (`wind_at`): directions spread around the wind
-       direction, wavelengths and amplitudes from the wind strength, randomised by a hash so no
-       two seas look alike, and the whole field moves downwind. Fixes the waves speeding up and
-       slowing down as the camera moves: the detail grid's cells grow with distance, and a wave
-       shorter than a few cells aliases into a pattern that slides with the grid; each wave is
-       attenuated below the local cell size (Nyquist), so only well-sampled waves displace.
-5. [ ] **Tessellation and normal maps** - a GL 4 tessellation path for the sea behind the RHI
-       (control/evaluation shaders, distance-based levels) with the warped grid as the fallback;
-       the authored normal map stays the sub-wave ripple detail and adds a wind-stretched
-       sampling direction.
+2. [x] **Anisotropic filtering** - `rhi_init` asks the driver for its maximum (16x on the dev
+       box) and `rhi_texture_make` applies it to every mipmapped texture; the dashboard System
+       tab cycles it and `MARE_ANISO=N` pins it. The sea and the roofs are seen almost edge-on,
+       which is exactly where trilinear filtering picks too blurry a mip.
+3. [x] **Cheap shadow casters** - a shadow-map texel covers a good part of a house, so the
+       cascades cast from a private copy of each asset's *coarsest* LOD (2k triangles instead
+       of 80k) built in the upload hook, with its own instance buffer carrying every instance
+       including the occluded ones. The cross-frame static cache the step originally proposed
+       is not viable: the day/night cycle swings the sun 5 degrees a second at the default
+       speed, so every cascade would be dirty every frame. `MARE_SHADOW_LOD=0` compares.
+4. [x] **Wind-driven sea** - the authored four-wave set is gone. `sea_update_waves` builds five
+       Gerstner waves each frame from the wind at the look-at point (`wind_at`): directions
+       spread around the wind with the spread narrowing as it strengthens, wavelengths a
+       geometric series whose longest member grows with it, height scaling from glassy in the
+       doldrums to heavy in a westerly, and a per-wave random offset from the game seed. Phase
+       is accumulated per wave rather than computed as speed x time, so a wavelength that
+       changes with the wind never makes the crests jump. The waves-change-speed-with-the-camera
+       artefact is fixed by fading out every wave the detail grid cannot sample at that point
+       (`MARE_SEA_NYQUIST=0` shows what it removes).
+5. [ ] **Tessellated sea with the authored displacement map** - a GL 4 tessellation path behind
+       the RHI (control/evaluation shaders, distance-based levels) replacing the exponentially
+       warped detail grid, displaced by `game/assets/sea/sea_displacement.png` (the 1024px
+       grayscale map from `assets/sea/displacement_map.png`, which already tiles: measured edge
+       difference 0.8/255 against a 5.1 neighbour difference). This also removes the fixed
+       180-unit detail square, and with it the Nyquist fade step 4 needs. The other two maps in
+       `assets/sea` do **not** tile (`sea_texture_normals.png` 90.4, `tesselation_texture.png`
+       31.2) and must go through `tools/sea_textures.py --seamless` before use.
 6. [ ] **Foam and breaking waves** - whitecaps on crests from the Gerstner Jacobian (fold =
        foam), persisting a moment and advected downwind; surf: waves that reach the shallows
        steepen and break into a foam band over the beach; bow and wake foam around moving ships
@@ -97,6 +105,88 @@ which by design still draws every caster. That is step 3's job; this step remove
 pass's share. `gfx.occluded_assets`, `gfx.occ_queries`, `gfx.cam_moving` are metrics; the
 dashboard Performance tab shows hidden / queried / pending / tracked and the camera-moving
 state, the LOD tab the instance counts.
+
+## Steps 2-4 as built
+
+### Anisotropic filtering (step 2)
+
+`rhi_init` queries `GL_MAX_TEXTURE_MAX_ANISOTROPY` once (16x on the Intel dev box; the extension
+has been core since GL 4.6 and present as `EXT_texture_filter_anisotropic` on everything older
+that matters) and every mipmapped texture takes it at creation. Only mipmapped ones: anisotropy
+is about which mip a grazing pixel samples, and the game's grazing surfaces - the sea stretching
+to the horizon, roofs and roads under a 12-28 degree camera - are exactly where trilinear
+filtering picks a mip sized for the long axis of the pixel footprint and blurs the short one.
+The dashboard System tab cycles 1/2/4/8/16x (re-applying to the textures already made, since the
+parameter lives on the texture object) and `MARE_ANISO=N` pins it for a capture.
+
+### Shadow casters (step 3)
+
+The step was planned as a cross-frame cache of the static casters. Measuring the sun killed it:
+`DAYNIGHT_PERIOD_DAYS` is 24 and the default speed is 0.333 days/s, so the sun swings about
+**5 degrees per second** - and 45 at speed 4. Every cascade matrix would be dirty every frame,
+and the cache would never be read. (It would work while paused and in the city view, where the
+clock crawls to 0.05 days/s, but that is a narrow case for a second depth atlas and a blit.)
+
+What the shadow pass was actually spending its time on is resolution it cannot use: one shadow
+texel covers a good part of a house, and the cascades were casting the same 80k-triangle LOD 0
+the main pass draws, three times over. So each asset now gets a **private caster geometry built
+from its coarsest LOD** (2k triangles today, 600 once the assets are re-exported with
+`tools/export_assets.py`), with its own instance buffer carrying every instance of that asset -
+whatever LOD the main pass chose for it, and including the ones the occlusion queries hid, since
+a hidden house still casts a visible shadow. It is built in the upload hook, because
+`scene_asset_mesh` frees the CPU copy as soon as it has uploaded it; and it is a separate
+geometry rather than a second `mesh_t` over the drawn one because the shadow pass runs before
+the main pass and they need different instance sets.
+
+| view | caster triangles per cascade | `gpu.shadow_ms` coarse / full |
+|---|---|---|
+| Seville city tier | 653k (326 instances x 2k) vs 819k at the drawn LODs | **5.15** / 6.07 |
+| staged city (`MARE_DETAIL=city`) | 1.42M vs 1.85M | **2.29** / 4.32 |
+
+A low-sun town view rendered with both settings differs in **0.11 %** of sampled pixels by more
+than 12/255: the silhouette a 2k mesh casts at shadow-map resolution is the silhouette an 80k
+mesh casts. `MARE_SHADOW_LOD=0` restores the old behaviour for comparison.
+
+### Wind-driven sea (step 4)
+
+`sea_update_waves(day, dt)` runs once a frame and derives five Gerstner waves from
+`wind_at(RF.sea_center)`:
+
+* **direction** - a fan around the wind direction, the spread narrowing from 0.95 rad in a light
+  air to 0.28 in a strong one, so a gale runs in near-parallel lines and the doldrums are
+  confused and crossed;
+* **wavelength** - a geometric series (ratio 0.64) whose longest member grows with the wind, so
+  a fresh breeze raises a longer and slower swell as well as a taller one;
+* **height** - amplitude follows wavelength with `WAVE_STEEP` capping the steepness, and the
+  whole field scales by `0.10 + 0.95 (strength - 0.18)`: the doldrums (strength ~0.35) leave a
+  nearly glassy sea, a westerly (~1.2) a heavy one;
+* **randomness** - each wave takes a fixed angle, length and steepness jitter and a phase offset
+  hashed from `G.seed`, so no two games get the same sea and the five never crest together;
+* **the wind is smoothed** over about two seconds, so crossing from one wind band into the next
+  turns the swell instead of snapping it.
+
+Phase is **accumulated** (`phase += k * speed * dt`) rather than evaluated as `speed * time`.
+That matters because the wind changes the wavelength, and with `speed * time` any change in
+speed multiplies a large `t` and jumps every crest across the sea; it also keeps the field
+stable after hours of running, where `t` is large enough to lose precision.
+
+**The waves speeding up and slowing down as the camera moves** was aliasing, not timing. The
+detail grid's cells grow exponentially with distance from the look-at point - 0.14 world units
+under the camera, 7.6 at the rim - and the shortest waves are 0.5-1 unit long. Sampling a
+0.7-unit wave with a 7-unit cell produces a beat pattern fixed to the *grid*, and the grid is
+centred on the camera, so the pattern slid whenever the camera did. `wave_sum` now takes the
+world size of a cell at that vertex and fades out any wave shorter than 2-4 of them, so what is
+drawn is only what is sampled. `MARE_SEA_NYQUIST=0` renders the artefact for comparison: the
+whitecaps that should fade out a few dozen units away instead speckle to the horizon.
+
+The ripple detail and the foam streaks now drift downwind too (the second layer 25 degrees off
+the first, so the two do not reinforce into long rays across the scene), and everything the
+detail grid adds over the flat world grid fades out with the grid itself, so the two meet
+without a step.
+
+Ships ride exactly this water: `meshes_bind_waves` uploads the same wave set to the instanced
+mesh pipelines, which pass `cell = 0` (a hull samples the surface at a point, so nothing
+aliases).
 
 Rules carried over: every effect has a toggle (dashboard checkbox and an environment variable)
 so it can be measured off and on; GPU time per pass goes through `rhi_gpu_scope`; the two

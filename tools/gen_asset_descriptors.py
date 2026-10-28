@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# Write <name>.asset.json for every exported building (game/assets/<name>/<name>_LOD0..3.glb,
-# see tools/blender_export_glb.py) and regenerate game/assets/manifest.json.
+# Write <name>.asset.json for every exported asset (game/assets/<name>/<name>_LOD0..4.glb, see
+# tools/export_assets.py) and regenerate game/assets/manifest.json.
 #
 #   python3 tools/gen_asset_descriptors.py game/assets
 #
@@ -19,24 +19,30 @@ HEIGHTS = {
     "city_gate": 0.50, "defensive_tower": 0.60, "guard_house": 0.30, "stone_wall": 0.25, "watchtower": 0.65,
     "lighthouse": 0.80, "harbor_crane": 0.40, "stone_quay": 0.12, "wooden_pier": 0.10, "windmill": 0.60,
     "fountain": 0.14, "well": 0.12, "wooden_fence": 0.08,
+    # ship parts are authored at their own scale and assembled by the ship builder, not placed in towns
+    "galley_hull": 2.0, "galley_mainmast": 2.2, "galley_mizzenmast": 1.6, "galley_oar": 0.9,
 }
+SHIP_PARTS = {"galley_hull", "galley_mainmast", "galley_mizzenmast", "galley_oar"}
 PROPS = {"fountain", "well", "wooden_fence", "market_stall", "harbor_crane", "stone_quay", "wooden_pier"}
 GROUND = {"cobblestone_road": 1.0, "dirt_road": 1.0, "stone_plaza": 1.2}   # fit by largest extent
 # LOD switch points as projected size on a 1080p screen (the renderer selects in screen space):
-# LOD 0 (80k tris) only while a house is taller than 220 px, LOD 3 (2k) below 30 px
-LOD_PX = [0, 220, 90, 30]
+# LOD 0 (80k tris) only while a house is taller than 220 px, LOD 4 (600 tris) below 12 px
+LOD_PX = [0, 220, 90, 30, 12]
+NLODS = len(LOD_PX)
 
 names = []
 for name in sorted(os.listdir(root)):
     d = os.path.join(root, name)
     if not os.path.isdir(d) or name == "sea": continue
-    lods = [f"{name}_LOD{i}.glb" for i in range(4) if os.path.exists(os.path.join(d, f"{name}_LOD{i}.glb"))]
+    lods = [f"{name}_LOD{i}.glb" for i in range(NLODS) if os.path.exists(os.path.join(d, f"{name}_LOD{i}.glb"))]
     desc_path = os.path.join(d, f"{name}.asset.json")
     if not lods and not os.path.exists(desc_path): continue
     names.append(name)
     if os.path.exists(desc_path): continue
-    if len(lods) < 4: names.pop(); print("skip", name, "(export incomplete:", len(lods), "LODs)"); continue
+    if len(lods) < 2: names.pop(); print("skip", name, "(export incomplete:", len(lods), "LODs)"); continue
+    if len(lods) < NLODS: print("note:", name, "has", len(lods), "of", NLODS, "LODs")
     if name in GROUND: typ, fit, size = "prop", "max", GROUND[name]
+    elif name in SHIP_PARTS: typ, fit, size = "ship_part", "length", HEIGHTS.get(name, 1.0)
     else: typ, fit, size = ("prop" if name in PROPS else "building"), "height", HEIGHTS.get(name, 0.3)
     # Meshy exports face -z in Blender terms, +z after the Y-up export, same as the church
     desc = {
