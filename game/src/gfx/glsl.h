@@ -52,10 +52,31 @@
     "  return albedo * amb * (1.0 - 0.5 * metal);\n" \
     "}\n"
 
+// Cloud layer (gfx/sky.c, DESIGN_VISUAL.md step 8): value-noise fbm on a plane u_cloud.w units
+// up, drifting by u_cloud.xy; u_cloud.z is the cover. The sky pass draws it, and sun_shade
+// darkens the direct term where a cloud sits between the surface and the sun.
+#define GLSL_CLOUDS \
+    "uniform vec4 u_cloud;\n" \
+    "float cl_hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n" \
+    "float cl_noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);\n" \
+    "  return mix(mix(cl_hash(i), cl_hash(i + vec2(1.0, 0.0)), f.x), mix(cl_hash(i + vec2(0.0, 1.0)), cl_hash(i + vec2(1.0, 1.0)), f.x), f.y); }\n" \
+    "float cloud_density(vec2 xz, int octaves) {\n" \
+    "  vec2 p = xz * 0.011 + u_cloud.xy;\n" \
+    "  float f = 0.0, a = 0.55; for (int i = 0; i < octaves; ++i) { f += a * cl_noise(p); p = p * 2.07 + vec2(13.1, 7.3); a *= 0.5; }\n" \
+    "  float thr = 0.98 - u_cloud.z * 0.9;\n" \
+    "  return smoothstep(thr, thr + 0.34, f);\n" \
+    "}\n" \
+    "float cloud_shadow(vec3 wpos, vec3 sun) {\n" \
+    "  if (u_cloud.z <= 0.001) return 1.0;\n" \
+    "  vec2 xz = wpos.xz + sun.xz / max(sun.y, 0.15) * (u_cloud.w - wpos.y);\n"   /* where the sun's ray through this point meets the cloud plane */ \
+    "  return 1.0 - 0.72 * cloud_density(xz, 3);\n" \
+    "}\n"
+
 // The one directional light every 3D pass shares. Declares its own uniforms; set them with
 // light_bind() (lighting.c). u_shadow_on > 0.5 enables the cascaded shadow lookup, which reads
 // the three cascades packed side by side in one depth atlas.
 #define GLSL_LIGHT \
+    GLSL_CLOUDS \
     "uniform vec3 u_sun;          /* direction towards the sun, unit */\n" \
     "uniform vec3 u_suncol;       /* linear radiance */\n" \
     "uniform vec3 u_ambsky, u_ambgnd;\n" \
@@ -83,13 +104,16 @@
     "    s += texture(u_shadowmap, vec3(p.xy + vec2(float(i), float(j)) * u_shadow_texel, p.z - bias));\n" \
     "  return s / 9.0;\n" \
     "}\n" \
-    "vec3 sun_shade(vec3 albedo, vec3 N, vec3 V, vec3 wpos, float rough, float metal, float viewdist) {\n" \
+    /* `ao` (0..1) occludes the ambient only: the sun term keeps the shadow map (step 9) */ \
+    "vec3 sun_shade_ao(vec3 albedo, vec3 N, vec3 V, vec3 wpos, float rough, float metal, float viewdist, float ao) {\n" \
     "  float sh = shadow_at(wpos, N, max(dot(N, u_sun), 0.0), viewdist);\n" \
     "  if (u_shadow_debug > 1.5) return sh < 0.0 ? vec3(1.0, 0.0, u_shadow_on) : vec3(0.0, sh, u_shadow_on);\n"   /* red: out of cascade bounds; green: factor; blue: enabled */ \
     "  if (u_shadow_debug > 0.5) return vec3(sh * 0.8 + 0.1);\n" \
+    "  sh *= cloud_shadow(wpos, u_sun);\n" \
     "  return pbr_direct(albedo, N, V, u_sun, rough, metal, u_suncol) * sh\n" \
-    "       + pbr_ambient(albedo, N, metal, u_ambsky, u_ambgnd);\n" \
-    "}\n"
+    "       + pbr_ambient(albedo, N, metal, u_ambsky, u_ambgnd) * ao;\n" \
+    "}\n" \
+    "vec3 sun_shade(vec3 albedo, vec3 N, vec3 V, vec3 wpos, float rough, float metal, float viewdist) { return sun_shade_ao(albedo, N, V, wpos, rough, metal, viewdist, 1.0); }\n"
 
 // Tangent-space normal mapping (detail.c textures). The procedural meshes carry no UVs, so
 // nmap_triplanar perturbs the flat normal by sampling the grain map along the three world axes,
@@ -203,6 +227,6 @@
 // uniform names declared by GLSL_LIGHT, to append to a pipeline's uniform list
 #define GLSL_LIGHT_UNIFORMS \
     "u_sun", "u_suncol", "u_ambsky", "u_ambgnd", "u_shadowmap", \
-    "u_shadowvp0", "u_shadowvp1", "u_shadowvp2", "u_shadowsplit", "u_shadow_on", "u_shadow_texel", "u_shadow_wtexel", "u_shadow_debug", "u_fog"
+    "u_shadowvp0", "u_shadowvp1", "u_shadowvp2", "u_shadowsplit", "u_shadow_on", "u_shadow_texel", "u_shadow_wtexel", "u_shadow_debug", "u_fog", "u_cloud"
 
 #endif

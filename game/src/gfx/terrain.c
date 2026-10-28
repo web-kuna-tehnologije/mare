@@ -3,7 +3,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "render.h"
+#include "../core/diag.h"
 #include "glsl.h"
 #include "../core/types.h"
 #include "../core/util.h"
@@ -26,7 +28,8 @@ typedef struct chunk_t { float x0, z0, x1, z1, minh, maxh; int water_only; } chu
 static chunk_t chunks[CHUNKS_X*CHUNKS_Y];
 static rhi_pipeline_t terrain_prg;
 static rhi_geometry_t terrain_geo[LODS];
-static rhi_texture_t tex_height, tex_territory;
+static rhi_texture_t tex_height, tex_territory, tex_ao;
+int terrain_ao_on = 1;    // baked horizon occlusion on the ambient term (MARE_TERRAIN_AO=0)
 static const float lod_dist[LODS-1] = { 45, 110, 240, 520 };
 
 static const char *terrain_vs =
@@ -48,6 +51,7 @@ static const char *terrain_fs =
     "in vec3 v_wpos; in vec2 v_uv; in float v_h;\n"
     "uniform sampler2D u_hm; uniform sampler2D u_terr; uniform vec2 u_texel; uniform float u_texel_world;\n"
     "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_k;\n"
+    "uniform sampler2D u_ao; uniform float u_ao_on;\n"   // baked horizon occlusion (terrain_init): 1 = open sky, lower in valleys
     "uniform vec3 u_nation_colors[11]; uniform float u_daylight; uniform float u_regions; uniform vec2 u_terr_texel;\n"
     "out vec4 fragColor;\n"
     "float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }\n"
@@ -87,7 +91,8 @@ static const char *terrain_fs =
     "  float rough = mix(0.95, 0.75, smoothstep(0.25, 0.6, slope) * 0.6 + smoothstep(6.5, 8.5, h) * 0.4);\n"
     "  vec3 vdir = normalize(u_campos - v_wpos);\n"
     "  float viewdist = distance(v_wpos, u_campos);\n"
-    "  vec3 lit = sun_shade(srgb_to_linear(c), n, vdir, v_wpos, rough, 0.0, viewdist);\n"
+    "  float ao = u_ao_on > 0.5 ? mix(1.0, texture(u_ao, v_uv).r, 0.85) : 1.0;\n"
+    "  vec3 lit = sun_shade_ao(srgb_to_linear(c), n, vdir, v_wpos, rough, 0.0, viewdist, ao);\n"
     // map style
     "  vec4 tt = texture(u_terr, v_uv);\n"
     "  int nid = int(tt.r * 255.0 + 0.5);\n"
@@ -135,10 +140,34 @@ static void build_lod(int lod) {
 void terrain_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", GLSL_LIGHT_UNIFORMS, 0 };
     terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = terrain_vs, .fs = terrain_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int i = 0; i < LODS; ++i) build_lod(i);
     tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, heightmap);
+    {   // Horizon occlusion (DESIGN_VISUAL.md step 9): at half the heightmap's resolution, the
+        // mean over eight directions of how high the ground rises against the sky within 32
+        // cells. A valley floor sees less sky than a ridge, so its ambient is darker. Baked once.
+        double t0 = diag_now();
+        int aw = LM_W / 2, ah = LM_H / 2; float *ao = malloc((size_t)aw * ah * sizeof(float));
+        static const int dirs[8][2] = { {1,0},{-1,0},{0,1},{0,-1},{1,1},{-1,1},{1,-1},{-1,-1} };
+        static const int steps[6] = { 1, 2, 4, 8, 16, 32 };
+        float cell = 1.f / CELLS_PER_DEG * WORLD_K;
+        for (int y = 0; y < ah; ++y) for (int x = 0; x < aw; ++x) {
+            int hx = x * 2, hy = y * 2; float h0 = heightmap[hy * LM_W + hx], occ = 0;
+            for (int d = 0; d < 8; ++d) { float best = 0;
+                for (int s = 0; s < 6; ++s) { int sx = hx + dirs[d][0] * steps[s], sy = hy + dirs[d][1] * steps[s];
+                    if (sx < 0 || sy < 0 || sx >= LM_W || sy >= LM_H) break;
+                    float dh = heightmap[sy * LM_W + sx] - h0; if (dh <= 0) continue;
+                    float dist = steps[s] * cell * (dirs[d][0] && dirs[d][1] ? 1.41421f : 1.f);
+                    float sn = dh / sqrtf(dh * dh + dist * dist); if (sn > best) best = sn; }
+                occ += best; }
+            ao[y * aw + x] = clampf(1.f - 1.15f * occ / 8.f, 0.3f, 1.f);
+        }
+        tex_ao = rhi_texture_make(aw, ah, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, ao);
+        free(ao);
+        LOG_INFO("gpu", "terrain horizon occlusion baked (%dx%d) in %.0f ms", aw, ah, (diag_now() - t0) * 1000);
+        const char *e = getenv("MARE_TERRAIN_AO"); if (e) terrain_ao_on = atoi(e) != 0;
+    }
     tex_territory = rhi_texture_make(TERR_W, TERR_H, RHI_FMT_RGB8, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
     for (int cy = 0; cy < CHUNKS_Y; ++cy) for (int cx = 0; cx < CHUNKS_X; ++cx) {
         chunk_t *c = &chunks[cy*CHUNKS_X+cx]; float mn = 1e9f, mx = -1e9f;
@@ -170,6 +199,7 @@ void terrain_draw(float planes[6][4]) {
     rhi_set_mat4(UNI(terrain_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_i1(UNI(terrain_prg,"u_hm"), 0); rhi_set_i1(UNI(terrain_prg,"u_terr"), 1);
     rhi_texture_bind(0, &tex_height);
+    rhi_set_i1(UNI(terrain_prg,"u_ao"), 5); rhi_texture_bind(5, &tex_ao); rhi_set_f1(UNI(terrain_prg,"u_ao_on"), terrain_ao_on ? 1.f : 0.f);
     rhi_texture_bind(1, &tex_territory);
     rhi_set_f4(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(UNI(terrain_prg,"u_k"), WORLD_K);

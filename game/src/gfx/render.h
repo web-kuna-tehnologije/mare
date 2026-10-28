@@ -36,6 +36,19 @@ void render_territory_upload(void); // push the territory map to the GPU when te
 // applied triplanar to the meshes (they carry no UVs)
 void detail_init(void);
 float terrain_max_height(void);          // highest heightmap value (occlusion ray early-out)
+extern int terrain_ao_on;                // baked horizon occlusion on the terrain's ambient (MARE_TERRAIN_AO=0)
+// sky and clouds (sky.c, DESIGN_VISUAL.md step 8)
+void sky_update(float dt);                    // cover from the weather, drift with the wind
+void sky_draw(void);                          // first thing into the HDR target: gradient, sun disc, cloud layer
+void sky_bind_clouds(const rhi_pipeline_t *p);// u_cloud for GLSL_CLOUDS users (light_bind calls it)
+extern float sky_cloud_cover; extern int sky_enabled;
+// ambient occlusion (step 9): half-resolution SSAO from the HDR depth, applied in the tonemap
+void hdr_ao_pass(void);                       // after the opaque passes and the water, before hdr_resolve
+extern float hdr_ssao_strength;               // 0 = off (MARE_SSAO), 1 = full
+extern int   hdr_ssao_enabled;
+void hdr_capture_scene(void);                 // copy the HDR colour so far (before the water) for refraction
+const rhi_texture_t *hdr_scene_copy(void);    // that copy (NULL before the first capture)
+const rhi_texture_t *hdr_depth(void);         // the HDR target's depth attachment
 const rhi_texture_t *detail_waves(void);
 const rhi_texture_t *detail_grain(void);
 
@@ -80,6 +93,9 @@ extern float sea_wind_now_str;           // wind strength right now at the look-
 extern int   sea_set_changes;            // wave sets built this run (a pan across wind bands cross-fades, never drifts)
 extern int   sea_nyquist;                // 1 = fade waves finer than the detail grid (MARE_SEA_NYQUIST=0 to compare)
 extern float sea_foam;                   // foam strength knob (1 normal, 0 none; MARE_FOAM)
+extern int   sea_refract;                // refract the frame behind the water (MARE_SEA_REFRACT=0 for the old alpha blend)
+extern int   sea_inner_on;               // fine inner patch lattice near the look-at point (MARE_SEA_INNER=0)
+float sea_height_at(float x, float z);   // wave surface height at a world point this frame (CPU mirror of the shader sum)
 void sea_set_ships(const float *xzhs, const float *len, int n);   // ships to foam around this frame (x, z, heading, speed; hull length), max 24
 extern int   sea_tess_on;                // tessellated patches in use (GL 4.0; MARE_SEA_TESS=0 forces the warped grid)
 extern int   sea_tess_level_max;         // finest subdivision per patch edge (dashboard)

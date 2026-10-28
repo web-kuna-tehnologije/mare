@@ -132,6 +132,12 @@ void rhi_target_clear_depth(const rhi_target_t *t) {
     glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
 }
 void rhi_viewport(int x, int y, int w, int h) { glViewport(x, y, w, h); }
+void rhi_target_snapshot(const rhi_target_t *t, rhi_texture_t *dst) {
+    if (dst->id && (dst->w != t->w || dst->h != t->h)) { glDeleteTextures(1, &dst->id); rhi_mem.textures -= (size_t)dst->w * dst->h * format_bpp(dst->fmt); rhi_mem.ntextures--; dst->id = 0; }
+    if (!dst->id) *dst = rhi_texture_make(t->w, t->h, t->color.fmt, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+    glActiveTexture(GL_TEXTURE0 + 7); glBindTexture(GL_TEXTURE_2D, dst->id);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, t->w, t->h);
+}
 
 void rhi_target_free(rhi_target_t *t) {
     if (t->fbo) glDeleteFramebuffers(1, &t->fbo);

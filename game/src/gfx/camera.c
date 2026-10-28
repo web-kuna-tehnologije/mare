@@ -6,6 +6,7 @@
 
 rts_cam_t cam;
 float cam_pitch_scale = 1.f;
+float cam_min_eye_y = -1e9f;
 
 // pitch flattens towards street level as the city view approaches, so a zoomed-in town reads
 // like a citybuilder scene rather than a top-down map tile
@@ -46,6 +47,9 @@ void cam_update(float dt) {
     float gx = sinf(cam.yaw), gz = -cosf(cam.yaw), cp = cosf(cam.pitch), sp = sinf(cam.pitch);
     vec3 target = vec3(cam.tx, 0, cam.tz);
     cam.pos = vec3(cam.tx - gx*cam.dist*cp, cam.dist*sp, cam.tz - gz*cam.dist*cp);
+    // Down at water level a crest would put the eye under the surface: lift it (the look-at
+    // point stays, so the view tilts down a little) rather than let the sea swallow the view.
+    if (cam.pos.y < cam_min_eye_y) cam.pos.y = cam_min_eye_y;
     cam.fwd = norm3(sub3(target, cam.pos));
     cam.right = norm3(cross3(cam.fwd, vec3(0,1,0)));
     cam.up = cross3(cam.right, cam.fwd);

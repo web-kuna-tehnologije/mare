@@ -48,6 +48,7 @@
 #include "src/gfx/occlusion.c"
 #include "src/gfx/occquery.c"
 #include "src/gfx/weather.c"
+#include "src/gfx/sky.c"
 #include "src/gfx/textures.c"
 #include "src/gfx/scene.c"
 #include "src/gfx/detailview.c"
@@ -172,6 +173,9 @@ int main(int argc, char **argv) {
     int m_occ_ports = metric_id("gfx.occluded_ports"), m_occ_ships = metric_id("gfx.occluded_ships"), m_occ_samples = metric_id("gfx.occ_samples");
     int m_occq_hidden = metric_id("gfx.occluded_assets"), m_occq_queries = metric_id("gfx.occ_queries"), m_occq_moving = metric_id("gfx.cam_moving");
     if (getenv("MARE_OCCLUSION")) { occlusion_enabled = atoi(getenv("MARE_OCCLUSION")) != 0; LOG_INFO("gpu", "occlusion culling %s (MARE_OCCLUSION)", occlusion_enabled ? "on" : "off"); }
+    if (getenv("MARE_SKY")) { sky_enabled = atoi(getenv("MARE_SKY")) != 0; LOG_INFO("gpu", "sky pass %s (MARE_SKY)", sky_enabled ? "on" : "off"); }
+    if (getenv("MARE_SEA_REFRACT")) { sea_refract = atoi(getenv("MARE_SEA_REFRACT")) != 0; LOG_INFO("gpu", "sea refraction %s (MARE_SEA_REFRACT)", sea_refract ? "on" : "off"); }
+    if (getenv("MARE_SEA_INNER")) { sea_inner_on = atoi(getenv("MARE_SEA_INNER")) != 0; LOG_INFO("gpu", "sea inner lattice %s (MARE_SEA_INNER)", sea_inner_on ? "on" : "off"); }
     if (getenv("MARE_FOAM")) { sea_foam = clampf((float)atof(getenv("MARE_FOAM")), 0.f, 3.f); LOG_INFO("gpu", "sea foam x%.2f (MARE_FOAM)", sea_foam); }
     if (getenv("MARE_SEA_NYQUIST")) { sea_nyquist = atoi(getenv("MARE_SEA_NYQUIST")) != 0; LOG_INFO("gpu", "sea grid-aware wave fade %s (MARE_SEA_NYQUIST)", sea_nyquist ? "on" : "off"); }
     if (getenv("MARE_SHADOW_LOD")) { shadow_caster_lod = atoi(getenv("MARE_SHADOW_LOD")) != 0; LOG_INFO("gpu", "shadow casters use the coarse LOD: %s (MARE_SHADOW_LOD)", shadow_caster_lod ? "yes" : "no"); }
@@ -211,6 +215,9 @@ int main(int argc, char **argv) {
             cam.want_dist = 800; cam.want_tx = lon2x(-30); cam.want_tz = lat2z(25); cam.want_yaw += dt * 0.02f;
             cam_update(dt);
         } else {
+            // the eye stays above whatever is under it: the wave crest over water, the ground over land
+            { float floor_y = world_is_land(cam.pos.x, cam.pos.z) ? world_height(cam.pos.x, cam.pos.z) + 0.6f : sea_height_at(cam.pos.x, cam.pos.z) + 0.45f;
+              cam_min_eye_y = detailview_mode() == DV_OFF ? floor_y : -1e9f; }
             prof_begin(p_input); input_frame(dt, ui_blocked); debug_keys(); cam_update(dt); prof_end(p_input);
             prof_begin(p_sim);
             // City view (3rd zoom): with the camera down on a town square the clock crawls to
@@ -312,6 +319,7 @@ int main(int argc, char **argv) {
         { static int freeze = -1; if (freeze < 0) { const char *e = getenv("MARE_SEA_FREEZE"); freeze = e ? atoi(e) != 0 : 0; if (freeze) LOG_INFO("gpu", "sea clocks frozen (MARE_SEA_FREEZE)"); }
           sea_update_waves(G.day, freeze ? 0.f : dt); }   // the wave set follows the wind at the look-at point
         weather_update(dt);                               // calm / haze / mist / storm from the wind, the storms and the hour (weather.h)
+        sky_update(dt);                                   // cloud cover from the weather, drift with the wind (sky.c)
         RF.sky = lerp3(RF.sky, vec3(0.36f, 0.30f, 0.24f), cam.mapness);   // the map view fades to parchment
         render_light_update();
         rhi_frame_stats_reset();
@@ -331,6 +339,7 @@ int main(int argc, char **argv) {
         }
         // the HDR target is cleared in linear space: the sky colour is authored in sRGB
         { vec3 skyl = srgb_to_linear3(RF.sky); hdr_begin(screen_w, screen_h, skyl.x, skyl.y, skyl.z); }
+        sky_draw();                                       // the background: gradient, sun disc, clouds (sky.c)
         float planes[6][4]; cam_frustum(planes);
         int dv_on = !U.in_menu && detailview_mode() != DV_OFF;
         prof_begin(p_terrain); rhi_gpu_begin(g_terrain); if (U.pass_terrain && !dv_on) terrain_draw(planes); rhi_gpu_end(); prof_end(p_terrain);
@@ -346,13 +355,14 @@ int main(int argc, char **argv) {
             rhi_gpu_end();
             occq_flush();                       // bounding-box queries against the depth the opaque pass just wrote
         }
+        if (U.pass_sea && sea_refract) hdr_capture_scene();   // the frame so far: what the water refracts
         prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !U.in_menu && dv_on) detailview_sea(); else if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
         if (!U.in_menu) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
         if (!U.in_menu && !dv_on) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
         }
-        rhi_gpu_begin(g_resolve); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer; labels/panels draw on top
+        rhi_gpu_begin(g_resolve); hdr_ao_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // SSAO from the depth, then tonemap to the backbuffer; labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
         if (!U.in_menu) weather_overlay();                                          // rain over the finished frame
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");

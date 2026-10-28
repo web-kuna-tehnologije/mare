@@ -131,6 +131,7 @@ void render_sun_update(float day) {
 
 void light_bind(const rhi_pipeline_t *p) {
     rhi_set_f2(rhi_uniform(p, "u_fog"), RF.fog_density > 0 ? RF.fog_density : 1.f, RF.fog_start > 0 ? RF.fog_start : 250.f);
+    sky_bind_clouds(p);
     rhi_set_f3(rhi_uniform(p, "u_sun"), RF.sun.x, RF.sun.y, RF.sun.z);
     rhi_set_f3(rhi_uniform(p, "u_suncol"), RF.suncol.x, RF.suncol.y, RF.suncol.z);
     rhi_set_f3(rhi_uniform(p, "u_ambsky"), RF.ambsky.x, RF.ambsky.y, RF.ambsky.z);

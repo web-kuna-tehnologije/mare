@@ -1,6 +1,6 @@
 # Design: visual rendering 0.9
 
-Status: **steps 1-7 done**; their sections are below. The plan below is the feature "visual rendering" broken into
+Status: **all nine steps done**; their sections are below. The plan below is the feature "visual rendering" broken into
 steps that each land fully working on all three platforms, with a measurement, before the next
 starts (the same rule the renderer and engine-scale plans followed; those are in
 DESIGN_RENDERER.md, DESIGN_JOBS.md and DESIGN_LOD.md). Each step has its own section below once
@@ -55,13 +55,19 @@ it is built.
        draws wind-slanted rain over the finished frame; the hour after sunrise near a shore in
        calm air fills the bay with white mist. Fog gained a density and start distance
        (`u_fog`, bound with the light block). `MARE_WEATHER=0|clear|calm|mist|storm`.
-8. [ ] **Sky: clouds and sun** - a cloud layer (fbm, lit, moving with the wind) that shadows the
-       ground through the light pass, a sun disc with a glow where the sun is, the sky gradient
-       following the time of day; the detail-view cloud overlay is extracted into `gfx/clouds.c`
-       and shared.
-9. [ ] **Ambient occlusion** - screen-space ambient occlusion from the HDR pass depth (towns,
-       hull/sea contact) plus a terrain horizon term from the heightmap for valleys, both
-       applied to the hemispheric ambient only (the sun term keeps the shadow map).
+8. [x] **Sky: clouds and sun** (`gfx/sky.c`) - a full-screen pass first into the HDR target:
+       a gradient from the sky colour at the zenith to a hazier horizon, the sun as a disc with
+       a glow, and a cloud layer (value-noise fbm on a plane 60 units up, drifting downwind,
+       lit by the sun, thinned at the horizon). The same noise, shared as `GLSL_CLOUDS`,
+       darkens the sun term of every lit surface where a cloud sits between it and the sun.
+       Cover from the weather; `MARE_CLOUDS=x` pins it, `MARE_SKY=0` disables the pass. The
+       detail view's transition clouds are a different effect and stay where they are.
+9. [x] **Ambient occlusion** - two terms. The terrain's horizon occlusion is baked at start-up
+       from the heightmap (eight directions, 32 cells) and scales the terrain's *ambient* only
+       (`sun_shade_ao`); valleys read as valleys. Buildings, hulls and piers get a
+       half-resolution screen-space pass from the HDR depth (eight hemisphere samples, range
+       check), blurred and applied in the tonemap - a post pass, so it darkens the pixel rather
+       than the ambient alone. `MARE_SSAO=x`, `MARE_TERRAIN_AO=0`, dashboard knobs.
 
 ## Step 1: occlusion culling (done)
 
@@ -245,6 +251,58 @@ layers of hashed streaks over the tonemapped frame, slanted by the wind's compon
 camera's right vector, faded out as the view turns into the map. The pinned states in
 `docs/screenshots/weather-*.png` are the same camera under `MARE_WEATHER=clear|calm|storm|mist`
 (mist with a low `MARE_SUN`); in play they come from the simulation's wind bands and storms.
+
+### The sea at water level (step 5 follow-up)
+
+Three complaints after the tessellated sea landed, three causes:
+
+* **Pyramids, not waves, up close.** 48 cells across a 12-unit patch is a 0.25-unit facet, and
+  at 2.6 units from the water that facet is a hundred pixels. An **inner lattice** of 32x32
+  patches, 14 units in radius, draws the disc the camera can get that close to (cells down to
+  0.02 units); the outer lattice cuts a hole for it. Its rim blends its cell size towards the
+  outer lattice's so the grid-aware wave fade agrees across the seam. Only drawn when the camera
+  is within 60 units.
+* **The camera going under.** At the minimum distance the eye sits half a unit above the mean
+  surface and a strong-wind crest is taller. `sea_height_at` is a CPU mirror of the shader's
+  wave sum; `cam_min_eye_y` lifts the eye above it (or above the ground over land) with a
+  margin, and the look-at point stays, so the view tilts down rather than submerging.
+* **Too shiny.** The old shader lit the body colour as a diffuse surface, which is why it read as
+  plastic. Water is a dielectric: its colour is what the column *transmits*. The frame drawn so
+  far is copied before the water pass (`hdr_capture_scene`, one GPU copy) and sampled where the
+  surface normal bends the view, with per-channel absorption by depth (red first); the reflected
+  sky and the sun glint are weighted by a Fresnel term taken from the wave normal with only a
+  touch of ripple detail and capped, because per-ripple Fresnel at a grazing angle had turned
+  the whole sea into sky-coloured chalk. Samples that land on something in front of the water
+  fall back to the straight-down sample. `MARE_SEA_REFRACT=0` restores the alpha blend.
+
+The refraction also removed the **straight-edged wedge** over deep water that had been in every
+open-sea capture: terrain chunks with no land are skipped, so where the water was 92 % opaque
+the frame behind it was the clear colour in one chunk and seabed in the next. The refraction
+path substitutes the water's own colour where nothing was drawn and absorbs the seabed to it
+within a few units of depth.
+
+Measured on the Intel iGPU: the water-level view runs at ~4 ms GPU with the inner lattice
+(frame medians on this box vary 10-17 ms run to run from vsync and background load); the
+open-sea view's `gpu.sea_ms` 6.3 with inner lattice, refraction and foam against 2.8 before.
+
+### Sky (step 8) and ambient occlusion (step 9)
+
+The sky is a gradient (zenith = sky colour x0.72, horizon paler and hazier with the weather),
+a sun disc with two glow lobes, and clouds: fbm on a plane 60 units up intersected by the view
+ray, lit by the sun's elevation, darker where thick, faded into the haze at the horizon,
+drifting downwind as an accumulated offset like the sea textures. `cloud_shadow` projects a
+ground point along the sun to the cloud plane and reads a 3-octave version of the same field,
+so the ground is dappled by the clouds above it. The RTS camera never tilts up, so the sky is
+a band under the horizon line; the cloud shadows are the part you see most.
+
+Terrain horizon occlusion is baked at half the heightmap's resolution in 59 ms: for each cell,
+the mean over eight directions of the highest sine of elevation the ground reaches within 32
+cells; a valley floor sees less sky. It scales the terrain's ambient only. The SSAO pass runs at
+half resolution from the HDR depth after the water (eight hemisphere samples in a radius of
+0.28 + 0.022 x distance world units, projected back and range-checked), is blurred with four
+bilinear taps and applied in the tonemap. City view: 5.1 % of pixels darker by more than 6/255
+with it on, 0.4 % lighter - the contact creases under piers, hulls and house walls, nothing
+else. Off in the map view and beyond 220 units.
 
 Rules carried over: every effect has a toggle (dashboard checkbox and an environment variable)
 so it can be measured off and on; GPU time per pass goes through `rhi_gpu_scope`; the two

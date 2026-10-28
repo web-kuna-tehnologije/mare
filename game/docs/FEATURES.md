@@ -109,6 +109,10 @@ Status as of the current codebase. Each entry names the module that owns it.
   around nearby ships.
 - Weather: calm air leaves the sea glassy and hazy, dawn mist fills calm bays, storms dim the
   sun, grey the sky, thicken the fog and rain over the frame (`gfx/weather.c`).
+- Water refracts the scene behind it with depth absorption and reflects the sky by Fresnel; an
+  inner patch lattice keeps waves smooth at water level and the camera is held above them.
+- Sky pass with sun disc and a wind-driven cloud layer that shadows the ground (`gfx/sky.c`);
+  baked terrain horizon occlusion and screen-space ambient occlusion.
 
 ## UI (`src/ui`)
 - Main menu (nation choice/load), top bar (date, speed, treasury, income, toggles, error badge),

@@ -1,7 +1,22 @@
 # Changelog
 
-## 0.9.0 (in progress) — visual rendering, steps 1-7
+## 0.9.0 — visual rendering, all nine steps
 Plan and measurements: [DESIGN_VISUAL.md](DESIGN_VISUAL.md).
+
+- **Sea at water level**: an inner 32x32 patch lattice (14-unit radius, cells to 0.02 units)
+  replaces the 0.25-unit facets up close; the eye is held above the wave crest (or the ground)
+  by a CPU mirror of the wave sum (`sea_height_at`, `cam_min_eye_y`).
+- **Water material**: refraction of the frame drawn so far (`hdr_capture_scene`) with
+  per-channel absorption by depth, Fresnel-weighted sky reflection from the wave normal and a
+  tamed sun glint; diffuse lighting of the body colour is gone, and with it the plastic look.
+  The deep-water wedge (terrain-chunk coverage showing through 92 %-opaque water) is gone too.
+  `MARE_SEA_REFRACT=0`, `MARE_SEA_INNER=0`.
+- **Sky** (`gfx/sky.c`): gradient, sun disc and glow, fbm cloud layer drifting with the wind;
+  `GLSL_CLOUDS` shadows the ground under the clouds in every lit shader. `MARE_CLOUDS=x`,
+  `MARE_SKY=0`.
+- **Ambient occlusion**: terrain horizon occlusion baked from the heightmap on the terrain's
+  ambient (`sun_shade_ao`); half-resolution SSAO from the HDR depth applied in the tonemap.
+  `MARE_SSAO=x`, `MARE_TERRAIN_AO=0`, dashboard knobs.
 
 - **Weather** (`gfx/weather.c`): calm / haze / mist / overcast / rain derived from the wind at
   the look-at point, nearby storm events and the hour, smoothed over 3 s. Glassy sea and haze

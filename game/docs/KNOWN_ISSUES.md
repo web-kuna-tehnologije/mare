@@ -96,10 +96,18 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 - **L** Weather states are pinned per run with `MARE_WEATHER`; in play the mist needs calm air
   at dawn next to a shore, which at the default day/night period happens for a minute or so per
   cycle.
-- **M** Over deep ocean a straight-edged darker region can appear a couple of hundred units out:
-  it is the seabed terrain showing through the translucent water where the terrain chunk
-  coverage changes, not a sea artefact (it is still there with `MARE_WAVES=0`, and gone with
-  `MARE_PASSES=sea`). It predates the wind-driven sea.
+- **L** SSAO is a post pass applied in the tonemap, so it darkens sun-lit pixels in a crease as
+  well as the ambient there; the terrain's horizon occlusion is the only term that touches the
+  ambient alone. Half resolution and eight samples: fine detail can shimmer slightly on hard
+  edges. `MARE_SSAO=0` or the dashboard knob.
+- **L** Refraction samples the frame drawn before the water, so a ship's hull refracts the
+  terrain behind it rather than the water under it; the depth test falls back to the unbent
+  sample when the bent one lands on something in front of the surface.
+- **L** The RTS camera never tilts above the horizon, so the sky is a thin band; the sun disc
+  is rarely in frame and the clouds are mostly seen as their shadows.
+- **L** Under a low sun facing a bay the shallows read bright: sand refracted through a few
+  centimetres of water plus the surf sheet and the broad specular of a low sun. `MARE_FOAM`
+  and the dashboard foam knob tame the surf part.
 - **L** The sea's detail grid is a fixed 180-unit square around the look-at point; waves exist
   only inside it. The surface detail now fades out with the grid so the boundary does not step,
   but a camera low enough to see past 180 units sees flat water beyond. The tessellated sea
