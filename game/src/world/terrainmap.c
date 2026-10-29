@@ -10,6 +10,7 @@
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../assets/asset.h"
+#include "terraintiles.h"
 
 // stb_image is compiled exactly once in the unity build (the framework owns the
 // implementation); including the header again here expands it a second time, so just declare
@@ -136,8 +137,35 @@ int terrainmap_ground(float height, float slope, float lat) {
 // Fold the authored height into the base heightfield. The simulation placed its ports against
 // the procedural coastline, so the land mask is left alone and the authored field is blended
 // in only where both agree about land or water - detail, never a new coastline.
+// Fold the streamed tile set into the base field. The tiles are the real Earth at 45 px per
+// degree against the base map's 8, so this is the pass that actually puts mountains where
+// mountains are; the low-resolution depth map below stays as the fallback when no tiles were
+// cut. Same rule either way: relief only, never a new coastline.
+int terrainmap_apply_tiles(void) {
+    if (!heightmap) return 0;
+    double t0 = diag_now();
+    int changed = 0, resident = 0;
+    for (int y = 0; y < LM_H; ++y) for (int x = 0; x < LM_W; ++x) {
+        int i = y * LM_W + x;
+        float lon = cx2lon(x), lat = cy2lat(y), h;
+        if (!terraintiles_height(lon, lat, &h)) continue;
+        resident++;
+        if ((heightmap[i] > 0.f) != (h > 0.f)) continue;   // keep the coastline the ports know
+        heightmap[i] = h; changed++;
+    }
+    if (resident)
+        LOG_INFO("terrain", "streamed tiles folded into %d of %d cells (%.0f%% of %d sampled) in %.0f ms",
+                 changed, LM_W * LM_H, 100.0 * changed / maxi(resident, 1), resident, (diag_now() - t0) * 1000);
+    return changed;
+}
+
 void terrainmap_apply_to_world(void) {
     if (!TM.loaded || !heightmap) return;
+    // Opt-in: folding the 1376x768 depth map in replaces the procedural relief with something
+    // *smoother* than it, because that map is a shaded world overview and not a DEM. It stays
+    // here because it is the right hook for a real one. MARE_TERRAIN_MAP=1.
+    { const char *on = getenv("MARE_TERRAIN_MAP");
+      if (!on || atoi(on) == 0) { LOG_INFO("terrain", "authored height fold off (MARE_TERRAIN_MAP=1 enables it)"); return; } }
     double t0 = diag_now();
     int changed = 0;
     for (int y = 0; y < LM_H; ++y) for (int x = 0; x < LM_W; ++x) {

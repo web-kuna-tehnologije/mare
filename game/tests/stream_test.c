@@ -97,7 +97,9 @@ int main(void) {
     { stream_chunk_ref_t cr;
       CHECK(!stream_dump_chunk_reference(3, 9999, 0, 64, "test_chunk.ppm", &cr), "an out-of-range tile must be refused");
       CHECK(stream_dump_chunk_reference(3, 16, 2, 64, "test_chunk.ppm", &cr), "chunk reference failed");
-      CHECK(cr.size_deg == 8.f && cr.size_units == 32.f, "an L3 chunk is 8 degrees / 32 world units (got %.1f / %.1f)", cr.size_deg, cr.size_units);
+      // degrees are fixed by the tile grid; world units follow WORLD_K, which WORLD_SCALE moves
+      CHECK(cr.size_deg == 8.f && cr.size_units == 8.f * WORLD_K,
+            "an L3 chunk is 8 degrees / %.0f world units (got %.1f / %.1f)", 8.f * WORLD_K, cr.size_deg, cr.size_units);
       CHECK(cr.lon1 - cr.lon0 == cr.size_deg && cr.lat1 - cr.lat0 == cr.size_deg, "the reference extent must be the tile's");
       CHECK(cr.land_frac > 0.f && cr.land_frac < 1.f, "L3 16,2 straddles a coast (land %.2f)", cr.land_frac);
       CHECK(cr.max_h > cr.min_h, "height range must be real (%.2f..%.2f)", cr.min_h, cr.max_h);

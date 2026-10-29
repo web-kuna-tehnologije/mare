@@ -21,6 +21,7 @@
 #include "../core/jobs.h"
 #include "../world/world.h"
 #include "../world/stream.h"
+#include "../world/terraintiles.h"
 #include "../assets/asset.h"
 
 #define SV_RES     512
@@ -61,8 +62,16 @@ static int    sv_tiles_unmodeled;    // wanted land leaves without an authored m
 typedef struct sv_fill_t { float *buf; float x0, z0, step; int max_level; } sv_fill_t;
 static void sv_fill_rows(void *arg, int begin, int end, int slot) {
     const sv_fill_t *f = (const sv_fill_t *)arg; (void)slot;
-    for (int j = begin; j < end; ++j) for (int i = 0; i < SV_RES; ++i)
-        f->buf[j * SV_RES + i] = stream_delta_at_level(f->x0 + i * f->step, f->z0 + j * f->step, f->max_level);
+    for (int j = begin; j < end; ++j) for (int i = 0; i < SV_RES; ++i) {
+        float wx = f->x0 + i * f->step, wz = f->z0 + j * f->step, h;
+        // The authored Earth where its tile is resident - the delta is what it says the ground
+        // should be, minus what the base map already draws - and the procedural detail
+        // elsewhere, so a ring is never empty while tiles are still coming in.
+        if (terraintiles_height(x2lon(wx), z2lat(wz), &h))
+            f->buf[j * SV_RES + i] = h - world_height(wx, wz);
+        else
+            f->buf[j * SV_RES + i] = stream_delta_at_level(wx, wz, f->max_level);
+    }
 }
 
 // Rebuild one ring when the residency changed or the camera left its inner half. Returns the
@@ -70,10 +79,10 @@ static void sv_fill_rows(void *arg, int begin, int end, int slot) {
 static double sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     int moved = !r->on || fabsf(cx - (r->x0 + r->extent * 0.5f)) > r->extent * 0.25f
                        || fabsf(cz - (r->z0 + r->extent * 0.5f)) > r->extent * 0.25f;
-    int changed = r->seen_residency != stream_residency_generation();
+    int changed = r->seen_residency != (stream_residency_generation() ^ (terraintiles_generation() * 2654435761u));
     if (!(moved || changed) || RF.time - r->last_compose <= SV_MIN_RECOMPOSE_S) return 0;
     r->last_compose = RF.time;
-    r->seen_residency = stream_residency_generation();
+    r->seen_residency = stream_residency_generation() ^ (terraintiles_generation() * 2654435761u);
     double t0 = diag_now();
     float step = r->extent / (SV_RES - 1);
     sv_fill_t f;                                 // snapped to the sample grid so detail never swims
@@ -117,6 +126,10 @@ void streamview_update(void) {
         for (int i = 0; i < SV_RINGS; ++i) { sv_ring[i].on = 0; sv_ring[i].seen_residency = 0; }
     }
     stream_update(cam.tx, cam.tz, cam.dist);
+    // Page the authored terrain around the look-at point. The radius follows the zoom, so a
+    // city view holds a couple of tiles and the strategic map a band across the ocean.
+    terraintiles_update(x2lon(cam.tx), z2lat(cam.tz),
+                        clampf(cam.dist / WORLD_K * 0.9f + 2.f, 2.f, 40.f));
     if (sv_seen_assets != asset_generation()) { sv_seen_assets = asset_generation(); sv_sync_authored(); }
     sv_tiles_unmodeled = 0;   // wanted land leaves without an authored mesh: the "still to model" list
     for (int i = 0; i < stream_tile_count(); ++i) { const stream_tile_t *t = stream_tile_at_index(i);
@@ -129,6 +142,12 @@ void streamview_update(void) {
       if (ms > 0) sv_window_ms = ms; }
 
     // metrics (task 7)
+    static int m_tt_res = -1, m_tt_load, m_tt_mb, m_tt_ev;
+    if (m_tt_res < 0) { m_tt_res = metric_id("terrain.tiles_resident"); m_tt_load = metric_id("terrain.tiles_loading");
+                        m_tt_mb = metric_id("terrain.tiles_mb"); m_tt_ev = metric_id("terrain.tiles_evicted"); }
+    { tt_stats_t ts; terraintiles_stats(&ts);
+      metric_set(m_tt_res, ts.resident); metric_set(m_tt_load, ts.loading);
+      metric_set(m_tt_mb, ts.bytes / (1024.0 * 1024.0)); metric_set(m_tt_ev, ts.evicted); }
     static int m_res = -1, m_want, m_load, m_mb, m_evict, m_disk, m_gen, m_win, m_unmod;
     if (m_res < 0) { m_res = metric_id("stream.resident"); m_want = metric_id("stream.wanted"); m_load = metric_id("stream.loading");
                      m_mb = metric_id("stream.mb"); m_evict = metric_id("stream.evicted"); m_disk = metric_id("stream.disk_hits");

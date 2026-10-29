@@ -4,9 +4,9 @@
 #define MARE_BALANCE_H
 
 // movement
-#define BASE_SPEED        9.0f    // world units per day at ship speed 1.0 (~2.25 deg/day)
-#define ENGAGE_RANGE      3.0f    // broadside range (world units)
-#define SIGHT_RANGE      14.0f    // detection range
+#define BASE_SPEED        (9.0f * WORLD_SCALE)    // world units per day at ship speed 1.0 (~2.25 deg/day)
+#define ENGAGE_RANGE      (3.0f * WORLD_SCALE)    // broadside range (world units)
+#define SIGHT_RANGE      (14.0f * WORLD_SCALE)    // detection range
 #define WIND_MIN_FACTOR   0.45f
 #define WIND_MAX_FACTOR   1.35f
 #define STORM_SPEED_MUL   0.55f
@@ -35,8 +35,8 @@
 #define REPAIR_COST_PER_HP 2.f
 
 // settlements (colonisation expansion)
-#define MERGE_DIST          6.0f    // world units (~1.5 deg): settlements closer than this merge
-#define MIN_SITE_DIST       3.0f    // minimum distance from an existing settlement for a new site
+#define MERGE_DIST          (6.0f * WORLD_SCALE)    // world units (~1.5 deg): settlements closer than this merge
+#define MIN_SITE_DIST       (3.0f * WORLD_SCALE)    // minimum distance from an existing settlement for a new site
 #define SITE_WATER_REACH    6       // nav cells searched for a harbour
 #define MERGE_MIN_AGE      60.f     // days a founded colony must exist before it can be merged
 #define MERGE_UNREST_SHOCK  0.3f    // unrest added when the merged settlement changes owner
@@ -88,8 +88,8 @@
 #define CAPTURE_COOLDOWN 150.f
 
 // AI
-#define AI_MERCHANT_RANGE      520.f
-#define AI_FREECITY_RANGE      200.f
+#define AI_MERCHANT_RANGE      (520.f * WORLD_SCALE)
+#define AI_FREECITY_RANGE      (200.f * WORLD_SCALE)
 #define AI_MERCHANT_CAPITAL  6000.f
 #define AI_MERCHANT_CAPITAL_SHIP 4000.f
 #define AI_BUY_MERCHANT_TREASURY 30000.

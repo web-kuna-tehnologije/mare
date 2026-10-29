@@ -71,7 +71,11 @@ groups = [[] for _ in range(k)]
 for o in parts:
     if o.name not in cen: continue
     groups[min(range(k), key=lambda j: abs(cen[o.name] - c[j]))].append(o)
-order = sorted(range(k), key=lambda j: -c[j])        # +x (bow) first
+# Order them the way the game numbers its stations: m0 forward, m<n-1> aft. The hull models
+# are bow-to--x and the descriptors turn them 180 degrees, so the model's *lowest* x is the
+# game's bow - ordering by -x here put the mizzen on the foremast station and reversed every
+# mast's rake.
+order = sorted(range(k), key=lambda j: c[j])
 
 def export(obj, path):
     bpy.ops.object.select_all(action='DESELECT')
@@ -98,10 +102,14 @@ for slot, j in enumerate(order):
     if rot_deg: M = mathutils.Euler((0, 0, math.radians(rot_deg)), 'XYZ').to_matrix().to_4x4() @ M
     ob.matrix_world = M @ ob.matrix_world
     bpy.context.view_layer.update()
+    # Stand it on the foot of its own pole, not on the centre of its bounding box: the yards
+    # reach out to one side, so a bbox centre puts the mast several per cent of its height off
+    # its station and every rig sits askew.
     vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
-    cx = (max(v.x for v in vs) + min(v.x for v in vs)) * 0.5
-    cy = (max(v.y for v in vs) + min(v.y for v in vs)) * 0.5
-    zmin = min(v.z for v in vs)
+    zmin = min(v.z for v in vs); zmax = max(v.z for v in vs)
+    foot = [v for v in vs if v.z <= zmin + (zmax - zmin) * 0.10]
+    cx = sum(v.x for v in foot) / len(foot)
+    cy = sum(v.y for v in foot) / len(foot)
     ob.matrix_world = mathutils.Matrix.Translation((-cx, -cy, -zmin)) @ ob.matrix_world
     bpy.context.view_layer.update()
     vs = [ob.matrix_world @ v.co for v in ob.data.vertices]

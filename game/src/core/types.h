@@ -22,7 +22,14 @@
 #define LON1   (  46.f)
 #define LAT0   ( -58.f)
 #define LAT1   (  72.f)
-#define WORLD_K        4.f      // world units per degree
+// World units per degree. At 4 the playable extent was 704 x 520 units for ground rising ~9,
+// a tenfold vertical exaggeration that made every mountain range read as a ridge of sticks and
+// every ship a 46 km monster. WORLD_SCALE doubles the horizontal world without touching the
+// heights, which halves both; the simulation's distances and the camera's ranges are expressed
+// in terms of it (core/balance.h, gfx/camera.h) so gameplay is unchanged - a day's sail still
+// covers the same degrees of ocean.
+#define WORLD_SCALE    2.f      // raise to 3 for a 3x world; everything below follows
+#define WORLD_K        (4.f * WORLD_SCALE)   // world units per degree
 #define CELLS_PER_DEG  8        // land mask / heightmap resolution
 #define LM_W  1408              // = (LON1-LON0)*CELLS_PER_DEG
 #define LM_H  1040              // = (LAT1-LAT0)*CELLS_PER_DEG

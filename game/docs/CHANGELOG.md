@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.14.0 — a world twice the size, and terrain streamed from a 32768-square Earth
+
+- **The world is twice as wide.** `WORLD_SCALE` (2, raise to 3) multiplies `WORLD_K`, and the
+  simulation's distances and the camera's ranges are expressed in terms of it, so a day's sail
+  still covers the same degrees of ocean while the vertical exaggeration halves. A ship is no
+  longer a 46 km monster and a mountain range no longer a ridge of sticks.
+- **Masts fixed, properly.** Two real bugs: the split ordered parts **stern-first**, so after
+  the hull's 180-degree turn the mizzen stood on the foremast station and every mast's rake
+  pointed forward; and each part was centred on its **bounding box**, which the yards pull to
+  one side, so every mast sat several per cent of its height off its station. They are now
+  ordered bow-first in game space and stood on the foot of their own pole.
+- **`tools/terrain_tiles.py`**: cuts a 32768x32768 source into streamable tiles. The height map
+  is 2.1 GB decoded and its normal map 3.2 GB, so the PNG is read as a *stream* - one band of
+  512 rows at a time, 33 MB - and only the playable window is cut, at half resolution: 384 + 384
+  tiles, 480 MB, 45 samples per degree against the base map's 8.
+- **`world/terraintiles.c`**: pages those tiles in around the camera and drops the coldest when
+  over budget (192 MB, `MARE_TERRAIN_MB`). A tile is one read of a headerless fixed-size file,
+  so a load sits on the IO lane and publishes on MAIN, the same discipline as the rest of the
+  streamer. Feeds the clipmap detail rings, so nothing is loaded that the camera cannot see.
+- **`tools/terrain_calibrate.py`** and a measured sea level. Guessing which grey means
+  shoreline floods continents; sampling the cut tiles at known places (Alps, Amazon, Atlantic
+  abyss, North Sea) puts it at 0.50.
+- **Both authored-terrain paths are off by default** (`MARE_TERRAIN_MAP=1`,
+  `MARE_TERRAIN_TILES=1`). The supplied maps are a shaded world overview and a bathymetry-
+  weighted heightfield, not DEMs: they compress all land into a tenth of their range, so what
+  they yield is *smoother* than the procedural world rather than sharper. The pipeline is
+  complete and tested; it is waiting on a source map with real elevation. See DESIGN_TERRAIN.md.
+- `stream_test` now derives its chunk-size expectation from `WORLD_K` instead of hard-coding 32.
+
 ## 0.13.0 — masts apart, six LODs, authored terrain
 
 - **Every mast is its own object.** Meshy generates a rig as one mesh;

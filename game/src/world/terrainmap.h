@@ -77,5 +77,8 @@ int   terrainmap_ground(float height, float slope, float lat);
 // simulation, navigation and the renderer all see one consistent world. No-op when no depth
 // map is loaded. Call after terrainmap_load.
 void  terrainmap_apply_to_world(void);
+// The same, from the streamed tile set (world/terraintiles.h), which is the real Earth at a
+// far higher resolution. Returns the number of cells it changed; 0 when no tiles are resident.
+int   terrainmap_apply_tiles(void);
 
 #endif

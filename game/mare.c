@@ -18,6 +18,7 @@
 #include "src/core/diag.c"
 #include "src/core/log.c"
 #include "src/world/world.c"
+#include "src/world/terraintiles.c"
 #include "src/world/terrainmap.c"
 #include "src/world/stream.c"
 #include "src/world/nav.c"
@@ -246,6 +247,11 @@ int main(int argc, char **argv) {
     world_init(seed);
     terrainmap_load(NULL);          // authored height / normals / ground atlas, if the art is there
     terrainmap_apply_to_world();   // folded in before nav, so routes see the same ground
+    // The real Earth at 45 samples per degree, paged in around the camera (world/terraintiles.h).
+    // Deliberately *not* folded into the base heightfield: that would mean reading all 384
+    // tiles at startup. The low-resolution depth map above already gave the simulation and the
+    // navigation grid their relief; the tiles are detail, and detail is streamed.
+    terraintiles_init(NULL);
     nav_init();
     if (getenv("MARE_WAVES")) { sea_wave_amp = clampf((float)atof(getenv("MARE_WAVES")), 0.f, 4.f);
         LOG_INFO("gpu", "wave height pinned to %.2f (MARE_WAVES)", sea_wave_amp); }

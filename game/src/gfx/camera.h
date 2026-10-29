@@ -19,11 +19,11 @@ extern rts_cam_t cam;
 extern float cam_pitch_scale;   // 1 = normal; the detail view lowers it towards the horizon (detailview.c)
 extern float cam_min_eye_y;     // the eye is never placed below this height (mare.c: the wave crest or the ground under it, plus a margin)
 
-#define CAM_MIN_DIST   2.5f    // close enough to walk a town square (city view)
-#define CAM_MAX_DIST   950.f
-#define CAM_CITY_DIST  16.f    // below this over a town: city view (mare.c slows the clock, hud.c says so)
-#define CAM_MAP_START  300.f   // map styling begins
-#define CAM_MAP_FULL   480.f   // fully map view
+#define CAM_MIN_DIST   (2.5f * WORLD_SCALE)    // close enough to walk a town square (city view)
+#define CAM_MAX_DIST   (950.f * WORLD_SCALE)
+#define CAM_CITY_DIST  (16.f * WORLD_SCALE)    // below this over a town: city view (mare.c slows the clock, hud.c says so)
+#define CAM_MAP_START  (300.f * WORLD_SCALE)   // map styling begins
+#define CAM_MAP_FULL   (480.f * WORLD_SCALE)   // fully map view
 
 void cam_reset(float tx, float tz, float dist);   // snap to a target (no smoothing)
 void cam_goto(float x, float z);                  // recentre; zooms in to 60 if currently in map view
