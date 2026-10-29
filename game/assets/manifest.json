@@ -1,13 +1,30 @@
 {
   "assets": [
+    "armed_cog_hull/armed_cog_hull.asset.json",
+    "armed_cog_masts/armed_cog_masts.asset.json",
     "artisan_house/artisan_house.asset.json",
+    "carrack_hull/carrack_hull.asset.json",
+    "carrack_masts/carrack_masts.asset.json",
     "church/church.asset.json",
+    "coastal_trader_hull/coastal_trader_hull.asset.json",
+    "coastal_trader_masts/coastal_trader_masts.asset.json",
+    "cog_hull/cog_hull.asset.json",
+    "cog_masts/cog_masts.asset.json",
+    "fusta_hull/fusta_hull.asset.json",
+    "fusta_masts/fusta_masts.asset.json",
+    "galiot_hull/galiot_hull.asset.json",
+    "galley_oar/galley_oar.asset.json",
+    "hulk_hull/hulk_hull.asset.json",
+    "hulk_masts/hulk_masts.asset.json",
+    "mediterranean_masts/mediterranean_masts.asset.json",
     "merchant_house/merchant_house.asset.json",
     "poor_house/poor_house.asset.json",
     "small_stone_house/small_stone_house.asset.json",
     "small_wooden_house/small_wooden_house.asset.json",
     "three_story_townhouse/three_story_townhouse.asset.json",
     "two_story_townhouse/two_story_townhouse.asset.json",
+    "war_carrack_hull/war_carrack_hull.asset.json",
+    "war_carrack_masts/war_carrack_masts.asset.json",
     "wealthy_townhouse/wealthy_townhouse.asset.json"
   ]
 }

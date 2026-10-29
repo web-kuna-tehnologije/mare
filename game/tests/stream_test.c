@@ -93,6 +93,20 @@ int main(void) {
           CHECK(stream_delta_at_level(x, z, STREAM_L_REGION) == 0.f, "L1 and coarser must carry no delta"); }
       CHECK(differ > 0, "the L2-clamped ring should differ from the finest lookup somewhere"); }
 
+    // chunk reference image (what a map chunk is modelled from, docs/BLENDER_LOD.md section 4)
+    { stream_chunk_ref_t cr;
+      CHECK(!stream_dump_chunk_reference(3, 9999, 0, 64, "test_chunk.ppm", &cr), "an out-of-range tile must be refused");
+      CHECK(stream_dump_chunk_reference(3, 16, 2, 64, "test_chunk.ppm", &cr), "chunk reference failed");
+      CHECK(cr.size_deg == 8.f && cr.size_units == 32.f, "an L3 chunk is 8 degrees / 32 world units (got %.1f / %.1f)", cr.size_deg, cr.size_units);
+      CHECK(cr.lon1 - cr.lon0 == cr.size_deg && cr.lat1 - cr.lat0 == cr.size_deg, "the reference extent must be the tile's");
+      CHECK(cr.land_frac > 0.f && cr.land_frac < 1.f, "L3 16,2 straddles a coast (land %.2f)", cr.land_frac);
+      CHECK(cr.max_h > cr.min_h, "height range must be real (%.2f..%.2f)", cr.min_h, cr.max_h);
+      FILE *f = fopen("test_chunk.ppm", "rb");
+      CHECK(f != NULL, "no reference file written");
+      if (f) { char hdr[16] = {0}; size_t n = fread(hdr, 1, 15, f); fclose(f);
+               CHECK(n > 10 && hdr[0] == 'P' && hdr[1] == '6', "the reference must be a binary PPM"); }
+      remove("test_chunk.ppm"); }
+
     // determinism + disk round-trip: a fresh init with the same seed reloads identical data from disk
     float probe[16]; int np = 0;
     for (int k = 0; k < 16; ++k) probe[np++] = stream_delta_at(ax + (k % 4) * 1.3f, az + (k / 4) * 1.1f);

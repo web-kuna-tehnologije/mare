@@ -1,0 +1,49 @@
+{
+  "name": "hulk_hull",
+  "type": "ship",
+  "role": "hulk_hull",
+  "lods": [
+    {
+      "file": "hulk_hull_LOD0.glb",
+      "node": "hulk_hull_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "hulk_hull_LOD1.glb",
+      "node": "hulk_hull_LOD1",
+      "px": 400
+    },
+    {
+      "file": "hulk_hull_LOD2.glb",
+      "node": "hulk_hull_LOD2",
+      "px": 130
+    },
+    {
+      "file": "hulk_hull_LOD3.glb",
+      "node": "hulk_hull_LOD3",
+      "px": 45
+    },
+    {
+      "file": "hulk_hull_LOD4.glb",
+      "node": "hulk_hull_LOD4",
+      "px": 15
+    }
+  ],
+  "scale": {
+    "fit": "length",
+    "size": 1.575
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

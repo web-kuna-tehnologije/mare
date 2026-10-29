@@ -78,6 +78,7 @@ typedef struct asset_lod_t {
     float     dist;                       // use from this camera distance on (0 when the LOD is given in px)
     float     px;                         // or: use once the projected size is below this many reference pixels (0 = from dist)
     int       gpu;                        // renderer-owned flag: 1 once uploaded (verts/idx may then be freed)
+    int       queued;                     // an upload job for this LOD is already in flight (asset_upload_lod)
 } asset_lod_t;
 
 // UNLOADED -> (asset_request) LOADING -> LOADED | FAILED. Loading runs on the job system
@@ -118,6 +119,11 @@ unsigned asset_generation(void);                           // bumps whenever an 
 int      asset_loading_count(void);                        // assets in flight right now (dashboard)
 void     asset_pipeline_counts(int *io, int *decode, int *commit, int *upload);   // in flight per stage, plus LOADED assets with LODs still waiting for the GPU (dashboard)
 void     asset_set_upload_hook(void (*hook)(asset_t *a, int lod));   // renderer: called on the MAIN lane for each LOD once an asset is LOADED
+// Ask for one LOD to reach the GPU (idempotent; no-op once uploaded or already queued). The
+// commit queues every LOD but the finest this way, coarsest first; LOD 0 - which for an
+// imported scan is the original, only ever drawn when the object fills the screen - is left
+// for the first instance that actually picks it, so it costs no VRAM until then.
+void     asset_upload_lod(asset_t *a, int lod);
 void     asset_free_cpu(asset_t *a, int lod);              // renderer: drop the CPU copy after upload
 size_t   asset_cpu_bytes(void);                            // total held by the cache (CPU side)
 size_t   asset_gpu_bytes(void);                            // total uploaded by the renderer

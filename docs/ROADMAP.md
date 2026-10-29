@@ -17,6 +17,23 @@ Follow-ups:
    cross-fading into the far.
 3. [ ] Tile-local content: streamed vegetation/rock scatter per tactical chunk through the
    same residency machinery.
+
+## Done: the Generation I fleet 0.11 (game/docs/DESIGN_SHIPS.md)
+
+Ships are assembled from authored hulls, rigs and oar banks imported from Meshy
+(`tools/meshy_import.py`), mapped to game ship types by nation, with the procedural hulls as
+the fallback. The map can be generated a chunk at a time: `mare --map-chunk=` writes the
+reference image and placement brief for a streamed tile, and the importer turns the result into
+a `tile_l<level>_<x>_<y>` asset.
+
+Follow-ups:
+1. [ ] Generate the Great Carrack (50-60 m) so the Ship of the Line stops standing in as a
+   stretched war carrack, and sails for the bare rigs.
+2. [ ] Wire the authored fleet into the staged battle/city views (`gfx/detailview.c`), which
+   still stage the procedural hulls.
+3. [ ] Free an imported LOD 0's CPU copy when nothing has picked it for a while (~160 MB of
+   the fleet's RAM is LOD 0 vertex data that may never be uploaded).
+4. [ ] Oar animation: sweep the banks with the ship's speed instead of holding them fixed.
 4. [ ] Raise the world/port/fleet caps toward the full-map scale the adaptive parallel tick is
    gated for, and re-measure `MARE_PARSIM=2` against the 2 ms dispatch cost.
 

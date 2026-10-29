@@ -20,6 +20,7 @@
 #include "lod.h"
 #include "occlusion.h"
 #include "occquery.h"
+#include "shipyard.h"
 
 _Static_assert(MB_FLOATS == 12, "asset.c emits 12-float builder vertices (ASSET_VERT_FLOATS)");
 
@@ -125,6 +126,7 @@ static void fleet_anim_pos(int i, const fleet_t *f, float dt, float *x, float *z
 void scene_build_ships(void) {
     cam_frustum(frustum);
     scene_culled_ships = scene_occluded_ships = 0;
+    shipyard_oars_drawn = shipyard_ships_drawn = shipyard_fallbacks = 0;
     int occ = scene_occlusion_active();
     int battle_lod0_budget = BATTLE_DETAIL_MAX;
     float dt = clampf(RF.time - anim_prev_time, 0, 0.25f); anim_prev_time = RF.time;
@@ -172,6 +174,20 @@ void scene_build_ships(void) {
         const event_t *storm = storm_at(f->x, f->z);
         float rock = (f->at_port >= 0 ? 0.25f : 0.55f + 0.45f * clampf(vel / 9.f, 0, 1))
                    * (storm ? 1.f + 1.6f * storm->strength : 1.f);
+        // Authored hulls first (shipyard.h): a class that has finished loading draws the whole
+        // line through the asset path - its own five LODs replace the full/simplified pair, so
+        // those ships are left out of the procedural passes below. The fleet's mesh-to-icon
+        // dither still applies, so the hand-over to the marker is the same dissolve as before.
+        int authored[MAX_SHIPS]; memset(authored, 0, sizeof authored);
+        for (int s = 0; s < f->nships; ++s) {
+            float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
+            float wx = x + hx*along - hz*side, wz = z + hz*along + hx*side;
+            shipyard_req_t sr = { f->ships[s].type, f->nation, f->role, wx, wz, heading,
+                                  rock, sel ? 1.f : hov ? 0.5f : 0.f, lod_dither(&pk, pk.lod),
+                                  col_r(col), col_g(col), col_b(col),
+                                  cam_distance(wx, wz), lod_key(LODK_FLEET, f->id, s + 1) };
+            authored[s] = shipyard_push(&sr);
+        }
         for (int pass = 0; pass < 2; ++pass) {                                // the level shown, then the one fading in
             int level = pass == 0 ? pk.lod : pk.lod2;
             if (level < 0 || level > 1) continue;
@@ -181,14 +197,17 @@ void scene_build_ships(void) {
             for (int s = 0; s < nshow; ++s) {
                 float sc = ship_scale(f->ships[s].type);
                 float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
-                inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
-                *in = (inst_t){ x + hx*along - hz*side, 0, z + hz*along + hx*side, heading, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0, dith };
+                float wx = x + hx*along - hz*side, wz = z + hz*along + hx*side;
+                if (!authored[s]) {
+                    inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
+                    *in = (inst_t){ wx, 0, wz, heading, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0, dith };
+                }
                 if (pass == 0 && f->at_port < 0) {           // moored ships leave no wake
-                    float dd = dist2d(in->x, in->z, cam.tx, cam.tz);
+                    float dd = dist2d(wx, wz, cam.tx, cam.tz);
                     if (dd < 90.f) {
                         int k = nfoam < 24 ? nfoam++ : -1;
                         if (k < 0) { float worst = -1; for (int q = 0; q < 24; ++q) if (foam_d[q] > worst) { worst = foam_d[q]; k = q; } if (worst <= dd) k = -1; }
-                        if (k >= 0) { foam_v[k*4] = in->x; foam_v[k*4+1] = in->z; foam_v[k*4+2] = heading; foam_v[k*4+3] = vel; foam_len[k] = sc; foam_d[k] = dd; }
+                        if (k >= 0) { foam_v[k*4] = wx; foam_v[k*4+1] = wz; foam_v[k*4+2] = heading; foam_v[k*4+3] = vel; foam_len[k] = sc; foam_d[k] = dd; }
                     }
                 }
             }
@@ -342,7 +361,12 @@ static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float
         if (level < 0 || level >= a->nlods) continue;
         for (int l = level; l < a->nlods; ++l)
             if (a->lod[l].gpu && asset_mesh[ai][l].geo.vao) { use[pass] = l; break; }
-        if (use[pass] >= 0 && use[pass] != level) scene_asset_lod_fallbacks++;
+        if (use[pass] != level) {
+            // picked a level that is not on the GPU: ask for it (the commit leaves the finest
+            // LOD unqueued on purpose) and draw the coarser resident one meanwhile
+            asset_upload_lod(a, level);
+            if (use[pass] >= 0) scene_asset_lod_fallbacks++;
+        }
     }
     if (use[1] == use[0]) use[1] = -1;                   // both ends of a fade on the same resident mesh: draw it once, opaque
     for (int pass = 0; pass < 2; ++pass) {
@@ -457,8 +481,6 @@ int scene_assets_submit(void) {
         }
     return n;
 }
-#define assets_clear scene_assets_begin
-#define assets_set_instances scene_assets_end
 #define assets_submit scene_assets_submit
 
 // ---------------------------------------------------------------------------
@@ -652,7 +674,6 @@ void scene_build_ports(void) {
     instlist_clear(&houses); instlist_clear(&roofs); instlist_clear(&towers); instlist_clear(&walls); instlist_clear(&piers); instlist_clear(&flagpoles);
     instlist_clear(&sh_houses); instlist_clear(&sh_roofs); instlist_clear(&sh_towers); instlist_clear(&sh_walls); instlist_clear(&sh_piers); instlist_clear(&sh_flagpoles);
     scene_shadow_ports = 0;
-    assets_clear();
     for (int i = 0; i < G.nports; ++i) {
         const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
         float d = cam_distance(p->x, p->z), r = 2.5f + 0.5f * p->size;
@@ -683,7 +704,6 @@ void scene_build_ports(void) {
     mesh_set_instances(&mesh_pier, piers.v, piers.n); mesh_set_instances(&mesh_house, houses.v, houses.n);
     mesh_set_instances(&mesh_roof, roofs.v, roofs.n); mesh_set_instances(&mesh_tower, towers.v, towers.n);
     mesh_set_instances(&mesh_wall, walls.v, walls.n); mesh_set_instances(&mesh_flagpole, flagpoles.v, flagpoles.n);
-    assets_set_instances();
 }
 
 static int submit_town_meshes(int shadow) {

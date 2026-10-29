@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.11.0 — the Generation I fleet, and generating the world a chunk at a time
+Plan and measurements: [DESIGN_SHIPS.md](DESIGN_SHIPS.md),
+[BLENDER_LOD.md](BLENDER_LOD.md) sections 4-5.
+
+- **Ships are authored, not lofted boxes** (`gfx/shipyard.c`): a hull, a mast assembly and -
+  for the oared Mediterranean interceptors - a bank of oars, assembled from models imported
+  from Meshy and submitted through the ordinary authored-asset path, so they get screen-space
+  LOD, cross-fades, residency, shadow casters and the wave displacement that makes a hull ride
+  the swell. Eight Gen I classes (coastal trader, cog, fusta, galiot, armed cog, hulk, carrack,
+  war carrack) sized from the design sheets at a single constant, **1 m = 0.045 world units**,
+  chosen so a 21 m coastal trader occupies the ~0.95 units the procedural sloop did and every
+  existing camera distance and LOD threshold stays valid.
+- **A ship type is a role, not a hull**: the same Frigate is an armed cog in the Channel and an
+  oared galiot in the Adriatic. Venice, the Ottomans and the pirates sail the fusta and galiot;
+  the northern trading powers favour the hulk over the carrack. The procedural hulls remain the
+  fallback, so a class that is still loading or was never imported never leaves a hole.
+- **Oars** are placed from the sheets (20-22 pairs, pivoted a third of their length inboard so
+  the bank sits outboard of the rail) and only submitted once the hull is over 140 px, since a
+  22-pair galiot adds 44 instances.
+- **Meshy import pipeline** (`tools/meshy_import.py`): imports a tree of Meshy downloads,
+  resolving `Meshy_AI_armed_cog_hull_faithful_keel_3d_..._d35aeea1` to the asset
+  `armed_cog_hull`, decimating to five LODs per kind and writing a sidecar. The per-model work
+  is `blender_export_glb.py`, which now also takes a `.glb` source (`--import`) and can
+  straighten a model generated at an angle (`--rot`) - the galley oar comes out of Meshy dipped
+  45 degrees. Both drivers translate WSL paths for a Windows Blender.
+- **Generating the map a chunk at a time**: `mare --map-chunk=level,tx,ty[,res]` writes a
+  top-down shaded-relief reference of one streamed tile (sea by depth, land by height, sun from
+  the north-west) and prints its asset name, geographic extent, world rect, height range and
+  land fraction - everything a generated chunk has to match. Feed the PNG to Meshy's
+  image-to-3D, then `meshy_import.py --kind terrain --name tile_l3_12_7`. The descriptor
+  generator recognises the `tile_l<level>_<x>_<y>` pattern and writes a terrain descriptor
+  fitted to the tile's world size, keeping its own origin so sea level stays at y = 0.
+- **LOD 0 is demand-loaded.** The asset commit now queues every LOD *but* the finest, coarsest
+  first; LOD 0 reaches the GPU only when an instance actually picks it (`asset_upload_lod`). A
+  fleet on the horizon costs no VRAM for a level it will never draw.
+- **Imported LOD 0 is capped at 150k triangles** (six times LOD 1). The raw scans are 0.8-2.3 M
+  triangles - 45-68 MB of vertex data per hull once baked, about a gigabyte across the fleet -
+  for detail far below a pixel even when a ship fills the screen. `BUDGETS` in
+  `tools/meshy_import.py` is the knob.
+- Measured over Venice with two oar banks in frame: 11.3 ms (87 fps) authored against 9.1 ms
+  (108 fps) procedural, +6 MB of asset VRAM. `MARE_SHIPS=0` for the A/B; the dashboard **LOD**
+  tab reports authored hulls, oars and fallbacks per frame.
+- `stream_test` covers the chunk reference (extent, land fraction, height range, PPM header,
+  out-of-range refusal).
+
 ## 0.10.1 — streamed detail: lighting and a second clipmap ring
 
 - **The streamed relief is lit.** The terrain fragment shader differentiates the composed

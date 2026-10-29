@@ -54,21 +54,79 @@ Start the game; the registry picks the manifest up, towns rebuild with the new a
 moment it lands (asset_generation), and the dashboard **Assets** / **LOD** tabs show its
 residency per LOD.
 
-## 4. Terrain tiles (world streaming, DESIGN_STREAMING.md)
+## 4. Map chunks: generating the world a tile at a time
 
-A tactical chunk (8x8 deg) or coastal tile (16x16 deg) of the streamed world can be replaced
-by an authored mesh. The dashboard **Streaming** tab and the tile overlay (toggle there, or
-`MARE_STREAM_TILES=1`) list the wanted grids that have no mesh yet, by name:
+A tactical chunk (8 degrees, 32 world units) or coastal tile (16 degrees, 64 units) of the
+streamed world can be replaced by an authored mesh - modelled by hand or generated with Meshy.
+The game tells you which tiles are missing and exactly what one has to look like.
 
-1. Pick a tile from the list, e.g. `tile_l3_12_7` (the label tells you the geographic area;
-   the tile's world bounds are `8 deg = 32 world units` per side for L3, 64 for L2).
-2. Model it in Blender with the tile's centre at the origin; 1 Blender unit = 1 world unit
-   is simplest (the descriptor can rescale with `"scale": {"factor": ...}` if not).
-3. Export: `blender -b tile.blend --python tools/blender_export_glb.py -- game/assets/tile_l3_12_7 tile_l3_12_7`
-4. `python3 tools/gen_asset_descriptors.py game/assets` — then edit the generated descriptor:
-   set `"type": "terrain"` and remove the `fit` scaling if you modelled at world scale.
-5. Run the game: the streamer marks the tile authored, the overlay's cross disappears, and
-   the mesh draws at the tile's centre through the normal asset path (LODs, budget, eviction).
+**Pick a tile.** The dashboard **Streaming** tab lists the wanted chunks that have no mesh yet
+by name and region, and the tile overlay (toggle there, or `MARE_STREAM_TILES=1`) draws a red
+cross on each of them in the world.
+
+**Get its brief.** Headless, no window:
+
+```
+./mare --map-chunk=3,12,7 --seed=7               # level, tx, ty [, resolution]
+python3 tools/ppm2png.py map_chunk_l3_12_7.ppm   # the reference image, for Meshy
+```
+
+which prints the asset name, the geographic extent, the world rect, the height range and the
+land fraction, and writes a top-down shaded-relief reference of that tile (sea by depth, land
+by height, sun from the north-west). Pass the world's seed, or the reference will not match the
+terrain the chunk has to merge into.
+
+**Generate or model it.** Feed the reference PNG to Meshy's image-to-3D, or model it in
+Blender. Either way the mesh must be:
+
+- **32 world units across** for an L3 chunk (64 for L2) - the importer fits it to that, so the
+  proportions matter more than the absolute size;
+- **sea level at y = 0** - the chunk keeps its own origin (`"pivot": "keep"`), and the streamer
+  places it at the tile centre at y = 0;
+- **+x east, +z south**, matching the reference image's orientation.
+
+**Import it** (a Meshy download, or any GLB in a folder):
+
+```
+python3 tools/meshy_import.py --kind terrain --root <download folder> --name tile_l3_12_7
+python3 tools/gen_asset_descriptors.py game/assets
+```
+
+`--name` forces the asset name, which is how a folder called
+`Meshy_AI_rocky_coast_..._a1b2c3` becomes `tile_l3_12_7`. The generator recognises the
+`tile_l<level>_<x>_<y>` pattern and writes a `terrain` descriptor fitted to the tile's world
+size with the LOD thresholds a large object needs.
+
+**Check it.** Run the game: the streamer marks the tile authored, the overlay's red cross turns
+into a bright green frame, and the mesh draws at the tile's centre through the normal asset
+path - LODs, residency, shadows and all. If the shoreline sits above or below the water, nudge
+`pivot_offset[1]` in the descriptor; nothing else needs rebuilding.
+
+## 5. Ships and other Meshy models
+
+`tools/meshy_import.py` imports a whole tree of Meshy downloads. Meshy writes one folder per
+model holding a single `Meshy_AI_model.glb`, named after the prompt; the importer strips
+Meshy's decorations and the prompt-engineering words ("faithful", "bare", "keel", "counter",
+"lateen", bare numbers), so
+
+```
+Meshy_AI_armed_cog_hull_faithful_keel_3d_20261029_image-to-3d-texture_d35aeea1/
+```
+
+becomes the asset `armed_cog_hull`.
+
+```
+python3 tools/meshy_import.py --check --root ../assets/ships     # the plan: names, sizes
+python3 tools/meshy_import.py --root ../assets/ships --jobs 3    # the real import
+python3 tools/gen_asset_descriptors.py game/assets
+```
+
+`--kind` (`ship`, `ship_part`, `building`, `terrain`, `prop`) picks the LOD budgets and texture
+size. LOD 0 keeps the model at its import budget - 150k triangles for a ship, effectively the
+original scan minus the noise, drawn only when the object fills the screen. See
+[DESIGN_SHIPS.md](DESIGN_SHIPS.md) for what happens to a ship after import: how it is sized
+from the design sheets, which game ship type uses it, and how hull, masts and oars are
+assembled.
 
 ## Checking the result
 

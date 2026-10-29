@@ -85,4 +85,17 @@ void     stream_set_budget(size_t bytes);     // dashboard / tests; MARE_STREAM_
 // debug overlay can list the grids still to model. stream.c itself never touches the registry.
 void stream_set_authored(int level, int tx, int ty, int authored);
 
+// Write a top-down shaded-relief reference image of one tile (binary PPM, `res` square) and
+// report its placement. This is the image a chunk is modelled from - see docs/BLENDER_LOD.md
+// section 4 and `mare --map-chunk=level,tx,ty`. Returns 0 (and logs) if the tile is out of
+// range or the file cannot be written.
+typedef struct stream_chunk_ref_t {
+    float lon0, lat0, lon1, lat1;     // geographic extent (north-west to south-east)
+    float x0, z0, x1, z1;             // world rect
+    float size_units, size_deg;       // tile edge
+    float min_h, max_h, land_frac;    // terrain under it
+} stream_chunk_ref_t;
+int stream_dump_chunk_reference(int level, int tx, int ty, int res, const char *path,
+                                stream_chunk_ref_t *out);
+
 #endif

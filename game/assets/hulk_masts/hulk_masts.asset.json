@@ -1,0 +1,49 @@
+{
+  "name": "hulk_masts",
+  "type": "ship_part",
+  "role": "hulk_masts",
+  "lods": [
+    {
+      "file": "hulk_masts_LOD0.glb",
+      "node": "hulk_masts_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "hulk_masts_LOD1.glb",
+      "node": "hulk_masts_LOD1",
+      "px": 400
+    },
+    {
+      "file": "hulk_masts_LOD2.glb",
+      "node": "hulk_masts_LOD2",
+      "px": 130
+    },
+    {
+      "file": "hulk_masts_LOD3.glb",
+      "node": "hulk_masts_LOD3",
+      "px": 45
+    },
+    {
+      "file": "hulk_masts_LOD4.glb",
+      "node": "hulk_masts_LOD4",
+      "px": 15
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 1.485
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

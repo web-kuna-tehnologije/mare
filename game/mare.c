@@ -52,6 +52,7 @@
 #include "src/gfx/sky.c"
 #include "src/gfx/textures.c"
 #include "src/gfx/streamview.c"
+#include "src/gfx/shipyard.c"
 #include "src/gfx/scene.c"
 #include "src/gfx/detailview.c"
 #include "src/ui/uikit.c"
@@ -100,13 +101,44 @@ static void debug_keys(void) {
     if (KDOWN(GLFW_KEY_F8)) { G.nations[G.player].treasury += 100000; toast("debug: +100000 ducats"); }
 }
 
+// --map-chunk=level,tx,ty[,res]: write the shaded-relief reference a map chunk is modelled
+// from (docs/BLENDER_LOD.md section 4) and print everything the model has to match - extent,
+// world size, height range. Headless: no window, no GL.
+static int map_chunk_dump(const char *spec, unsigned seed) {
+    int level = 3, tx = 0, ty = 0, res = 768;
+    if (sscanf(spec, "%d,%d,%d,%d", &level, &tx, &ty, &res) < 3) {
+        fprintf(stderr, "--map-chunk=level,tx,ty[,res]\n");
+        return 2;
+    }
+    world_init(seed);
+    stream_init(seed, "tiles");
+    char path[128]; snprintf(path, sizeof path, "map_chunk_l%d_%d_%d.ppm", level, tx, ty);
+    stream_chunk_ref_t r;
+    if (!stream_dump_chunk_reference(level, tx, ty, res, path, &r)) return 1;
+    const stream_tile_t *t = stream_tile(level, tx, ty);
+    char label[64]; stream_tile_label(t, label, sizeof label);
+    printf("map chunk %s\n", label);
+    printf("  asset name   tile_l%d_%d_%d          (game/assets/tile_l%d_%d_%d/)\n", level, tx, ty, level, tx, ty);
+    printf("  reference    %s  (%dx%d; tools/ppm2png.py turns it into a PNG for Meshy)\n", path, res, res);
+    printf("  geographic   lon %.2f .. %.2f, lat %.2f .. %.2f (%.0f degrees square)\n", r.lon0, r.lon1, r.lat0, r.lat1, r.size_deg);
+    printf("  world rect   x %.1f .. %.1f, z %.1f .. %.1f (%.0f units square)\n", r.x0, r.x1, r.z0, r.z1, r.size_units);
+    printf("  height       %.2f .. %.2f world units, %.0f%% land, %s\n", r.min_h, r.max_h, r.land_frac * 100,
+           t->water_only ? "ALL WATER - not worth modelling" : "has land");
+    printf("  model it     %.0f units across, sea level at y = 0, +x east and +z south\n", r.size_units);
+    printf("  import       python3 tools/meshy_import.py --kind terrain --root <download dir> --name tile_l%d_%d_%d\n", level, tx, ty);
+    stream_shutdown();
+    return 0;
+}
+
 int main(int argc, char **argv) {
     unsigned seed = (unsigned)time(0); int autostart = 0, headless = 0, skip = 0, dev = 0;
+    const char *map_chunk = 0;
     diag_config_t dc = { "logs", LOG_WARN, LOG_DEBUG, LOG_TRACE, 0 };
     for (int i = 1; i < argc; ++i) {
         if (!strncmp(argv[i], "--seed=", 7)) seed = (unsigned)atoi(argv[i]+7);
         else if (!strncmp(argv[i], "--nation=", 9)) autostart = atoi(argv[i]+9);
         else if (!strncmp(argv[i], "--simulate=", 11)) headless = atoi(argv[i]+11);
+        else if (!strncmp(argv[i], "--map-chunk=", 12)) map_chunk = argv[i]+12;
         else if (!strncmp(argv[i], "--skip=", 7)) skip = atoi(argv[i]+7);
         else if (!strcmp(argv[i], "--dev")) dev = 1;
         else if (!strcmp(argv[i], "--no-shadows")) shadow_enabled = 0;
@@ -121,6 +153,7 @@ int main(int argc, char **argv) {
     { int nw = jobs_init(-1); atexit(jobs_shutdown);
       LOG_INFO("jobs", "%s: %d worker threads, %d slots", nw ? "job system" : "job system (synchronous)", nw, jobs_slot_count()); }
     LOG_INFO("main", "mare liberum starting: seed %u nation %d dev %d headless %d", seed, autostart, dev, headless);
+    if (map_chunk) return map_chunk_dump(map_chunk, seed);   // reference image for a map chunk, then out
     if (headless) {   // balance run without a window
         world_init(seed); nav_init(); game_new(autostart ? autostart : NATION_NETHERLANDS, seed);
         double t0 = diag_now(); game_advance((float)headless);
@@ -144,6 +177,8 @@ int main(int argc, char **argv) {
       if (asset_registry_load(manifest)) LOG_INFO("asset", "%d assets requested: parsing and decoding on the job system, GPU upload inside the frame budget", asset_request_all()); }
     { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); rhi_check_errors("render_init"); }
     asset_set_upload_hook(scene_asset_upload);   // finished assets reach the GPU through the MAIN lane, one LOD per budgeted job
+    if (getenv("MARE_SHIPS")) { shipyard_enabled = atoi(getenv("MARE_SHIPS")) != 0; LOG_INFO("asset", "authored ships %s (MARE_SHIPS)", shipyard_enabled ? "on" : "off"); }
+    if (shipyard_enabled) shipyard_request_all();   // the Gen I hulls, rigs and oars, ahead of the first battle
     U.show_debug = dev;
     if (getenv("MARE_PASSES")) { const char *p = getenv("MARE_PASSES");   // experiment: enable only the listed passes
         U.pass_terrain = !!strstr(p, "terrain"); U.pass_sea = !!strstr(p, "sea"); U.pass_ports = !!strstr(p, "ports"); U.pass_ships = !!strstr(p, "ships");
@@ -361,8 +396,13 @@ int main(int argc, char **argv) {
             SH = (scene_hints_t){ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
             detailview_frame(dt);                 // transition clock + staged-scene animation (before the shadow pass)
             int dv_on = detailview_mode() != DV_OFF;
+            // One authored-asset bracket around both builds: towns and ships share the instance
+            // lists (shipyard.h puts hulls, masts and oars through the same path), so the
+            // single upload has to happen once both have pushed.
+            if (!dv_on) scene_assets_begin();
             prof_begin(p_ports); if (U.pass_ports && !dv_on) scene_build_ports(); prof_end(p_ports);
             prof_begin(p_ships); if (U.pass_ships && !dv_on) scene_build_ships(); prof_end(p_ships);
+            if (!dv_on) scene_assets_end();
             prof_begin(p_shadow); rhi_gpu_begin(g_shadow); shadow_render(); rhi_gpu_end(); prof_end(p_shadow);
         }
         // the HDR target is cleared in linear space: the sky colour is authored in sRGB

@@ -1,0 +1,49 @@
+{
+  "name": "fusta_masts",
+  "type": "ship_part",
+  "role": "fusta_masts",
+  "lods": [
+    {
+      "file": "fusta_masts_LOD0.glb",
+      "node": "fusta_masts_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "fusta_masts_LOD1.glb",
+      "node": "fusta_masts_LOD1",
+      "px": 400
+    },
+    {
+      "file": "fusta_masts_LOD2.glb",
+      "node": "fusta_masts_LOD2",
+      "px": 130
+    },
+    {
+      "file": "fusta_masts_LOD3.glb",
+      "node": "fusta_masts_LOD3",
+      "px": 45
+    },
+    {
+      "file": "fusta_masts_LOD4.glb",
+      "node": "fusta_masts_LOD4",
+      "px": 15
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 0.9
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

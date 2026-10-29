@@ -1,0 +1,49 @@
+{
+  "name": "war_carrack_masts",
+  "type": "ship_part",
+  "role": "war_carrack_masts",
+  "lods": [
+    {
+      "file": "war_carrack_masts_LOD0.glb",
+      "node": "war_carrack_masts_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "war_carrack_masts_LOD1.glb",
+      "node": "war_carrack_masts_LOD1",
+      "px": 400
+    },
+    {
+      "file": "war_carrack_masts_LOD2.glb",
+      "node": "war_carrack_masts_LOD2",
+      "px": 130
+    },
+    {
+      "file": "war_carrack_masts_LOD3.glb",
+      "node": "war_carrack_masts_LOD3",
+      "px": 45
+    },
+    {
+      "file": "war_carrack_masts_LOD4.glb",
+      "node": "war_carrack_masts_LOD4",
+      "px": 15
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 2.025
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

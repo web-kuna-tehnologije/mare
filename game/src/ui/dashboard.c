@@ -19,6 +19,7 @@
 #include "../gfx/occquery.h"
 #include "../gfx/weather.h"
 #include "../world/stream.h"
+#include "../gfx/shipyard.h"
 
 enum { TAB_PERF, TAB_METRICS, TAB_JOBS, TAB_LOD, TAB_STREAM, TAB_ASSETS, TAB_LOG, TAB_SYSTEM, TAB_COUNT };
 static int tab = TAB_PERF;
@@ -261,6 +262,10 @@ static void tab_lod(void) {
     ui_label_col(va("instances: %d tracked, %d fading, pops %d (must stay 0) | %d markers clustered | culled %d ports %d fleets | %d authored instances drawn",
                     lod_tracked, lod_fading, lod_pops, scene_icons_clustered, scene_culled_ports, scene_culled_ships, scene_asset_instances),
                  lod_pops ? mu_color(255,110,90,255) : mu_color(170,180,200,255));
+    ROW(1, -1, 16);
+    ui_label_col(va("ships: %d authored hulls + %d oars this frame, %d fell back to the procedural hull | %d drawn coarser than picked (streaming in) | MARE_SHIPS=%d",
+                    shipyard_ships_drawn, shipyard_oars_drawn, shipyard_fallbacks, scene_asset_lod_fallbacks, shipyard_enabled),
+                 shipyard_fallbacks ? mu_color(240,210,120,255) : mu_color(170,180,200,255));
     ROW(3, 120, 120, -1, 22);
     if (ui_btn("LOD bias -")) asset_lod_bias = maxf(0.25f, asset_lod_bias * 0.8f);
     if (ui_btn("LOD bias +")) asset_lod_bias = minf(4.0f, asset_lod_bias * 1.25f);

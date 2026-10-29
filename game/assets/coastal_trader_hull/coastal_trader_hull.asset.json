@@ -1,0 +1,49 @@
+{
+  "name": "coastal_trader_hull",
+  "type": "ship",
+  "role": "coastal_trader_hull",
+  "lods": [
+    {
+      "file": "coastal_trader_hull_LOD0.glb",
+      "node": "coastal_trader_hull_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "coastal_trader_hull_LOD1.glb",
+      "node": "coastal_trader_hull_LOD1",
+      "px": 400
+    },
+    {
+      "file": "coastal_trader_hull_LOD2.glb",
+      "node": "coastal_trader_hull_LOD2",
+      "px": 130
+    },
+    {
+      "file": "coastal_trader_hull_LOD3.glb",
+      "node": "coastal_trader_hull_LOD3",
+      "px": 45
+    },
+    {
+      "file": "coastal_trader_hull_LOD4.glb",
+      "node": "coastal_trader_hull_LOD4",
+      "px": 15
+    }
+  ],
+  "scale": {
+    "fit": "length",
+    "size": 0.945
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

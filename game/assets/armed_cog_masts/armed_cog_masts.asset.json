@@ -1,0 +1,49 @@
+{
+  "name": "armed_cog_masts",
+  "type": "ship_part",
+  "role": "armed_cog_masts",
+  "lods": [
+    {
+      "file": "armed_cog_masts_LOD0.glb",
+      "node": "armed_cog_masts_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "armed_cog_masts_LOD1.glb",
+      "node": "armed_cog_masts_LOD1",
+      "px": 400
+    },
+    {
+      "file": "armed_cog_masts_LOD2.glb",
+      "node": "armed_cog_masts_LOD2",
+      "px": 130
+    },
+    {
+      "file": "armed_cog_masts_LOD3.glb",
+      "node": "armed_cog_masts_LOD3",
+      "px": 45
+    },
+    {
+      "file": "armed_cog_masts_LOD4.glb",
+      "node": "armed_cog_masts_LOD4",
+      "px": 15
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 1.26
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

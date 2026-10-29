@@ -559,8 +559,19 @@ static unsigned char *asset_read_bin(const char *path, size_t *n) {
 typedef struct asset_upload_arg_t { asset_t *a; int lod; } asset_upload_arg_t;
 static void asset_stage_upload(void *p) {   // MAIN lane: one LOD per job so the frame's upload budget can split them
     asset_upload_arg_t *u = (asset_upload_arg_t *)p;
-    if (u->a->state == ASSET_LOADED && u->lod < u->a->nlods && !u->a->lod[u->lod].gpu && upload_hook) upload_hook(u->a, u->lod);
+    if (u->a->state == ASSET_LOADED && u->lod < u->a->nlods) {
+        u->a->lod[u->lod].queued = 0;
+        if (!u->a->lod[u->lod].gpu && upload_hook) upload_hook(u->a, u->lod);
+    }
     free(u);
+}
+
+void asset_upload_lod(asset_t *a, int lod) {
+    if (!a || a->state != ASSET_LOADED || lod < 0 || lod >= a->nlods) return;
+    if (a->lod[lod].gpu || a->lod[lod].queued || !upload_hook) return;
+    a->lod[lod].queued = 1;
+    asset_upload_arg_t *u = (asset_upload_arg_t *)malloc(sizeof *u); u->a = a; u->lod = lod;
+    jobs_submit(JOB_LANE_MAIN, asset_stage_upload, u, 0);
 }
 
 static void asset_stage_commit(void *p) {   // MAIN lane: publish the result
@@ -581,11 +592,10 @@ static void asset_stage_commit(void *p) {   // MAIN lane: publish the result
         for (int i = 1; i < a->nlods; ++i) LOG_DEBUG("asset", "  '%s' LOD %d: %d tris from %.0f units", d->name, i, a->lod[i].nidx / 3, a->lod[i].dist);
         // Progressive residency (DESIGN_STREAMING.md task 4): uploads queue coarsest-first, so
         // the first budgeted MAIN job puts *something* drawable on the GPU and the scene walks
-        // icon -> LOD4 -> ... -> LOD0 as the finer meshes land.
-        if (upload_hook) for (int i = a->nlods - 1; i >= 0; --i) {
-            asset_upload_arg_t *u = (asset_upload_arg_t *)malloc(sizeof *u); u->a = a; u->lod = i;
-            jobs_submit(JOB_LANE_MAIN, asset_stage_upload, u, 0);
-        }
+        // icon -> LOD4 -> ... -> LOD1 as the finer meshes land. LOD 0 is deliberately left out:
+        // for an imported scan it is the original mesh, worth tens of MB, and is only ever
+        // drawn when the object fills the screen - the scene asks for it then (asset_upload_lod).
+        for (int i = a->nlods - 1; i >= (a->nlods > 1 ? 1 : 0); --i) asset_upload_lod(a, i);
     } else {
         a->state = ASSET_FAILED;
         LOG_ERROR("asset", "'%s' failed to load: %s", d->name, a->error);

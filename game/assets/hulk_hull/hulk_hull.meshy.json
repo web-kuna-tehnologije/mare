@@ -1,0 +1,13 @@
+{
+  "name": "hulk_hull",
+  "kind": "ship",
+  "source": "Meshy_AI_hulk_hull_faithful_3d_20261029_image-to-3d-texture_295d379f",
+  "lod_budgets": [
+    150000,
+    24000,
+    7000,
+    2000,
+    600
+  ],
+  "tex_px": 1024
+}

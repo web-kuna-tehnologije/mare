@@ -1,0 +1,49 @@
+{
+  "name": "galley_oar",
+  "type": "ship_part",
+  "role": "galley_oar",
+  "lods": [
+    {
+      "file": "galley_oar_LOD0.glb",
+      "node": "galley_oar_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "galley_oar_LOD1.glb",
+      "node": "galley_oar_LOD1",
+      "px": 220
+    },
+    {
+      "file": "galley_oar_LOD2.glb",
+      "node": "galley_oar_LOD2",
+      "px": 90
+    },
+    {
+      "file": "galley_oar_LOD3.glb",
+      "node": "galley_oar_LOD3",
+      "px": 30
+    },
+    {
+      "file": "galley_oar_LOD4.glb",
+      "node": "galley_oar_LOD4",
+      "px": 12
+    }
+  ],
+  "scale": {
+    "fit": "length",
+    "size": 0.5
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

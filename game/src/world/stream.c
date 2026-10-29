@@ -329,6 +329,73 @@ void stream_set_authored(int level, int tx, int ty, int authored) {
     if (t) t->authored = (unsigned char)(authored != 0);
 }
 
+// ---------------------------------------------------------------------------
+// chunk reference image (docs/BLENDER_LOD.md section 4): what a map chunk is modelled from.
+// Shaded relief, sun from the north-west, sea by depth and land by height - the same reading
+// the map view gives, at a resolution a text-to-3D or image-to-3D service can work with.
+
+int stream_dump_chunk_reference(int level, int tx, int ty, int res, const char *path,
+                                stream_chunk_ref_t *out) {
+    if (!initialized) { LOG_ERROR("stream", "stream_init must run before a chunk reference"); return 0; }
+    const stream_tile_t *t = tile_get(level, tx, ty);
+    if (!t) { LOG_ERROR("stream", "no tile L%d %d,%d (level grid is %dx%d)", level, tx, ty,
+                        stream_grid_w(level), stream_grid_h(level)); return 0; }
+    if (res < 16) res = 16;
+    float lon0, lat1, deg; tile_geo(t, &lon0, &lat1, &deg);
+    stream_chunk_ref_t r;
+    r.lon0 = lon0; r.lat1 = lat1; r.lon1 = lon0 + deg; r.lat0 = lat1 - deg;
+    stream_tile_rect(t, &r.x0, &r.z0, &r.x1, &r.z1);
+    r.size_deg = deg; r.size_units = deg * WORLD_K;
+    r.min_h = 1e9f; r.max_h = -1e9f; r.land_frac = 0;
+
+    unsigned char *px = (unsigned char *)malloc((size_t)res * res * 3);
+    if (!px) return 0;
+    float step = deg / (res - 1);
+    int land = 0;
+    for (int j = 0; j < res; ++j) for (int i = 0; i < res; ++i) {
+        float lon = lon0 + i * step, lat = lat1 - j * step;
+        float wx = lon2x(lon), wz = lat2z(lat);
+        float h = world_height(wx, wz) + stream_delta_at(wx, wz);
+        if (h < r.min_h) r.min_h = h;
+        if (h > r.max_h) r.max_h = h;
+        int is_land = world_is_land(wx, wz); land += is_land;
+        // slope shading from the two neighbours, sun from the north-west
+        float e = step * 0.5f;
+        float hx = world_height(lon2x(lon + e), wz) - world_height(lon2x(lon - e), wz);
+        float hz = world_height(wx, lat2z(lat - e)) - world_height(wx, lat2z(lat + e));
+        float sh = clampf(0.62f + 0.9f * (-hx - hz) / (e * WORLD_K * 4.f + 1e-4f), 0.25f, 1.35f);
+        float cr, cg, cb;
+        if (!is_land || h < 0.02f) {                       // sea: deeper is darker and bluer
+            float d = clampf(-h / 3.f, 0.f, 1.f);
+            cr = lerpf(0.42f, 0.05f, d); cg = lerpf(0.60f, 0.16f, d); cb = lerpf(0.74f, 0.34f, d);
+            sh = 1.f;
+        } else if (h < 0.35f) { cr = 0.84f; cg = 0.78f; cb = 0.58f;             // beach
+        } else if (h < 3.f)   { float u = (h - 0.35f) / 2.65f;                  // grass -> scrub
+                                cr = lerpf(0.33f, 0.52f, u); cg = lerpf(0.50f, 0.47f, u); cb = lerpf(0.22f, 0.29f, u);
+        } else if (h < 7.f)   { float u = (h - 3.f) / 4.f;                      // rock
+                                cr = lerpf(0.52f, 0.49f, u); cg = lerpf(0.47f, 0.45f, u); cb = lerpf(0.29f, 0.43f, u);
+        } else                { float u = clampf((h - 7.f) / 3.f, 0.f, 1.f);    // snow
+                                cr = lerpf(0.49f, 0.95f, u); cg = lerpf(0.45f, 0.96f, u); cb = lerpf(0.43f, 0.98f, u); }
+        unsigned char *p = px + ((size_t)j * res + i) * 3;
+        p[0] = (unsigned char)(clampf(cr * sh, 0, 1) * 255);
+        p[1] = (unsigned char)(clampf(cg * sh, 0, 1) * 255);
+        p[2] = (unsigned char)(clampf(cb * sh, 0, 1) * 255);
+    }
+    r.land_frac = land / (float)(res * res);
+    FILE *f = fopen(path, "wb");
+    if (!f) { LOG_ERROR("stream", "cannot write chunk reference %s", path); free(px); return 0; }
+    fprintf(f, "P6\n%d %d\n255\n", res, res);
+    size_t wrote = fwrite(px, 1, (size_t)res * res * 3, f);
+    fclose(f); free(px);
+    if (wrote != (size_t)res * res * 3) { LOG_ERROR("stream", "short write to %s", path); return 0; }
+    LOG_INFO("stream", "chunk reference L%d %d,%d -> %s (%dx%d): lon %.2f..%.2f lat %.2f..%.2f, "
+             "%.0f world units square, height %.2f..%.2f, %.0f%% land",
+             level, tx, ty, path, res, res, r.lon0, r.lon1, r.lat0, r.lat1,
+             r.size_units, r.min_h, r.max_h, r.land_frac * 100);
+    if (out) *out = r;
+    return 1;
+}
+
 void stream_stats(stream_stats_t *out) {
     memset(out, 0, sizeof *out);
     for (int i = 0; i < ntiles; ++i) {

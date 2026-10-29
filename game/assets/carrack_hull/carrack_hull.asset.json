@@ -1,0 +1,49 @@
+{
+  "name": "carrack_hull",
+  "type": "ship",
+  "role": "carrack_hull",
+  "lods": [
+    {
+      "file": "carrack_hull_LOD0.glb",
+      "node": "carrack_hull_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "carrack_hull_LOD1.glb",
+      "node": "carrack_hull_LOD1",
+      "px": 400
+    },
+    {
+      "file": "carrack_hull_LOD2.glb",
+      "node": "carrack_hull_LOD2",
+      "px": 130
+    },
+    {
+      "file": "carrack_hull_LOD3.glb",
+      "node": "carrack_hull_LOD3",
+      "px": 45
+    },
+    {
+      "file": "carrack_hull_LOD4.glb",
+      "node": "carrack_hull_LOD4",
+      "px": 15
+    }
+  ],
+  "scale": {
+    "fit": "length",
+    "size": 1.71
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

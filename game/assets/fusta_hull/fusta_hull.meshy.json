@@ -1,0 +1,13 @@
+{
+  "name": "fusta_hull",
+  "kind": "ship",
+  "source": "Meshy_AI_fusta_hull_faithful_3d_20261029_image-to-3d-texture_4bce5ccf",
+  "lod_budgets": [
+    150000,
+    24000,
+    7000,
+    2000,
+    600
+  ],
+  "tex_px": 1024
+}

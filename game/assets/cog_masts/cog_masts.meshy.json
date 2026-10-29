@@ -1,0 +1,13 @@
+{
+  "name": "cog_masts",
+  "kind": "ship",
+  "source": "Meshy_AI_cog_mast_bare_3d_20261029_image-to-3d-texture_959f900e",
+  "lod_budgets": [
+    150000,
+    24000,
+    7000,
+    2000,
+    600
+  ],
+  "tex_px": 1024
+}

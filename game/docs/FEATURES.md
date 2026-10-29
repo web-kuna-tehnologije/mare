@@ -2,6 +2,25 @@
 
 Status as of the current codebase. Each entry names the module that owns it.
 
+## Ships and asset import (`src/gfx/shipyard.c`, `tools/meshy_import.py`)
+- Eight authored Generation I classes (coastal trader, cog, fusta, galiot, armed cog, hulk,
+  carrack, war carrack) assembled from a hull, a mast assembly and - for the oared
+  Mediterranean interceptors - a bank of 20-22 oar pairs, sized from the design sheets at
+  1 m = 0.045 world units.
+- A game ship type maps to a class by nation: Venice, the Ottomans and the pirates sail the
+  oared fusta and galiot, the northern powers the hulk. Procedural hulls remain the fallback.
+- Parts go through the normal authored-asset path, so they inherit LOD selection, cross-fades,
+  residency, shadow casters and wave displacement. Rigs that a generator made longer than their
+  own hull are scaled down to a 15% bowsprit overhang.
+- `tools/meshy_import.py` imports Meshy download trees (name resolution, five LODs per kind,
+  WSL path translation); `blender_export_glb.py` takes `.glb` sources and can straighten a
+  model exported at an angle. LOD 0 is capped at 150k triangles and only uploaded when an
+  instance picks it.
+- `mare --map-chunk=level,tx,ty` writes the shaded-relief reference and placement brief for a
+  streamed tile, so world chunks can be generated and imported as `tile_l<level>_<x>_<y>`.
+- `MARE_SHIPS=0` falls back to the procedural fleet; the dashboard LOD tab reports authored
+  hulls, oar instances and fallbacks.
+
 ## World streaming (`src/world/stream.c`, `src/gfx/streamview.c`)
 - Tile hierarchy continent -> region -> coastal tile -> tactical chunk: a 4-level quadtree of
   512 tiles over the map (64° -> 8° per side), each a 257×257 delta heightfield against the

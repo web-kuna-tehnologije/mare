@@ -1,0 +1,13 @@
+{
+  "name": "armed_cog_hull",
+  "kind": "ship",
+  "source": "Meshy_AI_armed_cog_hull_faithful_keel_3d_20261029_image-to-3d-texture_d35aeea1",
+  "lod_budgets": [
+    150000,
+    24000,
+    7000,
+    2000,
+    600
+  ],
+  "tex_px": 1024
+}

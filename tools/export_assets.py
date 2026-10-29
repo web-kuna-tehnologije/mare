@@ -65,8 +65,20 @@ def find_blends(roots):
 def already_exported(out_dir, name, nlods):
     return all(os.path.exists(os.path.join(out_dir, "%s_LOD%d.glb" % (name, i))) for i in range(nlods))
 
-def run_one(blender, blend, out_dir, name, budgets, tex_px, validate, timeout):
-    cmd = [blender, "-b", blend, "--python", EXPORT_SCRIPT, "--", out_dir, name, budgets, str(tex_px)]
+def path_for(blender, p):
+    """Windows Blender under WSL cannot open /home/... paths: hand it the UNC/drive form."""
+    if not blender.lower().endswith(".exe") or os.name == "nt":
+        return p
+    try:
+        return subprocess.run(["wslpath", "-w", p], capture_output=True, text=True,
+                              check=True).stdout.strip()
+    except Exception:
+        return p
+
+def run_one(blender, blend, out_dir, name, budgets, tex_px, validate, timeout, rot=None):
+    cmd = [blender, "-b", path_for(blender, blend), "--python", path_for(blender, EXPORT_SCRIPT),
+           "--", path_for(blender, out_dir), name, budgets, str(tex_px)]
+    if rot: cmd += ["--rot", rot]
     if validate: cmd.append("--validate")
     t0 = time.time()
     try:
@@ -91,6 +103,7 @@ def main():
     ap.add_argument("--skip", default=None, help="comma-separated asset names to leave out")
     ap.add_argument("--budgets", default="80000,24000,7000,2000,600", help="triangle budget per LOD")
     ap.add_argument("--tex", type=int, default=1024, help="longest texture edge, px")
+    ap.add_argument("--rot", default=None, help="rx,ry,rz degrees applied before export (straighten a source modelled at an angle)")
     ap.add_argument("--jobs", type=int, default=1, help="parallel Blender processes")
     ap.add_argument("--timeout", type=int, default=900, help="seconds per asset")
     ap.add_argument("--force", action="store_true", help="re-export assets that already have all LODs")
@@ -144,7 +157,7 @@ def main():
 
     t0, ok_n, failed = time.time(), 0, []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as ex:
-        futs = [ex.submit(run_one, blender, b, o, n, args.budgets, args.tex, args.validate, args.timeout)
+        futs = [ex.submit(run_one, blender, b, o, n, args.budgets, args.tex, args.validate, args.timeout, args.rot)
                 for b, o, n in plan]
         for fut in concurrent.futures.as_completed(futs):
             name, ok, secs, log, mb = fut.result()
