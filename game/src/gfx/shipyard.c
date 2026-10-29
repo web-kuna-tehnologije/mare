@@ -40,10 +40,13 @@ typedef struct ship_class_t {
     float length_m;                     // design sheet length overall (midpoint of the range)
     float draft;                        // waterline above the keel, fraction of hull height
     float deck;                         // deck above the keel, fraction of hull height
-    // How many instances of the mast model to step along the hull. Most generated rigs are a
-    // whole three-mast assembly and want one instance; `armed_cog_masts` and
-    // `mediterranean_masts` came out as a *single* mast, so those classes raise three of them
-    // at the fore / main / mizzen stations their design sheet shows.
+    // How many masts to step along the hull, and where each comes from. Meshy generates a rig
+    // as one object; tools/blender_split_masts.py cuts the three-mast assemblies into
+    // `<masts>_m0` (foremast) .. `_m2` (mizzen), narrowed and each standing on its own origin,
+    // so every mast can be placed at the station its design sheet gives. Classes whose model
+    // was already a single mast (`cog_masts`, `armed_cog_masts`, `mediterranean_masts`) keep
+    // using `masts` itself and simply step it `nmasts` times.
+    int   split;                        // 1 = the parts are <masts>_m<k>, 0 = step `masts` itself
     int   nmasts;
     float mast_at[SHIP_MAX_MASTS];      // station along the hull, fraction of length (+ = bow)
     float mast_h[SHIP_MAX_MASTS];       // height of each, relative to the fitted model
@@ -56,15 +59,15 @@ typedef struct ship_class_t {
 // The Gen I fleet as drawn in assets/ships/design. Hull and mast models come in pairs from
 // Meshy except the galiot, which borrows the generic Mediterranean lateen rig.
 static const ship_class_t classes[] = {
-  // name             hull                   masts                   oars         len  draft deck  n  stations              heights             lat pairs span  beam
-  { "coastal_trader", "coastal_trader_hull", "coastal_trader_masts", NULL,         21.f, .38f, .60f, 1, { .02f },            { 1.f },             0,  0, 0.f,  .16f },
-  { "cog",            "cog_hull",            "cog_masts",            NULL,         25.f, .38f, .60f, 1, { .02f },            { 1.f },             0,  0, 0.f,  .17f },   // a cog carries one mast
-  { "armed_cog",      "armed_cog_hull",      "armed_cog_masts",      NULL,         32.f, .38f, .60f, 3, { .24f,-.01f,-.27f },{ .78f, 1.f, .68f }, 0,  0, 0.f,  .16f },   // single-mast model, stepped three times
-  { "hulk",           "hulk_hull",           "hulk_masts",           NULL,         35.f, .38f, .62f, 1, { .00f },            { 1.f },             0,  0, 0.f,  .19f },
-  { "carrack",        "carrack_hull",        "carrack_masts",        NULL,         38.f, .36f, .58f, 1, { .00f },            { 1.f },             0,  0, 0.f,  .16f },
-  { "war_carrack",    "war_carrack_hull",    "war_carrack_masts",    NULL,         47.f, .36f, .58f, 1, { .00f },            { 1.f },             0,  0, 0.f,  .16f },
-  { "galiot",         "galiot_hull",         "mediterranean_masts",  "galley_oar", 28.f, .32f, .50f, 3, { .26f,-.02f,-.28f },{ .80f, 1.f, .66f }, 1, 22, .62f, .11f },  // one lateen mast, stepped three times
-  { "fusta",          "fusta_hull",          "fusta_masts",          "galley_oar", 25.f, .32f, .50f, 1, { .00f },            { 1.f },             1, 20, .60f, .09f },
+  // name             hull                   masts                   oars         len  draft deck sp  n  stations              heights             lat pairs span  beam
+  { "coastal_trader", "coastal_trader_hull", "coastal_trader_masts", NULL,         21.f, .38f, .60f, 1, 3, { .26f,-.02f,-.28f },{ .80f, 1.f, .70f }, 0,  0, 0.f,  .16f },
+  { "cog",            "cog_hull",            "cog_masts",            NULL,         25.f, .38f, .60f, 0, 1, { .02f },            { 1.f },             0,  0, 0.f,  .17f },   // a cog carries one mast
+  { "armed_cog",      "armed_cog_hull",      "armed_cog_masts",      NULL,         32.f, .38f, .60f, 0, 3, { .24f,-.01f,-.27f },{ .78f, 1.f, .68f }, 0,  0, 0.f,  .16f },   // single-mast model, stepped three times
+  { "hulk",           "hulk_hull",           "hulk_masts",           NULL,         35.f, .38f, .62f, 1, 3, { .25f,-.01f,-.27f },{ .82f, 1.f, .70f }, 0,  0, 0.f,  .19f },
+  { "carrack",        "carrack_hull",        "carrack_masts",        NULL,         38.f, .36f, .58f, 1, 3, { .26f,-.01f,-.28f },{ .80f, 1.f, .68f }, 0,  0, 0.f,  .16f },
+  { "war_carrack",    "war_carrack_hull",    "war_carrack_masts",    NULL,         47.f, .36f, .58f, 1, 3, { .27f,-.01f,-.29f },{ .80f, 1.f, .70f }, 0,  0, 0.f,  .16f },
+  { "galiot",         "galiot_hull",         "mediterranean_masts",  "galley_oar", 28.f, .32f, .50f, 0, 3, { .26f,-.02f,-.28f },{ .80f, 1.f, .66f }, 1, 22, .62f, .11f },  // one lateen mast, stepped three times
+  { "fusta",          "fusta_hull",          "fusta_masts",          "galley_oar", 25.f, .32f, .50f, 1, 3, { .24f,-.02f,-.26f },{ .85f, 1.f, .72f }, 1, 20, .60f, .09f },
 };
 #define NCLASSES ((int)(sizeof classes / sizeof classes[0]))
 
@@ -270,7 +273,19 @@ int shipyard_push(const shipyard_req_t *r) {
     shipyard_ships_drawn++;
 
     if (c->masts) {
-        asset_t *m = asset_get_role(ASSET_SHIP_PART, c->masts);
+        // A split rig has one asset per mast, so each is looked up on its own; an unsplit one
+        // steps the same model at every station.
+        asset_t *mp[SHIP_MAX_MASTS] = { 0 };
+        int nm = c->nmasts > 0 ? (c->nmasts > SHIP_MAX_MASTS ? SHIP_MAX_MASTS : c->nmasts) : 1;
+        if (c->split) {
+            char role[80];
+            for (int k = 0; k < nm; ++k) { snprintf(role, sizeof role, "%s_m%d", c->masts, k);
+                                           mp[k] = asset_get_role(ASSET_SHIP_PART, role); }
+        } else {
+            asset_t *one = asset_get_role(ASSET_SHIP_PART, c->masts);
+            for (int k = 0; k < nm; ++k) mp[k] = one;
+        }
+        asset_t *m = mp[nm > 1 ? 1 : 0];                    // the mainmast sizes the rig
         if (m) {                                            // masts stand on the deck, not the keel
             // A rig is sized by its height (the design sheets give mast heights), but the
             // generated assemblies do not share an aspect ratio: some carry a long bowsprit and
@@ -284,14 +299,17 @@ int shipyard_push(const shipyard_req_t *r) {
             float ms = cscale * MAST_TRIM;
             if (ml > len * MAST_OVERHANG) ms = cscale * MAST_TRIM * len * MAST_OVERHANG / ml;
             float deck_y = -water + hh * c->deck;
-            int n = c->nmasts > 0 ? (c->nmasts > SHIP_MAX_MASTS ? SHIP_MAX_MASTS : c->nmasts) : 1;
-            for (int k = 0; k < n; ++k) {
+            for (int k = 0; k < nm; ++k) {
+                if (!mp[k]) continue;
                 float dx = c->mast_at[k] * len;
                 inst_t mi = in;
                 mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
                 mi.y = deck_y;
+                // Every mast part is fitted to the class's rig height, so the fore/main/mizzen
+                // proportion comes from the class table either way - which keeps it a number
+                // you can tune without re-exporting anything.
                 mi.scale = ms * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);
-                scene_asset_instance(m, mi, r->key ^ (unsigned)(0x5BD1u + k * 0x97u), r->camdist);
+                scene_asset_instance(mp[k], mi, r->key ^ (unsigned)(0x5BD1u + k * 0x97u), r->camdist);
             }
         }
     }
@@ -301,7 +319,10 @@ int shipyard_push(const shipyard_req_t *r) {
     // stations). Skipped once the ship is small enough that cordage is below a pixel.
     if (lod_px(len * 0.5f, r->camdist) > RIG_MIN_PX) {
         rig_cache_t *rc = &rig_cache[(int)(c - classes)];
-        asset_t *m = c->masts ? asset_get_role(ASSET_SHIP_PART, c->masts) : NULL;
+        asset_t *m = NULL;
+        if (c->masts) { char role[80];
+            if (c->split) { snprintf(role, sizeof role, "%s_m1", c->masts); m = asset_get_role(ASSET_SHIP_PART, role); }
+            if (!m) m = asset_get_role(ASSET_SHIP_PART, c->masts); }
         if (!rc->built && m) {
             float ml = (m->bmax[0] - m->bmin[0]) * cscale, ms = MAST_TRIM;
             if (ml > len * MAST_OVERHANG) ms = MAST_TRIM * len * MAST_OVERHANG / ml;

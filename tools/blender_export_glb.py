@@ -20,7 +20,7 @@
 # prove the pipeline before a real run.
 import bpy, sys, os, time
 
-LOD_BUDGETS = [80000, 24000, 7000, 2000, 600]
+LOD_BUDGETS = [120000, 40000, 12000, 4000, 1200, 350]
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 validate = "--validate" in argv

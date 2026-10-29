@@ -35,7 +35,8 @@ Follow-ups:
    that has sat un-uploaded for 45 s and reloads it if something later picks it.
 4. [x] **Oar animation** (0.12.0) — the bank swings together at a rate and reach set by how
    hard the ship is being pulled.
-5. [ ] Sail and flag textures, and cloth that responds to the wind rather than a fixed flutter
+5. [ ] Double WORLD_K to 8 so the world is not vertically exaggerated tenfold (DESIGN_TERRAIN.md section 4): it moves every world coordinate, so it wants its own pass.
+6. [ ] Sail and flag textures, and cloth that responds to the wind rather than a fixed flutter
    (the per-vertex weight channel and the instance cloth flag are already in place).
 6. [ ] Rigging is a fixed pattern per class; running rigging (braces, halyards) and yards that
    brace round with the wind would make the rig read as worked rather than rendered.

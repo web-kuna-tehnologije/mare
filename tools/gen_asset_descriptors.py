@@ -26,6 +26,7 @@ SHIP_PARTS = {"galley_hull", "galley_mainmast", "galley_mizzenmast", "galley_oar
 # Parts exported already pointing along +x (the ship's heading-0 axis) must not be rotated
 # again: the galley oar is straightened at export time with --rot (see BLENDER_LOD.md).
 SHIP_FWD_X = {"galley_oar"}
+MAST_PART_RE = re.compile(r"^(.*_masts)_m\d+$")
 # Every generated hull and rig came out of Meshy bow-to-the-left: the fine end and the bowsprit
 # sit at -x, where the game puts the bow at +x (heading 0). Verified by rendering the plan view
 # of all eight hulls and the side view of all eight rigs; "-x" is the 180-degree turn that
@@ -47,15 +48,18 @@ SHIP_MASTS_M = {        # mast assembly height, metres (sheet height minus freeb
 # A ship is only ever at LOD 0 when it fills the screen in battle view: the imported LOD 0 is
 # the original scan (hundreds of thousands of triangles), so it hands over far sooner than a
 # building does.
-SHIP_LOD_PX = [0, 400, 130, 45, 15]
+# Six levels now. LOD 0 is the 400k original and is additionally gated to the battle and
+# city tiers in gfx/scene.c, so the strategic map can never reach for it however large a
+# ship happens to project.
+SHIP_LOD_PX = [0, 700, 260, 90, 30, 10]
 # A map chunk is tens of world units across, so it is a large object on screen for a long time:
 # it hands over later than a ship and keeps a usable silhouette at the far end.
-TILE_LOD_PX = [0, 900, 420, 180, 60]
+TILE_LOD_PX = [0, 1200, 640, 300, 130, 50]
 PROPS = {"fountain", "well", "wooden_fence", "market_stall", "harbor_crane", "stone_quay", "wooden_pier"}
 GROUND = {"cobblestone_road": 1.0, "dirt_road": 1.0, "stone_plaza": 1.2}   # fit by largest extent
 # LOD switch points as projected size on a 1080p screen (the renderer selects in screen space):
 # LOD 0 (80k tris) only while a house is taller than 220 px, LOD 4 (600 tris) below 12 px
-LOD_PX = [0, 220, 90, 30, 12]
+LOD_PX = [0, 320, 150, 60, 22, 9]
 NLODS = len(LOD_PX)
 
 names = []
@@ -81,14 +85,18 @@ for name in sorted(os.listdir(root)):
     elif name in GROUND: typ, fit, size = "prop", "max", GROUND[name]
     elif name in SHIP_HULLS_M:
         typ, fit, size, px = "ship", "length", round(SHIP_HULLS_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
-    elif name in SHIP_MASTS_M:
-        typ, fit, size, px = "ship_part", "height", round(SHIP_MASTS_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
+    elif name in SHIP_MASTS_M or MAST_PART_RE.match(name):
+        # A split rig's parts (tools/blender_split_masts.py writes <assembly>_m0.._m2) are
+        # fitted to their assembly's height; gfx/shipyard.c then scales each by the class's
+        # fore/main/mizzen proportion, so that stays a number you can tune without re-exporting.
+        base = name if name in SHIP_MASTS_M else MAST_PART_RE.match(name).group(1)
+        typ, fit, size, px = "ship_part", "height", round(SHIP_MASTS_M.get(base, 24) * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
     elif name in SHIP_PARTS: typ, fit, size = "ship_part", "length", HEIGHTS.get(name, 1.0)
     else: typ, fit, size = ("prop" if name in PROPS else "building"), "height", HEIGHTS.get(name, 0.3)
     # Buildings come out of Meshy facing -z in Blender terms, +z after the Y-up export (same as
     # the church). The ship scans are generated from side-view references and come out lying
     # along x, which is already heading 0, so they must not be rotated.
-    forward = "+x" if name in SHIP_FWD_X else "-x" if (name in SHIP_HULLS_M or name in SHIP_MASTS_M) else "+z"
+    forward = "+x" if name in SHIP_FWD_X else "-x" if (name in SHIP_HULLS_M or name in SHIP_MASTS_M or MAST_PART_RE.match(name)) else "+z"
     desc = {
         "name": name, "type": typ, "role": name,
         "lods": [({"file": f, "node": f"{name}_LOD{i}", "dist": 0} if i == 0 else {"file": f, "node": f"{name}_LOD{i}", "px": px[i]}) for i, f in enumerate(lods)],

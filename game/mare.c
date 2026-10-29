@@ -18,6 +18,7 @@
 #include "src/core/diag.c"
 #include "src/core/log.c"
 #include "src/world/world.c"
+#include "src/world/terrainmap.c"
 #include "src/world/stream.c"
 #include "src/world/nav.c"
 #include "src/world/wind.c"
@@ -242,7 +243,10 @@ int main(int argc, char **argv) {
     // remote desktops) report 0 Hz, which would lock the game to 2 FPS: fall back to uncapped.
     { float hz = monitor_hz(0); if (hz < 10 && !flag("--fps")) { vsync(0); LOG_WARN("main", "monitor reports %.0f Hz: frame limiter disabled (use --fps=N to cap)", hz); } else LOG_INFO("main", "monitor %.0f Hz", hz); }
     LOG_INFO("gpu", "%s", rhi_info());
-    world_init(seed); nav_init();
+    world_init(seed);
+    terrainmap_load(NULL);          // authored height / normals / ground atlas, if the art is there
+    terrainmap_apply_to_world();   // folded in before nav, so routes see the same ground
+    nav_init();
     if (getenv("MARE_WAVES")) { sea_wave_amp = clampf((float)atof(getenv("MARE_WAVES")), 0.f, 4.f);
         LOG_INFO("gpu", "wave height pinned to %.2f (MARE_WAVES)", sea_wave_amp); }
     if (getenv("MARE_LOD_BIAS")) { asset_lod_bias = clampf((float)atof(getenv("MARE_LOD_BIAS")), 0.01f, 16.f);   // pin the LOD knob for screenshot runs

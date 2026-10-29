@@ -204,7 +204,8 @@
     "uniform vec4 u_wave[10];\n"           /* xy = unit direction, z = wavelength, w = steepness weight; 0-4 set A, 5-9 set B */ \
     "uniform float u_wave_phase[10];\n"    /* accumulated phase, radians */ \
     "uniform float u_wave_blend;\n"        /* 0 = set A only .. 1 = set B only */ \
-    "const float WAVE_STEEP = 0.030;\n" \
+    "const float WAVE_STEEP = 0.026;\n" \
+    "const float WAVE_PINCH = 0.55;\n" \
     /* Gerstner sum at world point p: returns the displacement, the two surface tangents (so \
        the caller gets an exact normal with no finite differences) and a crest factor. \
        `cell` is the world size of one grid cell at this vertex, 0 where the surface is not a \
@@ -228,7 +229,11 @@
     "    float a = w * amp * len * WAVE_STEEP;\n" \
     "    float ph = k * dot(dir, p) - u_wave_phase[i];\n" \
     "    float s = sin(ph), c = cos(ph);\n" \
-    "    float q = min(u_wave[i].w, 1.0);\n" \
+    /* Gerstner pinch. q = 1 is the textbook trochoid, whose crests come to a point - which at \
+       the amplitudes a running sea uses reads as rows of spikes rather than water. Holding it \
+       well below 1 rounds the crests while keeping the forward lean that makes a swell look \
+       like it is travelling. */ \
+    "    float q = min(u_wave[i].w, 1.0) * WAVE_PINCH;\n" \
     "    d.xz += dir * (q * a * c);\n" \
     "    d.y  += a * s;\n" \
     "    tan_x += vec3(-dir.x * dir.x * q * a * k * s, dir.x * a * k * c, -dir.x * dir.y * q * a * k * s);\n" \

@@ -23,7 +23,7 @@ import argparse, concurrent.futures, os, re, shutil, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 EXPORT_SCRIPT = os.path.join(HERE, "blender_export_glb.py")
-NLODS = 5
+NLODS = 6
 
 # Meshy names a file <Prefix>_<Asset_Name>_<digits>_<suffix>.blend. Strip both ends; whatever is
 # left, lowercased with underscores, is the asset name the descriptors and the town generator use.
@@ -101,7 +101,7 @@ def main():
     ap.add_argument("--blender", default=None, help="path to the Blender executable")
     ap.add_argument("--only", default=None, help="comma-separated asset names to export")
     ap.add_argument("--skip", default=None, help="comma-separated asset names to leave out")
-    ap.add_argument("--budgets", default="80000,24000,7000,2000,600", help="triangle budget per LOD")
+    ap.add_argument("--budgets", default="120000,40000,12000,4000,1200,350", help="triangle budget per LOD")
     ap.add_argument("--tex", type=int, default=1024, help="longest texture edge, px")
     ap.add_argument("--rot", default=None, help="rx,ry,rz degrees applied before export (straighten a source modelled at an angle)")
     ap.add_argument("--jobs", type=int, default=1, help="parallel Blender processes")

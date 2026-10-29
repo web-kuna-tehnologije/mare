@@ -28,7 +28,7 @@ import argparse, concurrent.futures, json, os, re, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 EXPORT_SCRIPT = os.path.join(HERE, "blender_export_glb.py")
-NLODS = 5
+NLODS = 6
 
 # Triangle budgets per LOD and kind (0 = keep the source untouched).
 #
@@ -40,11 +40,11 @@ NLODS = 5
 # whole fleet within a budget the LOD 0 trim (asset_lod0_trim) can hold. Set it to 0 for the
 # untouched scan.
 BUDGETS = {
-    "ship":      [300000, 24000, 7000, 2000, 600],
-    "ship_part": [120000, 12000, 4000, 1200, 350],
-    "building":  [ 80000, 24000, 7000, 2000, 600],
-    "terrain":   [150000, 40000, 12000, 4000, 1200],
-    "prop":      [ 40000,  8000, 2500,  800, 250],
+    "ship":      [400000, 120000, 40000, 12000, 3000, 800],
+    "ship_part": [150000,  50000, 16000,  5000, 1500, 400],
+    "building":  [120000,  40000, 12000,  4000, 1200, 350],
+    "terrain":   [200000,  60000, 20000,  6000, 2000, 600],
+    "prop":      [ 60000,  20000,  6000,  2000,  700, 200],
 }
 TEX_PX = {"ship": 1024, "ship_part": 512, "building": 1024, "terrain": 2048, "prop": 512}
 

@@ -660,9 +660,9 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
 float sea_zoom_amp(void) {
     float d = cam.dist;
     if (d <= 28.f)  return 1.f;                                           // city / battle: full height
-    if (d <= 90.f)  return lerpf(1.f, 0.50f, (d - 28.f) / 62.f);          // regional: falling away fast
-    if (d <= 260.f) return lerpf(0.50f, 0.20f, (d - 90.f) / 170.f);
-    return clampf(lerpf(0.20f, 0.07f, (d - 260.f) / 340.f), 0.07f, 0.20f); // strategic and out: texture only
+    if (d <= 90.f)  return lerpf(1.f, 0.42f, (d - 28.f) / 62.f);          // regional: falling away fast
+    if (d <= 260.f) return lerpf(0.42f, 0.10f, (d - 90.f) / 170.f);
+    return clampf(lerpf(0.10f, 0.03f, (d - 260.f) / 340.f), 0.03f, 0.10f); // strategic: a texture, not a swell
 }
 
 // Staged scenes (detailview.c) stretch the sea by DV_SHIP_SCALE, so a wave that looks right on

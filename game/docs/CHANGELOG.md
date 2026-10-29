@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.13.0 — masts apart, six LODs, authored terrain
+
+- **Every mast is its own object.** Meshy generates a rig as one mesh;
+  `tools/blender_split_masts.py` cuts the three-mast assemblies into `<rig>_m0` (fore) ..
+  `_m2` (mizzen). Connectivity is no use for the split — a scan separates into hundreds of
+  fragments, not three masts — so the fragments are clustered along the ship's axis (1D
+  k-means, seeded evenly). Each mast is narrowed in x and z (0.62; the generated spars were
+  chunky for their height), stood on its own origin, and placed at the station its class's
+  design sheet gives. Classes whose model was already one mast keep stepping it.
+- **Six LOD levels** (`ASSET_MAX_LODS` 5 -> 6): ships import at 400k / 120k / 40k / 12k / 3k /
+  800 triangles. **LOD 0 is gated to the battle and city tiers** — on the strategic map a great
+  carrack can still project large enough to ask for the original scan, which is a lot of
+  triangles for a ship the player is looking past, so the view tier and not the pixel size
+  decides whether it may be reached for.
+- **Water**: the strategic sea falls to 3-10 % of full wave height (was 7-20 %), and the
+  Gerstner crests are rounded — `WAVE_PINCH` 0.55 holds the horizontal pinch well below the
+  textbook trochoid, whose crests come to a point and read as rows of spikes at the amplitudes
+  a running sea uses. `WAVE_STEEP` 0.030 -> 0.026.
+- **Authored terrain** (`world/terrainmap.c`, [DESIGN_TERRAIN.md](DESIGN_TERRAIN.md)): the real
+  Earth as three equirectangular maps — height/bathymetry, normals, and a 6x3 atlas of ground
+  materials. Folded into the base heightfield **only where both agree about land and water**,
+  so the authored map supplies relief and never geography: the ports, navigation grid and lanes
+  were built against the procedural coastline. 68 % of cells on the supplied map. Every map is
+  optional; a missing one leaves the procedural world untouched.
+- Assets now build into `/mnt/c/projects/mare/assets/elm_lod` (worktree-prefixed, so two
+  sessions cannot overwrite each other's exports); run with `MARE_ASSETS` pointing there.
+
 ## 0.12.0 — rigging, canvas, flags, and a 300k battle LOD
 
 - **Rigging** (`gfx/shipyard.c`): shrouds, forestays, backstays and ratlines, built

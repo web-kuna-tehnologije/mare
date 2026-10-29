@@ -385,6 +385,15 @@ static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float
     float r = a->radius * (in.scale > 0 ? in.scale : 1.f), thr[ASSET_MAX_LODS];
     for (int l = 1; l < a->nlods; ++l) thr[l - 1] = a->lod[l].px > 0 ? a->lod[l].px / asset_lod_bias : lod_px_ref(r, a->lod[l].dist * asset_lod_bias);
     lod_pick_t pk = lod_select(key, thr, a->nlods, lod_px(r, camdist), a->nlods - 1);
+    // LOD 0 is the original scan - hundreds of thousands of triangles - and belongs to the
+    // views you actually inspect a thing in. On the strategic map a great carrack can still
+    // project large enough to ask for it, which is a lot of triangles for a ship the player is
+    // looking *past*; the tier, not the pixel size, decides whether it may be reached for.
+    if (a->nlods > 1 && lod_tier() > TIER_BATTLE) {
+        if (pk.lod == 0)  pk.lod = 1;
+        if (pk.lod2 == 0) pk.lod2 = 1;
+        if (pk.lod2 == pk.lod) pk.lod2 = -1;
+    }
     // Progressive residency (DESIGN_STREAMING.md task 4): draw the nearest *resident* LOD at or
     // coarser than the pick instead of forcing a mid-frame upload of the picked one. Uploads
     // arrive coarse-to-fine through the budgeted MAIN jobs (asset.c), so a city walks
