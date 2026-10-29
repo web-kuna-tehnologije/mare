@@ -66,10 +66,14 @@ static void sv_fill_rows(void *arg, int begin, int end, int slot) {
         float wx = f->x0 + i * f->step, wz = f->z0 + j * f->step, h;
         // The authored Earth where its tile is resident - the delta is what it says the ground
         // should be, minus what the base map already draws - and the procedural detail
-        // elsewhere, so a ring is never empty while tiles are still coming in.
-        if (terraintiles_height(x2lon(wx), z2lat(wz), &h))
-            f->buf[j * SV_RES + i] = h - world_height(wx, wz);
-        else
+        // elsewhere, so a ring is never empty while tiles are still coming in. The authored map
+        // is a loose Earth (its coastline disagrees with the base in places), so the delta is
+        // clamped to the base's side of the waterline: relief and bathymetry, never a landform
+        // rising through the sea or a hole opening in a coast the ports were placed against.
+        if (terraintiles_height(x2lon(wx), z2lat(wz), &h)) {
+            float base = world_height(wx, wz);
+            f->buf[j * SV_RES + i] = (base > 0.f ? maxf(h, 0.15f) : minf(h, -0.1f)) - base;
+        } else
             f->buf[j * SV_RES + i] = stream_delta_at_level(wx, wz, f->max_level);
     }
 }

@@ -14,6 +14,61 @@ mesh_t ship_mesh[SHIP_COUNT][2];
 mesh_t mesh_house, mesh_roof, mesh_tower, mesh_wall, mesh_pier, mesh_flagpole, mesh_puff;
 static rhi_pipeline_t meshes_prg;
 
+// Cloth (gfx/shipyard.c). i_fx.y > 0.5 marks a canvas instance and i_fx.zw carries the true
+// wind at the ship (world xz, direction times strength). Each vertex's metalness is a cloth
+// code (gpu.h mb_cloth_code): 32 levels of how free it is - 0 bent to its spar, 1 loose - and
+// where it sits across its panel; its roughness is the panel's half-width in model units; its
+// normal is the direction the canvas bellies in. Nothing is integrated: the shape is the steady
+// state of a sheet pinned along one edge, pressed along its normal by the wind through it and
+// held at the foot by its sheets, plus a flutter that grows when the wind runs along the canvas
+// instead of into it (a luffing sail). A square sail pressed back by a head wind stops at its
+// mast - the middle holds, the leeches blow past. Flags stream in the apparent wind. Both the
+// main and the depth pass run this, so a sail's shadow is the sail's shape.
+#define GLSL_CLOTH \
+    "  float cm = a_rm.y * 32.0; float cwq = floor(cm + 1e-4); float cw = cwq / 31.0; float cu = fract(cm + 1e-4) * 2.0 - 1.0;\n" \
+    "  float isc = i_fx.y > 0.5 ? 1.0 : 0.0; vec3 cnrm = a_nrm;\n" \
+    "  if (isc > 0.5 && cwq > 0.5) {\n" \
+    "    float wxs = i_fx.z * c - i_fx.w * s, wzs = i_fx.z * s + i_fx.w * c;\n"   /* the wind in the ship's frame: along (+ = from astern), across (+ = to starboard) */ \
+    "    float wstr = length(i_fx.zw);\n" \
+    "    float way = clamp(i_misc.x, 0.0, 1.2) * 0.5;\n"                          /* how much way she has on: moored 0.12, under sail 0.3-0.5 */ \
+    "    float hw = a_rm.x * i_scol.x;\n" \
+    "    float ph0 = i_pos.x * 0.7 + i_pos.z * 0.5;\n" \
+    "    if (a_mat > 0.5) {\n" \
+    /* a flag: this vertex sits cw of the way along a ribbon of length hw that the mesh trails \
+       aft; swing it to the apparent wind (her own way adds a head wind), droop it in a light \
+       air, ripple it along its length */ \
+    "      vec2 aw = vec2(wxs - way * 0.8, wzs); float al = length(aw);\n" \
+    "      vec2 fd = al > 1e-3 ? aw / al : vec2(-1.0, 0.0);\n" \
+    "      float L = hw * cw, lift = clamp(al / 0.6, 0.0, 1.0);\n" \
+    "      vec3 side = vec3(-fd.y, 0.0, fd.x);\n" \
+    "      float fph = u_time * (4.0 + 6.0 * al) - cw * 9.0 + ph0;\n" \
+    "      p.x += L * (fd.x + 1.0); p.z += L * fd.y;\n" \
+    "      p.y -= L * 0.6 * (1.0 - lift) * cw;\n" \
+    "      p += side * (L * 0.10 * sin(fph) * lift) + vec3(0.0, L * 0.05 * sin(fph * 1.3 + 1.0), 0.0);\n" \
+    "      cnrm = normalize(side + vec3(0.0, 0.35 * cos(fph), 0.0));\n" \
+    "    } else {\n" \
+    /* a sail: pressure is the wind through the canvas. A square sail (normal along the hull) \
+       also draws from the ship's own way, so a ship under sail is never shown with slack \
+       canvas; a lateen is sheeted to one side and so always holds a little shape */ \
+    "      float press = wxs * cnrm.x + wzs * cnrm.z;\n" \
+    "      float fill = abs(cnrm.x) > 0.5 ? press + way * 0.9 : (abs(press) < 0.15 ? 0.15 : press);\n" \
+    "      float mag = clamp(abs(fill), 0.0, 1.4), dir = fill < 0.0 ? -1.0 : 1.0;\n" \
+    "      float fn = 0.3 + 0.7 * min(mag, 1.0);\n" \
+    "      float prof = sin(3.14159 * min(cw * 0.82, 1.0));\n"              /* zero at the yard, fullest two thirds down, held at the foot */ \
+    "      float across = 0.35 + 0.65 * cos(cu * 1.5708);\n"               /* the leeches are held by their bowlines */ \
+    "      float belly = hw * 0.28 * fn * prof * across;\n" \
+    "      if (dir < 0.0 && abs(cnrm.x) > 0.5) belly *= 0.25 + 0.5 * abs(cu);\n"   /* aback: the mast stops the middle of the sail */ \
+    "      belly *= dir * (1.0 + 0.06 * sin(u_time * 1.3 + ph0));\n" \
+    "      float luff = 1.0 - clamp(mag / 0.35, 0.0, 1.0);\n" \
+    "      float fph = u_time * (3.0 + 4.0 * wstr) + cu * 6.0 + cw * 4.0 + ph0;\n" \
+    "      float flut = hw * (0.012 + 0.06 * luff) * cw * sin(fph);\n" \
+    "      p += cnrm * (belly + flut);\n" \
+    "      p.y += hw * 0.01 * cw * sin(fph * 1.31 + 2.2);\n" \
+    "      vec3 ct = vec3(-cnrm.z, 0.0, cnrm.x);\n"                        /* across the panel, the way cu grows */ \
+    "      cnrm = normalize(cnrm - vec3(0.0, 0.45 * dir * fn * cos(3.14159 * cw * 0.82) * across, 0.0) + ct * (0.6 * dir * fn * sin(cu * 1.5708) * prof));\n" \
+    "    }\n" \
+    "  }\n"
+
 static const char *meshes_vs =
     "in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in float a_mat; in vec2 a_rm;\n"
     "in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx;\n"   // xyz+heading | scale+rgb | sway, highlight, bob, x-stretch | dither, reserved
@@ -26,19 +81,7 @@ static const char *meshes_vs =
     "  v_dither = i_fx.x;\n"
     "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
     "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
-    /* Cloth (sails, flags, and a little life in the rigging). i_fx.y is the instance's cloth \
-       strength and a_rm.y - metalness, which cloth never has - carries how free this vertex is \
-       to move: 0 where the canvas is bent to a yard or a flag to its staff, 1 at the loose \
-       corner. The travelling wave is in the ship's own frame, so a sail ripples along its foot \
-       whichever way the ship is heading. No physics: that comes later. */ \
-    "  float cw = a_rm.y * i_fx.y;\n"
-    "  if (cw > 0.0) {\n"
-    "    float cph = u_time * 2.4 + (a_pos.x + a_pos.y * 0.6) * 9.0 + i_pos.x * 0.7 + i_pos.z * 0.5;\n"
-    "    float camp = i_scol.x * 0.05 * cw;\n"
-    "    p.z += camp * sin(cph);\n"
-    "    p.x += camp * 0.45 * sin(cph * 0.73 + 1.1);\n"
-    "    p.y += camp * 0.18 * sin(cph * 1.31 + 2.2);\n"
-    "  }\n"
+    GLSL_CLOTH
     /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
        never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, \
        or caught in a storm), so anchored ships barely stir while a storm throws them about. */ \
@@ -48,7 +91,7 @@ static const char *meshes_vs =
     "  float cr = cos(roll), sr = sin(roll), cp = cos(pitch), sp = sin(pitch);\n"
     "  p = vec3(p.x, p.y*cr - p.z*sr, p.y*sr + p.z*cr);\n"
     "  p = vec3(p.x*cp - p.y*sp, p.x*sp + p.y*cp, p.z);\n"
-    "  vec3 n = vec3(a_nrm.x, a_nrm.y*cr - a_nrm.z*sr, a_nrm.y*sr + a_nrm.z*cr);\n"
+    "  vec3 n = vec3(cnrm.x, cnrm.y*cr - cnrm.z*sr, cnrm.y*sr + cnrm.z*cr);\n"
     "  n = vec3(n.x*cp - n.y*sp, n.x*sp + n.y*cp, n.z);\n"
     "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;\n"
     "  wp.y += i_misc.z * (sin(u_time*1.10 + i_pos.x*2.0) * 0.02 + sin(u_time*0.47 + i_pos.z*1.3) * 0.012);\n"
@@ -64,7 +107,7 @@ static const char *meshes_vs =
     "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
     "  v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);\n"
     "  v_col = mix(a_col, i_scol.yzw, a_mat);\n"
-    "  v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(a_rm.x, i_fx.y > 0.0 ? 0.0 : a_rm.y);\n"
+    "  v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(mix(a_rm.x, 0.9, isc), mix(a_rm.y, 0.0, isc));\n"
     "  gl_Position = u_vp * vec4(wp, 1.0);\n"
     "}\n";
 static const char *meshes_fs =
@@ -106,6 +149,7 @@ static const char *depth_vs =
     "  v_dither = i_fx.x;\n"
     "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
     "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
+    GLSL_CLOTH
     /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
        never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, \
        or caught in a storm), so anchored ships barely stir while a storm throws them about. */ \

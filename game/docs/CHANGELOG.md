@@ -1,5 +1,100 @@
 # Changelog
 
+## 0.16.0 — the island seas, battle lines, buoyancy, and a sea without a grid
+
+- **Every island of the Adriatic and the Greek seas** (`data/geo_coast.h`): the Dalmatian chain
+  (Dugi Otok and the Kornati, Vis, Hvar with Brac, Korcula with Lastovo and Mljet), the Ionians
+  (Kefalonia, Zakynthos, Kythira), the whole Aegean (Rhodes, Karpathos, Kos, Samos, Chios,
+  Lesbos, Limnos, Thasos, Skyros, the Sporades, Skyros, and the Cyclades as four authored
+  groups, Milos and Santorini), plus Menorca, Ibiza and Malta - 25 polygons authored as vector
+  data, each at least two cells in both axes so its core navigation cell goes majority-land and
+  routes bend around it, with a water row kept between neighbouring chains. Crete was widened
+  so Candia's town stands on land. Authored *data*, not a heightmap guess: the supplied 32768
+  map turned out to be a loose AI Earth whose Adriatic is half filled in - taking its coastline
+  would have buried exactly these seas (`MARE_TERRAIN_ISLANDS=1` keeps that experiment).
+- **Small islands lifted clear of the water** (`world.c raise_small_islands`): the heightfield
+  ramps land up from the coast over ~5 cells, so one-or-two-cell islands topped out under the
+  sea shader's land threshold and rendered as drowned platforms with a surf ring - the Azores
+  have done this quietly all along. Land components of up to 80 cells now rise to at least
+  0.55; mainland beaches keep their low fringe.
+- **The streamed terrain is on by default** (`MARE_TERRAIN_TILES=0` reverts) and a one-shot
+  **geography bake** (`terrainmap_bake_geography`, `terraintiles_bake`) folds the 16x24 height
+  tiles into the base world at startup - 123 ms, one tile row resident at a time: authored
+  relief where both agree on land, authored bathymetry where both agree on sea, never a new
+  coastline (that is the islands' job), harbour basins pinned, the carved straits re-opened,
+  coast distance rebuilt before navigation. The clipmap rings clamp the authored delta to the
+  base's side of the waterline, so a loose map can no longer raise landforms through the sea
+  near the camera. Tiles resolve to the per-worktree `assets/<tree>/terrain/tiles` first - two
+  sessions cutting into the shared folder have already overwritten each other's index once -
+  and `tools/terrain_tiles.py` now writes the true sample dims into the meta (the padded dims
+  used to squeeze the east and south edges by 2%).
+- **Battle lines** (`gfx/detailview.c`): the staged battle fights in formation. Each side
+  sails a stadium circuit in line ahead - every ship holds the station her slot gives her,
+  turning where her next-ahead turned (turning in succession), speed trimmed against the
+  station and capped by her class, the line at 0.8x its slowest sail. The two circuits mirror
+  each other so the inner legs run opposed a cable apart: inside gun range, outside ramming
+  distance - lines close, hold the range on the pass, trade broadsides and wear round the cap.
+- **Buoyancy from displacement** (`gfx/shipyard.c`): a class's tonnage sets how much of the
+  swell reaches her hull and how far she rolls (0.55 for a 1500 t great carrack to 1.15 for a
+  fusta), and the heavy classes float lower on their lines. One number, derived from the stats
+  table, carried by the existing instance fields - masts, rig and oars inherit it.
+- **Oars**: the bank sits against the hull (the side offset was a third of an oar too far
+  out), the stroke runs at a sweep's 20-26 per minute instead of a churn, and the blades dip
+  on the pull and lift on the recovery. Galley stats eased: galiot 5.0 kn under sail / 6.5
+  under oars, fusta 5.5 / 7.0.
+- **The strategic sea** (`gfx/sea.c`): open water keeps a readable swell when zoomed out
+  (amplitude floor 0.14-0.26 instead of 0.03-0.10) and a depth gate that rises with the camera
+  (`u_shallow`, 1.1 to 3.6 wave-units) keeps the coasts and every island's shallows visibly
+  calmer than the open sea.
+- **The dark grid on the water is gone**: ambient occlusion is now computed from the *opaque*
+  depth before the water draws (`mare.c`). Taken after, it read the tessellated sea's
+  patch-border derivatives and ruled the ocean into a faint 64-unit grid at distance - isolated
+  with MARE_SSAO/MARE_SEA_TESS A/Bs in the staged battle (edge-step energy 46.8k -> 4.2k with
+  SSAO still on). The sea occludes nothing and no longer receives AO; the remaining long
+  streaks on the water are the masts' and sails' real sun shadows.
+- Generated assets consolidated per worktree: `assets/elm` in this tree and its mirror at
+  `C:\projects\mare\assets\elm` carry every hull, mast part, oar and building at all six
+  LODs plus descriptors, manifest, the sea textures and the terrain maps and tiles; the asset
+  root resolves to `assets/elm` from the repo root, a build dir or a staged copy before
+  falling back to `game/assets` (MARE_ASSETS still overrides). Builds in `tmp/elm-fin`, away
+  from the other session's folders.
+
+## 0.15.0 — sails that draw, rigs from the reference sheet, ships at their own speed
+
+- **The masts are back.** The split mast parts (`*_masts_m0..m2`) had GLBs but no descriptors
+  and were missing from the manifest, so every split class - coastal trader, hulk, carrack, war
+  carrack, fusta - drew a bare hull. `tools/gen_asset_descriptors.py` regenerated them; the
+  one-mast classes now use their narrowed, re-pivoted `_m0` part too.
+- **Rigs laid out from `assets/fleet_sails.png`** (`gfx/shipyard.c`, `classes[]`): mast count,
+  stations, heights and what each mast carries. Coastal trader and armed cog: main with course
+  and topsail, lateen mizzen. Cog: one great course. Hulk: three square. Carrack: square fore
+  and main, lateen mizzen, bowsprit and spritsail. War carrack and great carrack: four masts -
+  fore, main with three sails, lateen mizzen and bonaventure - with the spritsail. Galiot and
+  fusta: two lateens. Every yard is drawn, so the canvas hangs from a visible beam.
+- **Cloth that answers the wind** (`GLSL_CLOTH` in `gfx/meshes.c`). Each canvas vertex carries
+  a cloth code (`mb_cloth_code`): how free it is in 32 levels, where it sits between the
+  leeches, and its panel's half-width; the instance carries the true wind at the ship
+  (`inst_t.fx2/fx3`). A sail bellies along its own normal by the wind through it and the ship's
+  way, stays bent to its yard, is held at the foot by its sheets, luffs - flutters hard - when
+  the wind runs along it, and a square sail pressed back by a head wind stops at its mast. Flags
+  stream in the apparent wind and droop in a calm. The shadow pass runs the same model.
+- **Per-class stats** (`ship_stats_t`, `shipyard_class_stats()`): length, beam, draft,
+  displacement, knots under sail and oars, rate of turn, guns, crew. The great carrack is its
+  own class now (56 m on the war carrack's model, stretched), so the Ship of the Line has its
+  own numbers. The staged battle moves every ship at 55-90 % of her class speed and turns her
+  at her class rate: a carrack makes four knots, not the old twelve.
+- **Ship waves, and foam only where the ship is going** (`gfx/sea.c`). The sea's vertex stages
+  heap water at every nearby bow - a crest that rings outward ahead of the stem, decays within
+  a hull length and is gone astern - and the foam follows the same mask: the stem's splash, a
+  thin break along the forward half of the hull, streaks running out ahead, the crest of the
+  bow wave breaking in the texture's bright streaks. Nothing trails. Ship speed reaches the
+  water in hull lengths per second, so the map's fleets and the staged ships read alike.
+- `MARE_DV_CAM="dist,yaw[,x,z[,pitch]]"` pins the staged camera for screenshots.
+- Generated assets for this worktree live in `C:\projects\mare\assets\oak` (all LODs,
+  descriptors, manifest; run with `MARE_ASSETS` pointing there). `docs/TODO.md` lists what is
+  next: buoyancy from the stats, battle formations, the oars, four-part rig splits, strategic
+  waves, the full-detail terrain.
+
 ## 0.14.0 — a world twice the size, and terrain streamed from a 32768-square Earth
 
 - **The world is twice as wide.** `WORLD_SCALE` (2, raise to 3) multiplies `WORLD_K`, and the

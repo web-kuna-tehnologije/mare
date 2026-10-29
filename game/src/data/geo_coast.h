@@ -102,7 +102,7 @@ static const float geo_bermuda[]   = { -64.95f,32.45f, -64.65f,32.45f, -64.65f,3
 static const float geo_sicily[]    = { 12.5f,38.2f, 15.6f,38.3f, 15.2f,37, 12.5f,37.5f, END };
 static const float geo_sardinia[]  = { 8.2f,41, 9.8f,41.1f, 9.6f,39, 8.5f,39, END };
 static const float geo_corsica[]   = { 8.6f,43, 9.5f,42.8f, 9.3f,41.4f, 8.7f,41.6f, END };
-static const float geo_crete[]     = { 23.5f,35.4f, 26.3f,35.2f, 25,34.9f, END };
+static const float geo_crete[]     = { 23.5f,35.55f, 26.3f,35.35f, 26.0f,35.0f, 23.8f,35.05f, END };
 static const float geo_cyprus[]    = { 32.3f,35.1f, 34.5f,35.6f, 33,34.7f, END };
 static const float geo_mallorca[]  = { 2.4f,39.6f, 3.4f,39.8f, 3.1f,39.3f, 2.5f,39.4f, END };
 static const float geo_zealand[]   = { 11.5f,55, 12.6f,55.7f, 12,56.1f, 11,55.7f, END };
@@ -123,6 +123,39 @@ static const float geo_anticosti[] = { -64.5f,49.9f, -61.8f,49.3f, -62.0f,49.0f,
 static const float geo_vancouver[] = { -128.5f,50.8f, -124.5f,49.5f, -123.5f,48.4f, -125.5f,48.7f, -127.5f,50.2f, END };
 static const float geo_marajo[]    = { -50.5f,-0.2f, -48.5f,-0.1f, -48.8f,-1.2f, -50.3f,-1.0f, END };
 
+// The Mediterranean island world (one polygon per island or tight group). Authored for the
+// 1/8-degree raster *and* the quarter-degree navigation grid: every island spans at least two
+// cell-centre rows and columns, so its core navigation cell goes majority-land and routes bend
+// around it (a one-cell strip stays sailable under the nav grid's majority rule and puts
+// fleets visually on the rocks), and neighbouring chains keep a full water row between them so
+// the channels survive. The Dalmatian chain and the Aegean are where the campaign lives, so
+// they are authored as vector data rather than hoped for from a heightmap.
+static const float geo_dugi_kornati[] = { 14.9f,43.70f, 15.4f,43.70f, 15.4f,43.97f, 14.9f,43.97f, END };
+static const float geo_vis[]       = { 15.68f,42.95f, 15.95f,42.95f, 15.95f,43.22f, 15.68f,43.22f, END };
+static const float geo_hvar_brac[] = { 16.15f,42.95f, 16.95f,42.95f, 16.95f,43.22f, 16.15f,43.22f, END };
+static const float geo_korcula_mljet[] = { 16.6f,42.60f, 17.7f,42.60f, 17.7f,42.87f, 16.6f,42.87f, END };
+static const float geo_kefalonia[] = { 20.3f,38.05f, 20.6f,38.05f, 20.6f,38.35f, 20.3f,38.35f, END };
+static const float geo_zakynthos[] = { 20.6f,37.60f, 20.9f,37.60f, 20.9f,37.87f, 20.6f,37.87f, END };
+static const float geo_kythira[]   = { 22.85f,36.10f, 23.15f,36.10f, 23.15f,36.40f, 22.85f,36.40f, END };
+static const float geo_rhodes[]    = { 27.7f,35.95f, 28.1f,35.95f, 28.1f,36.30f, 27.7f,36.30f, END };
+static const float geo_karpathos[] = { 26.95f,35.45f, 27.25f,35.45f, 27.25f,35.75f, 26.95f,35.75f, END };
+static const float geo_kos[]       = { 26.85f,36.70f, 27.15f,36.70f, 27.15f,36.97f, 26.85f,36.97f, END };
+static const float geo_samos[]     = { 26.5f,37.60f, 26.8f,37.60f, 26.8f,37.87f, 26.5f,37.87f, END };
+static const float geo_chios[]     = { 25.85f,38.20f, 26.15f,38.20f, 26.15f,38.50f, 25.85f,38.50f, END };
+static const float geo_lesbos[]    = { 25.8f,39.00f, 26.2f,39.00f, 26.2f,39.30f, 25.8f,39.30f, END };
+static const float geo_limnos[]    = { 25.0f,39.75f, 25.3f,39.75f, 25.3f,40.02f, 25.0f,40.02f, END };
+static const float geo_thasos[]    = { 24.5f,40.50f, 24.78f,40.50f, 24.78f,40.77f, 24.5f,40.77f, END };
+static const float geo_skyros[]    = { 24.4f,38.75f, 24.68f,38.75f, 24.68f,39.02f, 24.4f,39.02f, END };
+static const float geo_sporades[]  = { 23.45f,39.05f, 23.75f,39.05f, 23.75f,39.32f, 23.45f,39.32f, END };
+static const float geo_andros_tinos[] = { 24.8f,37.65f, 25.15f,37.65f, 25.15f,37.95f, 24.8f,37.95f, END };
+static const float geo_paros_naxos[]  = { 25.1f,37.00f, 25.5f,37.00f, 25.5f,37.30f, 25.1f,37.30f, END };
+static const float geo_kea_kythnos[]  = { 24.25f,37.30f, 24.5f,37.30f, 24.5f,37.60f, 24.25f,37.60f, END };
+static const float geo_milos[]     = { 24.3f,36.60f, 24.55f,36.60f, 24.55f,36.87f, 24.3f,36.87f, END };
+static const float geo_santorini[] = { 25.3f,36.30f, 25.55f,36.30f, 25.55f,36.55f, 25.3f,36.55f, END };
+static const float geo_menorca[]   = { 3.8f,39.85f, 4.1f,39.85f, 4.1f,40.12f, 3.8f,40.12f, END };
+static const float geo_ibiza[]     = { 1.2f,38.85f, 1.5f,38.85f, 1.5f,39.12f, 1.2f,39.12f, END };
+static const float geo_malta[]     = { 14.2f,35.75f, 14.5f,35.75f, 14.5f,36.02f, 14.2f,36.02f, END };
+
 static const float *geo_land[] = {
     geo_north_america, geo_south_america, geo_tierra_del_fuego, geo_eurasia, geo_africa,
     geo_britain, geo_ireland, geo_iceland, geo_greenland, geo_baffin, geo_newfoundland,
@@ -132,6 +165,11 @@ static const float *geo_land[] = {
     geo_mallorca, geo_zealand, geo_gotland, geo_madeira, geo_tenerife, geo_grancanaria,
     geo_azores1, geo_azores2, geo_azores3, geo_capeverde, geo_capeverde2, geo_mozisland,
     geo_longisland, geo_capebreton, geo_princeedward, geo_anticosti, geo_vancouver, geo_marajo,
+    geo_dugi_kornati, geo_vis, geo_hvar_brac, geo_korcula_mljet,
+    geo_kefalonia, geo_zakynthos, geo_kythira, geo_rhodes, geo_karpathos, geo_kos, geo_samos,
+    geo_chios, geo_lesbos, geo_limnos, geo_thasos, geo_skyros, geo_sporades, geo_andros_tinos,
+    geo_paros_naxos, geo_kea_kythnos, geo_milos, geo_santorini,
+    geo_menorca, geo_ibiza, geo_malta,
 };
 
 // ---------------------------------------------------------------------------

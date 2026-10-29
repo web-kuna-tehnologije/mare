@@ -247,11 +247,14 @@ int main(int argc, char **argv) {
     world_init(seed);
     terrainmap_load(NULL);          // authored height / normals / ground atlas, if the art is there
     terrainmap_apply_to_world();   // folded in before nav, so routes see the same ground
-    // The real Earth at 45 samples per degree, paged in around the camera (world/terraintiles.h).
-    // Deliberately *not* folded into the base heightfield: that would mean reading all 384
-    // tiles at startup. The low-resolution depth map above already gave the simulation and the
-    // navigation grid their relief; the tiles are detail, and detail is streamed.
+    // The real Earth at 45 samples per degree. Two consumers: the clipmap detail rings page
+    // tiles in around the camera for near-field relief (streamview.c), and the one-shot
+    // geography bake below folds the authored coastline into the base world - every Adriatic
+    // and Aegean island the procedural coast polygons never had - before the navigation grid,
+    // the regions and the ports are built against it. MARE_TERRAIN_TILES=0 / MARE_TERRAIN_GEO=0
+    // bring the old world back.
     terraintiles_init(NULL);
+    terrainmap_bake_geography(NULL);
     nav_init();
     if (getenv("MARE_WAVES")) { sea_wave_amp = clampf((float)atof(getenv("MARE_WAVES")), 0.f, 4.f);
         LOG_INFO("gpu", "wave height pinned to %.2f (MARE_WAVES)", sea_wave_amp); }
@@ -296,6 +299,7 @@ int main(int argc, char **argv) {
     int m_occq_hidden = metric_id("gfx.occluded_assets"), m_occq_queries = metric_id("gfx.occ_queries"), m_occq_moving = metric_id("gfx.cam_moving");
     if (getenv("MARE_OCCLUSION")) { occlusion_enabled = atoi(getenv("MARE_OCCLUSION")) != 0; LOG_INFO("gpu", "occlusion culling %s (MARE_OCCLUSION)", occlusion_enabled ? "on" : "off"); }
     if (getenv("MARE_SKY")) { sky_enabled = atoi(getenv("MARE_SKY")) != 0; LOG_INFO("gpu", "sky pass %s (MARE_SKY)", sky_enabled ? "on" : "off"); }
+    if (getenv("MARE_SHIP_WAVES")) { sea_ship_waves = atoi(getenv("MARE_SHIP_WAVES")) != 0; LOG_INFO("gpu", "ship bow waves %s (MARE_SHIP_WAVES)", sea_ship_waves ? "on" : "off"); }
     if (getenv("MARE_SEA_REFRACT")) { sea_refract = atoi(getenv("MARE_SEA_REFRACT")) != 0; LOG_INFO("gpu", "sea refraction %s (MARE_SEA_REFRACT)", sea_refract ? "on" : "off"); }
     if (getenv("MARE_SEA_TESS_MAX")) { sea_tess_level_max = atoi(getenv("MARE_SEA_TESS_MAX")); LOG_INFO("gpu", "sea tessellation ceiling %d (MARE_SEA_TESS_MAX)", sea_tess_level_max); }
     if (getenv("MARE_SEA_INNER")) { sea_inner_on = atoi(getenv("MARE_SEA_INNER")) != 0; LOG_INFO("gpu", "sea inner lattice %s (MARE_SEA_INNER)", sea_inner_on ? "on" : "off"); }
@@ -512,6 +516,11 @@ int main(int argc, char **argv) {
             rhi_gpu_end();
             occq_flush();                       // bounding-box queries against the depth the opaque pass just wrote
         }
+        // Ambient occlusion from the *opaque* depth, before the water draws: the sea occludes
+        // nothing and should not be darkened by AO - computed after the water it read the
+        // tessellated surface's patch-border derivatives and ruled the ocean into a faint grid
+        // at distance (the staged battle showed it clearly; MARE_SSAO=0 confirmed the source).
+        hdr_ao_pass();
         if (U.pass_sea && sea_refract) hdr_capture_scene();   // the frame so far: what the water refracts
         prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !U.in_menu && dv_on) detailview_sea(); else if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
         if (!U.in_menu) sky_draw_overhead();   // the cloud layer from above, over the map (after the water, before the translucent passes)
@@ -520,7 +529,7 @@ int main(int argc, char **argv) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); streamview_draw_debug(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
         }
-        rhi_gpu_begin(g_resolve); hdr_ao_pass(); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // SSAO from the depth, then tonemap to the backbuffer; labels/panels draw on top
+        rhi_gpu_begin(g_resolve); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer (AO was taken before the water); labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
         if (!U.in_menu) weather_overlay();                                          // rain over the finished frame
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");

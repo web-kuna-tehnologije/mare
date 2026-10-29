@@ -38,6 +38,19 @@ void mb_quad2(mb_t *m, const float a[3], const float b[3], const float c[3], con
 // sail built from strips does not tear along its seams
 void mb_quad_grad(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3],
                   float w_ab, float w_cd, float r, float g, float b_, float mat);
+// Canvas (gfx/shipyard.c, cloth in meshes.c): a quad with a forced normal (the direction the
+// canvas bellies in), one cloth code per vertex in the metalness channel (mb_cloth_code) and the
+// panel's half-width in the roughness channel, which the cloth shader needs to size the belly.
+void mb_quad_cloth(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], const float n[3],
+                   float code_a, float code_b, float code_c, float code_d, float halfw, float r, float g, float b_, float mat);
+// The cloth code: 32 levels of "how free is this vertex" (0 = bent to its spar, 31 = loose) plus
+// where it sits across the panel, -1..1, which lets the shader shape a belly between the leeches.
+// Decoded per vertex in the shader, so it is never interpolated.
+static inline float mb_cloth_code(int free_level, float across) {
+    if (free_level < 0) free_level = 0; if (free_level > 31) free_level = 31;
+    if (across < -1.f) across = -1.f; if (across > 0.998f) across = 0.998f;
+    return ((float)free_level + (across + 1.f) * 0.5f) / 32.f;
+}
 void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat);                // axis aligned, half extents
 
 // instancing. inst_t = position + heading (radians, 0 = +x), uniform scale + rgb, misc:

@@ -18,6 +18,11 @@ extern unsigned char *territory;  // TERR_W*TERR_H: 0 none, else owning nation +
 extern int            territory_dirty; // 1 = recompute from ports, 2 = recomputed, upload to the GPU
 
 void  world_init(unsigned seed);             // allocate + rasterize + heightfield (~0.5 s); aborts if LM_W/LM_H mismatch the extents
+// After a geography fold (world/terrainmap.h) changed the land mask: force the authored straits
+// open again (Gibraltar and friends must never silt up, whatever the fold decided) and rebuild
+// the signed distance-to-coast field so town placement keeps working near the new coasts.
+void  world_recarve_straits(void);
+void  world_recompute_coastdist(void);
 float world_height(float wx, float wz);      // bilinear height at a world position
 int   world_is_land(float wx, float wz);     // land mask lookup (outside the map counts as land)
 void  world_compute_territory(void);         // nation of the nearest settled port within its influence radius

@@ -55,8 +55,15 @@ static unsigned char *tm_read_image(const char *dir, const char *file, int *w, i
 }
 
 void terrainmap_load(const char *dir) {
-    char fallback[512];
-    if (!dir) { snprintf(fallback, sizeof fallback, "%s/../terrain", asset_root()); dir = fallback; }
+    char fallback[512], probe[600];
+    if (!dir) {   // the per-worktree terrain maps first, the shared folder as the fallback
+        snprintf(fallback, sizeof fallback, "%s/terrain", asset_root());
+        snprintf(probe, sizeof probe, "%s/depth_map_terrain.png", fallback);
+        FILE *pf = fopen(probe, "rb");
+        if (pf) fclose(pf);
+        else snprintf(fallback, sizeof fallback, "%s/../terrain", asset_root());
+        dir = fallback;
+    }
     double t0 = diag_now();
     memset(&TM, 0, sizeof TM);
     TM.lon0 = TM_LON0; TM.lon1 = TM_LON1; TM.lat0 = TM_LAT0; TM.lat1 = TM_LAT1;
@@ -134,28 +141,46 @@ int terrainmap_ground(float height, float slope, float lat) {
     return height > 3.5f ? GROUND_TURF : GROUND_GRASS;
 }
 
-// Fold the authored height into the base heightfield. The simulation placed its ports against
-// the procedural coastline, so the land mask is left alone and the authored field is blended
-// in only where both agree about land or water - detail, never a new coastline.
-// Fold the streamed tile set into the base field. The tiles are the real Earth at 45 px per
-// degree against the base map's 8, so this is the pass that actually puts mountains where
-// mountains are; the low-resolution depth map below stays as the fallback when no tiles were
-// cut. Same rule either way: relief only, never a new coastline.
-int terrainmap_apply_tiles(void) {
-    if (!heightmap) return 0;
-    double t0 = diag_now();
-    int changed = 0, resident = 0;
-    for (int y = 0; y < LM_H; ++y) for (int x = 0; x < LM_W; ++x) {
-        int i = y * LM_W + x;
-        float lon = cx2lon(x), lat = cy2lat(y), h;
-        if (!terraintiles_height(lon, lat, &h)) continue;
-        resident++;
-        if ((heightmap[i] > 0.f) != (h > 0.f)) continue;   // keep the coastline the ports know
-        heightmap[i] = h; changed++;
+// Fold the authored geography in from the streamed tiles (see terrainmap.h). The decisions
+// live in terraintiles_bake; this driver supplies what it must not touch - a protection mask
+// over every historical harbour basin, so no island can land on a port's water - and repairs
+// what a mask change invalidates: the carved straits are forced open again and the signed
+// coast-distance field is rebuilt before navigation reads it.
+#include "../data/geo_ports.h"
+
+int terrainmap_bake_geography(const char *tiles_dir) {
+    if (!heightmap || !landmask) return 0;
+    { const char *on = getenv("MARE_TERRAIN_GEO");
+      if (on && atoi(on) == 0) { LOG_INFO("terrain", "geography fold off (MARE_TERRAIN_GEO=0)"); return 0; } }
+    char fallback[512], probe[600];
+    if (!tiles_dir) {   // the per-worktree tile set first, the shared one as the fallback (terraintiles.c)
+        snprintf(fallback, sizeof fallback, "%s/terrain/tiles", asset_root());
+        snprintf(probe, sizeof probe, "%s/height.json", fallback);
+        FILE *pf = fopen(probe, "rb");
+        if (pf) fclose(pf);
+        else snprintf(fallback, sizeof fallback, "%s/../terrain/tiles", asset_root());
+        tiles_dir = fallback;
     }
-    if (resident)
-        LOG_INFO("terrain", "streamed tiles folded into %d of %d cells (%.0f%% of %d sampled) in %.0f ms",
-                 changed, LM_W * LM_H, 100.0 * changed / maxi(resident, 1), resident, (diag_now() - t0) * 1000);
+    unsigned char *protect = (unsigned char *)calloc(LM_W * LM_H, 1);
+    if (protect)
+        for (int p = 0; p < GEO_NPORTS; ++p) {
+            int cx = lon2cx(geo_ports[p].lon), cy = lat2cy(geo_ports[p].lat);
+            for (int dy = -2; dy <= 2; ++dy) for (int dx = -2; dx <= 2; ++dx) {
+                int x = cx + dx, y = cy + dy;
+                if (x >= 0 && y >= 0 && x < LM_W && y < LM_H) protect[y * LM_W + x] = 1;
+            }
+        }
+    int flips = 0;
+    int changed = terraintiles_bake(tiles_dir, heightmap, landmask, LM_W, LM_H,
+                                    LON0, LAT1, (float)CELLS_PER_DEG, protect, &flips);
+    free(protect);
+    if (flips) {   // the mask changed (MARE_TERRAIN_ISLANDS experiment): repair what depends on it
+        world_recarve_straits();
+        world_recompute_coastdist();
+    }
+    if (changed)
+        LOG_INFO("terrain", "geography fold done: %d cells (%d new land)%s", changed, flips,
+                 flips ? ", straits recarved, coast distance rebuilt" : "");
     return changed;
 }
 

@@ -1,0 +1,54 @@
+{
+  "name": "mediterranean_masts_m0",
+  "type": "ship_part",
+  "role": "mediterranean_masts_m0",
+  "lods": [
+    {
+      "file": "mediterranean_masts_m0_LOD0.glb",
+      "node": "mediterranean_masts_m0_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "mediterranean_masts_m0_LOD1.glb",
+      "node": "mediterranean_masts_m0_LOD1",
+      "px": 700
+    },
+    {
+      "file": "mediterranean_masts_m0_LOD2.glb",
+      "node": "mediterranean_masts_m0_LOD2",
+      "px": 260
+    },
+    {
+      "file": "mediterranean_masts_m0_LOD3.glb",
+      "node": "mediterranean_masts_m0_LOD3",
+      "px": 90
+    },
+    {
+      "file": "mediterranean_masts_m0_LOD4.glb",
+      "node": "mediterranean_masts_m0_LOD4",
+      "px": 30
+    },
+    {
+      "file": "mediterranean_masts_m0_LOD5.glb",
+      "node": "mediterranean_masts_m0_LOD5",
+      "px": 10
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 1.08
+  },
+  "pivot": "base_center",
+  "forward": "-x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}

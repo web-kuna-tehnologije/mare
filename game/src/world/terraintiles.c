@@ -73,15 +73,29 @@ static int tt_set_load(tt_set_t *s, const char *dir, const char *kind) {
     return 1;
 }
 
+// The default tile location: inside this worktree's asset tree first ("<assets>/terrain/tiles",
+// which assets/elm carries), then the shared "<assets>/../terrain/tiles". Two sessions cutting
+// tiles into one shared folder have already overwritten each other's index once; the per-tree
+// copy is the one nothing else touches.
+static const char *tt_default_dir(char *buf, size_t n) {
+    snprintf(buf, n, "%s/terrain/tiles", asset_root());
+    char probe[384]; snprintf(probe, sizeof probe, "%s/height.json", buf);
+    FILE *f = fopen(probe, "rb");
+    if (f) { fclose(f); return buf; }
+    snprintf(buf, n, "%s/../terrain/tiles", asset_root());
+    return buf;
+}
+
 int terraintiles_init(const char *dir) {
     char fallback[320];
-    // Opt-in. The tiling, the paging and the budget all work, but the supplied source map
-    // compresses land into a tenth of its range (see the calibration note above), so the
-    // relief it yields is not yet an improvement on the procedural world. MARE_TERRAIN_TILES=1
-    // turns it on for tuning; see game/docs/DESIGN_TERRAIN.md.
+    // On by default: the tiles supply the real coastline (every Adriatic and Aegean island) and
+    // the relief and bathymetry on top of the procedural base. The land band of the source is
+    // compressed (see the calibration note above), so authored *relief* is gentle - the fine
+    // detail comes from the normal tiles - but the geography is the thing the procedural world
+    // cannot invent. MARE_TERRAIN_TILES=0 brings the old purely procedural world back.
     { const char *on = getenv("MARE_TERRAIN_TILES");
-      if (!on || atoi(on) == 0) { LOG_INFO("terrain", "streamed terrain tiles off (MARE_TERRAIN_TILES=1 enables them)"); return 0; } }
-    if (!dir) { snprintf(fallback, sizeof fallback, "%s/../terrain/tiles", asset_root()); dir = fallback; }
+      if (on && atoi(on) == 0) { LOG_INFO("terrain", "streamed terrain tiles off (MARE_TERRAIN_TILES=0)"); return 0; } }
+    if (!dir) dir = tt_default_dir(fallback, sizeof fallback);
     terraintiles_shutdown();
     const char *e = getenv("MARE_TERRAIN_MB");
     if (e && atoi(e) > 0) tt_budget = (size_t)atoi(e) * 1024 * 1024;
@@ -230,6 +244,104 @@ int terraintiles_normal(float lon, float lat, float out[3]) {
     if (l < 1e-4f) return 0;
     out[0] = wx / l; out[1] = wy / l; out[2] = wz / l;
     return 1;
+}
+
+
+// ---------------------------------------------------------------------------
+// the one-shot geography bake (see terraintiles.h)
+
+static float tt_h_of(float g) {
+    return g >= TT_SEA ? (g - TT_SEA) / (1.f - TT_SEA) * TT_HEIGHT_SCALE
+                       : -(TT_SEA - g) / TT_SEA * TT_DEPTH_SCALE;
+}
+
+// bilinear u16 sample from one row band of tiles; v is clamped into the band (the supersample
+// offsets reach at most two source samples past a cell, a band is 512)
+static int tt_band_sample(unsigned short **row, const tt_set_t *s, int ty, float u, float v, float *out) {
+    float v0 = (float)ty * TT_TILE, v1 = (float)(ty + 1) * TT_TILE - 1.001f;
+    v = clampf(v, v0, v1) - v0;
+    u = clampf(u, 0.f, (float)s->width - 1.001f);
+    int X = (int)u, Y = (int)v;
+    float fx = u - X, fy = v - Y;
+    int tx = X / TT_TILE, xo = X - tx * TT_TILE;
+    if (tx < 0 || tx >= s->tiles_x || !row[tx]) return 0;
+    const unsigned short *d = row[tx];
+    int x1 = xo + 1, t1 = tx;                        // the right neighbour may sit in the next tile
+    if (x1 >= TT_TILE) { x1 = 0; t1 = tx + 1; if (t1 >= s->tiles_x || !row[t1]) { x1 = xo; t1 = tx; } }
+    const unsigned short *d1 = row[t1];
+    int y1 = mini(Y + 1, TT_TILE - 1);
+    float a = d[Y * TT_TILE + xo], b = d1[Y * TT_TILE + x1];
+    float c = d[y1 * TT_TILE + xo], e = d1[y1 * TT_TILE + x1];
+    *out = lerpf(lerpf(a, b, fx), lerpf(c, e, fx), fy) / 65535.f;
+    return 1;
+}
+
+int terraintiles_bake(const char *dir, float *hm, unsigned char *lm, int w, int h,
+                      float lon0, float lat1, float cells_per_deg,
+                      const unsigned char *protect, int *flips) {
+    tt_set_t s; memset(&s, 0, sizeof s);
+    if (!tt_set_load(&s, dir, "height")) return 0;
+    // Mask flips are an experiment (MARE_TERRAIN_ISLANDS=1): the supplied 32768 map is a
+    // *loose* Earth - recognisable continents, regionally wrong coasts (its Adriatic is half
+    // filled in) - so taking its coastline wholesale buries exactly the island seas that
+    // matter. The real islands are authored as vector data in data/geo_coast.h instead; the
+    // map contributes what it is good at, relief and bathymetry.
+    int allow_flips = 0;
+    { const char *e = getenv("MARE_TERRAIN_ISLANDS"); if (e && atoi(e)) allow_flips = 1; }
+    double t0 = diag_now();
+    unsigned short *row[64] = { 0 };
+    int changed = 0, newland = 0, missing = 0;
+    size_t tile_bytes = (size_t)TT_TILE * TT_TILE * 2;
+    // supersample offsets: the cell centre and a ring at a third of a cell, so one stray source
+    // pixel cannot flip a 12 km cell and a real island (solid land across the cell) always does
+    static const float off[9][2] = { {0,0}, {-.33f,-.33f}, {0,-.33f}, {.33f,-.33f},
+                                     {-.33f,0}, {.33f,0}, {-.33f,.33f}, {0,.33f}, {.33f,.33f} };
+    for (int ty = 0; ty < s.tiles_y && ty < 64; ++ty) {
+        for (int tx = 0; tx < s.tiles_x && tx < 64; ++tx) {       // one band of tiles resident at a time
+            char path[384]; snprintf(path, sizeof path, "%s/height_%d_%d.bin", s.dir, tx, ty);
+            FILE *f = fopen(path, "rb");
+            row[tx] = NULL;
+            if (!f) { missing++; continue; }
+            unsigned short *d = (unsigned short *)malloc(tile_bytes);
+            if (d && fread(d, 1, tile_bytes, f) == tile_bytes) row[tx] = d; else free(d);
+            fclose(f);
+        }
+        for (int y = 0; y < h; ++y) {
+            float lat = lat1 - (y + 0.5f) / cells_per_deg;
+            float vc = (s.lat1 - lat) / (s.lat1 - s.lat0) * (s.height - 1);
+            if ((int)vc / TT_TILE != ty) continue;                 // this base row belongs to another band
+            for (int x = 0; x < w; ++x) {
+                float lon = lon0 + (x + 0.5f) / cells_per_deg;
+                if (lon < s.lon0 || lon > s.lon1 || lat < s.lat0 || lat > s.lat1) continue;
+                int i = y * w + x, votes = 0, got = 0;
+                float hc = 0;
+                for (int k = 0; k < 9; ++k) {
+                    float u = (lon + off[k][0] / cells_per_deg - s.lon0) / (s.lon1 - s.lon0) * (s.width - 1);
+                    float v = (s.lat1 - (lat + off[k][1] / cells_per_deg)) / (s.lat1 - s.lat0) * (s.height - 1);
+                    float g;
+                    if (!tt_band_sample(row, &s, ty, u, v, &g)) continue;
+                    float hh = tt_h_of(g);
+                    votes += hh > 0.03f; got++;
+                    if (k == 0) hc = hh;
+                }
+                if (got < 9) continue;                             // tile missing under part of the cell
+                int was_land = lm[i] != 0, keep = protect && protect[i];
+                if (allow_flips && !was_land && votes >= 6 && !keep) {   // authored island (experiment, see below)
+                    lm[i] = 1; hm[i] = maxf(hc, 0.45f); newland++; changed++;
+                } else if (was_land && hc > 0.f && votes >= 3) {   // shared land: authored relief
+                    hm[i] = maxf(hc, 0.12f); changed++;
+                } else if (!was_land && hc < 0.f && votes <= 1) {  // shared sea: authored bathymetry
+                    hm[i] = minf(hc, -0.12f); changed++;
+                }                                                  // shoreline disagreement: the base stands
+            }
+        }
+        for (int tx = 0; tx < s.tiles_x && tx < 64; ++tx) { free(row[tx]); row[tx] = NULL; }
+    }
+    free(s.tile);
+    if (flips) *flips = newland;
+    LOG_INFO("terrain", "geography baked from %s: %d cells written (%d new land), %d tiles missing, %.0f ms",
+             s.dir, changed, newland, missing, (diag_now() - t0) * 1000);
+    return changed;
 }
 
 int terraintiles_resident(float lon, float lat) {

@@ -21,20 +21,40 @@ them and `gfx/shipyard.c` places the parts from them, both through the same cons
 ~0.95 world units the procedural sloop did, which keeps every existing camera distance, LOD
 threshold and formation spacing valid.
 
-| class | role | length | hull asset | mast asset | oars |
-|-------|------|--------|-----------|------------|------|
-| coastal_trader | merchant | 21 m | `coastal_trader_hull` | `coastal_trader_masts` | — |
-| cog | merchant | 25 m | `cog_hull` | `cog_masts` (single mast) | — |
-| fusta | interceptor | 25 m | `fusta_hull` | `fusta_masts` (lateen) | 20 pairs |
-| galiot | interceptor | 28 m | `galiot_hull` | `mediterranean_masts` (lateen) | 22 pairs |
-| armed_cog | warship | 32 m | `armed_cog_hull` | `armed_cog_masts` | — |
-| hulk | bulk merchant | 35 m | `hulk_hull` | `hulk_masts` | — |
-| carrack | merchant | 38 m | `carrack_hull` | `carrack_masts` | — |
-| war_carrack | warship | 47 m | `war_carrack_hull` | `war_carrack_masts` | — |
+| class | role | length | hull asset | mast asset | rig (fleet_sails.png) | oars |
+|-------|------|--------|-----------|------------|------------------------|------|
+| coastal_trader | merchant | 21 m | `coastal_trader_hull` | `coastal_trader_masts` m1, m2 | main: course + topsail; lateen mizzen | — |
+| cog | merchant | 25 m | `cog_hull` | `cog_masts` m0 | one great course | — |
+| fusta | interceptor | 25 m | `fusta_hull` | `fusta_masts` m1, m2 | two lateens | 20 pairs |
+| galiot | interceptor | 28 m | `galiot_hull` | `mediterranean_masts` m0 ×2 | two lateens | 22 pairs |
+| armed_cog | warship | 32 m | `armed_cog_hull` | `armed_cog_masts` m0 ×2 | main: course + topsail; lateen mizzen | — |
+| hulk | bulk merchant | 35 m | `hulk_hull` | `hulk_masts` m0..m2 | three square | — |
+| carrack | merchant | 38 m | `carrack_hull` | `carrack_masts` m0..m2 | square fore and main, lateen mizzen, spritsail | — |
+| war_carrack | warship | 47 m | `war_carrack_hull` | `war_carrack_masts` m0, m1, m2 ×2 | four masts: fore, main (three sails), lateen mizzen and bonaventure, spritsail | — |
+| great_carrack | flagship | 56 m | `war_carrack_hull` ×1.19 | `war_carrack_masts` m0, m1, m2 ×2 | as the war carrack, taller | — |
 
 The galiot has no mast model of its own and borrows the generic Mediterranean lateen rig, which
 is what its sheet shows anyway. Oars come from `galley_oar`, exported from the light-galley
-sources.
+sources. The great carrack sails on the war carrack's model stretched to its own length until
+its hull is generated; the four-mast rigs stand the mizzen part twice until the rig is split
+into four (`docs/TODO.md`).
+
+Every class also carries its **stats** (`ship_stats_t`, read with `shipyard_class_stats()`):
+length, beam, draft, displacement, best speed under sail and under oars, rate of turn, guns and
+crew. The staged battle sails by them (section 3b); the buoyancy pass to come will read
+displacement and draft.
+
+| class | tonnes | knots (oars) | turn °/s | guns | crew |
+|-------|-------:|-------------:|---------:|-----:|-----:|
+| coastal_trader | 60 | 5.0 | 6.0 | 4 | 15 |
+| cog | 150 | 4.5 | 4.0 | 2 | 20 |
+| fusta | 80 | 6.5 (7.5) | 6.0 | 4 | 90 |
+| galiot | 120 | 6.0 (7.0) | 5.0 | 6 | 120 |
+| armed_cog | 260 | 4.5 | 3.5 | 14 | 70 |
+| hulk | 400 | 4.0 | 3.0 | 8 | 50 |
+| carrack | 500 | 5.0 | 3.0 | 20 | 90 |
+| war_carrack | 1000 | 4.5 | 2.2 | 40 | 250 |
+| great_carrack | 1500 | 4.0 | 1.8 | 74 | 500 |
 
 ## 2. Which class a ship is
 
@@ -47,13 +67,12 @@ galiot in the Adriatic. `class_for()` maps type and nation:
 | Fluyt | cog | **galiot** (oared) | — |
 | Merchantman | carrack | — | **hulk** |
 | Frigate | armed_cog | **galiot** (oared) | — |
-| Galleon | war_carrack ×0.92 | — | — |
-| Ship of the Line | war_carrack ×1.18 | — | — |
+| Galleon | war_carrack | — | — |
+| Ship of the Line | great_carrack | — | — |
 
-The Ship of the Line wants the Great Carrack of the design sheets (50–60 m), which is not among
-the imported models: it stands in as a stretched war carrack until that one is generated. Drop
-a `great_carrack_hull` / `great_carrack_masts` pair in, add the row to `classes[]` and the
-mapping, and the stretch goes away.
+The great carrack's hull is not among the imported models yet: its class row points at the war
+carrack's assets with `model_scale` 56/47. Drop a `great_carrack_hull` in, change the row's
+`hull` and clear the scale, and nothing else moves.
 
 ## 3. Assembly
 
@@ -64,25 +83,33 @@ ship's heading on the CPU):
 - **Hull** — fitted to its class length. Its descriptor pivot is `base_center`, i.e. the keel,
   so the instance is lowered by `draft × hull height` to put the waterline at y = 0, where the
   wave displacement in the mesh shader expects it.
-- **Masts** — fitted by height, pivoted at their base, raised to `deck × hull height` above the
-  keel and offset along the hull by `mast_dx` where a class needs it.
+- **Masts** — one part per station (`mast_part[k]` picks the fore, main or mizzen part of the
+  split rig; a one-mast model's narrowed `_m0` stands at every station), fitted by height,
+  pivoted at their foot, raised to `deck × hull height` above the keel and placed at
+  `mast_at[k]` along the hull, scaled by `mast_h[k]`.
 - **Oars** — one instance per oar, both sides, spread over `oar_span` of the hull length at
   `beam_frac` out from the centreline, turned 90° so the blade is outboard. They are only
   submitted when the ship is more than `OAR_MIN_PX` (260 px) across, since below that an oar is
   a pixel; a 22-pair galiot adds 44 instances of one mesh, which is one instanced draw.
 
-`draft`, `deck`, `mast_dx`, `oar_span` and `beam_frac` are per class in `classes[]` — they are
-proportions of the model, so they are the knobs to turn when a rig sits too high or an oar bank
-too far aft.
+`draft`, `deck`, `mast_at`, `mast_h`, `sail`, `oar_span` and `beam_frac` are per class in
+`classes[]` — they are proportions of the model, so they are the knobs to turn when a rig sits
+too high, a sail is the wrong kind or an oar bank too far aft.
 
 ## 3b. The staged scenes
 
 `gfx/detailview.c` stages its own battles and city squares at `DV_SHIP_SCALE` (about nine
 times the map's scale), which is where LOD 0 earns its place: a hull fills the screen and shows
 its planking, gunports and railings. The staged ships go through the same `shipyard_push`, with
-`shipyard_req_t.scale` carrying the magnification, and the staged scene's asset bracket now
-spans both ships and buildings so authored hulls are submitted and cast shadows in battle view
-as well as city view.
+`shipyard_req_t.scale` carrying the magnification, and the staged scene's asset bracket spans
+both ships and buildings so authored hulls are submitted and cast shadows in battle view as
+well as city view.
+
+Every staged ship sails by her class's stats: `battle_add_ship` gives her 55–90 % of her best
+speed (a carrack makes about four knots; `DV_KNOT` converts) and her class's rate of turn,
+and `battle_update` lets her weave about her course no faster than that. Moored ships in the
+city view stir at a quarter of it. `MARE_DV_CAM="dist,yaw[,x,z[,pitch]]"` pins the staged camera
+(local offsets from the scene centre) for screenshots.
 
 ## 3c. Rigging, canvas and flags
 
@@ -96,8 +123,13 @@ roll, pitch and ride the swell with the hull they belong to, and they cast shado
   to the next mast's foot or the bow, a backstay aft, and ratlines on the main shrouds. Each
   rope is a cross of two double-sided quads - a single quad vanishes edge-on and a tube would
   cost twenty times as much for something a few pixels wide. Tarred hemp, near black.
-- **Canvas** (`rig_sail_square` / `rig_sail_lateen`): a square sail bent to a yard and bellied
-  forward, or a triangle on a raked yard for the lateen classes (`ship_class_t.lateen`).
+- **Canvas**, by the class's `sail[k]`: `SAIL_SQUARE1` one great course (head at 0.80 of the
+  mast, foot at 0.30), `SAIL_SQUARE2` course and topsail, `SAIL_SQUARE3` course, topsail and
+  topgallant, `SAIL_LATEEN` a settee-cut lateen on a yard raked from the tack forward and low to
+  the peak above the masthead. Every yard is drawn as a spar (`rig_bar`), so the canvas hangs
+  from a visible beam whatever the generated mast's own yards do; the carracks get a bowsprit
+  with a spritsail slung under it. Square sails hang `RIG_SAIL_OFF` forward of the mast, on the
+  yard's fore side.
 - **Flags**: a ribbon at the main masthead with `mat` 1, so it takes the nation's colour from
   the instance like every other flag in the game.
 
@@ -107,22 +139,74 @@ pixel is noise.
 
 ### How the cloth moves
 
-There is no physics yet. The instanced mesh shader carries a flutter: `i_fx.y` is the
-instance's cloth strength (1 for the canvas mesh, 0 for the cordage) and **metalness** -
-which cloth never has - carries per vertex how free that vertex is to move, 0 where the canvas
-is bent to its yard and 1 at the loose foot. A travelling wave in the ship's own frame then
-ripples the sail along its foot whichever way she is heading, and the fragment stage forces
-metalness to 0 so the channel's day job is unaffected.
+There is no integration; the shape is the steady state of a sheet pinned along one edge,
+evaluated per vertex in the mesh shader (`GLSL_CLOTH`, meshes.c), so it costs nothing on the
+CPU and keeps the one-instance-per-ship draw.
 
-The weight has to be *per vertex*: a sail built from strips of ordinary quads tears along every
-seam, because the two vertices meeting there would each carry their own strip's weight and
-flutter apart. `mb_quad_grad` interpolates it across the quad.
+Every canvas vertex carries a **cloth code** in the metalness channel (`mb_cloth_code`,
+gpu.h): 32 levels of how free it is - 0 where it is bent to its spar, 1 at the loose foot -
+plus where it sits between the leeches, -1..1; its roughness channel carries the panel's
+half-width; its normal is the direction the canvas bellies in (+x for a square sail, +z for a
+lateen or a flag). The instance carries the true wind at the ship in `fx2`/`fx3` (world xz,
+direction times strength; `wind_at`), turned into the ship's frame in the shader. The fragment
+stage then forces the channels back to canvas (roughness 0.9, metalness 0), so their day job is
+unaffected.
+
+A **sail** is pressed along its normal by the wind through it; a square sail also draws from
+the ship's own way (`i_misc.x`), so a ship under sail never shows slack canvas, and a lateen,
+sheeted to one side, always holds a little shape. The belly is a sine from head to foot (zero
+at the yard, fullest two thirds down, held at the foot by the sheets) times a cosine between
+the leeches, scaled by the panel's half-width, so a topgallant bellies less than a course. When
+the wind runs along the canvas instead of into it the sail **luffs**: the flutter grows from a
+ripple to a shake. A square sail pressed back by a head wind goes **aback against its mast**:
+the middle of the sail stops, only the leeches blow past - which is what the sail hitting its
+beam looks like. The shading normal is tilted from the same profile, so the belly is lit as a
+curve. A **flag** is swung from the staff into the apparent wind (the true wind less the ship's
+way), droops in a light air and ripples along its length. The shadow pass runs the same model,
+so a sail's shadow is the sail's shape.
 
 ### Oars
 
-The bank swings together, as a rowed ship does, at a rate and reach that follow how hard she is
-being pulled (`rock`); a ship lying still keeps her oars out and level. Only a yaw sweep - the
-instance transform has no other axis - which is the part of a stroke that reads at this size.
+The bank swings together, as a rowed ship does, at a sweep's 20-26 strokes a minute, at a rate
+and reach that follow how hard she is being pulled (`rock`); a ship lying still keeps her oars
+out and level. The blades dip on the pull and lift on the recovery - height is the one other
+axis the instance transform has, and it is exactly the part of the cycle that reads from the
+quarterdeck. The bank sits just outboard of the rail (`OAR_INBOARD` 0.22 of the oar's length).
+
+### Buoyancy
+
+A class's displacement sets how she sits and rides (shipyard_push): `resp = 1.45 - 0.22
+log10(tonnes)`, clamped 0.55..1.15, scales the wave field the mesh shader couples her to
+(`inst_t.bob`), her roll and pitch (`sway`), and how low she floats on her lines - a fusta is
+thrown about by every sea at 1.03, a laden great carrack shoulders through it at 0.75 and sits
+visibly deeper. Masts, rig and oars copy the hull's instance fields, so the whole assembly
+rides as one body.
+
+### The battle line
+
+The staged battle fights in formation (detailview.c): each side sails a stadium circuit - two
+straight legs joined by half-turn caps - in **line ahead**. Every ship chases a pursuit point
+just ahead of the station her slot gives her, never turning faster than her class can
+(`turn_dps`), trimming speed against the station (astern crowds on sail, ahead she luffs up),
+the whole line at 0.8x its slowest sail. Because the stations round the caps one after another,
+the line **turns in succession** where the leader turned. The two circuits mirror each other so
+the inner legs run opposed `DV_LINE_SEP` (28 local units, roughly a cable) apart - inside the
+55-unit gun range, outside ramming distance - and the lines close, hold the range on the pass,
+trade broadsides and wear round the cap. The city view's moored ships keep their old gentle
+wander.
+
+## 3d. The water a ship pushes aside
+
+The sea (`gfx/sea.c`) takes up to 24 nearby ships each frame - position, heading, speed in
+*hull lengths per second*, hull length (`sea_set_ships`; scene.c gives the fleets near the
+look-at point, detailview.c its staged ships). In the vertex stages `ship_wave()` heaps water
+at every bow: a crest at the stem that rings outward *ahead* of her and round the shoulders,
+decaying within a hull length, plus the pile-up along the forward half of the hull, and
+nothing astern. Its slope is folded into the surface tangents by finite differences, so the
+heap is lit. The fragment stage foams on the same mask - the stem's splash, a thin break along
+the forward half of the hull, streaks running out ahead, and the crest of the bow wave breaking
+where the foam texture is bright - and nowhere behind the ship: at this scale a wake reads as a
+scar on the sea, and what the eye wants is the water in front of a moving bow.
 
 ## 4. Level of detail
 

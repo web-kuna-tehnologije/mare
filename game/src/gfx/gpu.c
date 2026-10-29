@@ -54,6 +54,17 @@ void mb_quad_grad(mb_t *m, const float a[3], const float b[3], const float c[3],
     m->metal = keep;
 }
 
+void mb_quad_cloth(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], const float n[3],
+                   float code_a, float code_b, float code_c, float code_d, float halfw, float r, float g, float b_, float mat) {
+    float keep_m = m->metal, keep_r = m->rough;
+    const float *v[4] = { a, b, c, d };
+    const float w[4] = { code_a, code_b, code_c, code_d };
+    const int tri[6] = { 0,1,2, 0,2,3 };
+    m->rough = halfw > 0.f ? halfw : 0.001f;    // mb_push treats 0 as "unset"
+    for (int i = 0; i < 6; ++i) { m->metal = w[tri[i]]; mb_push(m, v[tri[i]], n, r, g, b_, mat); }
+    m->metal = keep_m; m->rough = keep_r;
+}
+
 void mb_box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat) {
     float p[8][3]; for (int i = 0; i < 8; ++i) { p[i][0] = cx + (i&1 ? hx : -hx); p[i][1] = cy + (i&2 ? hy : -hy); p[i][2] = cz + (i&4 ? hz : -hz); }
     mb_quad(m, p[0],p[2],p[3],p[1], r,g,b,mat); mb_quad(m, p[4],p[5],p[7],p[6], r,g,b,mat);

@@ -41,6 +41,7 @@ static rhi_pipeline_t sea_prg, sea_detail_prg, sea_tess_prg;
 static rhi_geometry_t sea_geo, sea_detail_geo, sea_patch_geo, sea_inner_geo;
 static int sea_tex_normal = -1, sea_tex_albedo = -1, sea_tex_disp = -1;   // textures.c handles
 int sea_tess_on;                 // the tessellated path is in use (GL 4.0 and not MARE_SEA_TESS=0)
+static float sea_shallow_now = 1.1f;   // depth the swell needs for full height, follows the zoom (sea_update_waves)
 int sea_tess_level_max = 32;     // dashboard knob: finest subdivision of a patch edge (zooming in raises wave *height*, not this)
 
 // Tessellated sea (DESIGN_VISUAL.md step 5). Instead of the exponentially warped grid, a
@@ -76,7 +77,37 @@ int sea_inner_on = 1;          // dashboard / MARE_SEA_INNER=0
 #define GLSL_SEA_VS_COMMON \
     "uniform mat4 u_vp; uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_k;\n" \
     "uniform float u_time; uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;\n" \
-    "out vec3 v_wpos; out vec3 v_nrm; out float v_slope; out float v_h; out float v_amp; out float v_edge; out float v_jac; out float v_crest;\n" \
+    "uniform vec4 u_ships[24]; uniform float u_shiplen[24]; uniform int u_nships; uniform float u_shipwave;\n" \
+    "uniform float u_shallow;\n"   /* depth (in wave-scale units) the swell needs to reach full height: ~1.1 close in, up to ~3.6 at the strategic zoom, so the open sea runs and the coasts stay calm */ \
+    "out vec3 v_wpos; out vec3 v_nrm; out float v_slope; out float v_h; out float v_amp; out float v_edge; out float v_jac; out float v_crest; out float v_shipw;\n" \
+    /* The water a ship pushes aside. Each nearby ship (x, z, heading, speed in hull lengths per \
+       second; hull length) raises a bow wave: a crest heaped at the stem that rings outward \
+       *ahead* of her and round the shoulders, decaying within a hull length, plus the pile-up \
+       along the forward half of the hull. Nothing astern - at this scale a wake reads as a \
+       scar on the sea, and what the eye wants is the water in front of a moving bow. Height is \
+       v^2/2g in spirit: it grows with speed and with the hull. */ \
+    "float ship_wave(vec2 pp, float t) {\n" \
+    "  float hgt = 0.0;\n" \
+    "  if (u_shipwave < 0.5) return 0.0;\n" \
+    "  for (int i = 0; i < u_nships; ++i) {\n" \
+    "    vec2 dxz = pp - u_ships[i].xy; float L = max(u_shiplen[i], 0.2);\n" \
+    "    if (dot(dxz, dxz) > 2.4 * L * L) continue;\n" \
+    "    float spd = clamp(u_ships[i].w * 10.0, 0.0, 1.0);\n" \
+    "    if (spd < 0.05) continue;\n" \
+    "    float ch = cos(u_ships[i].z), sh = -sin(u_ships[i].z);\n" \
+    "    float along = dxz.x * ch + dxz.y * sh, across = -dxz.x * sh + dxz.y * ch;\n" \
+    "    vec2 q = vec2(along - 0.46 * L, across); float r = max(length(q), 1e-3);\n" \
+    "    float ahead = smoothstep(-0.55, 0.35, q.x / r);\n" \
+    "    float side = 1.0 - smoothstep(0.30 * L, 0.70 * L, abs(across));\n" \
+    "    float env = exp(-r / (0.35 * L)) * ahead * side * (1.0 - smoothstep(0.9 * L, 1.3 * L, r));\n" \
+    "    float ph = 6.28318 / (0.30 * L) * r - t * (2.0 + 4.0 * spd);\n" \
+    "    hgt += 0.013 * L * spd * env * (0.7 * cos(ph) + 0.3);\n" \
+    "    float hull = smoothstep(-0.05 * L, 0.25 * L, along) * (1.0 - smoothstep(0.40 * L, 0.50 * L, along))\n" \
+    "               * exp(-abs(abs(across) - 0.19 * L) / (0.08 * L));\n" \
+    "    hgt += 0.008 * L * spd * hull;\n" \
+    "  }\n" \
+    "  return hgt;\n" \
+    "}\n" \
     /* shoaling: a wave entering water shallower than its length steepens before it breaks. The \
        boost peaks a little off the beach; the shallows fade still flattens the last metres so \
        nothing breaks through the sand. */ \
@@ -95,7 +126,7 @@ static const char *sea_vs =
     GLSL_SEA_VS_COMMON
     "void main(){\n"
     "  v_wpos = vec3(a_pos.x, 0.0, a_pos.y);\n"
-    "  v_nrm = vec3(0.0, 1.0, 0.0); v_slope = 0.0; v_h = height_at(a_pos); v_amp = 0.0; v_edge = 0.0; v_jac = 1.0; v_crest = 0.0;\n"
+    "  v_nrm = vec3(0.0, 1.0, 0.0); v_slope = 0.0; v_h = height_at(a_pos); v_amp = 0.0; v_edge = 0.0; v_jac = 1.0; v_crest = 0.0; v_shipw = 0.0;\n"
     "  gl_Position = u_vp * vec4(v_wpos, 1.0);\n"
     "}\n";
 
@@ -119,13 +150,18 @@ static const char *sea_detail_vs =
     // detail grid always meets the flat world grid (and the beach) on a flat surface
     "  float edge = 1.0 - smoothstep(0.55, 0.96, max(abs(a_pos.x), abs(a_pos.y)));\n"
     "  v_edge = edge;\n"
-    "  float shal = smoothstep(0.0, 1.1 * u_wave_scale, dep);\n"
+    "  float shal = smoothstep(0.0, u_shallow * u_wave_scale, dep);\n"
     "  float amp = u_wave_amp * edge * shal * shoal_boost(dep, u_wave_scale);\n"
     "  v_amp = amp;\n"
     "  vec3 tx, tz; float crest;\n"
     "  vec3 d = wave_sum(p, amp, u_wave_scale, cell, tx, tz, crest);\n"
     "  v_jac = tx.x * tz.z - tx.z * tz.x; v_crest = crest;\n"
     "  v_slope = 1.0 - normalize(cross(tz, tx)).y;\n"
+    "  v_shipw = 0.0;\n"
+    "  if (u_nships > 0) {\n"
+    "    float se = 0.05 * u_wave_scale, s0 = ship_wave(p, u_time);\n"
+    "    d.y += s0; tx.y += (ship_wave(p + vec2(se, 0.0), u_time) - s0) / se; tz.y += (ship_wave(p + vec2(0.0, se), u_time) - s0) / se; v_shipw = s0;\n"
+    "  }\n"
     "  v_wpos = vec3(p.x + d.x, d.y, p.y + d.z);\n"
     "  v_nrm = normalize(cross(tz, tx));\n"
     "  v_h = h;\n"
@@ -185,7 +221,7 @@ static const char *sea_tess_tcs =
     "    float ocell = u_detail.z / clamp(u_tess.x * u_detail.z / dcam, 1.0, u_tess.y);\n" \
     "    cell = mix(cell, max(ocell, cell), smoothstep(0.55 * u_detail.x, 0.95 * u_detail.x, r));\n" \
     "  }\n" \
-    "  float shal = smoothstep(0.0, 1.1 * u_wave_scale, dep);\n" \
+    "  float shal = smoothstep(0.0, u_shallow * u_wave_scale, dep);\n" \
     "  float amp = u_wave_amp * edge * shal * shoal_boost(dep, u_wave_scale);\n" \
     "  v_amp = amp; v_edge = edge;\n" \
     "  vec3 tx, tz; float crest;\n" \
@@ -207,6 +243,12 @@ static const char *sea_tess_tcs =
     "    float dmz = (texture(u_disp, (q + vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r - texture(u_disp, (q - vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r) * 0.7 * da / (2.0 * e);\n" \
     "    tx.y += dmx; tz.y += dmz;\n" \
     "  }\n" \
+    /* the water the ships push aside (GLSL_SEA_VS_COMMON), slope by finite differences */ \
+    "  v_shipw = 0.0;\n" \
+    "  if (u_nships > 0) {\n" \
+    "    float se = 0.05 * u_wave_scale, s0 = ship_wave(p, u_time);\n" \
+    "    d.y += s0; tx.y += (ship_wave(p + vec2(se, 0.0), u_time) - s0) / se; tz.y += (ship_wave(p + vec2(0.0, se), u_time) - s0) / se; v_shipw = s0;\n" \
+    "  }\n" \
     "  v_wpos = vec3(p.x + d.x, d.y, p.y + d.z);\n" \
     "  v_nrm = normalize(cross(tz, tx));\n" \
     "  v_h = h;\n" \
@@ -215,13 +257,13 @@ static const char *sea_tess_tcs =
 static const char *sea_tess_tes = GLSL_SEA_TES_BODY;
 
 static const char *sea_fs =
-    "in vec3 v_wpos; in vec3 v_nrm; in float v_slope; in float v_h; in float v_amp; in float v_edge; in float v_jac; in float v_crest;\n"
+    "in vec3 v_wpos; in vec3 v_nrm; in float v_slope; in float v_h; in float v_amp; in float v_edge; in float v_jac; in float v_crest; in float v_shipw;\n"
     "uniform sampler2D u_waves; uniform sampler2D u_albedo; uniform float u_has_albedo; uniform sampler2D u_hm;\n"
     "uniform float u_foam;\n"                   // foam strength knob (dashboard / MARE_FOAM), 1 = normal
     "uniform float u_calm;\n"                   // weather: 1 = glassy (mirror-like roughness, more sky in the water)
     "uniform sampler2D u_scene; uniform sampler2D u_scene_depth; uniform vec2 u_scene_size; uniform float u_refract;\n"   // the frame so far, for refraction (hdr_capture_scene); u_refract 0 = alpha blend instead
     "uniform vec3 u_cam_right; uniform vec3 u_cam_up;\n"
-    "uniform vec4 u_ships[24]; uniform float u_shiplen[24]; uniform int u_nships;\n"   // nearby ships: x, z, heading, speed; hull length
+    "uniform vec4 u_ships[24]; uniform float u_shiplen[24]; uniform int u_nships;\n"   // nearby ships: x, z, heading, speed (hull lengths/s); hull length
     "uniform float u_time; uniform float u_wave_scale; uniform float u_local_depth; uniform vec4 u_geo; uniform float u_k;\n"
     "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_daylight;\n"
     "uniform vec2 u_drift1; uniform vec2 u_drift2;\n"   // accumulated downwind drift of the two ripple layers (sea_update_waves)
@@ -345,30 +387,35 @@ static const char *sea_fs =
     "  float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;\n"
     // Shoreline: the thin lapping line at the waterline, as before.
     "  float foam = (1.0 - smoothstep(0.0, 0.45 * sc, depth)) * (0.55 + 0.45*sin(depth*30.0/sc - t*2.0 + w1)) * detail;\n"
-    // Ships: splash where the hull meets the water - a bow wave and a short break along the
-    // waterline - and nothing behind. The long V wake this used to trail read as a scar drawn
-    // on the sea rather than disturbed water, and at map zooms every ship towed one across the
-    // ocean; what the eye actually wants from this distance is the white at the hull.
+    // Ships: white only where the ship is going. The bow wave the vertex stage raised breaks
+    // at its crest (v_shipw), the stem throws spray ahead, and the forward half of the hull
+    // breaks the water along its shoulders. Nothing trails astern: the long V wake this used to
+    // draw read as a scar on the sea, and at map zooms every ship towed one across the ocean.
     "  float shipk = 1.0;\n"                  // 1 - union of the ships' foam: overlapping splashes never add up to a sheet
     "  for (int i = 0; i < u_nships; ++i) {\n"
     "    vec2 dxz = v_wpos.xz - u_ships[i].xy; float L = max(u_shiplen[i], 0.2);\n"
-    "    if (dot(dxz, dxz) > 1.6 * L * L) continue;\n"
+    "    if (dot(dxz, dxz) > 2.0 * L * L) continue;\n"
     "    float ch = cos(u_ships[i].z), sh = -sin(u_ships[i].z);\n"          // forward = (cos h, -sin h), as scene.c
     "    float along = dxz.x * ch + dxz.y * sh, across = abs(-dxz.x * sh + dxz.y * ch);\n"
-    "    float spd = clamp(u_ships[i].w / 5.0, 0.15, 1.0);\n"
-    "    float bowx = (along - 0.42 * L) / (0.20 * L), bowz = across / (0.22 * L);\n"
-    "    float bow = exp(-(bowx * bowx + bowz * bowz)) * (0.45 + 0.45 * min(ws, 1.0)) * spd;\n"
-    // the waterline break: a band along the hull sides, chopped up by the ripple detail so it
-    // reads as water slapping the planking instead of a painted outline
-    "    float hull = smoothstep(-0.5 * L, -0.40 * L, along) * (1.0 - smoothstep(0.34 * L, 0.44 * L, along))\n"
-    "               * smoothstep(0.15 * L, 0.19 * L, across) * (1.0 - smoothstep(0.23 * L, 0.30 * L, across))\n"
-    "               * (0.45 + 0.55 * lum2) * 0.5 * spd;\n"
-    // a short stern boil, a fraction of a hull length, not a trail
-    "    float back = -along - 0.44 * L;\n"
-    "    float boil = step(0.0, back) * exp(-back / (0.22 * L)) * (1.0 - smoothstep(0.13 * L, 0.20 * L, across))\n"
-    "               * (0.35 + 0.65 * lum2) * 0.45 * spd;\n"
-    "    shipk *= 1.0 - clamp(bow + hull + boil, 0.0, 0.85);\n"
+    "    float spd = clamp(u_ships[i].w * 10.0, 0.15, 1.0);\n"
+    // the stem's own splash: a tight patch of white at the cutwater, broken up by the foam texture
+    "    float bowx = (along - 0.46 * L) / (0.13 * L), bowz = across / (0.14 * L);\n"
+    "    float bow = exp(-(bowx * bowx + bowz * bowz)) * (0.5 + 0.5 * min(ws, 1.0)) * (0.5 + 0.9 * lum2) * spd;\n"
+    // the waterline break along the forward half only, a thin band chopped up by the ripple
+    // detail so it reads as water slapping the planking; the quarter runs clean
+    "    float hull = smoothstep(-0.10 * L, 0.05 * L, along) * (1.0 - smoothstep(0.36 * L, 0.46 * L, along))\n"
+    "               * smoothstep(0.155 * L, 0.185 * L, across) * (1.0 - smoothstep(0.21 * L, 0.26 * L, across))\n"
+    "               * smoothstep(0.30, 0.62, lum2) * 0.8 * spd;\n"
+    // streaks running out ahead of the stem with the bow wave, in the texture's own pattern
+    "    float fwd = along - 0.46 * L;\n"
+    "    float ahead = step(0.0, fwd) * exp(-fwd / (0.16 * L)) * (1.0 - smoothstep(0.04 * L, 0.26 * L, across))\n"
+    "                * smoothstep(0.28, 0.60, lum1) * 0.7 * spd;\n"
+    "    shipk *= 1.0 - clamp(bow + hull + ahead, 0.0, 0.85);\n"
     "  }\n"
+    // the bow wave breaking: only its crest, and only in the texture's bright streaks, so it is a
+    // broken white line riding the heap of water and not a sheet laid over it
+    "  float shipcrest = smoothstep(0.009, 0.015, v_shipw / max(sc, 1e-3)) * smoothstep(0.30, 0.58, lum2) * 0.8;\n"
+    "  shipk *= 1.0 - clamp(shipcrest, 0.0, 0.8);\n"
     "  float shipf = (1.0 - shipk) * detail;\n"
     "  vec3 foamcol = srgb_to_linear(vec3(0.93, 0.96, 0.98)) * (u_ambsky * 1.0 + u_suncol * 0.35);\n"
     "  float foamall = clamp((caps * 0.9 + surf * 0.8 + shipf + foam * 0.7) * u_foam, 0.0, 1.0);\n"
@@ -391,7 +438,7 @@ static const char *sea_fs =
     "  fragColor = vec4(col, alpha);\n"
     "}\n";
 
-static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
+static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_shipwave", "u_shallow", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                       "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                       "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", GLSL_LIGHT_UNIFORMS, 0 };
 
@@ -553,6 +600,10 @@ void sea_update_waves(float day, float dt) {
             if (set->phase[i] > 6.2831853f) set->phase[i] -= 6.2831853f * floorf(set->phase[i] / 6.2831853f);
         }
     }
+    // The zoomed-out sea runs only in deep water: the gate rises with the camera, so at the
+    // strategic view the swell needs ~3.6 wave-units of depth for full height and the coastal
+    // shelf (and every new island's shallows) stays visibly calmer than the open sea.
+    sea_shallow_now = 1.1f + 2.5f * clampf((cam.dist - 90.f) / 310.f, 0.f, 1.f);
     const sea_set_t *shown = sea_set[1].valid && sea_blend > 0.5f ? &sea_set[1] : &sea_set[0];
     sea_wind_dx = shown->wdx; sea_wind_dz = shown->wdz; sea_wind_str = shown->str;
     sea_wind_amp = lerpf(sea_set[0].amp, sea_set[1].valid ? sea_set[1].amp : sea_set[0].amp, sea_blend);
@@ -600,10 +651,12 @@ void sea_bind_waves(const rhi_pipeline_t *p) {
 int sea_nyquist = 1;         // fade waves the detail grid cannot sample (MARE_SEA_NYQUIST=0 shows the aliasing it removes)
 float sea_foam = 1.f;        // foam strength (dashboard / MARE_FOAM; 0 = none)
 int   sea_refract = 1;       // refract the frame behind the water (MARE_SEA_REFRACT=0: the old alpha blend)
+int   sea_ship_waves = 1;    // the water ships push aside (MARE_SHIP_WAVES=0 for the A/B; the foam stays)
 #define SEA_MAX_SHIPS 24
 static float sea_ships[SEA_MAX_SHIPS * 4], sea_ship_len[SEA_MAX_SHIPS]; static int sea_nships;
-// Ships the water should foam around this frame: x, z, heading, speed (world units/s) and hull
-// length. scene.c gives the fleets near the look-at point, detailview.c its staged ships.
+// Ships the water should foam and heap around this frame: x, z, heading, speed in *hull lengths
+// per second* (so the map's fleets and the staged battle's ships read alike) and hull length.
+// scene.c gives the fleets near the look-at point, detailview.c its staged ships.
 void sea_set_ships(const float *xzhs, const float *len, int n) {
     sea_nships = n > SEA_MAX_SHIPS ? SEA_MAX_SHIPS : n;
     if (sea_nships > 0) { memcpy(sea_ships, xzhs, sea_nships * 4 * sizeof(float)); memcpy(sea_ship_len, len, sea_nships * sizeof(float)); }
@@ -633,6 +686,8 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
       rhi_set_f3(rhi_uniform(p,"u_cam_right"), cam.right.x, cam.right.y, cam.right.z);
       rhi_set_f3(rhi_uniform(p,"u_cam_up"), cam.up.x, cam.up.y, cam.up.z); }
     rhi_set_i1(rhi_uniform(p,"u_nships"), sea_nships);
+    rhi_set_f1(rhi_uniform(p,"u_shipwave"), sea_ship_waves ? 1.f : 0.f);
+    rhi_set_f1(rhi_uniform(p,"u_shallow"), sea_shallow_now);
     if (sea_nships) { rhi_set_f4v(rhi_uniform(p,"u_ships"), sea_ships, sea_nships); rhi_set_f1v(rhi_uniform(p,"u_shiplen"), sea_ship_len, sea_nships); }
     { const rhi_texture_t *dsp = texture_get(sea_tex_disp);
       rhi_set_i1(rhi_uniform(p,"u_disp"), 5); rhi_texture_bind(5, dsp ? dsp : detail_waves());
@@ -660,9 +715,11 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
 float sea_zoom_amp(void) {
     float d = cam.dist;
     if (d <= 28.f)  return 1.f;                                           // city / battle: full height
-    if (d <= 90.f)  return lerpf(1.f, 0.42f, (d - 28.f) / 62.f);          // regional: falling away fast
-    if (d <= 260.f) return lerpf(0.42f, 0.10f, (d - 90.f) / 170.f);
-    return clampf(lerpf(0.10f, 0.03f, (d - 260.f) / 340.f), 0.03f, 0.10f); // strategic: a texture, not a swell
+    if (d <= 90.f)  return lerpf(1.f, 0.46f, (d - 28.f) / 62.f);          // regional: falling away fast
+    if (d <= 260.f) return lerpf(0.46f, 0.26f, (d - 90.f) / 170.f);
+    // Strategic: the open sea keeps a readable swell (the deep-water gate below keeps the
+    // coasts calm); it only fades towards a texture at the continental pull-out.
+    return clampf(lerpf(0.26f, 0.14f, (d - 260.f) / 340.f), 0.14f, 0.26f);
 }
 
 // Staged scenes (detailview.c) stretch the sea by DV_SHIP_SCALE, so a wave that looks right on

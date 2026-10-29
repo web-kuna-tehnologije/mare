@@ -135,6 +135,52 @@ static void compute_heightmap(unsigned seed) {
     }
 }
 
+void world_recarve_straits(void) {
+    for (unsigned i = 0; i < sizeof(geo_straits)/sizeof(geo_straits[0]); ++i)
+        raster_strait(geo_straits[i].pts, geo_straits[i].halfwidth);
+    // any water cell left holding a land height (a fold put an island into a carved channel)
+    // goes back under the surface, so the sea draws over it and ships can pass
+    for (int i = 0; i < LM_W*LM_H; ++i) if (!landmask[i] && heightmap[i] > 0.f) heightmap[i] = -0.4f;
+}
+void world_recompute_coastdist(void) { compute_coastdist(); }
+
+// Small islands must clear the water. The heightfield ramps land up from the coast over ~5
+// cells, so a one-or-two-cell island tops out around 0.25 - under the 0.35 the sea shader
+// treats as land - and renders as a drowned platform with a surf ring (the Azores have done
+// this quietly all along; the Dalmatian and Aegean chains made it obvious). Any land component
+// small enough to live inside that ramp is lifted to a solid island height; mainland beaches
+// keep their low fringe, which is what makes a shoreline read.
+#define ISLAND_MAX_CELLS 80
+#define ISLAND_MIN_H     0.55f
+static void raise_small_islands(void) {
+    int N = LM_W * LM_H, raised = 0, islands = 0;
+    int *stack = malloc(N * sizeof(int));
+    unsigned char *seen = calloc(N, 1);
+    int cells[ISLAND_MAX_CELLS];
+    for (int i = 0; i < N; ++i) {
+        if (!landmask[i] || seen[i]) continue;
+        int sp = 0, n = 0;
+        stack[sp++] = i; seen[i] = 1;
+        while (sp) {                         // flood the whole component; record only the first few cells
+            int c = stack[--sp], x = c % LM_W, y = c / LM_W;
+            if (n < ISLAND_MAX_CELLS) cells[n] = c;
+            n++;
+            for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) {
+                int xx = x + dx, yy = y + dy;
+                if (xx < 0 || yy < 0 || xx >= LM_W || yy >= LM_H) continue;
+                int j = yy * LM_W + xx;
+                if (landmask[j] && !seen[j]) { seen[j] = 1; stack[sp++] = j; }
+            }
+        }
+        if (n > ISLAND_MAX_CELLS) continue;  // a continent keeps its beach ramp
+        islands++;
+        for (int k = 0; k < n; ++k)
+            if (heightmap[cells[k]] < ISLAND_MIN_H) { heightmap[cells[k]] = ISLAND_MIN_H; raised++; }
+    }
+    free(seen); free(stack);
+    LOG_INFO("world", "%d small islands lifted clear of the water (%d cells)", islands, raised);
+}
+
 float world_height(float wx, float wz) {
     float fx = (x2lon(wx) - LON0) * CELLS_PER_DEG - 0.5f, fy = (LAT1 - z2lat(wz)) * CELLS_PER_DEG - 0.5f;
     int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
@@ -183,6 +229,7 @@ void world_init(unsigned seed) {
     for (unsigned i = 0; i < sizeof(geo_straits)/sizeof(geo_straits[0]); ++i) raster_strait(geo_straits[i].pts, geo_straits[i].halfwidth);
     compute_coastdist();
     compute_heightmap(seed);
+    raise_small_islands();
     int land = 0; for (int i = 0; i < LM_W*LM_H; ++i) land += landmask[i];
     LOG_INFO("world", "world %dx%d rasterized in %.1f ms: %d land polygons, %d water bodies, %d straits, %.1f%% land", LM_W, LM_H, (diag_now()-t0)*1000, (int)(sizeof(geo_land)/sizeof(geo_land[0])), (int)(sizeof(geo_water)/sizeof(geo_water[0])), (int)(sizeof(geo_straits)/sizeof(geo_straits[0])), 100.0*land/(LM_W*LM_H));
 }

@@ -161,9 +161,12 @@ def cut(src, out_dir, kind, win, down):
             open(os.path.join(out_dir, "%s_%d_%d.bin" % (kind, tx, ty)), "wb").write(t.tobytes())
             written += 1
         ty += 1
+    # The grid is padded to whole tiles, but the *samples* end at (ow, oh): the loader maps the
+    # geographic window over the real sample count, so the meta must carry it - the padded dims
+    # here used to squeeze the east and south edges by the pad (2% at this window).
     meta = {"kind": kind, "source": os.path.basename(src),
             "lon0": lon0, "lat0": lat0, "lon1": lon1, "lat1": lat1,
-            "width": tx_n * TILE, "height": ty * TILE, "tile": TILE,
+            "width": ow, "height": oh, "tile": TILE,
             "tiles_x": tx_n, "tiles_y": ty, "bytes_per_sample": out_bpp,
             "bit_depth": bd, "colour_type": ct, "downsample": down}
     with open(os.path.join(out_dir, "%s.json" % kind), "w") as f:

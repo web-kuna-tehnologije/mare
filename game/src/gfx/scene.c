@@ -241,7 +241,7 @@ void scene_build_ships(void) {
                     if (dd < 90.f) {
                         int k = nfoam < 24 ? nfoam++ : -1;
                         if (k < 0) { float worst = -1; for (int q = 0; q < 24; ++q) if (foam_d[q] > worst) { worst = foam_d[q]; k = q; } if (worst <= dd) k = -1; }
-                        if (k >= 0) { foam_v[k*4] = wx; foam_v[k*4+1] = wz; foam_v[k*4+2] = wh; foam_v[k*4+3] = vel; foam_len[k] = sc; foam_d[k] = dd; }
+                        if (k >= 0) { foam_v[k*4] = wx; foam_v[k*4+1] = wz; foam_v[k*4+2] = wh; foam_v[k*4+3] = vel / sc; foam_len[k] = sc; foam_d[k] = dd; }   // speed in hull lengths/s
                     }
                 }
             }

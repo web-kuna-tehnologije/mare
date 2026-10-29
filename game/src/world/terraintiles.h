@@ -69,4 +69,16 @@ int  terraintiles_resident(float lon, float lat);
 void terraintiles_stats(tt_stats_t *out);
 unsigned terraintiles_generation(void);   // bumps when residency changes
 
+// One-shot geography fold at init (world/terrainmap.h drives it): walk the height tiles one row
+// band at a time - the whole set is never resident - and write the authored Earth into a base
+// grid of `w` x `h` cells (cell centre of (x,y) at lon0 + (x+.5)/cells_per_deg, lat1 - (y+.5)/
+// cells_per_deg). Per cell: new land where the real map has an island the base lacks, authored
+// relief where both agree on land, authored bathymetry where both agree on sea; base land is
+// never removed (the ports and the carved straits are placed against it). `protect` (optional,
+// w*h bytes, 1 = keep) pins cells - the harbour basins - whose mask must not flip.
+// Returns cells written, 0 when no tiles are cut. `flips` (optional) reports new land cells.
+int terraintiles_bake(const char *dir, float *hm, unsigned char *lm, int w, int h,
+                      float lon0, float lat1, float cells_per_deg,
+                      const unsigned char *protect, int *flips);
+
 #endif

@@ -19,6 +19,12 @@ Equirectangular over the playable extent (lon -130..46, lat -58..72), under
 the game runs with the art half-finished and improves as each file lands — which is the state
 it is in now, and the state it should stay usable in.
 
+The maps and the tile set resolve **per worktree first**: `<asset root>/terrain[/tiles]`
+(which `assets/elm` carries) before the shared `assets/terrain` — two sessions cutting tiles
+into the shared folder have already overwritten each other's index once. The tile meta now
+records the true sample dimensions; the padded-to-512 dims it used to record squeezed the east
+and south edges by the pad (~2 %).
+
 Calibration lives in `world/terrainmap.c`: `TM_SEA_LEVEL` is the grey that means the
 shoreline (0.52 for the supplied bathymetry), `TM_HEIGHT_SCALE` the world height of pure white
 and `TM_DEPTH_SCALE` the depth of pure black. Those three numbers are what you turn if the new
@@ -35,6 +41,32 @@ almost entirely the coastal fringe.
 
 Everything downstream then sees one consistent world: `world_height` is the folded field, nav
 rebuilds from it, and the renderer's chunks sample the same texture they always did.
+
+### 2b. The geography bake and the island data (0.16)
+
+The streamed tiles (section 5) are folded into the base world once at startup by
+`terrainmap_bake_geography()` → `terraintiles_bake()`: one tile row resident at a time, authored
+relief where both agree on land, authored bathymetry where both agree on sea, harbour basins
+pinned, the carved straits re-forced open, the coast-distance field rebuilt before `nav_init`.
+123 ms against the 16x24 set. `MARE_TERRAIN_GEO=0` reverts to the purely procedural heights.
+
+The *coastline* still never comes from the image, and 0.16 is why that rule survived contact
+with the user's wish for "every island of the Adriatic": the supplied 32768 map turned out to
+be a loose AI Earth — recognisable continents, regionally wrong coasts, its Adriatic half
+filled with land — so taking its mask would have paved over exactly the island seas that
+matter (the experiment is kept behind `MARE_TERRAIN_ISLANDS=1`, with port protection and a
+vote filter). The islands are instead **authored vector data** in `data/geo_coast.h`: the
+Dalmatian chain, the Ionians, the Aegean and the Cyclades, Menorca, Ibiza, Malta — each
+polygon at least two cells in both axes so its navigation cell goes majority-land and the A*
+routes around it (`sim_test` fails on fleets sailing over land below that size), with a water
+row kept between neighbouring chains so the channels stay open. `raise_small_islands()` in
+world.c then lifts any land component of ≤80 cells to at least 0.55 world units: the coast
+ramp alone tops a two-cell island out *under* the sea shader's land threshold, which is why
+the Azores spent several versions as drowned platforms with a surf ring.
+
+The clipmap rings clamp the authored height delta to the base's side of the waterline
+(`streamview.c`), so the loose map refines relief and bathymetry near the camera but can never
+raise a landform through the open sea or open a hole in a coast the ports were placed against.
 
 ## 3. Chunks of quads
 

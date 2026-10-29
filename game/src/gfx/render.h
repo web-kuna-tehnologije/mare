@@ -114,6 +114,7 @@ extern int   sea_set_changes;            // wave sets built this run (a pan acro
 extern int   sea_nyquist;                // 1 = fade waves finer than the detail grid (MARE_SEA_NYQUIST=0 to compare)
 extern float sea_foam;                   // foam strength knob (1 normal, 0 none; MARE_FOAM)
 extern int   sea_refract;                // refract the frame behind the water (MARE_SEA_REFRACT=0 for the old alpha blend)
+extern int   sea_ship_waves;             // bow waves raised by nearby ships (MARE_SHIP_WAVES=0 to compare)
 extern int   sea_inner_on;               // fine inner patch lattice near the look-at point (MARE_SEA_INNER=0)
 float sea_height_at(float x, float z);   // wave surface height at a world point this frame (CPU mirror of the shader sum)
 void sea_set_ships(const float *xzhs, const float *len, int n);   // ships to foam around this frame (x, z, heading, speed; hull length), max 24

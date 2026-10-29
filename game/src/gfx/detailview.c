@@ -7,6 +7,7 @@
 // at ~24 m and a ship of the line at ~52 m; the battle coast sits DV_COAST_DIST (~1 km) away.
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "detailview.h"
@@ -37,11 +38,20 @@ enum { DVP_IDLE, DVP_IN, DVP_SHOW, DVP_OUT_IN, DVP_OUT };  // transition phases:
 
 typedef struct dv_ship_t {
     int   type, side;
-    float x, z, heading, speed, phase;
+    float x, z, heading, speed, phase;   // speed: local units per second, from the class stats
     float r, g, b;
     float next_fire;
     int   nation;                    // picks the authored class flavour (shipyard.h)
+    float course;                    // the course she holds (the heading weaves about it)
+    float turn;                      // rate of turn, radians per second (class stats)
+    float len;                       // hull length, local units (foam and bow wave)
+    int   slot;                      // place in her side's line (0 = leads)
 } dv_ship_t;
+
+// Metres per local unit: the authored hulls are fitted at SHIP_M_PER_UNIT (0.045 world units
+// per metre, shipyard.c) and the staged scenes draw them DV_SHIP_SCALE larger.
+#define DV_M_PER_UNIT  (1.f / (0.045f * DV_SHIP_SCALE))
+#define DV_KNOT        (0.5144f / DV_M_PER_UNIT)   // one knot, local units per second
 
 typedef struct dv_puff_t { float x, y, z, age, scale; } dv_puff_t;
 
@@ -53,6 +63,7 @@ static struct {
     int want_port, want_fleet;
     // battle
     dv_ship_t ship[DV_MAX_SHIPS]; int nships;
+    float line_s[2], line_v[2], line_gap[2]; int nside[2];   // per side: line head's arc position, line speed, spacing
     dv_puff_t puff[96]; int npuffs;
     float time;
     // stage + instance lists
@@ -113,11 +124,77 @@ static void stage_city(void) {
 // ---------------------------------------------------------------------------
 // battle scene: one entry per ship, each with its own course, speed and gun timer
 
+// Every ship sails by her class's numbers (shipyard_class_stats): a carrack makes five knots
+// with a fair wind and turns at three degrees a second, a fusta under oars is half as fast
+// again and twice as handy. In a fight nobody carries full sail, so each ship is given 55-90 %
+// of her best speed and keeps it.
 static void battle_add_ship(int type, int side, float x, float z, float heading, unsigned col, unsigned *seed, int nation) {
     if (dv.nships >= DV_MAX_SHIPS) return;
     dv_ship_t *s = &dv.ship[dv.nships++];
-    *s = (dv_ship_t){ type, side, x, z, heading, (0.9f + rnd_f(seed) * 0.9f) * (0.55f + 0.1f * type), rnd_f(seed) * 6.28f,
-                      col_r(col), col_g(col), col_b(col), 3.f + rnd_f(seed) * 6.f, nation };
+    ship_stats_t st; shipyard_class_stats(type, nation, &st);
+    float best = maxf(st.knots, st.oar_knots);
+    float speed = best * DV_KNOT * 0.95f;    // her cap; the line settles on the slowest ship's pace
+    (void)rnd_f(seed);                       // keep the stream so the rest of the scene is unchanged
+    *s = (dv_ship_t){ type, side, x, z, heading, speed, rnd_f(seed) * 6.28f,
+                      col_r(col), col_g(col), col_b(col), 3.f + rnd_f(seed) * 6.f, nation,
+                      heading, st.turn_dps * 0.0174533f, st.length_m / DV_M_PER_UNIT };
+}
+
+// The battle line (fleet_sails battles are fought in formation, not as a swarm): each side
+// sails a stadium circuit - two straight legs joined by half-turn caps - in line ahead. Every
+// ship holds the station her slot gives her, so the column keeps its spacing, and because the
+// stations round the caps one after another, the line "turns in succession" exactly where the
+// leader turned, the way a seventeenth-century line of battle came about. The two circuits
+// mirror each other: the inner legs run parallel and opposed DV_LINE_SEP apart - inside gun
+// range, outside ramming distance - so the lines close, hold the range on the pass, trade
+// broadsides, wear round the cap and come back.
+#define DV_LINE_LEG   150.f   // straight leg length
+#define DV_LINE_R      26.f   // half-turn radius (a great carrack at line speed needs ~20)
+#define DV_LINE_SEP    28.f   // between the two inner legs: a cable or so, inside the 55-unit gun range
+#define DV_LINE_GAP    26.f   // along-line spacing (the biggest hull is ~19 local units)
+#define DV_LINE_AHEAD   9.f   // the pursuit point sails this far ahead of the station
+
+static float dv_line_perim(void) { return 2.f * DV_LINE_LEG + 2.f * 3.14159265f * DV_LINE_R; }
+
+static void dv_line_point(int side, float sarc, float *x, float *z, float *hdg) {
+    float P = dv_line_perim();
+    sarc = fmodf(sarc, P); if (sarc < 0) sarc += P;
+    float zc = -(DV_LINE_SEP * 0.5f + DV_LINE_R);            // side 0 circles the southern stadium
+    float X, Z, H;
+    const float DV_PI = 3.14159265f;
+    if (sarc < DV_LINE_LEG) {                                // inner leg, east
+        X = -DV_LINE_LEG * 0.5f + sarc; Z = zc + DV_LINE_R; H = 0.f;
+    } else if (sarc < DV_LINE_LEG + DV_PI * DV_LINE_R) {        // east cap: port round, heading 0 -> pi
+        float a = (sarc - DV_LINE_LEG) / DV_LINE_R;
+        X = DV_LINE_LEG * 0.5f + DV_LINE_R * sinf(a); Z = zc + DV_LINE_R * cosf(a); H = a;
+    } else if (sarc < 2.f * DV_LINE_LEG + DV_PI * DV_LINE_R) {  // outer leg, west
+        float t = sarc - DV_LINE_LEG - DV_PI * DV_LINE_R;
+        X = DV_LINE_LEG * 0.5f - t; Z = zc - DV_LINE_R; H = DV_PI;
+    } else {                                                 // west cap, back onto the inner leg
+        float a = (sarc - 2.f * DV_LINE_LEG - DV_PI * DV_LINE_R) / DV_LINE_R;
+        float h2 = DV_PI + a;
+        X = -DV_LINE_LEG * 0.5f + DV_LINE_R * sinf(h2); Z = zc + DV_LINE_R * cosf(h2); H = h2;
+    }
+    if (side) { X = -X; Z = -Z; H += 3.14159265f; }          // side 1: the mirrored northern circuit
+    *x = X; *z = Z; *hdg = H;
+}
+
+// After both fleets are in: give every ship her place in her side's line, set the line's pace
+// to its slowest sail, and start everyone *on station* - a battle is met formed, not forming.
+static void battle_form_lines(void) {
+    dv.nside[0] = dv.nside[1] = 0; dv.line_s[0] = dv.line_s[1] = 0.f;
+    float vmin[2] = { 1e9f, 1e9f };
+    for (int i = 0; i < dv.nships; ++i) { dv_ship_t *sh = &dv.ship[i];
+        sh->slot = dv.nside[sh->side]++;
+        vmin[sh->side] = minf(vmin[sh->side], sh->speed); }
+    float P = dv_line_perim();
+    for (int k = 0; k < 2; ++k) {
+        dv.line_v[k]   = vmin[k] < 1e8f ? vmin[k] * 0.8f : 0.f;
+        dv.line_gap[k] = dv.nside[k] > 0 ? minf(DV_LINE_GAP, (P - 12.f) / (float)dv.nside[k]) : DV_LINE_GAP;
+    }
+    for (int i = 0; i < dv.nships; ++i) { dv_ship_t *sh = &dv.ship[i];
+        dv_line_point(sh->side, -sh->slot * dv.line_gap[sh->side], &sh->x, &sh->z, &sh->heading);
+        sh->course = sh->heading; }
 }
 
 static void build_battle(int fleet_id) {
@@ -151,20 +228,42 @@ static void build_battle(int fleet_id) {
         }
         LOG_INFO("gfx", "detail view: no battle under way, staged a 30-ship exercise");
     } else LOG_INFO("gfx", "detail view: battle with %d ships", dv.nships);
+    battle_form_lines();
+    LOG_INFO("gfx", "battle lines formed: %d against %d, line speeds %.2f / %.2f u/s, gaps %.0f / %.0f",
+             dv.nside[0], dv.nside[1], dv.line_v[0], dv.line_v[1], dv.line_gap[0], dv.line_gap[1]);
     stage_battle();
 }
 
 static void battle_update(float dt) {
     dv.time += dt;
     unsigned seed = (unsigned)(dv.time * 977) + 13;
+    for (int k = 0; k < 2; ++k) dv.line_s[k] += dv.line_v[k] * dt;   // the lines sail on
     for (int i = 0; i < dv.nships; ++i) {
         dv_ship_t *s = &dv.ship[i];
-        s->heading += sinf(dv.time * 0.21f + s->phase) * 0.055f * dt * 8;     // lazy individual course changes
-        // keep the melee inside the stage: bend towards the centre when straying
-        float d = sqrtf(s->x * s->x + s->z * s->z);
-        if (d > 70) { float want = atan2f(-(0 - s->z), 0 - s->x); s->heading += wrap_angle(want - s->heading) * 0.5f * dt; }
-        s->x += cosf(s->heading) * s->speed * dt * 2.f;
-        s->z -= sinf(s->heading) * s->speed * dt * 2.f;                       // heading convention matches inst_t (0 = +x)
+        if (dv.mode == DV_BATTLE) {
+            // line ahead: chase a point just ahead of the station, never turning faster than
+            // the class can, and trim speed to hold the spacing - astern of station crowds on
+            // sail, ahead of it she luffs up and lets the line catch her
+            float sarc = dv.line_s[s->side] - s->slot * dv.line_gap[s->side];
+            float px, pz, ph; dv_line_point(s->side, sarc + DV_LINE_AHEAD, &px, &pz, &ph);
+            float want = atan2f(-(pz - s->z), px - s->x);
+            float dh = wrap_angle(want - s->heading);
+            s->heading += clampf(dh, -s->turn * dt, s->turn * dt);
+            float stx, stz, sth; dv_line_point(s->side, sarc, &stx, &stz, &sth);
+            float err = (stx - s->x) * cosf(sth) + (stz - s->z) * -sinf(sth);   // along-track: + = station ahead
+            float v = minf(dv.line_v[s->side] * clampf(1.f + err / 22.f, 0.6f, 1.4f), s->speed);
+            s->x += cosf(s->heading) * v * dt;
+            s->z -= sinf(s->heading) * v * dt;                                // heading convention matches inst_t (0 = +x)
+        } else {
+            // the city's moored ships keep their gentle wander off the piers
+            float want = s->course + 0.22f * sinf(dv.time * 0.09f + s->phase);
+            float d = sqrtf(s->x * s->x + s->z * s->z);
+            if (d > 70) { s->course = atan2f(-(0 - s->z), 0 - s->x); want = s->course; }
+            float dh = wrap_angle(want - s->heading);
+            s->heading += clampf(dh, -s->turn * dt, s->turn * dt);
+            s->x += cosf(s->heading) * s->speed * dt;
+            s->z -= sinf(s->heading) * s->speed * dt;
+        }
         s->next_fire -= dt;
         if (s->next_fire < 0) {                                                // broadside at the nearest enemy within range
             s->next_fire = 4.f + rnd_f(&seed) * 7.f;
@@ -362,6 +461,13 @@ void detailview_frame(float dt) {
         cam.dist = 380; cam.want_dist = dv.mode == DV_BATTLE ? 32 : 110;      // the dive through the clouds
         cam.yaw = cam.want_yaw = dv.mode == DV_BATTLE ? 0.12f : 0.25f;        // battle: facing the coast a kilometre off
         cam_pitch_scale = 0.72f;                                               // towards the horizon, like the concept frames
+        // MARE_DV_CAM="dist,yaw_deg[,x,z[,pitch]]" pins the staged camera for screenshots: local
+        // offsets from the scene centre, so a run can frame one ship at a given distance
+        { const char *e = getenv("MARE_DV_CAM");
+          if (e) { float di = 32, ya = 7, ox = 0, oz = -25, ps = 0.72f; sscanf(e, "%f,%f,%f,%f,%f", &di, &ya, &ox, &oz, &ps);
+                   cam.want_dist = cam.dist = di; cam.want_yaw = cam.yaw = ya * 0.0174533f;
+                   cam.tx = cam.want_tx = dv.cx + ox; cam.tz = cam.want_tz = dv.cz + oz; cam_pitch_scale = ps;
+                   LOG_INFO("gfx", "detail view camera pinned (MARE_DV_CAM): dist %.0f yaw %.0f at %.0f,%.0f", di, ya, ox, oz); } }
         dv.phase = DVP_SHOW; dv.t = 0;
     }
     if (dv.phase == DVP_OUT_IN && dv.t >= DV_CLOUD_IN) {      // covered again: restore the map camera
@@ -405,7 +511,7 @@ void detailview_frame(float dt) {
     mesh_set_instances(&mesh_puff, dv.puffs_il.v, dv.puffs_il.n);
     { float fv[24 * 4], fl[24]; int n = 0;                 // the staged ships foam too (sea_set_ships)
       for (int i = 0; i < dv.nships && n < 24; ++i) { const dv_ship_t *s = &dv.ship[i];
-          fv[n*4] = dv.cx + s->x; fv[n*4+1] = dv.cz + s->z; fv[n*4+2] = s->heading; fv[n*4+3] = s->speed * 2.f; fl[n] = ship_scale(s->type) * DV_SHIP_SCALE; n++; }   // hove-to for the fight: a modest wake
+          fv[n*4] = dv.cx + s->x; fv[n*4+1] = dv.cz + s->z; fv[n*4+2] = s->heading; fv[n*4+3] = s->speed / s->len; fl[n] = s->len; n++; }   // speed in hull lengths/s
       sea_set_ships(fv, fl, n); }
     if (dv.mode == DV_CITY) {
         // offset the prebuilt lists to the centre once per frame (cheap: a few hundred)

@@ -1,0 +1,54 @@
+{
+  "name": "carrack_masts_m1",
+  "type": "ship_part",
+  "role": "carrack_masts_m1",
+  "lods": [
+    {
+      "file": "carrack_masts_m1_LOD0.glb",
+      "node": "carrack_masts_m1_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "carrack_masts_m1_LOD1.glb",
+      "node": "carrack_masts_m1_LOD1",
+      "px": 700
+    },
+    {
+      "file": "carrack_masts_m1_LOD2.glb",
+      "node": "carrack_masts_m1_LOD2",
+      "px": 260
+    },
+    {
+      "file": "carrack_masts_m1_LOD3.glb",
+      "node": "carrack_masts_m1_LOD3",
+      "px": 90
+    },
+    {
+      "file": "carrack_masts_m1_LOD4.glb",
+      "node": "carrack_masts_m1_LOD4",
+      "px": 30
+    },
+    {
+      "file": "carrack_masts_m1_LOD5.glb",
+      "node": "carrack_masts_m1_LOD5",
+      "px": 10
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 1.665
+  },
+  "pivot": "base_center",
+  "forward": "-x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.85,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "aabb"
+  }
+}
