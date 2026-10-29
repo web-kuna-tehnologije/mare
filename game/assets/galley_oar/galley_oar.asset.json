@@ -31,7 +31,7 @@
   ],
   "scale": {
     "fit": "length",
-    "size": 0.5
+    "size": 0.34
   },
   "pivot": "base_center",
   "forward": "+x",

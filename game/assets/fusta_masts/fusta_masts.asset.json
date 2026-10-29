@@ -34,7 +34,7 @@
     "size": 0.9
   },
   "pivot": "base_center",
-  "forward": "+x",
+  "forward": "-x",
   "materials": [
     {
       "match": "*",

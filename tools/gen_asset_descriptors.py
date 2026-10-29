@@ -20,12 +20,16 @@ HEIGHTS = {
     "lighthouse": 0.80, "harbor_crane": 0.40, "stone_quay": 0.12, "wooden_pier": 0.10, "windmill": 0.60,
     "fountain": 0.14, "well": 0.12, "wooden_fence": 0.08,
     # ship parts are authored at their own scale and assembled by the ship builder, not placed in towns
-    "galley_hull": 2.0, "galley_mainmast": 2.2, "galley_mizzenmast": 1.6, "galley_oar": 0.50,
+    "galley_hull": 2.0, "galley_mainmast": 2.2, "galley_mizzenmast": 1.6, "galley_oar": 0.34,
 }
 SHIP_PARTS = {"galley_hull", "galley_mainmast", "galley_mizzenmast", "galley_oar"}
 # Parts exported already pointing along +x (the ship's heading-0 axis) must not be rotated
 # again: the galley oar is straightened at export time with --rot (see BLENDER_LOD.md).
 SHIP_FWD_X = {"galley_oar"}
+# Every generated hull and rig came out of Meshy bow-to-the-left: the fine end and the bowsprit
+# sit at -x, where the game puts the bow at +x (heading 0). Verified by rendering the plan view
+# of all eight hulls and the side view of all eight rigs; "-x" is the 180-degree turn that
+# fixes them, and hull and rig agree, so they turn together.
 
 # Gen I ships imported from Meshy (tools/meshy_import.py). Sizes come from the design sheets in
 # the art source tree (assets/ships/design): "length (overall)" for a hull, the scale-comparison
@@ -84,7 +88,7 @@ for name in sorted(os.listdir(root)):
     # Buildings come out of Meshy facing -z in Blender terms, +z after the Y-up export (same as
     # the church). The ship scans are generated from side-view references and come out lying
     # along x, which is already heading 0, so they must not be rotated.
-    forward = "+x" if (name in SHIP_HULLS_M or name in SHIP_MASTS_M or name in SHIP_FWD_X) else "+z"
+    forward = "+x" if name in SHIP_FWD_X else "-x" if (name in SHIP_HULLS_M or name in SHIP_MASTS_M) else "+z"
     desc = {
         "name": name, "type": typ, "role": name,
         "lods": [({"file": f, "node": f"{name}_LOD{i}", "dist": 0} if i == 0 else {"file": f, "node": f"{name}_LOD{i}", "px": px[i]}) for i, f in enumerate(lods)],

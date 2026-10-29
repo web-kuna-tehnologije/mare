@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.11.1 — the fleet corrected, and the sea calmed down
+Every hull and rig was turned the wrong way round, two classes were carrying one mast, the
+oars rowed inboard, and every ship towed a wake across the ocean.
+
+- **Every ship pointed the wrong way.** Rendering the plan view of all eight hulls and the side
+  view of all eight rigs (`docs/screenshots/ships-hull-plan-sheet.png`,
+  `ships-rig-sheet.png`) showed the fine bow and the bowsprit at -x on *all* of them, where the
+  game puts the bow at +x. The descriptors now carry `forward: "-x"`; hull and rig turn together.
+- **Galiots and armed cogs carry three masts.** `mediterranean_masts` and `armed_cog_masts`
+  came out of the generator as a *single* mast, so those two classes were sailing with one.
+  A class now says how many instances of its mast model to step along the hull and at what
+  station and height, so they raise fore, main and mizzen as their design sheets show.
+- **Rigs are cut down**: a rig may no longer overhang its own hull at all (was 15%), and all of
+  them are trimmed to 85%, which brings the generated spars back from tree trunks.
+- **Oars**: a third smaller (0.50 -> 0.34 world units) and turned the right way - they were
+  rowing inboard, with the blades buried in the hull.
+- **Ships no longer tow a wake.** The long V that widened astern read as a scar drawn on the
+  sea, and at map zooms every ship dragged one across the ocean. What is left is splash: a bow
+  wave, a broken band along the waterline, and a short stern boil, all at the hull.
+- **Every ship in a fleet sails for itself.** A fleet is still one entity in the simulation, but
+  its ships were welded in a rigid line and slid across the water as one object. Each ship now
+  keeps a station and wanders around it on its own slow cycle, with its own heading deviation,
+  so the formation breathes. The cycle is a hash of the fleet id and the ship's slot: stable,
+  continuous, and no two ships move alike. Moored ships keep their berth.
+- **The sea falls away with the zoom**: full height only inside 28 units, half by 90, a fifth by
+  260 and near-flat beyond - a swell the size of a county at strategic zoom was nonsense.
+  Staged battles and city scenes stretch the sea by `DV_SHIP_SCALE`, so their displacement is
+  cut to 45% (`DV_SEA_AMP`); the cell density, and so the silhouette of the water, is untouched.
+  Everything that must agree about the surface - the sea passes, the instanced meshes so ships
+  ride what they float on, and the camera's wave-crest floor - now goes through `sea_amp_now()`.
+- **Tessellation cell size is continuous.** It was taken from the patch's own tessellation
+  level, which is quantized, so the Nyquist fade that drops waves a cell cannot carry stepped at
+  every patch edge. It is now computed per vertex from the same formula the control stage uses.
+  Cells are finer again (8 px). This did *not* remove the sea's grid artifact at regional zoom -
+  see KNOWN_ISSUES.
+- **Tools**: `meshy_import.py --organize DEST` copies each download to
+  `DEST/<asset name>/<asset name>.glb` with a `source.txt`, which is what turns a tree of
+  `Meshy_AI_model.glb` into something you can navigate. `mare --map-chunks=level[,max]` prints
+  the whole chunk authoring work list, ordered by ports then land. `MARE_SEA_TESS_MAX` exposes
+  the tessellation ceiling.
+
 ## 0.11.0 — the Generation I fleet, and generating the world a chunk at a time
 Plan and measurements: [DESIGN_SHIPS.md](DESIGN_SHIPS.md),
 [BLENDER_LOD.md](BLENDER_LOD.md) sections 4-5.

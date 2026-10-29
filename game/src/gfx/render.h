@@ -122,6 +122,7 @@ extern int   sea_tess_now;               // ... and in use this frame (only with
 extern int   sea_tess_level_max;         // finest subdivision per patch edge (dashboard)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
 float sea_zoom_amp(void);                // zoom factor on the wave height: 1 close in, flattening as the view pulls out
+extern float sea_local_amp;              // staged scenes cut the displacement back (detailview.c)
 float sea_amp_now(void);                 // the full amplitude this frame (knob x wind x map morph x zoom); meshes ride the same field
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene
 extern float sea_local_depth;            // >0 makes every wave lookup use this depth (staged scenes have no heightmap)

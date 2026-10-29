@@ -130,15 +130,83 @@ static int map_chunk_dump(const char *spec, unsigned seed) {
     return 0;
 }
 
+// --map-chunks=level[,max]: the work list for authoring the world in chunks. Every tile of
+// that level with land in it, ordered by how much the player will look at it (ports first,
+// then how much land it holds), with the asset name and the command for its reference image.
+static int map_chunks_list(const char *spec, unsigned seed) {
+    int level = STREAM_L_TACTICAL, maxn = 0;
+    sscanf(spec, "%d,%d", &level, &maxn);
+    world_init(seed);
+    stream_init(seed, "tiles");
+    int gw = stream_grid_w(level), gh = stream_grid_h(level);
+    if (!gw) { fprintf(stderr, "level must be 0..%d\n", STREAM_LEVELS - 1); return 2; }
+    typedef struct row_t { int tx, ty, ports, big; float land; char names[72]; } row_t;
+    row_t *rows = calloc((size_t)gw * gh, sizeof *rows); int n = 0;
+    float deg = (STREAM_L0_CELLS >> level) / (float)CELLS_PER_DEG;
+    for (int ty = 0; ty < gh; ++ty) for (int tx = 0; tx < gw; ++tx) {
+        const stream_tile_t *t = stream_tile(level, tx, ty);
+        if (!t || t->water_only) continue;
+        float lon0 = LON0 + tx * deg, lat1 = LAT1 - ty * deg;
+        int land = 0, cells = 0;
+        for (int j = 0; j < 24; ++j) for (int i = 0; i < 24; ++i) {
+            float lo = lon0 + (i + 0.5f) * deg / 24, la = lat1 - (j + 0.5f) * deg / 24;
+            cells++; land += world_is_land(lon2x(lo), lat2z(la)) != 0;
+        }
+        if (!land) continue;
+        row_t *r = &rows[n++];
+        r->tx = tx; r->ty = ty; r->land = land / (float)cells;
+        for (int p = 0; p < GEO_NPORTS; ++p) {
+            const geo_port_t *gp = &geo_ports[p];
+            if (gp->size <= 0) continue;
+            if (gp->lon < lon0 || gp->lon >= lon0 + deg || gp->lat > lat1 || gp->lat <= lat1 - deg) continue;
+            r->ports++; if (gp->size >= 2) r->big++;
+            int len = (int)strlen(r->names);
+            if (len < (int)sizeof r->names - 18)
+                snprintf(r->names + len, sizeof r->names - len, "%s%.14s", len ? ", " : "", gp->name);
+        }
+    }
+    for (int i = 1; i < n; ++i) {   // insertion sort: ports, then big ports, then land
+        row_t v = rows[i]; int j = i - 1;
+        while (j >= 0 && (rows[j].ports < v.ports || (rows[j].ports == v.ports && rows[j].big < v.big)
+                       || (rows[j].ports == v.ports && rows[j].big == v.big && rows[j].land < v.land)))
+            { rows[j+1] = rows[j]; j--; }
+        rows[j+1] = v;
+    }
+    printf("\n%d of %d L%d chunks have land (%.0f degrees / %.0f world units square).\n",
+           n, gw * gh, level, deg, deg * WORLD_K);
+    printf("Ordered by what the player looks at: ports first, then how much land.\n\n");
+    printf("  %-4s %-18s %-26s %5s %5s  %s\n", "#", "asset name", "region", "ports", "land", "ports in it");
+    printf("  ---- ------------------ -------------------------- ----- -----  -----------\n");
+    int show = maxn > 0 && maxn < n ? maxn : n;
+    for (int i = 0; i < show; ++i) {
+        const row_t *r = &rows[i];
+        const stream_tile_t *t = stream_tile(level, r->tx, r->ty);
+        char label[64]; stream_tile_label(t, label, sizeof label);
+        const char *reg = strchr(label, '('); char regbuf[32] = "";
+        if (reg) { snprintf(regbuf, sizeof regbuf, "%.*s", (int)strlen(reg + 1) - 1, reg + 1); }
+        char asset[24]; snprintf(asset, sizeof asset, "tile_l%d_%d_%d", level, r->tx, r->ty);
+        printf("  %-4d %-18s %-26.26s %5d %4.0f%%  %s\n",
+               i + 1, asset, regbuf, r->ports, r->land * 100, r->names);
+    }
+    if (show < n) printf("  ... and %d more with land but no ports\n", n - show);
+    printf("\nFor any of them:  ./mare --map-chunk=%d,<tx>,<ty> --seed=%u\n", level, seed);
+    printf("then model it 32 units across with sea level at y = 0 (game/docs/BLENDER_LOD.md section 4).\n");
+    free(rows);
+    stream_shutdown();
+    return 0;
+}
+
 int main(int argc, char **argv) {
     unsigned seed = (unsigned)time(0); int autostart = 0, headless = 0, skip = 0, dev = 0;
-    const char *map_chunk = 0;
+    const char *map_chunk = 0, *map_chunks = 0;
     diag_config_t dc = { "logs", LOG_WARN, LOG_DEBUG, LOG_TRACE, 0 };
     for (int i = 1; i < argc; ++i) {
         if (!strncmp(argv[i], "--seed=", 7)) seed = (unsigned)atoi(argv[i]+7);
         else if (!strncmp(argv[i], "--nation=", 9)) autostart = atoi(argv[i]+9);
         else if (!strncmp(argv[i], "--simulate=", 11)) headless = atoi(argv[i]+11);
         else if (!strncmp(argv[i], "--map-chunk=", 12)) map_chunk = argv[i]+12;
+        else if (!strncmp(argv[i], "--map-chunks=", 13)) map_chunks = argv[i]+13;
+        else if (!strcmp(argv[i], "--map-chunks")) map_chunks = "3";
         else if (!strncmp(argv[i], "--skip=", 7)) skip = atoi(argv[i]+7);
         else if (!strcmp(argv[i], "--dev")) dev = 1;
         else if (!strcmp(argv[i], "--no-shadows")) shadow_enabled = 0;
@@ -153,7 +221,8 @@ int main(int argc, char **argv) {
     { int nw = jobs_init(-1); atexit(jobs_shutdown);
       LOG_INFO("jobs", "%s: %d worker threads, %d slots", nw ? "job system" : "job system (synchronous)", nw, jobs_slot_count()); }
     LOG_INFO("main", "mare liberum starting: seed %u nation %d dev %d headless %d", seed, autostart, dev, headless);
-    if (map_chunk) return map_chunk_dump(map_chunk, seed);   // reference image for a map chunk, then out
+    if (map_chunk) return map_chunk_dump(map_chunk, seed);    // reference image for a map chunk, then out
+    if (map_chunks) return map_chunks_list(map_chunks, seed); // the whole authoring work list, then out
     if (headless) {   // balance run without a window
         world_init(seed); nav_init(); game_new(autostart ? autostart : NATION_NETHERLANDS, seed);
         double t0 = diag_now(); game_advance((float)headless);
@@ -213,6 +282,7 @@ int main(int argc, char **argv) {
     if (getenv("MARE_OCCLUSION")) { occlusion_enabled = atoi(getenv("MARE_OCCLUSION")) != 0; LOG_INFO("gpu", "occlusion culling %s (MARE_OCCLUSION)", occlusion_enabled ? "on" : "off"); }
     if (getenv("MARE_SKY")) { sky_enabled = atoi(getenv("MARE_SKY")) != 0; LOG_INFO("gpu", "sky pass %s (MARE_SKY)", sky_enabled ? "on" : "off"); }
     if (getenv("MARE_SEA_REFRACT")) { sea_refract = atoi(getenv("MARE_SEA_REFRACT")) != 0; LOG_INFO("gpu", "sea refraction %s (MARE_SEA_REFRACT)", sea_refract ? "on" : "off"); }
+    if (getenv("MARE_SEA_TESS_MAX")) { sea_tess_level_max = atoi(getenv("MARE_SEA_TESS_MAX")); LOG_INFO("gpu", "sea tessellation ceiling %d (MARE_SEA_TESS_MAX)", sea_tess_level_max); }
     if (getenv("MARE_SEA_INNER")) { sea_inner_on = atoi(getenv("MARE_SEA_INNER")) != 0; LOG_INFO("gpu", "sea inner lattice %s (MARE_SEA_INNER)", sea_inner_on ? "on" : "off"); }
     if (getenv("MARE_FOAM")) { sea_foam = clampf((float)atof(getenv("MARE_FOAM")), 0.f, 3.f); LOG_INFO("gpu", "sea foam x%.2f (MARE_FOAM)", sea_foam); }
     if (getenv("MARE_SEA_NYQUIST")) { sea_nyquist = atoi(getenv("MARE_SEA_NYQUIST")) != 0; LOG_INFO("gpu", "sea grid-aware wave fade %s (MARE_SEA_NYQUIST)", sea_nyquist ? "on" : "off"); }

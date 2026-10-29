@@ -7,6 +7,19 @@ town caching, CSV columns, dashboard autoscroll).
 Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge case.
 "Framework" marks issues in v3 itself that we work around rather than fix.
 
+## Rendering
+- **M** **The tessellated sea shows a faint grid at regional zoom.** Dark lines at the sea
+  patch lattice (12 world units) appear on a running sea from roughly 50-90 units of camera
+  distance. Reproduce: `MARE_CAM=-20,42,60,25 --seed=7 --skip=120.45`. `MARE_SEA_TESS=0`
+  (the warped-grid fallback) removes it entirely, and `MARE_WAVES=0` removes it, so it needs
+  both the tessellated path and wave displacement. Ruled out by A/B: the Nyquist cell fade (the
+  per-patch `tp_cell` it used to key on is now computed continuously per vertex and the lines
+  survive), foam, SSAO, the tessellation ceiling (32 and 48 look the same) and wave amplitude
+  (halving it at this range only dims the lines). The remaining suspect is the outer/inner
+  tessellation transition row along each patch border, which is inherent to the
+  level-per-shared-edge scheme; fixing it properly means reworking how patch levels are chosen.
+  Lowering the regional wave height (0.11) made it less prominent but did not remove it.
+
 ## Gameplay / simulation
 - **M** Region borders follow the land BFS from the coast and look like straight diagonal seams
   inland; a smoothing pass or height-weighted distances would look more natural.

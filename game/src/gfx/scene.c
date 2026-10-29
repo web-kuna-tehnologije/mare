@@ -121,6 +121,39 @@ static void fleet_anim_pos(int i, const fleet_t *f, float dt, float *x, float *z
     *x = a->x; *z = a->z; *heading = a->heading; *speed = a->speed;
 }
 
+// Station keeping (every ship in a fleet sails for itself).
+//
+// A fleet is one entity in the simulation, but drawing its ships as a rigid line of boxes
+// welded to a single position is what made a squadron read as one object sliding across the
+// water. Each ship instead keeps a *station* - its place in the line - and wanders around it
+// on its own slow cycle, with its own heading deviation, so the formation breathes: ships
+// close up, fall off, and come back without ever leaving the fleet behind. The cycle is a
+// hash of the fleet id and the ship's slot, so it is stable from frame to frame, continuous,
+// costs no storage, and two ships never move alike.
+//
+// Moored ships keep their berth: scene_fleet_pos has already fanned them around the harbour.
+#define STATION_GAP    1.42f    // along-track spacing of the line (1.05 * 1.35, as before)
+#define STATION_WANDER 0.40f    // how far a ship strays from its station, world units
+#define STATION_YAW    0.14f    // and how far its heading strays, radians
+
+static void ship_station(const fleet_t *f, int s, float x, float z, float heading,
+                         float hx, float hz, float *ox, float *oz, float *oh) {
+    float along = -(s * STATION_GAP), side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
+    float yaw = 0.f;
+    if (f->at_port < 0) {
+        unsigned h = lod_key(LODK_FLEET, f->id, s + 1);
+        float p1 = (h & 1023u) / 1023.f * 6.2832f, p2 = ((h >> 10) & 1023u) / 1023.f * 6.2832f;
+        float rate = 0.7f + 0.6f * (((h >> 20) & 255u) / 255.f);      // each ship on its own clock
+        float t = RF.time * rate;
+        along += STATION_WANDER * sinf(t * 0.21f + p1);
+        side  += STATION_WANDER * 0.85f * sinf(t * 0.17f + p2);
+        yaw    = STATION_YAW * sinf(t * 0.23f + p1 * 1.7f);
+    }
+    *ox = x + hx * along - hz * side;
+    *oz = z + hz * along + hx * side;
+    *oh = heading + yaw;
+}
+
 #define BATTLE_DETAIL_MAX 50     // full-detail ships a battle may add beyond the normal LOD rules
 
 void scene_build_ships(void) {
@@ -179,13 +212,14 @@ void scene_build_ships(void) {
         // those ships are left out of the procedural passes below. The fleet's mesh-to-icon
         // dither still applies, so the hand-over to the marker is the same dissolve as before.
         int authored[MAX_SHIPS]; memset(authored, 0, sizeof authored);
+        float sx_[MAX_SHIPS], sz_[MAX_SHIPS], sh_[MAX_SHIPS];
+        for (int s = 0; s < f->nships; ++s)
+            ship_station(f, s, x, z, heading, hx, hz, &sx_[s], &sz_[s], &sh_[s]);
         for (int s = 0; s < f->nships; ++s) {
-            float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
-            float wx = x + hx*along - hz*side, wz = z + hz*along + hx*side;
-            shipyard_req_t sr = { f->ships[s].type, f->nation, f->role, wx, wz, heading, 1.f,
+            shipyard_req_t sr = { f->ships[s].type, f->nation, f->role, sx_[s], sz_[s], sh_[s], 1.f,
                                   rock, sel ? 1.f : hov ? 0.5f : 0.f, lod_dither(&pk, pk.lod),
                                   col_r(col), col_g(col), col_b(col),
-                                  cam_distance(wx, wz), lod_key(LODK_FLEET, f->id, s + 1) };
+                                  cam_distance(sx_[s], sz_[s]), lod_key(LODK_FLEET, f->id, s + 1) };
             authored[s] = shipyard_push(&sr);
         }
         for (int pass = 0; pass < 2; ++pass) {                                // the level shown, then the one fading in
@@ -196,18 +230,17 @@ void scene_build_ships(void) {
             float dith = lod_dither(&pk, level);
             for (int s = 0; s < nshow; ++s) {
                 float sc = ship_scale(f->ships[s].type);
-                float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
-                float wx = x + hx*along - hz*side, wz = z + hz*along + hx*side;
+                float wx = sx_[s], wz = sz_[s], wh = sh_[s];
                 if (!authored[s]) {
                     inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
-                    *in = (inst_t){ wx, 0, wz, heading, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0, dith };
+                    *in = (inst_t){ wx, 0, wz, wh, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0, dith };
                 }
-                if (pass == 0 && f->at_port < 0) {           // moored ships leave no wake
+                if (pass == 0 && f->at_port < 0) {           // moored ships leave no splash
                     float dd = dist2d(wx, wz, cam.tx, cam.tz);
                     if (dd < 90.f) {
                         int k = nfoam < 24 ? nfoam++ : -1;
                         if (k < 0) { float worst = -1; for (int q = 0; q < 24; ++q) if (foam_d[q] > worst) { worst = foam_d[q]; k = q; } if (worst <= dd) k = -1; }
-                        if (k >= 0) { foam_v[k*4] = wx; foam_v[k*4+1] = wz; foam_v[k*4+2] = heading; foam_v[k*4+3] = vel; foam_len[k] = sc; foam_d[k] = dd; }
+                        if (k >= 0) { foam_v[k*4] = wx; foam_v[k*4+1] = wz; foam_v[k*4+2] = wh; foam_v[k*4+3] = vel; foam_len[k] = sc; foam_d[k] = dd; }
                     }
                 }
             }

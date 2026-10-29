@@ -32,13 +32,21 @@ int shipyard_oars_drawn, shipyard_ships_drawn, shipyard_fallbacks;
 // looms buried in the hull rather than floating alongside it.
 #define OAR_INBOARD 0.35f
 
+#define SHIP_MAX_MASTS 3
+
 typedef struct ship_class_t {
     const char *name;
     const char *hull, *masts, *oars;    // asset roles ("" / NULL when the class has none)
     float length_m;                     // design sheet length overall (midpoint of the range)
     float draft;                        // waterline above the keel, fraction of hull height
     float deck;                         // deck above the keel, fraction of hull height
-    float mast_dx;                      // mast assembly along the hull, fraction of length (+ = bow)
+    // How many instances of the mast model to step along the hull. Most generated rigs are a
+    // whole three-mast assembly and want one instance; `armed_cog_masts` and
+    // `mediterranean_masts` came out as a *single* mast, so those classes raise three of them
+    // at the fore / main / mizzen stations their design sheet shows.
+    int   nmasts;
+    float mast_at[SHIP_MAX_MASTS];      // station along the hull, fraction of length (+ = bow)
+    float mast_h[SHIP_MAX_MASTS];       // height of each, relative to the fitted model
     int   oar_pairs;                    // per side
     float oar_span;                     // bank length along the hull, fraction of length
     float beam_frac;                    // half-beam at the oar ports, fraction of length
@@ -47,15 +55,15 @@ typedef struct ship_class_t {
 // The Gen I fleet as drawn in assets/ships/design. Hull and mast models come in pairs from
 // Meshy except the galiot, which borrows the generic Mediterranean lateen rig.
 static const ship_class_t classes[] = {
-  // name             hull                   masts                   oars         len  draft deck  mdx  pairs span  beam
-  { "coastal_trader", "coastal_trader_hull", "coastal_trader_masts", NULL,         21.f, .38f, .60f, .02f,  0, 0.f,  .16f },
-  { "cog",            "cog_hull",            "cog_masts",            NULL,         25.f, .38f, .60f, .00f,  0, 0.f,  .17f },
-  { "armed_cog",      "armed_cog_hull",      "armed_cog_masts",      NULL,         32.f, .38f, .60f, .00f,  0, 0.f,  .16f },
-  { "hulk",           "hulk_hull",           "hulk_masts",           NULL,         35.f, .38f, .62f, .00f,  0, 0.f,  .19f },
-  { "carrack",        "carrack_hull",        "carrack_masts",        NULL,         38.f, .36f, .58f, .00f,  0, 0.f,  .16f },
-  { "war_carrack",    "war_carrack_hull",    "war_carrack_masts",    NULL,         47.f, .36f, .58f, .00f,  0, 0.f,  .16f },
-  { "galiot",         "galiot_hull",         "mediterranean_masts",  "galley_oar", 28.f, .32f, .50f, .00f, 22, .62f, .11f },
-  { "fusta",          "fusta_hull",          "fusta_masts",          "galley_oar", 25.f, .32f, .50f, .00f, 20, .60f, .09f },
+  // name             hull                   masts                   oars         len  draft deck  n  stations              heights             pairs span  beam
+  { "coastal_trader", "coastal_trader_hull", "coastal_trader_masts", NULL,         21.f, .38f, .60f, 1, { .02f },            { 1.f },             0, 0.f,  .16f },
+  { "cog",            "cog_hull",            "cog_masts",            NULL,         25.f, .38f, .60f, 1, { .02f },            { 1.f },             0, 0.f,  .17f },   // a cog carries one mast
+  { "armed_cog",      "armed_cog_hull",      "armed_cog_masts",      NULL,         32.f, .38f, .60f, 3, { .24f,-.01f,-.27f },{ .78f, 1.f, .68f }, 0, 0.f,  .16f },   // single-mast model, stepped three times
+  { "hulk",           "hulk_hull",           "hulk_masts",           NULL,         35.f, .38f, .62f, 1, { .00f },            { 1.f },             0, 0.f,  .19f },
+  { "carrack",        "carrack_hull",        "carrack_masts",        NULL,         38.f, .36f, .58f, 1, { .00f },            { 1.f },             0, 0.f,  .16f },
+  { "war_carrack",    "war_carrack_hull",    "war_carrack_masts",    NULL,         47.f, .36f, .58f, 1, { .00f },            { 1.f },             0, 0.f,  .16f },
+  { "galiot",         "galiot_hull",         "mediterranean_masts",  "galley_oar", 28.f, .32f, .50f, 3, { .26f,-.02f,-.28f },{ .80f, 1.f, .66f }, 22, .62f, .11f },  // one lateen mast, stepped three times
+  { "fusta",          "fusta_hull",          "fusta_masts",          "galley_oar", 25.f, .32f, .50f, 1, { .00f },            { 1.f },             20, .60f, .09f },
 };
 #define NCLASSES ((int)(sizeof classes / sizeof classes[0]))
 
@@ -128,19 +136,25 @@ int shipyard_push(const shipyard_req_t *r) {
         if (m) {                                            // masts stand on the deck, not the keel
             // A rig is sized by its height (the design sheets give mast heights), but the
             // generated assemblies do not share an aspect ratio: some carry a long bowsprit and
-            // lateen yards and come out two thirds longer than their own hull. A bowsprit may
-            // overhang - a rig floating off the bow may not - so anything past MAST_OVERHANG of
-            // the hull length is scaled down uniformly until it fits.
-            #define MAST_OVERHANG 1.15f
+            // lateen yards and come out two thirds longer than their own hull. A whole rig may
+            // not overhang its own hull, so anything longer is scaled down until it fits; the
+            // trim then takes the generated spars - which are chunky for their height - back to
+            // something that reads as rigging rather than tree trunks.
+            #define MAST_OVERHANG 1.0f
+            #define MAST_TRIM     0.85f
             float ml = (m->bmax[0] - m->bmin[0]) * cscale;
-            float ms = cscale;
-            if (ml > len * MAST_OVERHANG) ms = cscale * len * MAST_OVERHANG / ml;
-            float dx = c->mast_dx * len;
-            inst_t mi = in;
-            mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
-            mi.y = -water + hh * c->deck;
-            mi.scale = ms;
-            scene_asset_instance(m, mi, r->key ^ 0x5BD1u, r->camdist);
+            float ms = cscale * MAST_TRIM;
+            if (ml > len * MAST_OVERHANG) ms = cscale * MAST_TRIM * len * MAST_OVERHANG / ml;
+            float deck_y = -water + hh * c->deck;
+            int n = c->nmasts > 0 ? (c->nmasts > SHIP_MAX_MASTS ? SHIP_MAX_MASTS : c->nmasts) : 1;
+            for (int k = 0; k < n; ++k) {
+                float dx = c->mast_at[k] * len;
+                inst_t mi = in;
+                mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
+                mi.y = deck_y;
+                mi.scale = ms * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);
+                scene_asset_instance(m, mi, r->key ^ (unsigned)(0x5BD1u + k * 0x97u), r->camdist);
+            }
         }
     }
 
@@ -161,7 +175,10 @@ int shipyard_push(const shipyard_req_t *r) {
                     oi.x = r->x + fx * along + sx * out * side;
                     oi.z = r->z + fz * along + sz * out * side;
                     oi.y = y;
-                    oi.heading = r->heading + side * 1.5708f;   // blade outboard
+                    // Blade outboard, loom inboard: the oar model points its blade along -x
+                    // once the ship assets are turned bow-to-+x, so the sweep is the mirror of
+                    // the obvious one - the obvious one buries the blades in the hull.
+                    oi.heading = r->heading - side * 1.5708f;
                     oi.r = 0.62f; oi.g = 0.52f; oi.b = 0.36f;   // oak, not the nation's colours
                     oi.sel = 0.f;
                     scene_asset_instance(oar, oi, r->key ^ (unsigned)(0x9E37u + i * 2 + (side > 0)), r->camdist);

@@ -23,6 +23,7 @@
 #include "lod.h"
 #include "shipyard.h"
 
+#define DV_SEA_AMP      0.45f        // staged wave height, relative to the map's (the sea is stretched x DV_SHIP_SCALE)
 #define DV_SHIP_SCALE   9.f          // world ship mesh -> local units (1 unit ~ 2.8 m: a ship of the line is ~19 units)
 #define DV_COAST_DIST 190.f          // battle: coast this far north (+z is south, so -z)
 #define DV_MAX_SHIPS   50
@@ -333,6 +334,7 @@ static float dv_cover(void) {   // cloud cover 0..1 for the current phase
 static void dv_sea_params(void) {
     int on = dv.phase != DVP_IDLE && dv.phase != DVP_OUT;
     sea_wave_scale = on ? DV_SHIP_SCALE : 1.f;
+    sea_local_amp  = on ? DV_SEA_AMP : 1.f;   // a staged sea is stretched: cut the wave height to match
     sea_local_depth = on ? DV_SEA_DEPTH : 0.f;
 }
 void detailview_sea(void) {

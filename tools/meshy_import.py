@@ -141,6 +141,32 @@ def run_one(blender, name, glb, out_root, kind, validate, timeout):
     return name, True, time.time() - t0, tris, ""
 
 
+def organize(models, dest, move=False):
+    """Copy each Meshy download to <dest>/<asset name>/<asset name>.glb.
+
+    Meshy names every download `Meshy_AI_model.glb` inside a folder named after the prompt,
+    which makes the art tree unreadable. This leaves a tree you can navigate: one folder per
+    asset, the source mesh inside it under the name the game knows it by.
+    """
+    import shutil
+    os.makedirs(dest, exist_ok=True)
+    done = 0
+    for name, glb in models:
+        out_dir = os.path.join(dest, name)
+        out = os.path.join(out_dir, name + ".glb")
+        if os.path.exists(out) and os.path.getsize(out) == os.path.getsize(glb):
+            print("%-26s already there" % name); done += 1; continue
+        os.makedirs(out_dir, exist_ok=True)
+        print("%-26s %s %6.1f MB -> %s" % (name, "move" if move else "copy",
+                                           os.path.getsize(glb) / 1e6, out))
+        (shutil.move if move else shutil.copy2)(glb, out)
+        with open(os.path.join(out_dir, "source.txt"), "w") as f:
+            f.write("%s\n" % os.path.basename(os.path.dirname(glb)))
+        done += 1
+    print("\n%d model(s) organised under %s" % (done, dest))
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", default=os.path.join(os.path.dirname(REPO), "assets", "ships"),
@@ -149,6 +175,9 @@ def main():
     ap.add_argument("--kind", default="ship", choices=sorted(BUDGETS), help="LOD budgets and descriptor type")
     ap.add_argument("--name", help="force the asset name (single-folder imports, e.g. a map chunk)")
     ap.add_argument("--only", help="comma separated asset names to import")
+    ap.add_argument("--organize", metavar="DEST",
+                    help="copy each download to DEST/<asset name>/<asset name>.glb and exit (tidies the art tree)")
+    ap.add_argument("--move", action="store_true", help="with --organize: move instead of copying")
     ap.add_argument("--check", action="store_true", help="list the plan; no Blender, no writes")
     ap.add_argument("--validate", action="store_true", help="run Blender but write nothing")
     ap.add_argument("--force", action="store_true", help="re-import assets that already have GLBs")
@@ -172,6 +201,8 @@ def main():
             sys.exit("not found under %s: %s" % (a.root, ", ".join(sorted(missing))))
     if not models:
         sys.exit("no Meshy model folders found under %s" % a.root)
+    if a.organize:
+        return organize(models, a.organize, a.move)
 
     todo = []
     for name, glb in models:

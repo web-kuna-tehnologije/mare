@@ -54,7 +54,7 @@ int sea_tess_level_max = 32;     // dashboard knob: finest subdivision of a patc
 // hole. The warped grid stays as the fallback for GL 3 contexts (sea_tess_on == 0).
 #define SEA_PATCH_N   50
 #define SEA_PATCH_R   300.f
-#define SEA_TESS_PX   11.f     // target screen size of a tessellation cell
+#define SEA_TESS_PX   8.f      // target screen size of a tessellation cell
 // Down at water level even 48 cells per 12-unit patch leaves 0.25-unit facets: pyramids, not
 // waves. An inner lattice of small patches covers the disc around the look-at point where the
 // camera can get that close; the outer lattice cuts a hole for it. Its rim blends its cell size
@@ -147,7 +147,7 @@ static const char *sea_tess_vs =
 // evaluation stage uses.
 static const char *sea_tess_tcs =
     "layout(vertices = 4) out;\n"
-    "in vec2 v_lat[]; out vec2 tc_pos[]; patch out float tp_cell;\n"
+    "in vec2 v_lat[]; out vec2 tc_pos[];\n"
     "uniform vec3 u_campos; uniform vec2 u_tess; uniform float u_patch;\n"   // u_tess: x = pixels per world unit at distance 1 / target px, y = max level
     "float lvl(vec2 a, vec2 b) { vec2 m = (a + b) * 0.5; float d = max(distance(vec3(m.x, 0.0, m.y), u_campos), 1.0); return clamp(u_tess.x * u_patch / d, 1.0, u_tess.y); }\n"
     "void main(){ tc_pos[gl_InvocationID] = v_lat[gl_InvocationID];\n"
@@ -155,17 +155,16 @@ static const char *sea_tess_tcs =
     "    float L0 = lvl(v_lat[3], v_lat[0]), L1 = lvl(v_lat[0], v_lat[1]), L2 = lvl(v_lat[1], v_lat[2]), L3 = lvl(v_lat[2], v_lat[3]);\n"
     "    float I0 = max(L1, L3), I1 = max(L0, L2);\n"
     "    gl_TessLevelOuter[0] = L0; gl_TessLevelOuter[1] = L1; gl_TessLevelOuter[2] = L2; gl_TessLevelOuter[3] = L3;\n"
-    "    gl_TessLevelInner[0] = I0; gl_TessLevelInner[1] = I1;\n"
-    "    tp_cell = u_patch / max(max(I0, I1), 1.0); } }\n";
+    "    gl_TessLevelInner[0] = I0; gl_TessLevelInner[1] = I1; } }\n";
 
 #define GLSL_SEA_TES_BODY \
     "layout(quads, fractional_odd_spacing, ccw) in;\n" \
     /* no derivatives in an evaluation stage: every lookup is an explicit LOD 0 (an implicit-LOD \
        texture() here is where the Intel driver crashed at link time) */ \
     "#define texture(s, uv) textureLod(s, uv, 0.0)\n" \
-    "in vec2 tc_pos[]; patch in float tp_cell;\n" \
+    "in vec2 tc_pos[];\n" \
     "uniform vec3 u_center; uniform vec3 u_detail;\n"      /* x = region radius, y = 1 for the inner lattice (no rim fade, seam blend), z = the outer lattice's patch size */ \
-    "uniform vec2 u_tess;\n" \
+    "uniform vec2 u_tess; uniform float u_patch;\n" \
     "uniform sampler2D u_disp; uniform float u_has_disp; uniform vec2 u_drift1; uniform vec2 u_drift2; uniform vec3 u_campos;\n" \
     GLSL_SEA_VS_COMMON \
     GLSL_WAVES \
@@ -175,11 +174,16 @@ static const char *sea_tess_tcs =
     "  float h = height_at(p); float dep = max(-h, 0.0);\n" \
     "  float r = distance(p, u_center.xz);\n" \
     "  float edge = u_detail.y > 0.5 ? 1.0 : 1.0 - smoothstep(0.78 * u_detail.x, 0.97 * u_detail.x, r);\n" \
-    "  float cell = tp_cell;\n" \
+    /* How big is a cell around here? This drives the Nyquist fade that drops waves and \
+       displacement a cell cannot carry, so it has to be *continuous*: taking it from the \
+       patch's own tessellation level made it jump at every patch edge, and the sea came out \
+       ruled into 12-unit rectangles wherever the level changed. The same formula the control \
+       stage uses, evaluated at this vertex, is continuous across the lattice. */ \
+    "  float dcam = max(distance(vec3(p.x, 0.0, p.y), u_campos), 1.0);\n" \
+    "  float cell = u_patch / clamp(u_tess.x * u_patch / dcam, 1.0, u_tess.y);\n" \
     "  if (u_detail.y > 0.5) {\n"   /* inner lattice: towards its rim, pretend to be as coarse as the outer lattice is there */ \
-    "    float dcam = max(distance(vec3(p.x, 0.0, p.y), u_campos), 1.0);\n" \
     "    float ocell = u_detail.z / clamp(u_tess.x * u_detail.z / dcam, 1.0, u_tess.y);\n" \
-    "    cell = mix(tp_cell, max(ocell, tp_cell), smoothstep(0.55 * u_detail.x, 0.95 * u_detail.x, r));\n" \
+    "    cell = mix(cell, max(ocell, cell), smoothstep(0.55 * u_detail.x, 0.95 * u_detail.x, r));\n" \
     "  }\n" \
     "  float shal = smoothstep(0.0, 1.1 * u_wave_scale, dep);\n" \
     "  float amp = u_wave_amp * edge * shal * shoal_boost(dep, u_wave_scale);\n" \
@@ -341,23 +345,29 @@ static const char *sea_fs =
     "  float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;\n"
     // Shoreline: the thin lapping line at the waterline, as before.
     "  float foam = (1.0 - smoothstep(0.0, 0.45 * sc, depth)) * (0.55 + 0.45*sin(depth*30.0/sc - t*2.0 + w1)) * detail;\n"
-    // Ships: a bow wave, a thin line along the hull and a V wake that widens and thins astern,
-    // all scaling with speed; a running sea throws more white off the bow.
-    "  float shipk = 1.0;\n"                  // 1 - union of the ships' foam: overlapping wakes never add up to a sheet
+    // Ships: splash where the hull meets the water - a bow wave and a short break along the
+    // waterline - and nothing behind. The long V wake this used to trail read as a scar drawn
+    // on the sea rather than disturbed water, and at map zooms every ship towed one across the
+    // ocean; what the eye actually wants from this distance is the white at the hull.
+    "  float shipk = 1.0;\n"                  // 1 - union of the ships' foam: overlapping splashes never add up to a sheet
     "  for (int i = 0; i < u_nships; ++i) {\n"
     "    vec2 dxz = v_wpos.xz - u_ships[i].xy; float L = max(u_shiplen[i], 0.2);\n"
-    "    if (dot(dxz, dxz) > 25.0 * L * L) continue;\n"
+    "    if (dot(dxz, dxz) > 1.6 * L * L) continue;\n"
     "    float ch = cos(u_ships[i].z), sh = -sin(u_ships[i].z);\n"          // forward = (cos h, -sin h), as scene.c
     "    float along = dxz.x * ch + dxz.y * sh, across = abs(-dxz.x * sh + dxz.y * ch);\n"
     "    float spd = clamp(u_ships[i].w / 5.0, 0.15, 1.0);\n"
-    "    float bowx = (along - 0.42 * L) / (0.22 * L), bowz = across / (0.24 * L);\n"
+    "    float bowx = (along - 0.42 * L) / (0.20 * L), bowz = across / (0.22 * L);\n"
     "    float bow = exp(-(bowx * bowx + bowz * bowz)) * (0.45 + 0.45 * min(ws, 1.0)) * spd;\n"
-    "    float hull = smoothstep(-0.5 * L, -0.42 * L, along) * (1.0 - smoothstep(0.36 * L, 0.44 * L, along)) * smoothstep(0.17 * L, 0.20 * L, across) * (1.0 - smoothstep(0.22 * L, 0.26 * L, across)) * 0.35 * spd;\n"
-    "    float back = -along - 0.4 * L;\n"
-    "    float ww = 0.18 * L + 0.24 * max(back, 0.0);\n"
-    "    float wake = step(0.0, back) * (1.0 - smoothstep(ww * 0.7, ww, across)) * exp(-back / (2.5 * L * spd + 0.3 * L)) * spd;\n"
-    "    wake *= (0.25 + 0.55 * lum2 + 0.5 * smoothstep(ww * 0.55, ww * 0.9, across)) * 0.55;\n"   // the V edges foam most
-    "    shipk *= 1.0 - clamp(bow + hull + wake, 0.0, 0.85);\n"
+    // the waterline break: a band along the hull sides, chopped up by the ripple detail so it
+    // reads as water slapping the planking instead of a painted outline
+    "    float hull = smoothstep(-0.5 * L, -0.40 * L, along) * (1.0 - smoothstep(0.34 * L, 0.44 * L, along))\n"
+    "               * smoothstep(0.15 * L, 0.19 * L, across) * (1.0 - smoothstep(0.23 * L, 0.30 * L, across))\n"
+    "               * (0.45 + 0.55 * lum2) * 0.5 * spd;\n"
+    // a short stern boil, a fraction of a hull length, not a trail
+    "    float back = -along - 0.44 * L;\n"
+    "    float boil = step(0.0, back) * exp(-back / (0.22 * L)) * (1.0 - smoothstep(0.13 * L, 0.20 * L, across))\n"
+    "               * (0.35 + 0.65 * lum2) * 0.45 * spd;\n"
+    "    shipk *= 1.0 - clamp(bow + hull + boil, 0.0, 0.85);\n"
     "  }\n"
     "  float shipf = (1.0 - shipk) * detail;\n"
     "  vec3 foamcol = srgb_to_linear(vec3(0.93, 0.96, 0.98)) * (u_ambsky * 1.0 + u_suncol * 0.35);\n"
@@ -556,7 +566,7 @@ void sea_update_waves(float day, float dt) {
 // Height of the wave surface at a world point, the same sum the shaders evaluate (no shallows
 // or rim fade: the camera clamp wants the worst case). Used to keep the eye above the water.
 float sea_height_at(float x, float z) {
-    float amp = sea_wave_amp * sea_wind_amp * (1.f - RF.mapness) * sea_zoom_amp(), h = 0.f;
+    float amp = sea_amp_now(), h = 0.f;
     if (amp <= 0.f) return 0.f;
     for (int k = 0; k < 2; ++k) {
         const sea_set_t *set = &sea_set[k]; if (!set->valid) continue;
@@ -640,14 +650,31 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
     light_bind(p);
 }
 
-// Wave height follows the zoom (DESIGN_STREAMING.md task 6): full displacement only in the
-// city/battle view, flattening steadily as the camera pulls out - the tessellated sea keeps
-// its cell density but loses height, which is what reads as distance instead of chop.
-float sea_zoom_amp(void) { return clampf(1.15f - cam.dist / 200.f, 0.35f, 1.f); }
+// Wave height follows the zoom (DESIGN_STREAMING.md task 6): full displacement only down at
+// the water, flattening as the camera pulls out - the tessellated sea keeps its cell density
+// but loses height, which is what reads as distance instead of chop.
+//
+// Past the regional view a swell the size of a county is nonsense: the strategic and
+// continental tiers want a sea that reads as texture, so the curve keeps falling to a near-flat
+// floor rather than levelling off where it used to.
+float sea_zoom_amp(void) {
+    float d = cam.dist;
+    if (d <= 28.f)  return 1.f;                                           // city / battle: full height
+    if (d <= 90.f)  return lerpf(1.f, 0.50f, (d - 28.f) / 62.f);          // regional: falling away fast
+    if (d <= 260.f) return lerpf(0.50f, 0.20f, (d - 90.f) / 170.f);
+    return clampf(lerpf(0.20f, 0.07f, (d - 260.f) / 340.f), 0.07f, 0.20f); // strategic and out: texture only
+}
+
+// Staged scenes (detailview.c) stretch the sea by DV_SHIP_SCALE, so a wave that looks right on
+// the map towers over a staged ship: detailview sets this to cut the displacement back. Cell
+// density - and so the silhouette of the water - is untouched.
+float sea_local_amp = 1.f;
 
 // how tall the waves may be right now: they flatten as the view turns into a map and with the
-// zoom, and the detail grid only exists while the camera is close enough for it to matter
-float sea_amp_now(void) { return sea_wave_amp * sea_wind_amp * (1.f - RF.mapness) * sea_zoom_amp(); }
+// zoom, and the detail grid only exists while the camera is close enough for it to matter.
+// Everything that has to agree about the water surface goes through this: the sea passes, the
+// instanced meshes (so ships ride what they float on) and the camera's wave-crest floor.
+float sea_amp_now(void) { return sea_wave_amp * sea_wind_amp * (1.f - RF.mapness) * sea_zoom_amp() * sea_local_amp; }
 
 // The tessellated detail region: patches on a world lattice around the look-at point.
 // `radius` and `scale` as for the warped grid. Shared by the map and the staged scenes.
@@ -703,12 +730,12 @@ void sea_draw(void) {
 // landward limit is given as a plane rather than discovered from the terrain.
 void sea_draw_local(float depth, float scale, float radius) {
     sea_tess_now = sea_tess_on && cam.dist < SEA_TESS_DIST * scale;
-    if (sea_tess_now) { sea_draw_patches(RF.sea_center.x, RF.sea_center.z, radius, scale, depth, sea_wave_amp * sea_wind_amp * sea_zoom_amp()); return; }
+    if (sea_tess_now) { sea_draw_patches(RF.sea_center.x, RF.sea_center.z, radius, scale, depth, sea_amp_now()); return; }
     rhi_pipeline_bind(&sea_detail_prg);
     sea_bind_common(&sea_detail_prg, scale, depth);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_center"), RF.sea_center.x, 0, RF.sea_center.z);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_detail"), radius, SEA_WARP, sea_nyquist ? 2.f / SEA_DETAIL_N : 0.f);
-    rhi_set_f1(rhi_uniform(&sea_detail_prg,"u_wave_amp"), sea_wave_amp * sea_wind_amp * sea_zoom_amp());
+    rhi_set_f1(rhi_uniform(&sea_detail_prg,"u_wave_amp"), sea_amp_now());
     rhi_set_f4(rhi_uniform(&sea_detail_prg,"u_hole"), 0, 0, 0, 0);
     rhi_draw(&sea_detail_geo, 0);
 }
