@@ -109,7 +109,9 @@ int shipyard_push(const shipyard_req_t *r) {
     if (!hull) { shipyard_fallbacks++; return 0; }          // still loading, or never imported
 
     // The asset is normalised to its own length, so the instance scale only carries the
-    // stand-in stretch. Everything below is in world units of the *fitted* hull.
+    // stand-in stretch and the scene's own magnification (a staged battle draws ships several
+    // times larger than the map does). Everything below is in world units of the fitted hull.
+    cscale *= r->scale > 0.f ? r->scale : 1.f;
     float len = c->length_m * SHIP_M_PER_UNIT * cscale;
     float hh  = (hull->bmax[1] - hull->bmin[1]) * cscale;   // fitted hull height, keel to rail
     float water = hh * c->draft;                            // the pivot is the keel (base_center)

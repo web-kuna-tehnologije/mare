@@ -75,6 +75,15 @@ ship's heading on the CPU):
 proportions of the model, so they are the knobs to turn when a rig sits too high or an oar bank
 too far aft.
 
+## 3b. The staged scenes
+
+`gfx/detailview.c` stages its own battles and city squares at `DV_SHIP_SCALE` (about nine
+times the map's scale), which is where LOD 0 earns its place: a hull fills the screen and shows
+its planking, gunports and railings. The staged ships go through the same `shipyard_push`, with
+`shipyard_req_t.scale` carrying the magnification, and the staged scene's asset bracket now
+spans both ships and buildings so authored hulls are submitted and cast shadows in battle view
+as well as city view.
+
 ## 4. Level of detail
 
 Imported models carry five LODs (`tools/meshy_import.py`). A ship hands over far sooner than a

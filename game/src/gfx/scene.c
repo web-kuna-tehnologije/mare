@@ -182,7 +182,7 @@ void scene_build_ships(void) {
         for (int s = 0; s < f->nships; ++s) {
             float along = -(s * 1.05f) * 1.35f, side = ((s % 2) ? 0.45f : -0.45f) * (s > 0) * 1.35f;
             float wx = x + hx*along - hz*side, wz = z + hz*along + hx*side;
-            shipyard_req_t sr = { f->ships[s].type, f->nation, f->role, wx, wz, heading,
+            shipyard_req_t sr = { f->ships[s].type, f->nation, f->role, wx, wz, heading, 1.f,
                                   rock, sel ? 1.f : hov ? 0.5f : 0.f, lod_dither(&pk, pk.lod),
                                   col_r(col), col_g(col), col_b(col),
                                   cam_distance(wx, wz), lod_key(LODK_FLEET, f->id, s + 1) };

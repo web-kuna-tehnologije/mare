@@ -16,6 +16,7 @@
 typedef struct shipyard_req_t {
     int      type, nation, role;    // SHIP_*, NATION_*, ROLE_*
     float    x, z, heading;         // world position and heading (radians, as fleet_t uses)
+    float    scale;                 // 1 on the map; the staged scenes draw ships DV_SHIP_SCALE larger
     float    rock, sel, dither;     // the instance fields the procedural hull would have taken
     float    cr, cg, cb;            // nation colour
     float    camdist;               // for LOD selection

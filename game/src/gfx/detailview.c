@@ -21,6 +21,7 @@
 #include "../sim/fleet.h"
 #include "../sim/settlement.h"
 #include "lod.h"
+#include "shipyard.h"
 
 #define DV_SHIP_SCALE   9.f          // world ship mesh -> local units (1 unit ~ 2.8 m: a ship of the line is ~19 units)
 #define DV_COAST_DIST 190.f          // battle: coast this far north (+z is south, so -z)
@@ -38,6 +39,7 @@ typedef struct dv_ship_t {
     float x, z, heading, speed, phase;
     float r, g, b;
     float next_fire;
+    int   nation;                    // picks the authored class flavour (shipyard.h)
 } dv_ship_t;
 
 typedef struct dv_puff_t { float x, y, z, age, scale; } dv_puff_t;
@@ -110,11 +112,11 @@ static void stage_city(void) {
 // ---------------------------------------------------------------------------
 // battle scene: one entry per ship, each with its own course, speed and gun timer
 
-static void battle_add_ship(int type, int side, float x, float z, float heading, unsigned col, unsigned *seed) {
+static void battle_add_ship(int type, int side, float x, float z, float heading, unsigned col, unsigned *seed, int nation) {
     if (dv.nships >= DV_MAX_SHIPS) return;
     dv_ship_t *s = &dv.ship[dv.nships++];
     *s = (dv_ship_t){ type, side, x, z, heading, (0.9f + rnd_f(seed) * 0.9f) * (0.55f + 0.1f * type), rnd_f(seed) * 6.28f,
-                      col_r(col), col_g(col), col_b(col), 3.f + rnd_f(seed) * 6.f };
+                      col_r(col), col_g(col), col_b(col), 3.f + rnd_f(seed) * 6.f, nation };
 }
 
 static void build_battle(int fleet_id) {
@@ -134,16 +136,17 @@ static void build_battle(int fleet_id) {
             unsigned col = f->role == ROLE_PIRATE ? rgb(25,25,25) : nations_info[f->nation].color;
             for (int k = 0; k < f->nships; ++k) {
                 float lx = -46 + (dv.nships % 7) * 15.f + rnd_f(&seed) * 7, lz = (side ? 14 : -14) + ((dv.nships / 7) % 3) * 19.f + rnd_f(&seed) * 8;
-                battle_add_ship(f->ships[k].type, side, lx, lz, side ? 3.14159f + rnd_f(&seed) * 0.5f : rnd_f(&seed) * 0.5f, col, &seed);
+                battle_add_ship(f->ships[k].type, side, lx, lz, side ? 3.14159f + rnd_f(&seed) * 0.5f : rnd_f(&seed) * 0.5f, col, &seed, f->nation);
             }
         }
     }
     if (!real) {   // no battle under way: stage a sample exercise matching the reference framing
-        unsigned ca = nations_info[G.player >= 0 ? G.player : 1].color, cb = rgb(140, 25, 25);
+        int na = G.player >= 0 ? G.player : NATION_ENGLAND, nb = NATION_VENICE;   // the exercise shows both fleets: northern rigs against Mediterranean oars
+        unsigned ca = nations_info[na].color, cb = rgb(140, 25, 25);
         for (int i = 0; i < 15; ++i) {
             int ta = i % SHIP_COUNT, tb = (i * 2 + 1) % SHIP_COUNT;
-            battle_add_ship(ta, 0, -56 + (i % 5) * 22 + rnd_f(&seed) * 8, -22 - (i / 5) * 20 + rnd_f(&seed) * 6, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed);
-            battle_add_ship(tb, 1, -48 + (i % 5) * 23 + rnd_f(&seed) * 8,  20 + (i / 5) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed);
+            battle_add_ship(ta, 0, -56 + (i % 5) * 22 + rnd_f(&seed) * 8, -22 - (i / 5) * 20 + rnd_f(&seed) * 6, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed, na);
+            battle_add_ship(tb, 1, -48 + (i % 5) * 23 + rnd_f(&seed) * 8,  20 + (i / 5) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed, nb);
         }
         LOG_INFO("gfx", "detail view: no battle under way, staged a 30-ship exercise");
     } else LOG_INFO("gfx", "detail view: battle with %d ships", dv.nships);
@@ -289,8 +292,8 @@ static void build_city(int port) {
     }
     // a couple of ships moored off the piers for life
     unsigned scol = col;
-    battle_add_ship(SHIP_FLUYT, 0, -40, -180, 0.2f, scol, &seed);
-    battle_add_ship(SHIP_MERCHANT, 0, 25, -195, 2.9f, scol, &seed);
+    battle_add_ship(SHIP_FLUYT, 0, -40, -180, 0.2f, scol, &seed, p ? p->nation : NATION_ENGLAND);
+    battle_add_ship(SHIP_MERCHANT, 0, 25, -195, 2.9f, scol, &seed, p ? p->nation : NATION_ENGLAND);
     for (int i = 0; i < dv.nships; ++i) dv.ship[i].speed *= 0.25f;
     stage_city();
     LOG_INFO("gfx", "detail view: city '%s' size %d pop %.0f: %d houses, %d walls, fort %d, market %d",
@@ -378,9 +381,18 @@ void detailview_frame(float dt) {
     // instances (local coords offset to the scene centre)
     for (int t = 0; t < SHIP_COUNT; ++t) instlist_clear(&dv.ships_il[t]);
     instlist_clear(&dv.puffs_il);
+    scene_assets_begin();                                  // one bracket: staged ships and buildings share it
     for (int i = 0; i < dv.nships; ++i) { const dv_ship_t *s = &dv.ship[i];
-        *instlist_push(&dv.ships_il[s->type]) = (inst_t){ dv.cx + s->x, 0, dv.cz + s->z, s->heading,
-            ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, dv.mode == DV_BATTLE ? 0.8f : 0.3f, 0, 1, 0 }; }
+        float wx = dv.cx + s->x, wz = dv.cz + s->z, rock = dv.mode == DV_BATTLE ? 0.8f : 0.3f;
+        // Authored hull, rig and oars at the staged scene's magnification; the procedural hull
+        // below stands in while a class is still loading (shipyard.h).
+        float dx = wx - cam.pos.x, dz = wz - cam.pos.z;
+        shipyard_req_t sr = { s->type, s->nation, ROLE_WARSHIP, wx, wz, s->heading, DV_SHIP_SCALE,
+                              rock, 0.f, 0.f, s->r, s->g, s->b,
+                              sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y), lod_key(LODK_MISC, 7, i) };
+        if (shipyard_push(&sr)) continue;
+        *instlist_push(&dv.ships_il[s->type]) = (inst_t){ wx, 0, wz, s->heading,
+            ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }
     for (int i = 0; i < dv.npuffs; ++i) { const dv_puff_t *p = &dv.puff[i];
         float t01 = p->age / 3.2f, env = sinf(3.14159f * minf(t01, 1.f));
         *instlist_push(&dv.puffs_il) = (inst_t){ dv.cx + p->x, p->y, dv.cz + p->z, 0,
@@ -401,7 +413,6 @@ void detailview_frame(float dt) {
             for (int i = 0; i < src[l]->n; ++i) { inst_t in = src[l]->v[i]; in.x += dv.cx; in.z += dv.cz; *instlist_push(&sh[l]) = in; }
             mesh_set_instances(dst[l], sh[l].v, sh[l].n);
         }
-        scene_assets_begin();
         asset_t *church = asset_get_role(ASSET_BUILDING, "church");
         if (church) {
             inst_t in = { dv.cx + 34, 0.05f, dv.cz - 14, 0.3f, 9.f / maxf(church->bmax[1] - church->bmin[1], 0.1f), 1,1,1, 0,0,0,0 };
@@ -414,11 +425,11 @@ void detailview_frame(float dt) {
             float dx = in.x - cam.pos.x, dz = in.z - cam.pos.z;
             scene_asset_instance(a, in, lod_key(LODK_MISC, 2, i), sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y));
         }
-        scene_assets_end();
     } else {
         mesh_set_instances(&mesh_house, 0, 0); mesh_set_instances(&mesh_roof, 0, 0); mesh_set_instances(&mesh_tower, 0, 0);
         mesh_set_instances(&mesh_wall, 0, 0); mesh_set_instances(&mesh_pier, 0, 0); mesh_set_instances(&mesh_flagpole, 0, 0);
     }
+    scene_assets_end();
     mesh_set_instances(&dv.stage, &(inst_t){ dv.cx, 0, dv.cz, 0, 1, 1,1,1, 0,0,0,0 }, 1);
 }
 
@@ -431,8 +442,8 @@ int detailview_submit(void) {
         mesh_draw(&mesh_house); mesh_draw(&mesh_roof); mesh_draw(&mesh_tower);
         mesh_draw(&mesh_wall); mesh_draw(&mesh_pier); mesh_draw(&mesh_flagpole);
         n += mesh_house.ninst + mesh_roof.ninst + mesh_tower.ninst + mesh_wall.ninst + mesh_pier.ninst + mesh_flagpole.ninst;
-        n += scene_assets_submit();                                   // church + authored houses, LOD-picked in detailview_frame
     }
+    n += scene_assets_submit();   // authored hulls, rigs and oars in both modes; the city's buildings too
     return n;
 }
 
@@ -447,8 +458,8 @@ int detailview_submit_shadow(void) {
         mesh_draw(&mesh_house); mesh_draw(&mesh_roof); mesh_draw(&mesh_tower);
         mesh_draw(&mesh_wall); mesh_draw(&mesh_pier); mesh_draw(&mesh_flagpole);
         n += mesh_house.ninst + mesh_roof.ninst + mesh_tower.ninst + mesh_wall.ninst + mesh_pier.ninst + mesh_flagpole.ninst;
-        n += scene_assets_submit_shadow();
     }
+    n += scene_assets_submit_shadow();   // authored hulls cast in both modes
     return n;
 }
 

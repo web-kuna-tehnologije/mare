@@ -16,6 +16,10 @@ Plan and measurements: [DESIGN_SHIPS.md](DESIGN_SHIPS.md),
   oared galiot in the Adriatic. Venice, the Ottomans and the pirates sail the fusta and galiot;
   the northern trading powers favour the hulk over the carrack. The procedural hulls remain the
   fallback, so a class that is still loading or was never imported never leaves a hole.
+- **The staged battle and city views use the authored fleet too** (`gfx/detailview.c`): the
+  staged ships carry the scene's magnification through `shipyard_req_t.scale`, and the staged
+  asset bracket now spans ships as well as buildings - authored hulls were being pushed but
+  only submitted in city view, so a staged battle drew nothing at all.
 - **Oars** are placed from the sheets (20-22 pairs, pivoted a third of their length inboard so
   the bank sits outboard of the rail) and only submitted once the hull is over 140 px, since a
   22-pair galiot adds 44 instances.
