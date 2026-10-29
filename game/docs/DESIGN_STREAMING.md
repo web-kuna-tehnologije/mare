@@ -80,6 +80,27 @@ A tile is `(level, tx, ty)` with states **EMPTY -> QUEUED -> READY** (+ `on_disk
   the base heightmap; tile deltas are presentation only. Residency is camera-driven and must
   never influence a deterministic tick.
 
+### 2b. Two clipmap rings and their lighting (follow-ups 2 and 3)
+
+The detail is carried by **two** windows around the camera, not one:
+
+| ring | extent | texel | samples | level it may carry |
+|------|--------|-------|---------|--------------------|
+| near | 80 units | 0.156 | 512² | L3 tactical (6 cycles/deg) |
+| far  | 320 units | 0.625 | 512² | L2 coastal (3 cycles/deg) |
+
+Each extent is set by Nyquist against the level's detail frequency: a ring may only carry
+detail it can sample twice per wavelength, which is why the far ring asks
+`stream_delta_at_level(..., STREAM_L_COASTAL)` instead of the finest resident tile. The near
+ring cross-fades into the far one at its border (not into nothing), so pulling the camera back
+loses resolution rather than relief. At most one ring is recomposed per frame, the near one
+first.
+
+The terrain shader differentiates the composed delta in world space
+(`det_at`/`det_step`, shared by the vertex and fragment stages) and adds that gradient to the
+base map's before normalising: streamed relief is **lit**, where before it was displaced
+geometry shaded by the base map's normals and read as flat painted ground.
+
 ## 3. Memory budget and unloading policy
 
 - Budget: `STREAM_BUDGET_MB` (default **64 MB**, `MARE_STREAM_MB` overrides) of resident tile

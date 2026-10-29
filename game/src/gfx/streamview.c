@@ -24,28 +24,67 @@
 #include "../assets/asset.h"
 
 #define SV_RES     512
-#define SV_EXTENT  80.f              // world units the detail window covers
 #define SV_MIN_RECOMPOSE_S 0.20     // residency bursts (a tile a frame) fold into one rebuild
+
+// Two clipmap rings (DESIGN_STREAMING.md follow-up 3). The near window carries the tactical
+// (L3) detail around the camera; the far ring carries the coastal (L2) detail out to the
+// regional view, so pulling back no longer drops every bit of relief at the window's edge.
+// Each extent is set by Nyquist against its level's detail frequency in stream.c: L3 runs at
+// 6 cycles/degree (wavelength 0.67 world units, needs <= 0.33 per texel), L2 at 3 (1.33 units,
+// needs <= 0.67). At 512 texels that is 80 and 320 world units.
+#define SV_NEAR_EXTENT  80.f        // 0.156 world units per texel
+#define SV_FAR_EXTENT  320.f        // 0.625 world units per texel
+enum { SV_NEAR = 0, SV_FAR, SV_RINGS };
 
 int stream_show_tiles;               // dashboard toggle: draw the tile grid overlay
 
-static rhi_texture_t sv_tex;
-static float *sv_buf;
-static int    sv_inited, sv_on;
-static float  sv_x0, sv_z0;          // window origin (world); extent is SV_EXTENT
-static unsigned sv_seen_residency, sv_seen_assets;
+typedef struct sv_ring_t {
+    rhi_texture_t tex;
+    float   *buf;
+    float    extent;                 // world units covered
+    int      max_level;              // finest tile level this ring may sample (Nyquist, above)
+    float    x0, z0;                 // origin (world)
+    int      on;
+    unsigned seen_residency;
+    double   last_compose;
+} sv_ring_t;
+static sv_ring_t sv_ring[SV_RINGS];
+
+static int    sv_inited;
+static unsigned sv_seen_assets;
 static unsigned sv_world_seed = 0xFFFFFFFFu;
-static double sv_last_compose = -1e9;
-static double sv_window_ms;
+static double sv_window_ms;          // both rings together, last rebuild
 static int    sv_tiles_unmodeled;    // wanted land leaves without an authored mesh (dashboard)
 
-// one row band of the window; reads tile payloads which only ever appear (never vanish) while
-// the main thread sits in the parallel_for below
-typedef struct sv_fill_t { float x0, z0, step; } sv_fill_t;
+// one row band of a ring; reads tile payloads which only ever appear (never vanish) while the
+// main thread sits in the parallel_for below
+typedef struct sv_fill_t { float *buf; float x0, z0, step; int max_level; } sv_fill_t;
 static void sv_fill_rows(void *arg, int begin, int end, int slot) {
     const sv_fill_t *f = (const sv_fill_t *)arg; (void)slot;
     for (int j = begin; j < end; ++j) for (int i = 0; i < SV_RES; ++i)
-        sv_buf[j * SV_RES + i] = stream_delta_at(f->x0 + i * f->step, f->z0 + j * f->step);
+        f->buf[j * SV_RES + i] = stream_delta_at_level(f->x0 + i * f->step, f->z0 + j * f->step, f->max_level);
+}
+
+// Rebuild one ring when the residency changed or the camera left its inner half. Returns the
+// milliseconds spent (0 when nothing had to be done).
+static double sv_ring_compose(sv_ring_t *r, float cx, float cz) {
+    int moved = !r->on || fabsf(cx - (r->x0 + r->extent * 0.5f)) > r->extent * 0.25f
+                       || fabsf(cz - (r->z0 + r->extent * 0.5f)) > r->extent * 0.25f;
+    int changed = r->seen_residency != stream_residency_generation();
+    if (!(moved || changed) || RF.time - r->last_compose <= SV_MIN_RECOMPOSE_S) return 0;
+    r->last_compose = RF.time;
+    r->seen_residency = stream_residency_generation();
+    double t0 = diag_now();
+    float step = r->extent / (SV_RES - 1);
+    sv_fill_t f;                                 // snapped to the sample grid so detail never swims
+    f.buf = r->buf;
+    f.x0 = floorf((cx - r->extent * 0.5f) / step) * step;
+    f.z0 = floorf((cz - r->extent * 0.5f) / step) * step;
+    f.step = step; f.max_level = r->max_level;
+    jobs_parallel_for(JOB_LANE_WORKER, sv_fill_rows, &f, SV_RES, 32);
+    rhi_texture_update(&r->tex, r->buf);
+    r->x0 = f.x0; r->z0 = f.z0; r->on = 1;
+    return (diag_now() - t0) * 1000;
 }
 
 static void sv_sync_authored(void) {
@@ -62,14 +101,20 @@ static void sv_sync_authored(void) {
 void streamview_update(void) {
     if (!sv_inited) {
         sv_inited = 1;
-        sv_buf = malloc((size_t)SV_RES * SV_RES * sizeof(float));
-        sv_tex = rhi_texture_make(SV_RES, SV_RES, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+        static const float extent[SV_RINGS] = { SV_NEAR_EXTENT, SV_FAR_EXTENT };
+        static const int   lvl[SV_RINGS]    = { STREAM_L_TACTICAL, STREAM_L_COASTAL };
+        for (int i = 0; i < SV_RINGS; ++i) {
+            sv_ring[i].buf = malloc((size_t)SV_RES * SV_RES * sizeof(float));
+            sv_ring[i].tex = rhi_texture_make(SV_RES, SV_RES, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+            sv_ring[i].extent = extent[i]; sv_ring[i].max_level = lvl[i]; sv_ring[i].last_compose = -1e9;
+        }
         const char *e = getenv("MARE_STREAM_TILES"); if (e) stream_show_tiles = atoi(e) != 0;   // overlay on for unattended captures
     }
     if (sv_world_seed != G.seed) {   // new game or a loaded save: detail is keyed to the world seed
         sv_world_seed = G.seed;
         stream_init(G.seed, "tiles");
-        sv_on = 0; sv_seen_residency = 0; sv_seen_assets = (unsigned)-1;
+        sv_seen_assets = (unsigned)-1;
+        for (int i = 0; i < SV_RINGS; ++i) { sv_ring[i].on = 0; sv_ring[i].seen_residency = 0; }
     }
     stream_update(cam.tx, cam.tz, cam.dist);
     if (sv_seen_assets != asset_generation()) { sv_seen_assets = asset_generation(); sv_sync_authored(); }
@@ -77,25 +122,11 @@ void streamview_update(void) {
     for (int i = 0; i < stream_tile_count(); ++i) { const stream_tile_t *t = stream_tile_at_index(i);
         sv_tiles_unmodeled += t->wanted && !t->water_only && !t->authored && t->level == STREAM_L_TACTICAL; }
 
-    // rebuild the window when residency changed or the camera left the inner half
-    float cx = cam.tx, cz = cam.tz;
-    int moved = !sv_on || fabsf(cx - (sv_x0 + SV_EXTENT * 0.5f)) > SV_EXTENT * 0.25f
-                       || fabsf(cz - (sv_z0 + SV_EXTENT * 0.5f)) > SV_EXTENT * 0.25f;
-    int changed = sv_seen_residency != stream_residency_generation();
-    if ((moved || changed) && RF.time - sv_last_compose > SV_MIN_RECOMPOSE_S) {
-        sv_last_compose = RF.time;
-        sv_seen_residency = stream_residency_generation();
-        double t0 = diag_now();
-        float step = SV_EXTENT / (SV_RES - 1);
-        sv_fill_t f;                                 // snapped to the sample grid so detail never swims
-        f.x0 = floorf((cx - SV_EXTENT * 0.5f) / step) * step;
-        f.z0 = floorf((cz - SV_EXTENT * 0.5f) / step) * step;
-        f.step = step;
-        jobs_parallel_for(JOB_LANE_WORKER, sv_fill_rows, &f, SV_RES, 32);
-        rhi_texture_update(&sv_tex, sv_buf);
-        sv_x0 = f.x0; sv_z0 = f.z0; sv_on = 1;
-        sv_window_ms = (diag_now() - t0) * 1000;
-    }
+    // At most one ring is rebuilt per frame (the near one first: it is what the player is
+    // looking at), so a residency change never pays for both composes in the same frame.
+    { double ms = sv_ring_compose(&sv_ring[SV_NEAR], cam.tx, cam.tz);
+      if (ms == 0) ms = sv_ring_compose(&sv_ring[SV_FAR], cam.tx, cam.tz);
+      if (ms > 0) sv_window_ms = ms; }
 
     // metrics (task 7)
     static int m_res = -1, m_want, m_load, m_mb, m_evict, m_disk, m_gen, m_win, m_unmod;
@@ -109,9 +140,15 @@ void streamview_update(void) {
     metric_set(m_unmod, sv_tiles_unmodeled);
 }
 
-// terrain.c binds these: the window texture and (x0, z0, 1/extent, 1/extent)
-const rhi_texture_t *streamview_detail_tex(void) { return sv_on ? &sv_tex : 0; }
-void streamview_detail_rect(float out[4]) { out[0] = sv_x0; out[1] = sv_z0; out[2] = 1.f / SV_EXTENT; out[3] = 1.f / SV_EXTENT; }
+// terrain.c binds these per ring: the texture, (x0, z0, 1/extent, 1/extent), and the world
+// size of one texel (the shader differentiates the delta for its normals).
+const rhi_texture_t *streamview_detail_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].tex : 0; }
+void streamview_detail_rect(int ring, float out[4]) {
+    const sv_ring_t *r = &sv_ring[(unsigned)ring < SV_RINGS ? ring : 0];
+    out[0] = r->x0; out[1] = r->z0; out[2] = 1.f / r->extent; out[3] = 1.f / r->extent;
+}
+float  streamview_detail_texel(int ring) { return ((unsigned)ring < SV_RINGS ? sv_ring[ring].extent : SV_NEAR_EXTENT) / (SV_RES - 1); }
+int    streamview_rings(void) { return SV_RINGS; }
 double streamview_window_ms(void) { return sv_window_ms; }
 int    streamview_unmodeled(void) { return sv_tiles_unmodeled; }
 

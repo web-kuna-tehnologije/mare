@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.1 — streamed detail: lighting and a second clipmap ring
+
+- **The streamed relief is lit.** The terrain fragment shader differentiates the composed
+  detail delta in world space and adds that gradient to the base heightmap's before
+  normalising, so the geometry the rings displace is shaded by its own normals. Until now it
+  was lit by the base map and read as flat painted ground.
+- **A second, coarser clipmap ring**: near 80 units (tactical L3 detail, 0.156 units/texel)
+  and far 320 units (coastal L2 detail, 0.625), each sized by Nyquist against the level's
+  detail frequency — a ring only carries detail it can sample twice per wavelength, so the far
+  ring asks for L2 explicitly (`stream_delta_at_level`). The near ring cross-fades into the
+  far one at its border rather than into nothing, so pulling the camera back costs resolution,
+  never relief. At most one ring recomposes per frame, the near one first.
+- `stream_test` covers the level-clamped lookup (never finer than asked, L1 and coarser carry
+  no delta).
+
 ## 0.10.0 — world streaming
 Plan and the terrain grid listing: [DESIGN_STREAMING.md](DESIGN_STREAMING.md).
 

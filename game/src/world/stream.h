@@ -73,6 +73,9 @@ void                 stream_tile_label(const stream_tile_t *t, char *buf, int n)
 
 // finest resident delta under a world position (bilinear); 0 when nothing is resident there.
 float    stream_delta_at(float wx, float wz);
+// the same, but ignoring levels finer than `max_level`: the coarse clipmap ring asks for L2 so
+// it never tries to carry L3 detail its texel size cannot sample without aliasing.
+float    stream_delta_at_level(float wx, float wz, int max_level);
 unsigned stream_residency_generation(void);   // bumps whenever a tile becomes READY or is evicted
 void     stream_stats(stream_stats_t *out);
 size_t   stream_budget_bytes(void);

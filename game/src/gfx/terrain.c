@@ -32,24 +32,43 @@ static rhi_texture_t tex_height, tex_territory, tex_ao;
 int terrain_ao_on = 1;    // baked horizon occlusion on the ambient term (MARE_TERRAIN_AO=0)
 static const float lod_dist[LODS-1] = { 45, 110, 240, 520 };
 
+// Streamed detail rings (streamview.c): two clipmap windows of delta height around the camera
+// - near (tactical detail) and far (coastal detail, 4x wider). Each fades out at its own
+// border; the near one cross-fades into the far rather than into nothing, so pulling the
+// camera back loses resolution, never relief. Shared by the vertex stage (height) and the
+// fragment stage (normals), which is why it lives in a string both of them include.
+#define GLSL_TERRAIN_DETAIL \
+    "uniform sampler2D u_det; uniform sampler2D u_det_far;\n" \
+    "uniform vec4 u_det_rect; uniform vec4 u_det_far_rect;\n" \
+    "uniform vec2 u_det_on; uniform vec2 u_det_texel;\n"   /* on: near, far | texel: world units per texel */ \
+    "float det_fade(vec2 uv){\n" \
+    "  if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return 0.0;\n" \
+    "  return clamp(min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y)) * 10.0, 0.0, 1.0); }\n" \
+    "float det_at(vec2 xz){\n" \
+    "  vec2 nuv = (xz - u_det_rect.xy) * u_det_rect.zw;\n" \
+    "  vec2 fuv = (xz - u_det_far_rect.xy) * u_det_far_rect.zw;\n" \
+    "  float nf = u_det_on.x > 0.5 ? det_fade(nuv) : 0.0;\n" \
+    "  float ff = u_det_on.y > 0.5 ? det_fade(fuv) : 0.0;\n" \
+    "  float dn = nf > 0.0 ? texture(u_det, nuv).r : 0.0;\n" \
+    "  float df = ff > 0.0 ? texture(u_det_far, fuv).r * ff : 0.0;\n" \
+    "  return mix(df, dn, nf); }\n" \
+    /* world-space step for differentiating det_at: the resolution of whichever ring is in use */ \
+    "float det_step(vec2 xz){\n" \
+    "  vec2 nuv = (xz - u_det_rect.xy) * u_det_rect.zw;\n" \
+    "  return (u_det_on.x > 0.5 && det_fade(nuv) > 0.0) ? u_det_texel.x : u_det_texel.y; }\n"
+
 static const char *terrain_vs =
     "in vec3 a_pos;\n" // u, v, skirt
     "uniform mat4 u_vp; uniform vec2 u_origin; uniform float u_size; uniform float u_flatten;\n"
     "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_k;\n"
-    // streamed detail window (streamview.c): a delta heightfield around the camera, faded at
-    // its border so the hand-over to the base map is never a step
-    "uniform sampler2D u_det; uniform vec4 u_det_rect; uniform float u_det_on;\n"
+    GLSL_TERRAIN_DETAIL
     "out vec3 v_wpos; out vec2 v_uv; out float v_h;\n"
     "void main(){\n"
     "  vec2 xz = u_origin + a_pos.xy * u_size;\n"
     "  float lon = xz.x / u_k, lat = -xz.y / u_k;\n"
     "  vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));\n"
     "  float h = texture(u_hm, uv).r;\n"
-    "  vec2 duv = (xz - u_det_rect.xy) * u_det_rect.zw;\n"
-    "  if (u_det_on > 0.5 && duv.x > 0.0 && duv.x < 1.0 && duv.y > 0.0 && duv.y < 1.0) {\n"
-    "    float fade = clamp(min(min(duv.x, 1.0-duv.x), min(duv.y, 1.0-duv.y)) * 10.0, 0.0, 1.0);\n"
-    "    h += texture(u_det, duv).r * fade * (1.0 - u_flatten);\n"
-    "  }\n"
+    "  h += det_at(xz) * (1.0 - u_flatten);\n"
     "  float hf = mix(h, (h > 0.0 ? 0.12 : -0.5), u_flatten);\n"
     "  v_wpos = vec3(xz.x, hf - a_pos.z * 3.0, xz.y); v_uv = uv; v_h = h;\n"
     "  gl_Position = u_vp * vec4(v_wpos, 1.0);\n"
@@ -61,6 +80,8 @@ static const char *terrain_fs =
     "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_k;\n"
     "uniform sampler2D u_ao; uniform float u_ao_on;\n"   // baked horizon occlusion (terrain_init): 1 = open sky, lower in valleys
     "uniform vec3 u_nation_colors[11]; uniform float u_daylight; uniform float u_regions; uniform vec2 u_terr_texel;\n"
+    "uniform float u_flatten;\n"
+    GLSL_TERRAIN_DETAIL
     "out vec4 fragColor;\n"
     "float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }\n"
     "float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n"
@@ -69,7 +90,16 @@ static const char *terrain_fs =
     "void main(){\n"
     "  float hl = texture(u_hm, v_uv - vec2(u_texel.x,0)).r, hr = texture(u_hm, v_uv + vec2(u_texel.x,0)).r;\n"
     "  float hu = texture(u_hm, v_uv - vec2(0,u_texel.y)).r, hd = texture(u_hm, v_uv + vec2(0,u_texel.y)).r;\n"
-    "  vec3 n = normalize(vec3(-(hr-hl)/(2.0*u_texel_world), 1.0, -(hd-hu)/(2.0*u_texel_world)));\n"
+    "  float gx = (hr-hl)/(2.0*u_texel_world), gz = (hd-hu)/(2.0*u_texel_world);\n"
+    // The streamed detail moves the surface, so it has to light it too: without this the relief
+    // the rings add is shaded by the base map's normals and reads as flat painted ground.
+    "  float dk = 1.0 - u_flatten;\n"
+    "  if (dk > 0.01) {\n"
+    "    float e = det_step(v_wpos.xz);\n"
+    "    gx += dk * (det_at(v_wpos.xz + vec2(e,0.0)) - det_at(v_wpos.xz - vec2(e,0.0))) / (2.0*e);\n"
+    "    gz += dk * (det_at(v_wpos.xz + vec2(0.0,e)) - det_at(v_wpos.xz - vec2(0.0,e))) / (2.0*e);\n"
+    "  }\n"
+    "  vec3 n = normalize(vec3(-gx, 1.0, -gz));\n"
     "  float h = v_h; float lat = -v_wpos.z / u_k; float lon = v_wpos.x / u_k;\n"
     "  float slope = 1.0 - n.y;\n"
     "  float nz = noise(v_wpos.xz*0.9) * 0.6 + noise(v_wpos.xz*3.7)*0.4;\n"
@@ -148,7 +178,7 @@ static void build_lod(int lod) {
 void terrain_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_rect", "u_det_on", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", GLSL_LIGHT_UNIFORMS, 0 };
     terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = terrain_vs, .fs = terrain_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int i = 0; i < LODS; ++i) build_lod(i);
     tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, heightmap);
@@ -208,12 +238,18 @@ void terrain_draw(float planes[6][4]) {
     rhi_set_i1(UNI(terrain_prg,"u_hm"), 0); rhi_set_i1(UNI(terrain_prg,"u_terr"), 1);
     rhi_texture_bind(0, &tex_height);
     rhi_set_i1(UNI(terrain_prg,"u_ao"), 5); rhi_texture_bind(5, &tex_ao); rhi_set_f1(UNI(terrain_prg,"u_ao_on"), terrain_ao_on ? 1.f : 0.f);
-    {   // streamed detail window (streamview.c): adds the resident tiles' delta around the camera
-        const rhi_texture_t *det = streamview_detail_tex();
-        float rect[4] = { 0, 0, 1, 1 }; if (det) streamview_detail_rect(rect);
-        rhi_set_i1(UNI(terrain_prg,"u_det"), 6); rhi_texture_bind(6, det ? det : &tex_height);
-        rhi_set_f4(UNI(terrain_prg,"u_det_rect"), rect[0], rect[1], rect[2], rect[3]);
-        rhi_set_f1(UNI(terrain_prg,"u_det_on"), det ? 1.f : 0.f);
+    {   // streamed detail rings (streamview.c): the resident tiles' delta around the camera,
+        // near (tactical) on unit 6 and far (coastal) on unit 7
+        const rhi_texture_t *dn = streamview_detail_tex(0), *df = streamview_detail_tex(1);
+        float rn[4] = { 0, 0, 1, 1 }, rf[4] = { 0, 0, 1, 1 };
+        if (dn) streamview_detail_rect(0, rn);
+        if (df) streamview_detail_rect(1, rf);
+        rhi_set_i1(UNI(terrain_prg,"u_det"), 6);     rhi_texture_bind(6, dn ? dn : &tex_height);
+        rhi_set_i1(UNI(terrain_prg,"u_det_far"), 7); rhi_texture_bind(7, df ? df : &tex_height);
+        rhi_set_f4(UNI(terrain_prg,"u_det_rect"), rn[0], rn[1], rn[2], rn[3]);
+        rhi_set_f4(UNI(terrain_prg,"u_det_far_rect"), rf[0], rf[1], rf[2], rf[3]);
+        rhi_set_f2(UNI(terrain_prg,"u_det_on"), dn ? 1.f : 0.f, df ? 1.f : 0.f);
+        rhi_set_f2(UNI(terrain_prg,"u_det_texel"), streamview_detail_texel(0), streamview_detail_texel(1));
     }
     rhi_texture_bind(1, &tex_territory);
     rhi_set_f4(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);

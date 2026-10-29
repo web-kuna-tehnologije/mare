@@ -296,10 +296,13 @@ void stream_update(float cx, float cz, float dist) {
 // ---------------------------------------------------------------------------
 // lookups and stats
 
-float stream_delta_at(float wx, float wz) {
+float stream_delta_at(float wx, float wz) { return stream_delta_at_level(wx, wz, STREAM_LEVELS - 1); }
+
+float stream_delta_at_level(float wx, float wz, int max_level) {
     if (!initialized) return 0.f;
+    if (max_level > STREAM_LEVELS - 1) max_level = STREAM_LEVELS - 1;
     float lon = x2lon(wx), lat = z2lat(wz);
-    for (int l = STREAM_LEVELS - 1; l >= 0; --l) {
+    for (int l = max_level; l >= 0; --l) {
         if (lvl_amp[l] <= 0.f) return 0.f;                       // L0/L1 carry no delta by design
         float deg = lvl_cells(l) / (float)CELLS_PER_DEG;
         int tx = (int)floorf((lon - LON0) / deg), ty = (int)floorf((LAT1 - lat) / deg);

@@ -39,8 +39,11 @@ void render_territory_upload(void); // push the territory map to the GPU when te
 void streamview_update(void);                       // once per frame, before the terrain draws
 void streamview_push_tiles(void);                   // authored tile meshes (inside the scene_assets bracket)
 void streamview_draw_debug(void);                   // tile grid overlay (dd lines; stream_show_tiles)
-const rhi_texture_t *streamview_detail_tex(void);   // NULL until a window was composed
-void streamview_detail_rect(float out[4]);          // x0, z0, 1/extent, 1/extent (world)
+// Two clipmap rings: 0 = near (tactical detail), 1 = far (coastal detail, wider).
+const rhi_texture_t *streamview_detail_tex(int ring);   // NULL until that ring was composed
+void  streamview_detail_rect(int ring, float out[4]);   // x0, z0, 1/extent, 1/extent (world)
+float streamview_detail_texel(int ring);                // world units per texel (for shader normals)
+int   streamview_rings(void);
 double streamview_window_ms(void);
 int    streamview_unmodeled(void);                  // wanted tactical chunks without an authored mesh
 extern int stream_show_tiles;                       // dashboard toggle

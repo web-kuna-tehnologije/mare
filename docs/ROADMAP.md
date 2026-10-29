@@ -9,14 +9,15 @@ parallel compute + ordered commit on the job system (adaptively dispatched: the 
 past ~2k entities, measured); the sea's wave height follows the zoom. All eight tasks of the
 design landed with a headless `stream_test`, a dashboard Streaming tab and the tile overlay.
 
-Follow-ups, in rough order of value:
-1. Authored terrain tiles in production: model the first `tile_l3_*` chunks around the
-   capitals (docs/BLENDER_LOD.md section 4) and let the overlay's "still to model" list drain.
-2. Normals from the detail window (the shader lights detail with base-map normals today).
-3. A second, coarser detail window (clipmap ring) so L2 tiles show from further out.
-4. Tile-local content: streamed vegetation/rock scatter per tactical chunk through the same
-   residency machinery.
-5. Raise the world/port/fleet caps toward the full-map scale the adaptive parallel tick is
+Follow-ups:
+1. [x] **Normals from the detail window** (0.10.1) — the terrain shader differentiates the
+   composed delta and lights the relief it displaces.
+2. [x] **A second, coarser clipmap ring** (0.10.1) — near 80 units for tactical detail, far
+   320 for coastal, each sized by Nyquist against its level's detail frequency, the near one
+   cross-fading into the far.
+3. [ ] Tile-local content: streamed vegetation/rock scatter per tactical chunk through the
+   same residency machinery.
+4. [ ] Raise the world/port/fleet caps toward the full-map scale the adaptive parallel tick is
    gated for, and re-measure `MARE_PARSIM=2` against the 2 ms dispatch cost.
 
 ## Done: renderer modernisation (game/docs/DESIGN_RENDERER.md)

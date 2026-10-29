@@ -84,6 +84,15 @@ int main(void) {
     d_mount = best;
     CHECK(fabsf(d_mount) > 0.01f, "no detail in the mountains (max |delta| %.4f)", fabsf(d_mount));
 
+    // level-clamped lookup (the coarse clipmap ring asks for L2 so its texels never try to
+    // carry L3 detail): never finer than asked, and L1 and above carry no delta at all
+    { int differ = 0;
+      for (int k = 0; k < 400; ++k) { float x = ax + (k % 20 - 10) * 0.8f, z = az + (k / 20 - 10) * 0.8f;
+          float all = stream_delta_at(x, z), l2 = stream_delta_at_level(x, z, STREAM_L_COASTAL);
+          if (all != l2) differ++;
+          CHECK(stream_delta_at_level(x, z, STREAM_L_REGION) == 0.f, "L1 and coarser must carry no delta"); }
+      CHECK(differ > 0, "the L2-clamped ring should differ from the finest lookup somewhere"); }
+
     // determinism + disk round-trip: a fresh init with the same seed reloads identical data from disk
     float probe[16]; int np = 0;
     for (int k = 0; k < 16; ++k) probe[np++] = stream_delta_at(ax + (k % 4) * 1.3f, az + (k / 4) * 1.1f);
