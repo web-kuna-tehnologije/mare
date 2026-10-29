@@ -26,6 +26,19 @@ static const char *meshes_vs =
     "  v_dither = i_fx.x;\n"
     "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
     "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
+    /* Cloth (sails, flags, and a little life in the rigging). i_fx.y is the instance's cloth \
+       strength and a_rm.y - metalness, which cloth never has - carries how free this vertex is \
+       to move: 0 where the canvas is bent to a yard or a flag to its staff, 1 at the loose \
+       corner. The travelling wave is in the ship's own frame, so a sail ripples along its foot \
+       whichever way the ship is heading. No physics: that comes later. */ \
+    "  float cw = a_rm.y * i_fx.y;\n"
+    "  if (cw > 0.0) {\n"
+    "    float cph = u_time * 2.4 + (a_pos.x + a_pos.y * 0.6) * 9.0 + i_pos.x * 0.7 + i_pos.z * 0.5;\n"
+    "    float camp = i_scol.x * 0.05 * cw;\n"
+    "    p.z += camp * sin(cph);\n"
+    "    p.x += camp * 0.45 * sin(cph * 0.73 + 1.1);\n"
+    "    p.y += camp * 0.18 * sin(cph * 1.31 + 2.2);\n"
+    "  }\n"
     /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
        never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, \
        or caught in a storm), so anchored ships barely stir while a storm throws them about. */ \
@@ -51,7 +64,7 @@ static const char *meshes_vs =
     "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
     "  v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);\n"
     "  v_col = mix(a_col, i_scol.yzw, a_mat);\n"
-    "  v_wpos = wp; v_sel = i_misc.y; v_rm = a_rm;\n"
+    "  v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(a_rm.x, i_fx.y > 0.0 ? 0.0 : a_rm.y);\n"
     "  gl_Position = u_vp * vec4(wp, 1.0);\n"
     "}\n";
 static const char *meshes_fs =

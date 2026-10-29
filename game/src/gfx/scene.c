@@ -160,6 +160,7 @@ void scene_build_ships(void) {
     cam_frustum(frustum);
     scene_culled_ships = scene_occluded_ships = 0;
     shipyard_oars_drawn = shipyard_ships_drawn = shipyard_fallbacks = 0;
+    shipyard_frame_begin();
     int occ = scene_occlusion_active();
     int battle_lod0_budget = BATTLE_DETAIL_MAX;
     float dt = clampf(RF.time - anim_prev_time, 0, 0.25f); anim_prev_time = RF.time;
@@ -265,6 +266,7 @@ void scene_build_ships(void) {
         instlist_append(&ship_inst[t][1], &ship_cast[t]);
     }
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) mesh_set_instances(&ship_mesh[t][l], ship_inst[t][l].v, ship_inst[t][l].n);
+    shipyard_upload();   // the procedural rigging and canvas of every authored ship this frame
     mesh_set_instances(&mesh_puff, puffs.v, puffs.n);
     sea_set_ships(foam_v, foam_len, nfoam);
     icon_w_time = RF.time;
@@ -281,7 +283,7 @@ static int submit_ship_meshes(int shadow) {
     }
     return n;
 }
-int scene_submit_ships(void) { return submit_ship_meshes(0); }
+int scene_submit_ships(void) { return submit_ship_meshes(0) + shipyard_submit(); }
 
 // gunsmoke, drawn after the sea with the translucent pipeline (meshes_bind_smoke)
 int scene_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
@@ -756,7 +758,7 @@ int scene_submit_ports(void) { return submit_town_meshes(0) + assets_submit(); }
 // squares). Gunsmoke is deliberately left out: a hard-edged shadow from a smoke ball looks wrong.
 int scene_submit_shadow(void) {
     int n = detailview_mode() != DV_OFF ? detailview_submit_shadow()   // the staged scene is the only caster set
-                                        : submit_town_meshes(1) + scene_assets_submit_shadow() + submit_ship_meshes(1);
+                                        : submit_town_meshes(1) + scene_assets_submit_shadow() + submit_ship_meshes(1) + shipyard_submit();
     return n;
 }
 

@@ -79,6 +79,7 @@ typedef struct asset_lod_t {
     float     px;                         // or: use once the projected size is below this many reference pixels (0 = from dist)
     int       gpu;                        // renderer-owned flag: 1 once uploaded (verts/idx may then be freed)
     int       queued;                     // an upload job for this LOD is already in flight (asset_upload_lod)
+    int       trimmed;                    // its CPU copy was freed un-uploaded (asset_lod0_trim); wanting it reloads the asset
 } asset_lod_t;
 
 // UNLOADED -> (asset_request) LOADING -> LOADED | FAILED. Loading runs on the job system
@@ -98,6 +99,7 @@ typedef struct asset_t {
     size_t cpu_bytes;                     // vertex + index memory held on the CPU
     size_t gpu_bytes;                     // what the renderer uploaded (asset_lod_t.gpu set by scene.c)
     double load_ms;
+    double loaded_at;                     // diag_now() when it reached ASSET_LOADED (the trim's clock)
     int    stage;                         // while LOADING, which lane holds it: 1 IO read, 2 DECODE build, 3 MAIN commit pending (dashboard only, written by the stage that finishes)
     char  error[256];
 } asset_t;
@@ -124,6 +126,13 @@ void     asset_set_upload_hook(void (*hook)(asset_t *a, int lod));   // renderer
 // imported scan is the original, only ever drawn when the object fills the screen - is left
 // for the first instance that actually picks it, so it costs no VRAM until then.
 void     asset_upload_lod(asset_t *a, int lod);
+// Free the CPU copy of any LOD that has sat un-uploaded for `idle_s` seconds of wall clock.
+// An imported LOD 0 is the original scan - tens of MB per asset, hundreds across a fleet - and
+// most of them are never drawn in a session, because LOD 0 only shows when an object fills the
+// screen. A trimmed LOD is reloaded (the whole asset is re-requested) the moment something
+// picks it, so this costs a stream-in, never the level itself. Call once every few seconds.
+void     asset_lod0_trim(double idle_s);
+size_t   asset_lod0_trimmed_bytes(void);   // freed this session (dashboard)
 void     asset_free_cpu(asset_t *a, int lod);              // renderer: drop the CPU copy after upload
 size_t   asset_cpu_bytes(void);                            // total held by the cache (CPU side)
 size_t   asset_gpu_bytes(void);                            // total uploaded by the renderer

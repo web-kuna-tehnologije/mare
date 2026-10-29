@@ -32,6 +32,28 @@ void mb_quad(mb_t *m, const float a[3], const float b[3], const float c[3], cons
 void mb_quad2(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat) {
     mb_quad(m, a, b, c, d, r, g, b_, mat);   // one quad: shading is two-sided, a mirrored copy would z-fight
 }
+// A quad whose metalness - which cloth repurposes as "how free is this vertex to move"
+// (meshes.c) - is interpolated from the a/b edge to the c/d edge. A sail built from strips of
+// ordinary quads tears along every seam, because the two vertices meeting at a seam would carry
+// their own strip's weight and so flutter apart.
+void mb_quad_grad(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3],
+                  float w_ab, float w_cd, float r, float g, float b_, float mat) {
+    float keep = m->metal;
+    float n[3] = { 0, 1, 0 };
+    {   // one flat normal for the whole quad, as mb_tri would compute for a-b-c
+        float ux = b[0]-a[0], uy = b[1]-a[1], uz = b[2]-a[2];
+        float vx = c[0]-a[0], vy = c[1]-a[1], vz = c[2]-a[2];
+        n[0] = uy*vz - uz*vy; n[1] = uz*vx - ux*vz; n[2] = ux*vy - uy*vx;
+        float l = sqrtf(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]);
+        if (l > 1e-9f) { n[0]/=l; n[1]/=l; n[2]/=l; } else { n[0]=0; n[1]=1; n[2]=0; }
+    }
+    const float *v[4] = { a, b, c, d };
+    const float w[4] = { w_ab, w_ab, w_cd, w_cd };
+    const int tri[6] = { 0,1,2, 0,2,3 };
+    for (int i = 0; i < 6; ++i) { m->metal = w[tri[i]]; mb_push(m, v[tri[i]], n, r, g, b_, mat); }
+    m->metal = keep;
+}
+
 void mb_box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat) {
     float p[8][3]; for (int i = 0; i < 8; ++i) { p[i][0] = cx + (i&1 ? hx : -hx); p[i][1] = cy + (i&2 ? hy : -hy); p[i][2] = cz + (i&4 ? hz : -hz); }
     mb_quad(m, p[0],p[2],p[3],p[1], r,g,b,mat); mb_quad(m, p[4],p[5],p[7],p[6], r,g,b,mat);

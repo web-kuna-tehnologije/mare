@@ -65,6 +65,11 @@
 // not fit simply lands in the next frame (see jobs_main_drain).
 #define JOBS_UPLOAD_BUDGET_MS 2.0
 
+// How long an un-uploaded detail level may hold its CPU copy before it is given back. Long
+// enough that entering a battle does not pay for a reload, short enough that the Gen I fleet's
+// LOD 0 scans do not sit in RAM for a whole session.
+#define ASSET_LOD0_IDLE_S 45.0
+
 static void print_report(int days) {
     printf("simulated %d days: %d log lines, %d lanes, %d fleets, %d trades, %d battles, %d captures\n", days, G.nlog, G.nlanes, game_count_fleets(), G.trades, G.battles, G.captures);
     for (int i = 0; i < G.nlog; ++i) printf("  %s: %s\n", ui_date(G.log[i].day), G.log[i].text);
@@ -274,7 +279,7 @@ int main(int argc, char **argv) {
     int m_asset_gpu = metric_id("asset.gpu_mb"), m_asset_inst = metric_id("asset.instances");
     int p_upload = prof_id("jobs.upload"), m_jobs_main = metric_id("jobs.main_ran"), m_jobs_queued = metric_id("jobs.queued");
     int m_lod_pops = metric_id("lod.pops"), m_lod_fading = metric_id("lod.fading"), m_asset_loading = metric_id("asset.loading");
-    int m_lod_fallbacks = metric_id("asset.lod_fallbacks");
+    int m_lod_fallbacks = metric_id("asset.lod_fallbacks"), m_lod_trim = metric_id("asset.lod_trimmed_mb");
     int m_lod_tris = metric_id("lod.asset_tris"), m_lod_budget = metric_id("lod.budget_scale"), m_icons_clustered = metric_id("lod.icons_clustered");
     int m_jobs_busy = metric_id("jobs.busy_pct"), m_jobs_wait = metric_id("jobs.wait_ms"), m_jobs_io_q = metric_id("jobs.io_queued");
     int m_occ_ports = metric_id("gfx.occluded_ports"), m_occ_ships = metric_id("gfx.occluded_ships"), m_occ_samples = metric_id("gfx.occ_samples");
@@ -414,6 +419,10 @@ int main(int argc, char **argv) {
         // Work that finished on the pool and needs the GL context - asset uploads, LOD streaming
         // (DESIGN_JOBS.md) - is run here, rate limited so a burst of ready meshes cannot turn
         // into a 30 ms frame. Whatever does not fit waits for the next frame.
+        // Give back the CPU copies of detail levels nothing has asked to draw. An imported
+        // LOD 0 is the original scan and most are never picked in a session (DESIGN_SHIPS.md).
+        { static double next_trim; double tnow = diag_now();
+          if (tnow > next_trim) { next_trim = tnow + 5.0; asset_lod0_trim(ASSET_LOD0_IDLE_S); } }
         prof_begin(p_upload);
         { int ran = jobs_main_drain(JOBS_UPLOAD_BUDGET_MS);
           job_stats_t js; jobs_stats(&js);
@@ -523,6 +532,7 @@ int main(int argc, char **argv) {
           if (lod_pops) LOG_DEBUG("lod", "%d multi-level jumps clamped this frame (cam dist %.1f, %d fading, %d assets loading): a camera teleport or a town rebuilt around a newly landed asset, walked one level per fade - not a visible pop", lod_pops, cam.dist, lod_fading, asset_loading_count());
           metric_set(m_lod_tris, (double)lod_last_tris); metric_set(m_lod_budget, lod_budget_scale); metric_set(m_icons_clustered, scene_icons_clustered);
           metric_set(m_lod_fallbacks, scene_asset_lod_fallbacks);
+          metric_set(m_lod_trim, asset_lod0_trimmed_bytes() / (1024.0 * 1024.0));
           metric_set(m_occ_ports, scene_occluded_ports); metric_set(m_occ_ships, scene_occluded_ships); metric_set(m_occ_samples, occ_samples);
           metric_set(m_occq_hidden, scene_occluded_assets); metric_set(m_occq_queries, occq_queried); metric_set(m_occq_moving, occq_moving);
           metric_set(m_shadow_tris, (double)scene_shadow_tris);

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.12.0 — rigging, canvas, flags, and a 300k battle LOD
+
+- **Rigging** (`gfx/shipyard.c`): shrouds, forestays, backstays and ratlines, built
+  procedurally per ship class in the hull's own frame and instanced onto every ship of that
+  class. Each rope is a cross of two double-sided quads in tarred-hemp near-black — a single
+  quad vanishes edge-on, a tube costs twenty times as much for something a few pixels wide.
+  Skipped below 90 px, where cordage is noise.
+- **Sails and flags as cloth.** Square sails bent to a yard and bellied forward, triangular
+  lateen sails for the Mediterranean classes, and a nation-coloured ribbon at the main
+  masthead. They flutter: the mesh shader takes the instance's cloth strength from `i_fx.y`
+  and, per vertex, how free that vertex is to move from the **metalness** channel — which
+  cloth never has — 0 at the yard, 1 at the loose foot. No physics yet, and no textures:
+  both are hooks for later.
+- **`mb_quad_grad`**: a builder quad with per-vertex cloth weight. Without it a sail built from
+  strips tears along every seam, since the two vertices meeting there carry different weights
+  and flutter apart.
+- **Oars row.** The bank swings together at a rate and reach that follow how hard the ship is
+  being pulled; a ship lying still keeps her oars out and level. Oars are a quarter smaller
+  again (0.34 → 0.26 world units).
+- **300k battle LOD.** Imported ship LOD 0 goes from 150k to 300k triangles — the detail a hull
+  shows when it fills the screen in battle view (`docs/screenshots/ships-lod0-battle.png`).
+- **`asset_lod0_trim`** (roadmap follow-up): gives back the CPU copy of any detail level that
+  has sat un-uploaded for 45 s. An imported LOD 0 is the original scan and most are never drawn
+  in a session; a trimmed level is reloaded if something later picks it, so it costs a
+  stream-in and never the level itself. `asset.lod_trimmed_mb`, and the LOD tab reports it.
+- Dashboard: authored hulls, **rigged** ships, oars and fallbacks per frame.
+
 ## 0.11.1 — the fleet corrected, and the sea calmed down
 Every hull and rig was turned the wrong way round, two classes were carrying one mast, the
 oars rowed inboard, and every ship towed a wake across the ocean.

@@ -84,6 +84,46 @@ its planking, gunports and railings. The staged ships go through the same `shipy
 spans both ships and buildings so authored hulls are submitted and cast shadows in battle view
 as well as city view.
 
+## 3c. Rigging, canvas and flags
+
+The generated models are bare: hulls and spars, no cordage and no sails. Both are built
+procedurally, one pair of meshes per class, in the ship's own frame normalised to its hull
+length (+x bow, +y up from the waterline, +z starboard), so one instance - position, heading,
+scale - dresses any ship of that class. They go through the instanced mesh pipeline, so they
+roll, pitch and ride the swell with the hull they belong to, and they cast shadows with it.
+
+- **Cordage** (`rig_rope`): shrouds three a side from each masthead to the channels, a forestay
+  to the next mast's foot or the bow, a backstay aft, and ratlines on the main shrouds. Each
+  rope is a cross of two double-sided quads - a single quad vanishes edge-on and a tube would
+  cost twenty times as much for something a few pixels wide. Tarred hemp, near black.
+- **Canvas** (`rig_sail_square` / `rig_sail_lateen`): a square sail bent to a yard and bellied
+  forward, or a triangle on a raked yard for the lateen classes (`ship_class_t.lateen`).
+- **Flags**: a ribbon at the main masthead with `mat` 1, so it takes the nation's colour from
+  the instance like every other flag in the game.
+
+Both meshes are built the first time a class's hull *and* rig are resident, since their sizes
+set the mast stations. Below `RIG_MIN_PX` (90 px) the whole rig is skipped - cordage below a
+pixel is noise.
+
+### How the cloth moves
+
+There is no physics yet. The instanced mesh shader carries a flutter: `i_fx.y` is the
+instance's cloth strength (1 for the canvas mesh, 0 for the cordage) and **metalness** -
+which cloth never has - carries per vertex how free that vertex is to move, 0 where the canvas
+is bent to its yard and 1 at the loose foot. A travelling wave in the ship's own frame then
+ripples the sail along its foot whichever way she is heading, and the fragment stage forces
+metalness to 0 so the channel's day job is unaffected.
+
+The weight has to be *per vertex*: a sail built from strips of ordinary quads tears along every
+seam, because the two vertices meeting there would each carry their own strip's weight and
+flutter apart. `mb_quad_grad` interpolates it across the quad.
+
+### Oars
+
+The bank swings together, as a rowed ship does, at a rate and reach that follow how hard she is
+being pulled (`rock`); a ship lying still keeps her oars out and level. Only a yaw sweep - the
+instance transform has no other axis - which is the part of a stroke that reads at this size.
+
 ## 4. Level of detail
 
 Imported models carry five LODs (`tools/meshy_import.py`). A ship hands over far sooner than a
@@ -91,21 +131,24 @@ building because LOD 0 is the original scan:
 
 | LOD | triangles | drawn while the hull is |
 |-----|-----------|--------------------------|
-| 0 | ≤150 000 | over 400 px — it fills the screen in battle or city view |
+| 0 | ≤300 000 | over 400 px — it fills the screen in battle or city view |
 | 1 | 24 000 | 130–400 px |
 | 2 | 7 000 | 45–130 px |
 | 3 | 2 000 | 15–45 px |
 | 4 | 600 | under 15 px, down to the icon hand-over |
 
-The raw Meshy scans are 0.8–1.8 M triangles for a hull, which is 45–68 MB of vertex data per
-asset once the runtime has baked textures into vertex colours — about a gigabyte across the
-fleet, for detail far below a pixel even at LOD 0's range. The importer caps LOD 0 at 150 k
-(six times LOD 1) and the whole fleet costs ~100 MB. Raise `BUDGETS["ship"][0]` in
-`tools/meshy_import.py` to 0 for the untouched scan.
+The raw Meshy scans are 0.8–2.3 M triangles for a hull, which is 45–70 MB of vertex data per
+asset once the runtime has baked textures into vertex colours — well over a gigabyte across the
+fleet, for detail far below a pixel even at LOD 0's range. The importer caps LOD 0 at 300 k,
+which is the detail a hull actually shows when it fills the screen in battle view.
+`BUDGETS["ship"][0]` in `tools/meshy_import.py` is the knob; 0 keeps the untouched scan.
 
-LOD 0 is also the one level the asset commit does **not** upload eagerly: it reaches the GPU
-only when an instance actually picks it (`asset_upload_lod`), so a fleet on the horizon costs
-no VRAM for a level it will never draw.
+Two things keep that affordable. LOD 0 is the one level the asset commit does **not** upload
+eagerly: it reaches the GPU only when an instance actually picks it (`asset_upload_lod`), so a
+fleet on the horizon costs no VRAM for a level it will never draw. And `asset_lod0_trim` gives
+back the *CPU* copy of any level that has sat un-uploaded for 45 seconds — most LOD 0s are
+never drawn in a session — reloading the asset if something later picks it. The dashboard's
+LOD tab reports how much has been trimmed.
 
 ## 5. What it costs
 

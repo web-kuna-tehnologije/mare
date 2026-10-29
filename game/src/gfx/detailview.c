@@ -384,6 +384,7 @@ void detailview_frame(float dt) {
     for (int t = 0; t < SHIP_COUNT; ++t) instlist_clear(&dv.ships_il[t]);
     instlist_clear(&dv.puffs_il);
     scene_assets_begin();                                  // one bracket: staged ships and buildings share it
+    shipyard_frame_begin();
     for (int i = 0; i < dv.nships; ++i) { const dv_ship_t *s = &dv.ship[i];
         float wx = dv.cx + s->x, wz = dv.cz + s->z, rock = dv.mode == DV_BATTLE ? 0.8f : 0.3f;
         // Authored hull, rig and oars at the staged scene's magnification; the procedural hull
@@ -395,6 +396,7 @@ void detailview_frame(float dt) {
         if (shipyard_push(&sr)) continue;
         *instlist_push(&dv.ships_il[s->type]) = (inst_t){ wx, 0, wz, s->heading,
             ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }
+    shipyard_upload();
     for (int i = 0; i < dv.npuffs; ++i) { const dv_puff_t *p = &dv.puff[i];
         float t01 = p->age / 3.2f, env = sinf(3.14159f * minf(t01, 1.f));
         *instlist_push(&dv.puffs_il) = (inst_t){ dv.cx + p->x, p->y, dv.cz + p->z, 0,
@@ -446,6 +448,7 @@ int detailview_submit(void) {
         n += mesh_house.ninst + mesh_roof.ninst + mesh_tower.ninst + mesh_wall.ninst + mesh_pier.ninst + mesh_flagpole.ninst;
     }
     n += scene_assets_submit();   // authored hulls, rigs and oars in both modes; the city's buildings too
+    n += shipyard_submit();       // procedural rigging and canvas
     return n;
 }
 
@@ -462,6 +465,7 @@ int detailview_submit_shadow(void) {
         n += mesh_house.ninst + mesh_roof.ninst + mesh_tower.ninst + mesh_wall.ninst + mesh_pier.ninst + mesh_flagpole.ninst;
     }
     n += scene_assets_submit_shadow();   // authored hulls cast in both modes
+    n += shipyard_submit();
     return n;
 }
 

@@ -31,9 +31,14 @@ Follow-ups:
    stretched war carrack, and sails for the bare rigs.
 2. [ ] Wire the authored fleet into the staged battle/city views (`gfx/detailview.c`), which
    still stage the procedural hulls.
-3. [ ] Free an imported LOD 0's CPU copy when nothing has picked it for a while (~160 MB of
-   the fleet's RAM is LOD 0 vertex data that may never be uploaded).
-4. [ ] Oar animation: sweep the banks with the ship's speed instead of holding them fixed.
+3. [x] **Free an imported LOD 0's CPU copy** (0.12.0) — `asset_lod0_trim` hands back any level
+   that has sat un-uploaded for 45 s and reloads it if something later picks it.
+4. [x] **Oar animation** (0.12.0) — the bank swings together at a rate and reach set by how
+   hard the ship is being pulled.
+5. [ ] Sail and flag textures, and cloth that responds to the wind rather than a fixed flutter
+   (the per-vertex weight channel and the instance cloth flag are already in place).
+6. [ ] Rigging is a fixed pattern per class; running rigging (braces, halyards) and yards that
+   brace round with the wind would make the rig read as worked rather than rendered.
 4. [ ] Raise the world/port/fleet caps toward the full-map scale the adaptive parallel tick is
    gated for, and re-measure `MARE_PARSIM=2` against the 2 ms dispatch cost.
 

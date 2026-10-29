@@ -566,8 +566,17 @@ static void asset_stage_upload(void *p) {   // MAIN lane: one LOD per job so the
     free(u);
 }
 
+static size_t lod_trimmed_bytes;
+size_t asset_lod0_trimmed_bytes(void) { return lod_trimmed_bytes; }
+
 void asset_upload_lod(asset_t *a, int lod) {
     if (!a || a->state != ASSET_LOADED || lod < 0 || lod >= a->nlods) return;
+    // Trimmed away to save memory and now wanted after all: pull the whole asset back in. The
+    // scene keeps drawing the coarser level it already has until the reload lands.
+    if (a->lod[lod].trimmed && !a->lod[lod].verts) {
+        LOG_DEBUG("asset", "'%s' LOD %d was trimmed and is wanted again: reloading", a->desc.name, lod);
+        asset_unload(a); asset_request(a); return;
+    }
     if (a->lod[lod].gpu || a->lod[lod].queued || !upload_hook) return;
     a->lod[lod].queued = 1;
     asset_upload_arg_t *u = (asset_upload_arg_t *)malloc(sizeof *u); u->a = a; u->lod = lod;
@@ -582,7 +591,7 @@ static void asset_stage_commit(void *p) {   // MAIN lane: publish the result
     a->scale = t->scale; memcpy(a->bmin, t->bmin, sizeof a->bmin); memcpy(a->bmax, t->bmax, sizeof a->bmax); a->radius = t->radius;
     a->coll_radius = t->coll_radius; memcpy(a->coll_half, t->coll_half, sizeof a->coll_half);
     a->cpu_bytes = t->cpu_bytes; memcpy(a->error, t->error, sizeof a->error);
-    a->load_ms = (diag_now() - j->t0) * 1000; a->stage = 0;
+    a->load_ms = (diag_now() - j->t0) * 1000; a->loaded_at = diag_now(); a->stage = 0;
     if (j->ok) {
         a->state = ASSET_LOADED;
         asset_gen++;
@@ -682,4 +691,22 @@ void asset_unload(asset_t *a) {   // CPU data only: GPU meshes are owned and rec
     a->nlods = 0; a->cpu_bytes = 0; a->gpu_bytes = 0; a->state = ASSET_UNLOADED; a->error[0] = 0;
     asset_gen++;   // an asset going away invalidates the same caches a loaded one does (towns fall back to boxes)
 }
+void asset_lod0_trim(double idle_s) {
+    double now = diag_now();
+    for (int i = 0; i < nassets; ++i) {
+        asset_t *a = &assets[i];
+        if (a->state != ASSET_LOADED) continue;
+        for (int l = 0; l < a->nlods; ++l) {
+            asset_lod_t *L = &a->lod[l];
+            if (L->gpu || L->queued || !L->verts) continue;      // on the GPU, on its way, or already gone
+            if (a->load_ms >= 0 && now - a->loaded_at < idle_s) continue;
+            size_t bytes = (size_t)L->nverts * ASSET_VERT_FLOATS * sizeof(float) + (size_t)L->nidx * sizeof(unsigned);
+            asset_free_cpu(a, l);
+            L->trimmed = 1; lod_trimmed_bytes += bytes;
+            LOG_DEBUG("asset", "'%s' LOD %d trimmed: %.1f MB of CPU data nothing has asked to draw",
+                      a->desc.name, l, bytes / (1024.0 * 1024.0));
+        }
+    }
+}
+
 void asset_unload_all(void) { for (int i = 0; i < nassets; ++i) asset_unload(&assets[i]); }

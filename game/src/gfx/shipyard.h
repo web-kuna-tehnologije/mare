@@ -31,10 +31,16 @@ int  shipyard_push(const shipyard_req_t *r);
 // not wait on a cold asset cache).
 void shipyard_request_all(void);
 
+// Per-frame bracket for the procedural rigging and canvas (one instance per ship of a class).
+void shipyard_frame_begin(void);   // before any shipyard_push
+void shipyard_upload(void);        // after the last one, before drawing
+int  shipyard_submit(void);        // with the instanced mesh pipeline bound
+
 const char *shipyard_class_name(int type, int nation);   // dashboard / logs
 extern int shipyard_enabled;        // MARE_SHIPS=0 forces the procedural hulls (A/B comparison)
 extern int shipyard_oars_drawn;     // oar instances submitted this frame (dashboard)
 extern int shipyard_ships_drawn;    // authored ships submitted this frame
 extern int shipyard_fallbacks;      // ships that fell back to the procedural hull this frame
+extern int shipyard_rigged;         // ships drawn with rigging and canvas this frame
 
 #endif

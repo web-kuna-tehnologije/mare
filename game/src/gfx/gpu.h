@@ -34,6 +34,10 @@ static inline void mb_auto_normal(mb_t *m) { m->nrm_blend = 0; }
 void mb_tri (mb_t *m, float ax, float ay, float az, float bx, float by, float bz, float cx, float cy, float cz, float r, float g, float b, float mat);  // CCW front face
 void mb_quad(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat);   // two triangles
 void mb_quad2(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float r, float g, float b_, float mat);  // double sided
+// metalness (cloth's "how free is this vertex", see meshes.c) interpolated a/b -> c/d, so a
+// sail built from strips does not tear along its seams
+void mb_quad_grad(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3],
+                  float w_ab, float w_cd, float r, float g, float b_, float mat);
 void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat);                // axis aligned, half extents
 
 // instancing. inst_t = position + heading (radians, 0 = +x), uniform scale + rgb, misc:

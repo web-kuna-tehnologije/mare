@@ -36,11 +36,12 @@ NLODS = 5
 # city view. A raw Meshy scan is 0.8-1.8M triangles for a ship hull, which is 45-68 MB of
 # vertex data per asset once the runtime has baked textures into vertex colours - a gigabyte
 # across the Gen I fleet, for detail far below a pixel even at that range. The cap keeps LOD 0
-# at six times LOD 1, which is all the close-up detail a hull has to give, and brings the whole
-# fleet back to ~100 MB. Raise it here if you want the untouched scan.
+# at the detail a hull actually shows when it fills the screen in battle view, and keeps the
+# whole fleet within a budget the LOD 0 trim (asset_lod0_trim) can hold. Set it to 0 for the
+# untouched scan.
 BUDGETS = {
-    "ship":      [150000, 24000, 7000, 2000, 600],
-    "ship_part": [ 80000, 12000, 4000, 1200, 350],
+    "ship":      [300000, 24000, 7000, 2000, 600],
+    "ship_part": [120000, 12000, 4000, 1200, 350],
     "building":  [ 80000, 24000, 7000, 2000, 600],
     "terrain":   [150000, 40000, 12000, 4000, 1200],
     "prop":      [ 40000,  8000, 2500,  800, 250],

@@ -20,7 +20,7 @@ HEIGHTS = {
     "lighthouse": 0.80, "harbor_crane": 0.40, "stone_quay": 0.12, "wooden_pier": 0.10, "windmill": 0.60,
     "fountain": 0.14, "well": 0.12, "wooden_fence": 0.08,
     # ship parts are authored at their own scale and assembled by the ship builder, not placed in towns
-    "galley_hull": 2.0, "galley_mainmast": 2.2, "galley_mizzenmast": 1.6, "galley_oar": 0.34,
+    "galley_hull": 2.0, "galley_mainmast": 2.2, "galley_mizzenmast": 1.6, "galley_oar": 0.26,
 }
 SHIP_PARTS = {"galley_hull", "galley_mainmast", "galley_mizzenmast", "galley_oar"}
 # Parts exported already pointing along +x (the ship's heading-0 axis) must not be rotated

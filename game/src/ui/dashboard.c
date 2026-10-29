@@ -263,8 +263,8 @@ static void tab_lod(void) {
                     lod_tracked, lod_fading, lod_pops, scene_icons_clustered, scene_culled_ports, scene_culled_ships, scene_asset_instances),
                  lod_pops ? mu_color(255,110,90,255) : mu_color(170,180,200,255));
     ROW(1, -1, 16);
-    ui_label_col(va("ships: %d authored hulls + %d oars this frame, %d fell back to the procedural hull | %d drawn coarser than picked (streaming in) | MARE_SHIPS=%d",
-                    shipyard_ships_drawn, shipyard_oars_drawn, shipyard_fallbacks, scene_asset_lod_fallbacks, shipyard_enabled),
+    ui_label_col(va("ships: %d authored hulls, %d rigged, %d oars | %d fell back to the procedural hull | %d drawn coarser than picked | MARE_SHIPS=%d",
+                    shipyard_ships_drawn, shipyard_rigged, shipyard_oars_drawn, shipyard_fallbacks, scene_asset_lod_fallbacks, shipyard_enabled),
                  shipyard_fallbacks ? mu_color(240,210,120,255) : mu_color(170,180,200,255));
     ROW(3, 120, 120, -1, 22);
     if (ui_btn("LOD bias -")) asset_lod_bias = maxf(0.25f, asset_lod_bias * 0.8f);
@@ -276,7 +276,8 @@ static void tab_lod(void) {
       mu_label(ui_ctx, va("%.0f%%", 100.0 * asset_gpu_bytes() / budget));
       hbar((float)((double)asset_gpu_bytes() / budget), asset_gpu_bytes() > budget ? mu_color(240,160,90,255) : mu_color(90,190,120,255));
       ROW(1, -1, 16);
-      ui_label_col(va("%d assets evicted this session (coldest first, only past the regional tier, never a stall) | %d loading now | CPU copies %.1f MB", scene_assets_evicted, asset_loading_count(), asset_cpu_bytes() / mb), mu_color(170,180,200,255));
+      ui_label_col(va("%d assets evicted this session (coldest first, only past the regional tier, never a stall) | %d loading now | CPU copies %.1f MB, %.0f MB trimmed (LOD 0 nothing drew)",
+                      scene_assets_evicted, asset_loading_count(), asset_cpu_bytes() / mb, asset_lod0_trimmed_bytes() / mb), mu_color(170,180,200,255));
       ROW(6, 120, 60, 60, 90, 60, -1, 16);
       mu_label(ui_ctx, "asset"); mu_label(ui_ctx, "state"); mu_label(ui_ctx, "GPU MB"); mu_label(ui_ctx, "LODs on GPU"); mu_label(ui_ctx, "idle s"); mu_label(ui_ctx, "instances now per LOD");
       for (int i = 0; i < asset_count(); ++i) {

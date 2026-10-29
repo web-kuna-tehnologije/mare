@@ -1,9 +1,9 @@
 {
   "name": "hulk_masts",
   "kind": "ship",
-  "source": "Meshy_AI_hulk_masts_bare_3d_20261029_image-to-3d-texture_2cc378f9",
+  "source": "hulk_masts",
   "lod_budgets": [
-    150000,
+    300000,
     24000,
     7000,
     2000,
