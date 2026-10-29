@@ -292,7 +292,7 @@ void meshes_init(void) {
 // the sea pass draws (render.h: sea_wave_amp / sea_wave_scale / sea_local_depth)
 static void meshes_bind_waves(const rhi_pipeline_t *p) {
     sea_bind_waves(p);
-    rhi_set_f1(rhi_uniform(p,"u_wave_amp"), sea_wave_amp * sea_wind_amp * (1.f - RF.mapness));
+    rhi_set_f1(rhi_uniform(p,"u_wave_amp"), sea_amp_now());   // ships ride exactly the zoom-scaled field the sea draws
     rhi_set_f1(rhi_uniform(p,"u_wave_scale"), sea_wave_scale);
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), sea_local_depth);
     rhi_set_i1(rhi_uniform(p,"u_hm"), 4); rhi_texture_bind(4, terrain_heightmap_texture());

@@ -17,6 +17,7 @@
 #include "../world/world.h"
 #include "../world/nav.h"
 #include "../world/regions.h"
+#include "../core/jobs.h"
 #include "region.h"
 
 // ---------------------------------------------------------------------------
@@ -177,27 +178,52 @@ static void culture_normalize(port_t *p) {   // keep the culture split consisten
     float k = p->pop / tot; for (int n = 0; n < MAX_NATIONS; ++n) p->culture[n] *= k;
 }
 
-static void settlement_daily(port_t *p, float dt) {
-    if (p->size <= 0 || port_is_gone(p)) return;
+// Tick phases on the worker pool (DESIGN_STREAMING.md task 5): the parallel prepare touches
+// only the port's own fields and the fleet/lane tables (read-only during this phase), and
+// everything that uses the shared rng or crosses entities stays in the sequential commit, in
+// port order. Deterministic by construction (parallel_for chunking is schedule-independent and
+// every rng call keeps its order); the only divergence from the old single loop is that the
+// immigration-source weights see the fleet positions from the start of the phase, so a
+// secession's expelled fleets stop counting one tick later than before.
+typedef struct settle_prep_t { float arrivals, foreign, w[MAX_NATIONS], wtot; signed char skip; } settle_prep_t;
+static settle_prep_t settle_prep[MAX_PORTS];
+
+static void settlement_prepare(port_t *p, float dt, settle_prep_t *o) {
+    memset(o, 0, sizeof *o);
+    if (p->size <= 0 || port_is_gone(p)) { o->skip = 1; return; }
     if (p->pop_cap <= 0) p->pop_cap = port_colonial(p) ? POPCAP_BASE + 40 : POPCAP_EUROPE;
     culture_normalize(p);
     // immigration: prosperous places with room attract settlers; colonies more than the old world
     float room = maxf(0, p->pop_cap * (1 + 0.3f*p->building[B_MARKET] + 0.2f*p->building[B_WAREHOUSE]) - p->pop);
     float attract = clampf(p->prosperity - 0.7f, 0, 1.5f) * (port_colonial(p) ? 1.f : 0.25f) * (p->blockaded_by ? 0 : 1);
-    float arrivals = room * IMMIGRATION_RATE * attract * dt;
-    p->immigration = dt > 0 ? arrivals / dt : 0;
+    o->arrivals = room * IMMIGRATION_RATE * attract * dt;
+    p->immigration = dt > 0 ? o->arrivals / dt : 0;
+    o->foreign = o->arrivals * IMMIGRATION_FOREIGN * clampf(p->traffic / 8.f, 0, 1);
+    // foreign settlers come from the nations whose ships actually call here (fleets docked now +
+    // lane partners): the O(ports x fleets) scan this phase parallelises
+    { int pi = (int)(p - G.ports);
+      for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i]; if (f->alive && f->at_port == pi && f->nation != p->nation && f->nation != NATION_PIRATES) o->w[f->nation] += 1; }
+      for (int i = 0; i < G.nlanes; ++i) { const lane_t *l = &G.lanes[i]; if (l->traffic < 0.5f || (l->a != pi && l->b != pi)) continue;
+          int other = l->a == pi ? l->b : l->a; int n = G.ports[other].nation; if (n != p->nation && n != NATION_PIRATES) o->w[n] += l->traffic * 0.25f; }
+      for (int n = 0; n < MAX_NATIONS; ++n) o->wtot += o->w[n]; }
+}
+
+typedef struct settle_job_t { float dt; } settle_job_t;
+static void settle_range(void *arg, int begin, int end, int slot) {
+    (void)slot; float dt = ((const settle_job_t *)arg)->dt;
+    for (int i = begin; i < end; ++i) settlement_prepare(&G.ports[i], dt, &settle_prep[i]);
+}
+
+static void settlement_daily(port_t *p, float dt, const settle_prep_t *o) {
+    if (o->skip) return;
+    float arrivals = o->arrivals;
     if (arrivals > 0) {
         p->pop += arrivals;
         // most come from the owner's homeland, the rest from the nations that trade here
-        float foreign = arrivals * IMMIGRATION_FOREIGN * clampf(p->traffic / 8.f, 0, 1);
+        float foreign = o->foreign;
         p->culture[p->nation] += arrivals - foreign;
-        if (foreign > 0) {   // foreign settlers come from the nations whose ships actually call here (fleets docked now + lane partners)
-            float w[MAX_NATIONS] = {0}, tot = 0; int pi = (int)(p - G.ports);
-            for (int i = 0; i < G.nfleets; ++i) { const fleet_t *o = &G.fleets[i]; if (o->alive && o->at_port == pi && o->nation != p->nation && o->nation != NATION_PIRATES) w[o->nation] += 1; }
-            for (int i = 0; i < G.nlanes; ++i) { const lane_t *l = &G.lanes[i]; if (l->traffic < 0.5f || (l->a != pi && l->b != pi)) continue;
-                int other = l->a == pi ? l->b : l->a; int n = G.ports[other].nation; if (n != p->nation && n != NATION_PIRATES) w[n] += l->traffic * 0.25f; }
-            for (int n = 0; n < MAX_NATIONS; ++n) tot += w[n];
-            if (tot > 0) { float r = rnd_f(&G.rng) * tot; for (int n = 0; n < MAX_NATIONS; ++n) { r -= w[n]; if (r <= 0) { p->culture[n] += foreign; foreign = 0; break; } } }
+        if (foreign > 0) {
+            if (o->wtot > 0) { float r = rnd_f(&G.rng) * o->wtot; for (int n = 0; n < MAX_NATIONS; ++n) { r -= o->w[n]; if (r <= 0) { p->culture[n] += foreign; foreign = 0; break; } } }
             p->culture[p->nation] += foreign;   // no partners: they were countrymen after all
         }
     }
@@ -279,7 +305,10 @@ static void merge_check(void) {
 void settlements_tick(float dt) {
     static int p_s = -1; if (p_s < 0) p_s = prof_id("sim.settlements");
     prof_begin(p_s);
-    for (int i = 0; i < G.nports; ++i) settlement_daily(&G.ports[i], dt);
+    settle_job_t j = { dt };
+    if (parsim_go(G.nports)) jobs_parallel_for(JOB_LANE_WORKER, settle_range, &j, G.nports, 8);
+    else settle_range(&j, 0, G.nports, 0);
+    for (int i = 0; i < G.nports; ++i) settlement_daily(&G.ports[i], dt, &settle_prep[i]);   // ordered commit (rng, secession, labour drift)
     if ((int)G.day != (int)(G.day - dt)) merge_check();   // once per simulated day (state-derived: deterministic across save/load)
     prof_end(p_s);
 }

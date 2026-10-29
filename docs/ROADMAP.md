@@ -1,5 +1,24 @@
 # Development roadmap
 
+## Done: world streaming 0.10 (game/docs/DESIGN_STREAMING.md)
+
+The world is now a streamed hierarchy — continent -> region -> coastal tile -> tactical
+chunk — under a memory budget with an LRU unloading policy and a disk tile cache; cities load
+progressively (icon -> LOD4 -> ... -> LOD0); the per-entity tick phases are split into
+parallel compute + ordered commit on the job system (adaptively dispatched: the pool wins only
+past ~2k entities, measured); the sea's wave height follows the zoom. All eight tasks of the
+design landed with a headless `stream_test`, a dashboard Streaming tab and the tile overlay.
+
+Follow-ups, in rough order of value:
+1. Authored terrain tiles in production: model the first `tile_l3_*` chunks around the
+   capitals (docs/BLENDER_LOD.md section 4) and let the overlay's "still to model" list drain.
+2. Normals from the detail window (the shader lights detail with base-map normals today).
+3. A second, coarser detail window (clipmap ring) so L2 tiles show from further out.
+4. Tile-local content: streamed vegetation/rock scatter per tactical chunk through the same
+   residency machinery.
+5. Raise the world/port/fleet caps toward the full-map scale the adaptive parallel tick is
+   gated for, and re-measure `MARE_PARSIM=2` against the 2 ms dispatch cost.
+
 ## Done: renderer modernisation (game/docs/DESIGN_RENDERER.md)
 
 All ten steps are complete: RHI abstraction, HDR, linear/sRGB, PBR, directional lighting,

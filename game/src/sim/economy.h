@@ -59,5 +59,7 @@ void nations_recount_ports(void);
 
 // ---- simulation ----------------------------------------------------------------------------------
 void economy_tick(float dt);                            // daily tick of all markets + weekly price history sample
+int  parsim_go(int batch);                              // should a tick phase of `batch` entities dispatch to the pool?
+                                                        // (adaptive: the wake costs more than a small batch; MARE_PARSIM=0 never, 2 always)
 
 #endif

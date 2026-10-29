@@ -41,7 +41,7 @@ static rhi_pipeline_t sea_prg, sea_detail_prg, sea_tess_prg;
 static rhi_geometry_t sea_geo, sea_detail_geo, sea_patch_geo, sea_inner_geo;
 static int sea_tex_normal = -1, sea_tex_albedo = -1, sea_tex_disp = -1;   // textures.c handles
 int sea_tess_on;                 // the tessellated path is in use (GL 4.0 and not MARE_SEA_TESS=0)
-int sea_tess_level_max = 48;     // dashboard knob: finest subdivision of a patch edge
+int sea_tess_level_max = 32;     // dashboard knob: finest subdivision of a patch edge (zooming in raises wave *height*, not this)
 
 // Tessellated sea (DESIGN_VISUAL.md step 5). Instead of the exponentially warped grid, a
 // lattice of SEA_PATCH_N x SEA_PATCH_N quad patches, SEA_PATCH_R units in radius around the
@@ -54,7 +54,7 @@ int sea_tess_level_max = 48;     // dashboard knob: finest subdivision of a patc
 // hole. The warped grid stays as the fallback for GL 3 contexts (sea_tess_on == 0).
 #define SEA_PATCH_N   50
 #define SEA_PATCH_R   300.f
-#define SEA_TESS_PX   9.f      // target screen size of a tessellation cell
+#define SEA_TESS_PX   11.f     // target screen size of a tessellation cell
 // Down at water level even 48 cells per 12-unit patch leaves 0.25-unit facets: pyramids, not
 // waves. An inner lattice of small patches covers the disc around the look-at point where the
 // camera can get that close; the outer lattice cuts a hole for it. Its rim blends its cell size
@@ -556,7 +556,7 @@ void sea_update_waves(float day, float dt) {
 // Height of the wave surface at a world point, the same sum the shaders evaluate (no shallows
 // or rim fade: the camera clamp wants the worst case). Used to keep the eye above the water.
 float sea_height_at(float x, float z) {
-    float amp = sea_wave_amp * sea_wind_amp * (1.f - RF.mapness), h = 0.f;
+    float amp = sea_wave_amp * sea_wind_amp * (1.f - RF.mapness) * sea_zoom_amp(), h = 0.f;
     if (amp <= 0.f) return 0.f;
     for (int k = 0; k < 2; ++k) {
         const sea_set_t *set = &sea_set[k]; if (!set->valid) continue;
@@ -640,9 +640,14 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
     light_bind(p);
 }
 
-// how tall the waves may be right now: they flatten as the view turns into a map, and the
-// detail grid only exists while the camera is close enough for it to matter
-static float sea_amp_now(void) { return sea_wave_amp * sea_wind_amp * (1.f - RF.mapness); }
+// Wave height follows the zoom (DESIGN_STREAMING.md task 6): full displacement only in the
+// city/battle view, flattening steadily as the camera pulls out - the tessellated sea keeps
+// its cell density but loses height, which is what reads as distance instead of chop.
+float sea_zoom_amp(void) { return clampf(1.15f - cam.dist / 200.f, 0.35f, 1.f); }
+
+// how tall the waves may be right now: they flatten as the view turns into a map and with the
+// zoom, and the detail grid only exists while the camera is close enough for it to matter
+float sea_amp_now(void) { return sea_wave_amp * sea_wind_amp * (1.f - RF.mapness) * sea_zoom_amp(); }
 
 // The tessellated detail region: patches on a world lattice around the look-at point.
 // `radius` and `scale` as for the warped grid. Shared by the map and the staged scenes.
@@ -698,12 +703,12 @@ void sea_draw(void) {
 // landward limit is given as a plane rather than discovered from the terrain.
 void sea_draw_local(float depth, float scale, float radius) {
     sea_tess_now = sea_tess_on && cam.dist < SEA_TESS_DIST * scale;
-    if (sea_tess_now) { sea_draw_patches(RF.sea_center.x, RF.sea_center.z, radius, scale, depth, sea_wave_amp * sea_wind_amp); return; }
+    if (sea_tess_now) { sea_draw_patches(RF.sea_center.x, RF.sea_center.z, radius, scale, depth, sea_wave_amp * sea_wind_amp * sea_zoom_amp()); return; }
     rhi_pipeline_bind(&sea_detail_prg);
     sea_bind_common(&sea_detail_prg, scale, depth);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_center"), RF.sea_center.x, 0, RF.sea_center.z);
     rhi_set_f3(rhi_uniform(&sea_detail_prg,"u_detail"), radius, SEA_WARP, sea_nyquist ? 2.f / SEA_DETAIL_N : 0.f);
-    rhi_set_f1(rhi_uniform(&sea_detail_prg,"u_wave_amp"), sea_wave_amp * sea_wind_amp);
+    rhi_set_f1(rhi_uniform(&sea_detail_prg,"u_wave_amp"), sea_wave_amp * sea_wind_amp * sea_zoom_amp());
     rhi_set_f4(rhi_uniform(&sea_detail_prg,"u_hole"), 0, 0, 0, 0);
     rhi_draw(&sea_detail_geo, 0);
 }

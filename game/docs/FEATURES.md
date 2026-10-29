@@ -2,6 +2,28 @@
 
 Status as of the current codebase. Each entry names the module that owns it.
 
+## World streaming (`src/world/stream.c`, `src/gfx/streamview.c`)
+- Tile hierarchy continent -> region -> coastal tile -> tactical chunk: a 4-level quadtree of
+  512 tiles over the map (64° -> 8° per side), each a 257×257 delta heightfield against the
+  base map, deterministic from the seed, faded out at coasts and over water (the simulation
+  never reads tiles). 227 all-water tiles never load.
+- Disk tile cache (`tiles/*.mht`) through the job system: IO-lane reads/writes, DECODE-lane
+  generation, MAIN-lane state flips; 64 MB budget (`MARE_STREAM_MB`) with LRU unloading that
+  spares the wanted set and resident parents.
+- Terrain detail window: the finest resident tiles composed into one 512² texture around the
+  camera (parallel, sub-ms) and added in the terrain vertex shader with a border fade.
+- Progressive city loading: coarse-first LOD uploads + resident-LOD fallback in the scene,
+  so towns walk icon -> LOD4 -> ... -> LOD0 without pops or upload stalls
+  (`asset.lod_fallbacks`).
+- Authored terrain tiles: a `tile_l<level>_<tx>_<ty>` asset replaces a tile's visuals; the
+  dashboard Streaming tab and the world-space tile overlay (`MARE_STREAM_TILES=1`) list the
+  grids still to model (docs/BLENDER_LOD.md).
+- Tick phases on the worker pool: economy / settlements / fleet-speed pre-pass split into
+  parallel compute + ordered commit (bit-identical, covered by sim_test); adaptive dispatch
+  past 2048 entities because the pool wake costs more than today's whole phase
+  (`MARE_PARSIM=0/1/2`). Headless `tests/stream_test.c` covers grids, determinism, the disk
+  round-trip, the budget and the eviction policy.
+
 ## World (`src/world`, `src/data`)
 - Hand-authored coastlines for Europe, Africa, North & South America, the Caribbean and Atlantic
   islands; inland seas/lakes (Black Sea, Great Lakes...) carved; 18 straits forced navigable.
@@ -106,7 +128,8 @@ Status as of the current codebase. Each entry names the module that owns it.
   maximum on every mipmapped texture.
 - Tessellated sea (GL 4.0, warped-grid fallback) with the authored displacement map as
   geometric chop; foam from the wave Jacobian, surf in the shoaling band, bow and wake foam
-  around nearby ships.
+  around nearby ships. Wave height follows the zoom (`sea_zoom_amp`: full at the water,
+  flattening pulled out); ships and the camera floor ride the same scaled field.
 - Weather: calm air leaves the sea glassy and hazy, dawn mist fills calm bays, storms dim the
   sun, grey the sky, thicken the fog and rain over the frame (`gfx/weather.c`).
 - Water refracts the scene behind it with depth absorption and reflects the sky by Fresnel; an

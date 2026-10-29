@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.10.0 — world streaming
+Plan and the terrain grid listing: [DESIGN_STREAMING.md](DESIGN_STREAMING.md).
+
+- **World hierarchy, streamed from disk** (`world/stream.h/.c`): continent -> region ->
+  coastal tile -> tactical chunk, a quadtree of 512 tiles over the real-world map (L0 3x3 64°
+  tiles .. L3 22x17 8° chunks, the renderer's existing 64x64-cell terrain chunk). Each tile
+  carries a 257x257 *delta* heightfield against the base map — detail that doubles per level,
+  deterministic from the world seed, faded out below h=0.5 and over water so harbours, towns
+  and coasts never move and the simulation stays untouched. Tiles load through the job system
+  (disk reads/writes on the IO lane, generation on DECODE, the state flip on MAIN) and are
+  cached in `tiles/` on disk, so the second visit is a read, not a regeneration. 227 mid-ocean
+  tiles are water-only and never load.
+- **Memory budget and unloading policy**: 64 MB of resident tiles (`MARE_STREAM_MB`);
+  eviction is LRU by last-wanted, never a tile in the wanted set, never a parent whose
+  children are resident (the coarser fallback that makes a stream-in hole impossible), a few
+  tiles per update, payload only — the disk cache stays.
+- **Terrain detail window** (`gfx/streamview.c`): the finest resident tiles compose into one
+  512² R32F window around the camera (sub-millisecond, parallel on the WORKER lanes, rebuilt
+  on residency change or when the camera leaves the inner half) that the terrain vertex
+  shader adds on top of the base heightmap, faded at its border. The camera's ground floor
+  includes the delta.
+- **Progressive city loading: icon -> LOD4 -> ... -> LOD0.** Asset uploads queue coarsest
+  first, and the scene draws the nearest *resident* LOD at or coarser than the pick instead
+  of forcing a mid-frame upload — a city now fades in level by level through the existing
+  cross-fade, and a stream-in can cost detail but never objects or a frame.
+  `asset.lod_fallbacks` counts instances drawn coarser than picked.
+- **Tick phases on the worker pool**: economy (production, consumption, prices, population),
+  settlements (immigration, assimilation) and the fleet movement pre-pass (wind factor +
+  effective speed) are split into parallel per-entity compute and an ordered commit for
+  everything shared (treasury, chronicle, rng) — bit-identical results, sim_test's save/load
+  determinism check covers it on the real pool. The dispatch is **adaptive**: measured on the
+  Windows pool, waking the workers costs ~2 ms per parallel_for against ~0.2 ms of economy
+  work, so a phase dispatches only past `PARSIM_MIN_BATCH` (2048) entities — today's world
+  runs the same split sequentially and inherits the scaling for free. `MARE_PARSIM=0/1/2`.
+  Measured: `sim_test 1` 17.7 s adaptive/sequential vs 54.6 s forced parallel.
+- **Authored terrain tiles**: an asset named `tile_l<level>_<tx>_<ty>` (type `terrain`)
+  replaces a streamed tile's visuals through the normal asset path; the streamer marks it
+  authored. docs/BLENDER_LOD.md documents the whole exporter pipeline.
+- **Streaming observability**: dashboard **Streaming** tab (residency vs budget, per-level
+  grids, loads/evictions, last gen/IO cost, the list of wanted chunks still to model) and a
+  world-space tile overlay (state-coloured frames that follow the ground, crosses on grids
+  without a mesh; `MARE_STREAM_TILES=1`). Metrics: `stream.resident/wanted/loading/mb/
+  evicted/disk_hits/generated/window_ms/unmodeled`, `asset.lod_fallbacks`.
+- **Sea height follows the zoom**: wave displacement is full only near the water
+  (`sea_zoom_amp`: 1.0 close in, 0.35 fully pulled out), ships ride the same scaled field,
+  and the camera floor uses it; the tessellation ceiling drops (max level 48 -> 32, ~11 px
+  cells) — zooming in buys wave height back, not subdivision.
+- **Tests**: new headless `tests/stream_test.c` (grid shape, wanted set on the real pool,
+  delta determinism, disk round-trip, wrong-seed rejection, coast fade, budget + LRU policy,
+  water-only tiles); wired into build.sh, CMake and ctest.
+
 ## 0.9.0 — visual rendering
 Plan and measurements: [DESIGN_VISUAL.md](DESIGN_VISUAL.md).
 

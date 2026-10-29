@@ -15,6 +15,7 @@
 #include "../core/balance.h"
 #include "../core/log.h"
 #include "../core/diag.h"
+#include "../core/jobs.h"
 #include "../data/tables.h"
 #include "../world/nav.h"
 #include "../world/wind.h"
@@ -149,6 +150,38 @@ static void fleet_arrived(fleet_t *f) {
 
 // ---------------------------------------------------------------------------
 // movement
+//
+// The wind factor and effective speed (the expensive trig of the movement phase) are computed
+// for every sailing fleet in parallel before the sequential tick (DESIGN_STREAMING.md task 5).
+// The cache is keyed on exactly the inputs the sequential code would use - position, waypoint
+// indices - so a fleet whose AI re-pathed between the pre-pass and its move simply recomputes
+// inline, and the result is bit-identical either way.
+
+typedef struct fleet_speed_cache_t { float x, z, speed; int pathi, npath; unsigned char valid; } fleet_speed_cache_t;
+static fleet_speed_cache_t fleet_speed_cache[MAX_FLEETS];
+
+static float fleet_sail_speed(const fleet_t *f, float dx, float dz) {   // dx,dz: unit direction of travel
+    float wdx, wdz, wstr; wind_at(f->x, f->z, G.day, &wdx, &wdz, &wstr);
+    return BASE_SPEED * fleet_speed(f) * wind_factor(dx, dz, wdx, wdz, wstr);
+}
+
+static void fleet_speed_range(void *arg, int begin, int end, int slot) {
+    (void)arg; (void)slot;
+    for (int i = begin; i < end; ++i) {
+        const fleet_t *f = &G.fleets[i]; fleet_speed_cache_t *c = &fleet_speed_cache[i];
+        c->valid = 0;
+        if (!f->alive || f->at_port >= 0 || f->order == ORDER_IDLE || f->npath == 0 || f->pathi >= f->npath) continue;
+        float dx = f->path_x[f->pathi] - f->x, dz = f->path_z[f->pathi] - f->z, d = sqrtf(dx*dx + dz*dz);
+        if (d < 1e-4f) continue;
+        c->speed = fleet_sail_speed(f, dx / d, dz / d);
+        c->x = f->x; c->z = f->z; c->pathi = f->pathi; c->npath = f->npath; c->valid = 1;
+    }
+}
+
+void fleets_precompute_speeds(void) {
+    if (parsim_go(G.nfleets)) jobs_parallel_for(JOB_LANE_WORKER, fleet_speed_range, 0, G.nfleets, 16);
+    else fleet_speed_range(0, 0, G.nfleets, 0);
+}
 
 static void fleet_move(fleet_t *f, float dt) {
     if (f->at_port >= 0) return;
@@ -164,8 +197,10 @@ static void fleet_move(fleet_t *f, float dt) {
     float dx = tx - f->x, dz = tz - f->z, d = sqrtf(dx*dx + dz*dz);
     if (d < 1e-4f) { if (++f->pathi >= f->npath) fleet_arrived(f); return; }
     dx /= d; dz /= d;
-    float wdx, wdz, wstr; wind_at(f->x, f->z, G.day, &wdx, &wdz, &wstr);
-    float speed = BASE_SPEED * fleet_speed(f) * wind_factor(dx, dz, wdx, wdz, wstr);
+    const fleet_speed_cache_t *c = &fleet_speed_cache[fleet_index(f)];
+    float speed = c->valid && c->x == f->x && c->z == f->z && c->pathi == f->pathi && c->npath == f->npath
+                ? c->speed                                    // the pre-pass saw exactly this state
+                : fleet_sail_speed(f, dx, dz);                // re-pathed since: same math, inline
     if (f->order == ORDER_FLEE) speed *= FLEE_SPEED_MUL;
     const event_t *storm = storm_at(f->x, f->z);
     if (storm) {

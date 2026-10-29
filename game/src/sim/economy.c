@@ -4,6 +4,7 @@
 // against the curve, wallets, tariffs to the owner) · ownership · daily port tick · price history.
 // Performance note: the norm of each (port, good) is cached per tick because the AI planner asks
 // for prices tens of thousands of times per plan.
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include "economy.h"
@@ -12,8 +13,32 @@
 #include "../core/util.h"
 #include "../core/balance.h"
 #include "../core/log.h"
+#include "../core/jobs.h"
 #include "../data/tables.h"
 #include "../world/world.h"
+
+// Tick phases on the worker pool (DESIGN_STREAMING.md task 5): per-entity compute runs in
+// parallel, anything shared (treasury, the chronicle, the rng) is committed afterwards in
+// entity order, so the result is bit-identical to the sequential path.
+//
+// The dispatch is *adaptive*: waking the pool costs ~2 ms of thread wake latency per
+// parallel_for on Windows, while a whole 192-port economy step computes in ~0.2 ms - measured
+// with sim_test 1: 17.7 s sequential vs 54.6 s with the pool forced on. So a phase only goes
+// to the pool once its batch is large enough to pay for the wake (PARSIM_MIN_BATCH entities),
+// which today's world never reaches: the compute/commit split is what makes the world scale
+// (the full-map port and fleet counts this streaming work aims at), the gate is what keeps the
+// dispatch overhead off the tick until it does. MARE_PARSIM=0 never dispatches, =2 always
+// (benchmarking), unset/1 = adaptive.
+#define PARSIM_MIN_BATCH 2048
+static int parsim_mode(void) {
+    static int mode = -1;
+    if (mode < 0) { const char *e = getenv("MARE_PARSIM"); mode = e ? atoi(e) : 1; if (mode < 0 || mode > 2) mode = 1; }
+    return mode;
+}
+int parsim_go(int batch) {
+    int m = parsim_mode();
+    return m == 2 || (m == 1 && batch >= PARSIM_MIN_BATCH);
+}
 
 // ---------------------------------------------------------------------------
 // queries
@@ -217,7 +242,15 @@ void port_set_owner(port_t *p, int nation) {
 // ---------------------------------------------------------------------------
 // daily port simulation
 
-static void port_tick(port_t *p, float dt) {
+// The parallel phase writes only the port's own fields; taxes, the "has grown" chronicle line
+// and the territory flag are deferred into this record and applied in port order afterwards,
+// which keeps treasuries and the log bit-identical to the old sequential loop (the tick never
+// reads a treasury, so applying the adds later changes nothing).
+typedef struct port_deferred_t { double tax; signed char new_size, grew; } port_deferred_t;
+static port_deferred_t eco_deferred[MAX_PORTS];
+
+static void port_tick(port_t *p, float dt, port_deferred_t *out) {
+    out->tax = 0; out->new_size = -1; out->grew = 0;
     if (p->size <= 0) return;
     float satisfied = 0, weight = 0;
     for (int g = 0; g < MAX_GOODS; ++g) {
@@ -231,8 +264,8 @@ static void port_tick(port_t *p, float dt) {
         if (p->stock[g] < 0) p->stock[g] = 0;
     }
     float sat = weight > 0 ? satisfied / weight : 1;
-    float out = 0; for (int g = 0; g < MAX_GOODS; ++g) out += port_production(p, g);   // output per head feeds prosperity
-    float target = 0.35f + sat * 1.1f + minf(p->traffic, 6) * 0.06f + p->building[B_MARKET] * 0.08f - (p->blockaded_by ? 0.4f : 0) + PROSPERITY_OUTPUT * clampf(out / maxf(p->pop, 1), 0, 1.5f);
+    float output = 0; for (int g = 0; g < MAX_GOODS; ++g) output += port_production(p, g);   // output per head feeds prosperity
+    float target = 0.35f + sat * 1.1f + minf(p->traffic, 6) * 0.06f + p->building[B_MARKET] * 0.08f - (p->blockaded_by ? 0.4f : 0) + PROSPERITY_OUTPUT * clampf(output / maxf(p->pop, 1), 0, 1.5f);
     p->prosperity = clampf(p->prosperity + (target - p->prosperity) * PROSPERITY_RATE * dt, 0.25f, 2.2f);
     p->unrest = clampf(p->unrest + ((sat < 0.5f ? 0.004f : -0.003f) + (p->blockaded_by ? 0.003f : 0)) * dt, 0, 1);
     float growth = (POP_GROWTH * (sat - 0.45f) + 0.00003f * (p->prosperity - 1) + (port_colonial(p) ? POP_GROWTH_COLONY : 0)) * dt;
@@ -241,20 +274,23 @@ static void port_tick(port_t *p, float dt) {
     if (p->culture[p->nation] < p->pop * 0.01f) p->culture[p->nation] += p->pop * growth; else p->culture[p->nation] *= 1 + growth;
     int want = p->pop > SIZE_CITY_POP ? 3 : p->pop > SIZE_TOWN_POP ? 2 : 1;
     if (want != p->size) {
-        if (want > p->size) log_event_at(EV_INFO, p->nation, 0, p->x, p->z, "%s has grown into a %s", p->name, want == 3 ? "great city" : "town");
-        p->size = want; territory_dirty = 1;
+        out->new_size = (signed char)want; out->grew = want > p->size;   // chronicle + territory: committed in port order
+        p->size = want;
     }
     p->fort_max = FORT_BASE_HP + FORT_LEVEL_HP * p->building[B_FORT] + FORT_SIZE_HP * p->size;
     if (!p->blockaded_by) p->fort_hp = minf(p->fort_max, p->fort_hp + p->fort_max * 0.01f * dt);
     if (p->capture_cooldown > 0) p->capture_cooldown -= dt;
     if (p->blockade_timer > 0) { p->blockade_timer -= dt; if (p->blockade_timer <= 0) p->blockaded_by = 0; }
     p->traffic *= powf(0.97f, dt);
-    if (p->nation != NATION_NONE && p->nation != NATION_PIRATES) {
-        double tax = p->pop * p->prosperity * TAX_RATE * (1 + 0.25f*p->building[B_MARKET]) * dt;
-        G.nations[p->nation].treasury += tax; G.nations[p->nation].income_tax += tax;
-        if (is_player(p->nation)) G.nations[p->nation].income_acc += tax;
-    }
+    if (p->nation != NATION_NONE && p->nation != NATION_PIRATES)
+        out->tax = p->pop * p->prosperity * TAX_RATE * (1 + 0.25f*p->building[B_MARKET]) * dt;
     port_update_prices(p);
+}
+
+typedef struct eco_job_t { float dt; } eco_job_t;
+static void eco_range(void *arg, int begin, int end, int slot) {
+    (void)slot; float dt = ((const eco_job_t *)arg)->dt;
+    for (int i = begin; i < end; ++i) port_tick(&G.ports[i], dt, &eco_deferred[i]);
 }
 
 static void history_tick(float dt) {
@@ -270,6 +306,19 @@ static void history_tick(float dt) {
 }
 
 void economy_tick(float dt) {
-    for (int i = 0; i < G.nports; ++i) port_tick(&G.ports[i], dt);
+    eco_job_t j = { dt };
+    if (parsim_go(G.nports)) jobs_parallel_for(JOB_LANE_WORKER, eco_range, &j, G.nports, 8);
+    else eco_range(&j, 0, G.nports, 0);
+    for (int i = 0; i < G.nports; ++i) {           // ordered commit: treasury, chronicle, territory
+        port_t *p = &G.ports[i]; const port_deferred_t *c = &eco_deferred[i];
+        if (c->new_size >= 0) {
+            if (c->grew) log_event_at(EV_INFO, p->nation, 0, p->x, p->z, "%s has grown into a %s", p->name, c->new_size == 3 ? "great city" : "town");
+            territory_dirty = 1;
+        }
+        if (c->tax != 0) {
+            G.nations[p->nation].treasury += c->tax; G.nations[p->nation].income_tax += c->tax;
+            if (is_player(p->nation)) G.nations[p->nation].income_acc += c->tax;
+        }
+    }
     history_tick(dt);
 }

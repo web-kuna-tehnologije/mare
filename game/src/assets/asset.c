@@ -579,7 +579,10 @@ static void asset_stage_commit(void *p) {   // MAIN lane: publish the result
                  d->name, asset_type_name(d->type), a->nlods, a->nlods == 1 ? "" : "s", a->lod[0].nidx / 3,
                  a->bmax[0] - a->bmin[0], a->bmax[1] - a->bmin[1], a->bmax[2] - a->bmin[2], a->scale, a->cpu_bytes / (1024.0 * 1024.0), a->load_ms);
         for (int i = 1; i < a->nlods; ++i) LOG_DEBUG("asset", "  '%s' LOD %d: %d tris from %.0f units", d->name, i, a->lod[i].nidx / 3, a->lod[i].dist);
-        if (upload_hook) for (int i = 0; i < a->nlods; ++i) {
+        // Progressive residency (DESIGN_STREAMING.md task 4): uploads queue coarsest-first, so
+        // the first budgeted MAIN job puts *something* drawable on the GPU and the scene walks
+        // icon -> LOD4 -> ... -> LOD0 as the finer meshes land.
+        if (upload_hook) for (int i = a->nlods - 1; i >= 0; --i) {
             asset_upload_arg_t *u = (asset_upload_arg_t *)malloc(sizeof *u); u->a = a; u->lod = i;
             jobs_submit(JOB_LANE_MAIN, asset_stage_upload, u, 0);
         }

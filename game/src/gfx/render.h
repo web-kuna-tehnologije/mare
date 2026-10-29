@@ -34,6 +34,17 @@ extern int window_w, window_h;      // window size in screen coordinates (differ
 void render_init(void);             // build programs, LOD grids, textures, procedural meshes (after world_init)
 void render_territory_upload(void); // push the territory map to the GPU when territory_dirty == 2
 
+// world streaming view (streamview.c, game/docs/DESIGN_STREAMING.md): drives world/stream.h
+// from the camera, composes the terrain detail window, debug overlay, metrics
+void streamview_update(void);                       // once per frame, before the terrain draws
+void streamview_push_tiles(void);                   // authored tile meshes (inside the scene_assets bracket)
+void streamview_draw_debug(void);                   // tile grid overlay (dd lines; stream_show_tiles)
+const rhi_texture_t *streamview_detail_tex(void);   // NULL until a window was composed
+void streamview_detail_rect(float out[4]);          // x0, z0, 1/extent, 1/extent (world)
+double streamview_window_ms(void);
+int    streamview_unmodeled(void);                  // wanted tactical chunks without an authored mesh
+extern int stream_show_tiles;                       // dashboard toggle
+
 // procedural detail normal maps (detail.c): tileable wave normals for the sea, surface grain
 // applied triplanar to the meshes (they carry no UVs)
 void detail_init(void);
@@ -107,6 +118,8 @@ extern int   sea_tess_on;                // tessellated patches available (GL 4.
 extern int   sea_tess_now;               // ... and in use this frame (only within SEA_TESS_DIST of the water)
 extern int   sea_tess_level_max;         // finest subdivision per patch edge (dashboard)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
+float sea_zoom_amp(void);                // zoom factor on the wave height: 1 close in, flattening as the view pulls out
+float sea_amp_now(void);                 // the full amplitude this frame (knob x wind x map morph x zoom); meshes ride the same field
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene
 extern float sea_local_depth;            // >0 makes every wave lookup use this depth (staged scenes have no heightmap)
 extern float sea_clip_z; extern int sea_clip_on;   // staged scenes: the shoreline, as a world-z plane

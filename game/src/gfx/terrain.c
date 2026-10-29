@@ -36,12 +36,20 @@ static const char *terrain_vs =
     "in vec3 a_pos;\n" // u, v, skirt
     "uniform mat4 u_vp; uniform vec2 u_origin; uniform float u_size; uniform float u_flatten;\n"
     "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_k;\n"
+    // streamed detail window (streamview.c): a delta heightfield around the camera, faded at
+    // its border so the hand-over to the base map is never a step
+    "uniform sampler2D u_det; uniform vec4 u_det_rect; uniform float u_det_on;\n"
     "out vec3 v_wpos; out vec2 v_uv; out float v_h;\n"
     "void main(){\n"
     "  vec2 xz = u_origin + a_pos.xy * u_size;\n"
     "  float lon = xz.x / u_k, lat = -xz.y / u_k;\n"
     "  vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));\n"
     "  float h = texture(u_hm, uv).r;\n"
+    "  vec2 duv = (xz - u_det_rect.xy) * u_det_rect.zw;\n"
+    "  if (u_det_on > 0.5 && duv.x > 0.0 && duv.x < 1.0 && duv.y > 0.0 && duv.y < 1.0) {\n"
+    "    float fade = clamp(min(min(duv.x, 1.0-duv.x), min(duv.y, 1.0-duv.y)) * 10.0, 0.0, 1.0);\n"
+    "    h += texture(u_det, duv).r * fade * (1.0 - u_flatten);\n"
+    "  }\n"
     "  float hf = mix(h, (h > 0.0 ? 0.12 : -0.5), u_flatten);\n"
     "  v_wpos = vec3(xz.x, hf - a_pos.z * 3.0, xz.y); v_uv = uv; v_h = h;\n"
     "  gl_Position = u_vp * vec4(v_wpos, 1.0);\n"
@@ -140,7 +148,7 @@ static void build_lod(int lod) {
 void terrain_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_rect", "u_det_on", GLSL_LIGHT_UNIFORMS, 0 };
     terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = terrain_vs, .fs = terrain_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int i = 0; i < LODS; ++i) build_lod(i);
     tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, heightmap);
@@ -200,6 +208,13 @@ void terrain_draw(float planes[6][4]) {
     rhi_set_i1(UNI(terrain_prg,"u_hm"), 0); rhi_set_i1(UNI(terrain_prg,"u_terr"), 1);
     rhi_texture_bind(0, &tex_height);
     rhi_set_i1(UNI(terrain_prg,"u_ao"), 5); rhi_texture_bind(5, &tex_ao); rhi_set_f1(UNI(terrain_prg,"u_ao_on"), terrain_ao_on ? 1.f : 0.f);
+    {   // streamed detail window (streamview.c): adds the resident tiles' delta around the camera
+        const rhi_texture_t *det = streamview_detail_tex();
+        float rect[4] = { 0, 0, 1, 1 }; if (det) streamview_detail_rect(rect);
+        rhi_set_i1(UNI(terrain_prg,"u_det"), 6); rhi_texture_bind(6, det ? det : &tex_height);
+        rhi_set_f4(UNI(terrain_prg,"u_det_rect"), rect[0], rect[1], rect[2], rect[3]);
+        rhi_set_f1(UNI(terrain_prg,"u_det_on"), det ? 1.f : 0.f);
+    }
     rhi_texture_bind(1, &tex_territory);
     rhi_set_f4(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(UNI(terrain_prg,"u_k"), WORLD_K);
@@ -221,7 +236,7 @@ void terrain_draw(float planes[6][4]) {
     terrain_chunks_drawn = terrain_tris_drawn = 0;
     for (int i = 0; i < CHUNKS_X*CHUNKS_Y; ++i) {
         const chunk_t *c = &chunks[i];
-        if (c->water_only || !aabb_visible(planes, c->x0, minf(c->minh,-3.5f), c->z0, c->x1, maxf(c->maxh,0.5f), c->z1)) continue;
+        if (c->water_only || !aabb_visible(planes, c->x0, minf(c->minh,-3.5f), c->z0, c->x1, maxf(c->maxh + 0.6f, 0.5f), c->z1)) continue;   // +0.6: the streamed detail delta can raise a peak
         float dx = maxf(maxf(c->x0 - RF.campos.x, 0), RF.campos.x - c->x1), dz = maxf(maxf(c->z0 - RF.campos.z, 0), RF.campos.z - c->z1);
         float d = sqrtf(dx*dx + dz*dz + RF.campos.y*RF.campos.y*0.5f);
         int lod = 0; while (lod < LODS-1 && d > lod_dist[lod]) lod++;

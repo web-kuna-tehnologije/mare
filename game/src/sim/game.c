@@ -148,7 +148,10 @@ void game_tick(float dt) {
     settlements_tick(dt);
     regions_tick(dt);
     prof_begin(p_ev);  events_tick(dt);  prof_end(p_ev);
-    prof_begin(p_fl);  for (int i = 0; i < G.nfleets; ++i) fleet_tick(&G.fleets[i], dt); prof_end(p_fl);
+    prof_begin(p_fl);
+    fleets_precompute_speeds();   // wind factors on the pool (DESIGN_STREAMING.md task 5); the tick stays ordered
+    for (int i = 0; i < G.nfleets; ++i) fleet_tick(&G.fleets[i], dt);
+    prof_end(p_fl);
     prof_begin(p_cb);  combat_tick(dt);  prof_end(p_cb);
     prof_begin(p_ai);  ai_nations_tick(dt); prof_end(p_ai);
     lanes_decay(dt);

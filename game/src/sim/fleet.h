@@ -32,6 +32,7 @@ void fleet_order_stop(fleet_t *f);                      // idle, clears route an
 
 // ---- per-fleet tick: morale recovery, upkeep, AI thinking (ai.h), movement, siege -----------------
 void fleet_tick(fleet_t *f, float dt);
+void fleets_precompute_speeds(void);     // parallel pre-pass: wind factor + effective speed per sailing fleet (call before the fleet_tick loop)
 
 // ---- trade lanes: the emergent route network drawn in map view --------------------------------------
 void lane_register(int a, int b, const fleet_t *f);     // a fleet departs a -> b along its current path

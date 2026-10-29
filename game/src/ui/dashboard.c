@@ -18,8 +18,9 @@
 #include "../gfx/occlusion.h"
 #include "../gfx/occquery.h"
 #include "../gfx/weather.h"
+#include "../world/stream.h"
 
-enum { TAB_PERF, TAB_METRICS, TAB_JOBS, TAB_LOD, TAB_ASSETS, TAB_LOG, TAB_SYSTEM, TAB_COUNT };
+enum { TAB_PERF, TAB_METRICS, TAB_JOBS, TAB_LOD, TAB_STREAM, TAB_ASSETS, TAB_LOG, TAB_SYSTEM, TAB_COUNT };
 static int tab = TAB_PERF;
 static int log_min_level = LOG_DEBUG, log_autoscroll = 1, log_module_filter = 0;
 static const char *module_filters[] = { "all", "sim", "nav", "ai", "fleet", "combat", "gpu", "game", "chronicle", "world", "diag" };
@@ -295,6 +296,52 @@ static void tab_lod(void) {
       } }
 }
 
+// --- Streaming tab (DESIGN_STREAMING.md task 7): the tile hierarchy's residency, budget and
+// unloading policy at work, the detail window, and the list of grids still to model.
+static void tab_stream(void) {
+    stream_stats_t s; stream_stats(&s);
+    double mb = 1024.0 * 1024.0;
+    ROW(1, -1, 18);
+    mu_label(ui_ctx, va("continent -> region -> coastal tile -> tactical chunk | %d tiles (%d water-only never load) | camera dist %.1f", stream_tile_count(), s.water, cam.dist));
+    ROW(3, 200, 60, -1, 16);
+    ui_label_col(va("resident %.1f MB of %.0f MB", s.bytes / mb, s.budget_bytes / mb), mu_color(220,220,230,255));
+    mu_label(ui_ctx, va("%.0f%%", s.budget_bytes ? 100.0 * s.bytes / s.budget_bytes : 0));
+    hbar((float)((double)s.bytes / (double)s.budget_bytes), s.bytes > s.budget_bytes ? mu_color(240,160,90,255) : mu_color(90,190,120,255));
+    ROW(1, -1, 16);
+    ui_label_col(va("%d resident | %d wanted | %d loading | %d evicted (LRU, never the wanted set, disk cache kept) | %d disk hits, %d generated",
+                    s.resident, s.wanted, s.loading, s.evicted, s.disk_hits, s.generated), mu_color(170,180,200,255));
+    ROW(1, -1, 16);
+    ui_label_col(va("last tile: generated %.1f ms (DECODE lane) / read %.1f ms (IO lane) | detail window composed in %.2f ms (WORKER lanes)",
+                    s.last_gen_ms, s.last_io_ms, streamview_window_ms()), mu_color(170,180,200,255));
+    ROW(2, 180, -1, 22);
+    if (ui_btn(stream_show_tiles ? "[tile overlay on]" : "tile overlay")) stream_show_tiles = !stream_show_tiles;
+    mu_label(ui_ctx, "frames: green resident (bright = authored mesh), yellow loading, blue on disk, red missing; crossed = no model yet");
+    ROW(5, 110, 70, 90, 90, -1, 16);
+    mu_label(ui_ctx, "level"); mu_label(ui_ctx, "grid"); mu_label(ui_ctx, "resident"); mu_label(ui_ctx, "wanted"); mu_label(ui_ctx, "tile size");
+    { static const char *names[STREAM_LEVELS] = { "continent", "region", "coastal", "tactical" };
+      for (int l = 0; l < STREAM_LEVELS; ++l) {
+          int res = 0, want = 0;
+          for (int i = 0; i < stream_tile_count(); ++i) { const stream_tile_t *t = stream_tile_at_index(i);
+              if (t->level != l) continue; res += t->state == TILE_READY; want += t->wanted; }
+          ROW(5, 110, 70, 90, 90, -1, 16);
+          ui_label_col(names[l], mu_color(220,220,230,255));
+          mu_label(ui_ctx, va("%dx%d", stream_grid_w(l), stream_grid_h(l)));
+          mu_label(ui_ctx, va("%d", res)); mu_label(ui_ctx, va("%d", want));
+          mu_label(ui_ctx, va("%d deg (%d cells)", (STREAM_L0_CELLS >> l) / CELLS_PER_DEG, STREAM_L0_CELLS >> l));
+      } }
+    ROW(1, -1, 16);
+    ui_label_col(va("%d wanted tactical chunks have no authored mesh yet (assets named tile_l3_<x>_<y>, see docs/BLENDER_LOD.md):", streamview_unmodeled()),
+                 streamview_unmodeled() ? mu_color(240,210,120,255) : mu_color(170,180,200,255));
+    { int shown = 0; char label[64];
+      for (int i = 0; i < stream_tile_count() && shown < 14; ++i) {
+          const stream_tile_t *t = stream_tile_at_index(i);
+          if (t->level != STREAM_L_TACTICAL || !t->wanted || t->water_only || t->authored) continue;
+          stream_tile_label(t, label, sizeof label);
+          ROW(1, -1, 14); ui_label_col(va("  tile_l%d_%d_%d  -  %s", t->level, t->tx, t->ty, label), mu_color(200,200,210,255));
+          shown++;
+      } }
+}
+
 static void tab_log(void) {
     ROW(5, 100, 110, 130, 110, -1, 20);
     if (ui_btn(va(">= %s", diag_level_name(log_min_level)))) log_min_level = (log_min_level + 1) % LOG_LEVELS;
@@ -380,21 +427,21 @@ static void tab_system(void) {
 
 void dashboard_panel(void) {
     if (!U.show_debug) return;
-    // MARE_DASHTAB=performance|metrics|jobs|lod|assets|log|system opens the dashboard on that
-    // tab (unattended runs can then show any tab without input)
-    static const char *names[TAB_COUNT] = { "performance", "metrics", "jobs", "lod", "assets", "log", "system" };
-    static const char *tabs[TAB_COUNT]  = { "Performance", "Metrics", "Jobs", "LOD", "Assets", "Log", "System" };
+    // MARE_DASHTAB=performance|metrics|jobs|lod|streaming|assets|log|system opens the dashboard
+    // on that tab (unattended runs can then show any tab without input)
+    static const char *names[TAB_COUNT] = { "performance", "metrics", "jobs", "lod", "streaming", "assets", "log", "system" };
+    static const char *tabs[TAB_COUNT]  = { "Performance", "Metrics", "Jobs", "LOD", "Streaming", "Assets", "Log", "System" };
     static int tab_env_read;
     if (!tab_env_read) { tab_env_read = 1; const char *t = getenv("MARE_DASHTAB");
         if (t) for (int i = 0; i < TAB_COUNT; ++i) if (!strcmp(t, names[i])) tab = i; }
     jobs_sample();   // keep the queue history and the windowed lane rates continuous whichever tab is up
     mu_Container *c = mu_get_container(ui_ctx, "Dev Dashboard"); if (c->rect.w == 0) c->rect = mu_rect(20, 50, 700, 480);
     if (!mu_begin_window_ex(ui_ctx, "Dev Dashboard", c->rect, MU_OPT_NOCLOSE)) return;
-    ROW(7, 100, 70, 55, 50, 65, 50, -1, 22);
+    ROW(8, 100, 70, 55, 50, 85, 65, 50, -1, 22);
     for (int i = 0; i < TAB_COUNT; ++i) { mu_push_id(ui_ctx, &i, sizeof i); if (ui_btn(tab == i ? va("[%s]", tabs[i]) : tabs[i])) tab = i; mu_pop_id(ui_ctx); }
     int errs = diag_level_count(LOG_ERROR) + diag_level_count(LOG_FATAL), warns = diag_level_count(LOG_WARN);
     if (errs || warns) { ROW(1, -1, 16); ui_label_col(va("%d errors, %d warnings this run (see logs/mare_errors.log)", errs, warns), errs ? mu_color(255,110,90,255) : mu_color(255,200,90,255)); }
     switch (tab) { case TAB_PERF: tab_perf(); break; case TAB_METRICS: tab_metrics(); break; case TAB_JOBS: tab_jobs(); break; case TAB_LOD: tab_lod(); break;
-                   case TAB_ASSETS: tab_assets(); break; case TAB_LOG: tab_log(); break; default: tab_system(); }
+                   case TAB_STREAM: tab_stream(); break; case TAB_ASSETS: tab_assets(); break; case TAB_LOG: tab_log(); break; default: tab_system(); }
     mu_end_window(ui_ctx);
 }

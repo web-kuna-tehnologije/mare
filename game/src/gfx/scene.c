@@ -259,6 +259,7 @@ static int asset_used[ASSET_MAX];        // has an instance list this frame
 static float asset_last_use[ASSET_MAX];  // RF.time an instance of this asset was last submitted
 int scene_asset_instances;               // dashboard: authored-asset instances drawn this frame
 int scene_assets_evicted;                // assets dropped from the GPU this session (dashboard)
+int scene_asset_lod_fallbacks;           // instances drawn at a coarser LOD than picked while the finer one streams in
 
 // Residency (DESIGN_LOD.md step 7). The wanted set is a property of the view tier: close in,
 // every authored asset belongs on the GPU and is requested ahead of being asked for; zoomed out
@@ -330,12 +331,25 @@ static void asset_push(asset_t *a, inst_t in, unsigned key, float camdist, float
     float r = a->radius * (in.scale > 0 ? in.scale : 1.f), thr[ASSET_MAX_LODS];
     for (int l = 1; l < a->nlods; ++l) thr[l - 1] = a->lod[l].px > 0 ? a->lod[l].px / asset_lod_bias : lod_px_ref(r, a->lod[l].dist * asset_lod_bias);
     lod_pick_t pk = lod_select(key, thr, a->nlods, lod_px(r, camdist), a->nlods - 1);
+    // Progressive residency (DESIGN_STREAMING.md task 4): draw the nearest *resident* LOD at or
+    // coarser than the pick instead of forcing a mid-frame upload of the picked one. Uploads
+    // arrive coarse-to-fine through the budgeted MAIN jobs (asset.c), so a city walks
+    // icon -> LOD4 -> ... -> LOD0; until anything is resident the icon (or the procedural town)
+    // holds the fort for a frame or two.
+    int use[2] = { -1, -1 };
     for (int pass = 0; pass < 2; ++pass) {
         int level = pass == 0 ? pk.lod : pk.lod2;
-        if (level < 0) continue;
-        scene_asset_mesh(a, level);
-        in.dither = town_dither != 0.f ? town_dither : lod_dither(&pk, level);
-        *instlist_push(&asset_inst[ai][level]) = in;
+        if (level < 0 || level >= a->nlods) continue;
+        for (int l = level; l < a->nlods; ++l)
+            if (a->lod[l].gpu && asset_mesh[ai][l].geo.vao) { use[pass] = l; break; }
+        if (use[pass] >= 0 && use[pass] != level) scene_asset_lod_fallbacks++;
+    }
+    if (use[1] == use[0]) use[1] = -1;                   // both ends of a fade on the same resident mesh: draw it once, opaque
+    for (int pass = 0; pass < 2; ++pass) {
+        if (use[pass] < 0) continue;
+        int level = pass == 0 ? pk.lod : pk.lod2;
+        in.dither = town_dither != 0.f ? town_dither : (use[1] < 0 ? 0.f : lod_dither(&pk, level));
+        *instlist_push(&asset_inst[ai][use[pass]]) = in;
     }
     asset_used[ai] = 1;
 }
@@ -380,6 +394,7 @@ static void scene_assets_residency(void) {
 void scene_assets_begin(void) {
     scene_assets_residency();
     scene_occluded_assets = 0;
+    scene_asset_lod_fallbacks = 0;
     for (int i = 0; i < asset_count(); ++i) if (asset_used[i]) { for (int l = 0; l < ASSET_MAX_LODS; ++l) instlist_clear(&asset_inst[i][l]); instlist_clear(&asset_shadow_inst[i]); asset_used[i] = 0; }
     scene_asset_instances = 0;
 }
@@ -659,6 +674,7 @@ void scene_build_ports(void) {
         if (sel || hov) dd_circle(vec3(p->x, 0.1f, p->z), vec3(0,1,0), 2.2f + 0.4f*p->size, .color = rgb_linear(sel ? rgb(255,240,120) : rgb(220,220,220)));
         if (p->blockaded_by) dd_circle(vec3(p->x, 0.15f, p->z), vec3(0,1,0), 3.5f, .color = rgb_linear(rgb(255,60,40)), .dashed = 1);
     }
+    streamview_push_tiles();   // authored terrain tiles (tile_l*) through the same asset path
     {   // the drawn instances first, then the caster-only ones: one upload, two draw counts
         instlist_t *dl[6] = { &houses, &roofs, &towers, &walls, &piers, &flagpoles };
         instlist_t *cl[6] = { &sh_houses, &sh_roofs, &sh_towers, &sh_walls, &sh_piers, &sh_flagpoles };

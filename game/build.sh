@@ -16,8 +16,10 @@ if [ "$1" = "test" ]; then
     $CC  game/tests/diag_test.c -o diag_test -lm -O2 -Wall && ./diag_test
     $CXX -std=c++17 game/tests/jobs_test.cpp -o jobs_test -O2 -Wall -pthread && ./jobs_test
     $CXX -std=c++17 -pthread -c game/src/core/jobs.cpp -o jobs_t.o -O2
+    $CC  -c game/tests/stream_test.c -o stream_t.o -O2 -Wall
+    $CXX stream_t.o jobs_t.o -o stream_test -lm -pthread && ./stream_test
     $CC  -c game/tests/sim_test.c -o sim_t.o -lm -O2 -Wall
-    $CXX sim_t.o jobs_t.o -o sim_test -lm -pthread && rm -f sim_t.o jobs_t.o && ./sim_test ${2:-3}
+    $CXX sim_t.o jobs_t.o -o sim_test -lm -pthread && rm -f sim_t.o stream_t.o jobs_t.o && ./sim_test ${2:-3}
     exit $?
 fi
 

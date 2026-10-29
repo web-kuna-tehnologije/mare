@@ -18,6 +18,7 @@
 #include "src/core/diag.c"
 #include "src/core/log.c"
 #include "src/world/world.c"
+#include "src/world/stream.c"
 #include "src/world/nav.c"
 #include "src/world/wind.c"
 #include "src/world/regions.c"
@@ -50,6 +51,7 @@
 #include "src/gfx/weather.c"
 #include "src/gfx/sky.c"
 #include "src/gfx/textures.c"
+#include "src/gfx/streamview.c"
 #include "src/gfx/scene.c"
 #include "src/gfx/detailview.c"
 #include "src/ui/uikit.c"
@@ -168,6 +170,7 @@ int main(int argc, char **argv) {
     int m_asset_gpu = metric_id("asset.gpu_mb"), m_asset_inst = metric_id("asset.instances");
     int p_upload = prof_id("jobs.upload"), m_jobs_main = metric_id("jobs.main_ran"), m_jobs_queued = metric_id("jobs.queued");
     int m_lod_pops = metric_id("lod.pops"), m_lod_fading = metric_id("lod.fading"), m_asset_loading = metric_id("asset.loading");
+    int m_lod_fallbacks = metric_id("asset.lod_fallbacks");
     int m_lod_tris = metric_id("lod.asset_tris"), m_lod_budget = metric_id("lod.budget_scale"), m_icons_clustered = metric_id("lod.icons_clustered");
     int m_jobs_busy = metric_id("jobs.busy_pct"), m_jobs_wait = metric_id("jobs.wait_ms"), m_jobs_io_q = metric_id("jobs.io_queued");
     int m_occ_ports = metric_id("gfx.occluded_ports"), m_occ_ships = metric_id("gfx.occluded_ships"), m_occ_samples = metric_id("gfx.occ_samples");
@@ -219,8 +222,9 @@ int main(int argc, char **argv) {
             cam.want_dist = 800; cam.want_tx = lon2x(-30); cam.want_tz = lat2z(25); cam.want_yaw += dt * 0.02f;
             cam_update(dt);
         } else {
-            // the eye stays above whatever is under it: the wave crest over water, the ground over land
-            { float floor_y = world_is_land(cam.pos.x, cam.pos.z) ? world_height(cam.pos.x, cam.pos.z) + 0.6f : sea_height_at(cam.pos.x, cam.pos.z) + 0.45f;
+            // the eye stays above whatever is under it: the wave crest over water, the ground
+            // (base map + streamed detail) over land
+            { float floor_y = world_is_land(cam.pos.x, cam.pos.z) ? world_height(cam.pos.x, cam.pos.z) + stream_delta_at(cam.pos.x, cam.pos.z) + 0.6f : sea_height_at(cam.pos.x, cam.pos.z) + 0.45f;
               cam_min_eye_y = detailview_mode() == DV_OFF ? floor_y : -1e9f; }
             prof_begin(p_input); input_frame(dt, ui_blocked); debug_keys(); cam_update(dt); prof_end(p_input);
             prof_begin(p_sim);
@@ -350,6 +354,7 @@ int main(int argc, char **argv) {
         // scene geometry is built once, then submitted to the shadow cascades and the main passes
         lod_frame_begin((float)screen_h, 45.f * 0.0174533f, dt);   // screen-space LOD metric for this frame (camera.c: 45 degree vertical FOV)
         lod_set_tier(cam.dist, cam.mapness);                       // which kind of scene this is, and its triangle budget
+        if (!U.in_menu) streamview_update();                       // world streaming: wanted set, tile loads, the terrain detail window
         occ_frame_begin(&RF.campos.x, terrain_max_height());        // terrain occlusion rays start from this eye (occlusion.h)
         occq_frame_begin();                                         // GPU occlusion answers from the last frames (occquery.h)
         if (!U.in_menu) {
@@ -383,7 +388,7 @@ int main(int argc, char **argv) {
         if (!U.in_menu) sky_draw_overhead();   // the cloud layer from above, over the map (after the water, before the translucent passes)
         if (!U.in_menu) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
         if (!U.in_menu && !dv_on) {
-            prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
+            prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); streamview_draw_debug(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
         }
         rhi_gpu_begin(g_resolve); hdr_ao_pass(); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // SSAO from the depth, then tonemap to the backbuffer; labels/panels draw on top
@@ -407,6 +412,7 @@ int main(int argc, char **argv) {
           metric_set(m_lod_pops, lod_pops); metric_set(m_lod_fading, lod_fading); metric_set(m_asset_loading, asset_loading_count());
           if (lod_pops) LOG_DEBUG("lod", "%d multi-level jumps clamped this frame (cam dist %.1f, %d fading, %d assets loading): a camera teleport or a town rebuilt around a newly landed asset, walked one level per fade - not a visible pop", lod_pops, cam.dist, lod_fading, asset_loading_count());
           metric_set(m_lod_tris, (double)lod_last_tris); metric_set(m_lod_budget, lod_budget_scale); metric_set(m_icons_clustered, scene_icons_clustered);
+          metric_set(m_lod_fallbacks, scene_asset_lod_fallbacks);
           metric_set(m_occ_ports, scene_occluded_ports); metric_set(m_occ_ships, scene_occluded_ships); metric_set(m_occ_samples, occ_samples);
           metric_set(m_occq_hidden, scene_occluded_assets); metric_set(m_occq_queries, occq_queried); metric_set(m_occq_moving, occq_moving);
           metric_set(m_shadow_tris, (double)scene_shadow_tris);

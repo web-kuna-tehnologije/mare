@@ -33,6 +33,7 @@ float scene_smoke_window(void);                      // gunsmoke/battle window i
 int  scene_assets_submit_shadow(void);               // caster meshes for a shadow cascade
 int  scene_occlusion_active(void);                   // occlusion tests run this frame (enabled, 3D view, not a staged scene)
 extern int scene_asset_instances;                    // authored-asset (GLB) instances drawn this frame
+extern int scene_asset_lod_fallbacks;                // drawn coarser than picked while the finer LOD streams in (progressive loading)
 extern int scene_icons_clustered;                    // distant markers merged into a neighbour this frame
 extern int scene_assets_evicted;                     // authored assets dropped from the GPU this session
 size_t scene_asset_gpu_budget(void);                 // bytes of authored-asset meshes the residency policy keeps (dashboard)

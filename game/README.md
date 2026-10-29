@@ -177,7 +177,8 @@ game/
   src/ui/           ui.h (UI state), uikit (microui helpers), input (picking, commands, hotkeys,
                     camera control), hud (panels, labels, menu), dashboard (dev dashboard)
   tests/            sim_test.c (connectivity, invariants over years, save/load determinism, nav efficiency,
-                    no unexpected errors), diag_test.c (logging/metrics/profiler)
+                    no unexpected errors), stream_test.c (world streaming: grids, determinism,
+                    disk cache, budget/eviction), diag_test.c (logging/metrics/profiler)
 ```
 
 **Design rules.** `src/core`, `src/world` and `src/sim` never include v3 — they compile standalone (that is what
