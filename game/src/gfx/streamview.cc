@@ -32,7 +32,8 @@ extern "C" {
 #include "../assets/asset.h"
 }
 
-#define SV_RES     512
+#define SV_RES     512          // the near ring's texels per edge (and the fill grain)
+#define SV_RES_FAR 1024         // the far ring's: at 320 units that is 0.31 units a texel, three per land-mask cell, enough to carry the shore profile (0.22)
 #define SV_MAX_SLOTS 64         // worker slots the tally array covers (jobs_slot_count())
 #define SV_MIN_RECOMPOSE_S 0.20     // residency bursts (a tile a frame) fold into one rebuild
 
@@ -66,6 +67,7 @@ private:
     typedef struct sv_ring_t {
         rhi_texture_t tex;
         float   *buf;
+        int      res;                    // texels per edge
         float    extent;                 // world units covered
         int      max_level;              // finest tile level this ring may sample (Nyquist, above)
         float    x0, z0;                 // origin (world)
@@ -83,8 +85,8 @@ private:
 
     // one row band of a ring; reads tile payloads which only ever appear (never vanish) while the
     // main thread sits in the parallel_for below
-    typedef struct sv_fill_t { float *buf; float x0, z0, step; int max_level;
-                               float port_xz[96][2]; int nports;
+    typedef struct sv_fill_t { float *buf; int res; float x0, z0, step; int max_level;
+                               float port_xz[96][3]; int nports;   // land anchor x, z and the wall radius to keep
                                int src[SV_MAX_SLOTS][3]; } sv_fill_t;   // which source answered, per worker slot (no atomics: the bands are disjoint)   // the harbours inside the ring (coast polish keeps clear of them)
     static void sv_fill_rows(void *arg, int begin, int end, int slot);
     double sv_ring_compose(sv_ring_t *r, float cx, float cz);
@@ -93,29 +95,29 @@ private:
 
 StreamView &stream_view() { static StreamView s; return s; }
 
-// Coast polish (0.19). The base heightfield is a 16-cells-per-degree raster of the coastline
-// polygons, so at battle zoom its waterline reads as 7 km steps. Inside a narrow band around
-// that waterline the ring may now *move the shore*: where the authored tiles are resident
-// their own heights pass unclamped (GEBCO's coast at 520 m or 3 km instead of the raster's),
-// elsewhere the raster corners are rounded with a half-cell box blur and a fine fbm wiggles
-// the contour at a sub-cell scale. The band is a cell or so wide and fades out at the
-// harbours, so no port town ends up in the sea and no shipping lane silts up: the simulation
-// never reads the rings, this is presentation only.
-#define SV_COAST_BAND   0.62f    // |base height| the shore work reaches to (the first land cell and the first sea cell)
-#define SV_COAST_CORE   0.22f    // ... and is at full strength under (small islands are lifted to 0.55 and stay as authored)
-#define SV_PORT_KEEP    1.6f     // world units around a harbour the shoreline stays as placed
-#define SV_PORT_FADE    3.2f     // ... fading back to the polished shore by here
+// Coast shaping (0.19 band, 0.22 profile - see sv_fill_rows). The base heightfield is a
+// 16-cells-per-degree raster, so its waterline is a 7 km stair; the ring reshapes the ground
+// within two and a half cells of the coastline as a smooth profile of the distance to it,
+// fading out at the harbours. The simulation never reads the rings: presentation only.
+// Towns sample the base heightfield for their ground (gfx/scene.cc town_build), so under a
+// town's footprint the ring must leave the ground alone or the houses float or sink. The
+// footprint is the fort wall: rad 0.55 + 0.3 x size around the *land* anchor, +0.35 for the
+// wall (0.22: it used to be a 1.6 .. 3.2 unit disc around the harbour water, which also
+// froze every island within twenty kilometres of a port - Malta is Valletta - as a box).
+#define SV_PORT_FADE_W  0.6f     // world units over which the profile comes back outside the wall
 // The coastal fringe (cells of coast distance) where the authored relief *replaces* the
 // procedural one instead of only raising it: the 0.17 cliff field lifts the first inland
 // cells into a wall wherever it is high, and GEBCO knows which coasts are really cliffs.
 #define SV_FRINGE_IN    1.5f
 #define SV_FRINGE_OUT   5.0f
 
+static inline float smoothstep_(float e0, float e1, float x) { float t = clampf((x - e0) / (e1 - e0), 0.f, 1.f); return t * t * (3.f - 2.f * t); }
+
 void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
     sv_fill_t *f = (sv_fill_t *)arg;
     const float cell = WORLD_K / CELLS_PER_DEG;
     int src_fine = 0, src_chunk = 0, src_cut = 0;   // which source answered, tallied per band
-    for (int j = begin; j < end; ++j) for (int i = 0; i < SV_RES; ++i) {
+    for (int j = begin; j < end; ++j) for (int i = 0; i < f->res; ++i) {
         float wx = f->x0 + i * f->step, wz = f->z0 + j * f->step, h;
         float lon = x2lon(wx), lat = z2lat(wz);
         float base = world_height(wx, wz);
@@ -147,58 +149,96 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         float portw = 1.f;
         for (int p = 0; p < f->nports && portw > 0.f; ++p) {
             float dp = dist2d(wx, wz, f->port_xz[p][0], f->port_xz[p][1]);
-            float u = (dp - SV_PORT_KEEP) / (SV_PORT_FADE - SV_PORT_KEEP);
+            float u = (dp - f->port_xz[p][2]) / SV_PORT_FADE_W;
             portw *= u <= 0.f ? 0.f : u >= 1.f ? 1.f : u * u * (3.f - 2.f * u);
         }
-        // The authored heights on the shore side, as the sea shading can take them: the sea's
-        // shallow-water language (surf band, lapping foam, turquoise) was tuned for a floor that
-        // starts at the base's -0.30 in the first sea cell, and GEBCO's real 2-30 m shallows
-        // sit well above that - taken raw they turn every bay white. So a base sea cell may only
-        // deepen, a base land cell keeps a beach above the sea's land threshold, and the
-        // shoreline itself moves only where the authored map is decisive (land over 0.05,
-        // sea under -0.05).
-        float h_sea = minf(h, -0.30f), h_land = maxf(h, 0.20f);
-        // the coastal fringe: the real relief in place of the procedural cliff wall, on its own
-        // side of the waterline (the band below is the only place the shoreline itself moves).
-        // The coast distance is bilinear over the cells so the fringe has no cell steps.
-        if (fine && portw > 0.001f) {
+        // Signed distance to the coast in cells, bilinear over the land-mask cells so it is
+        // continuous: +land, -sea, zero exactly on the base map's shoreline. Everything below
+        // is a function of this one number, which is what makes the shore smooth - the raster
+        // only ever enters as *where* the line is, never as the shape of the ground beside it.
+        float dcs = 1e9f;
+        {
             float cxf = (lon - LON0) * CELLS_PER_DEG - 0.5f, cyf = (LAT1 - lat) * CELLS_PER_DEG - 0.5f;
             int cx0 = (int)floorf(cxf), cy0 = (int)floorf(cyf);
             if (cx0 >= 0 && cy0 >= 0 && cx0 + 1 < LM_W && cy0 + 1 < LM_H) {
                 float tx = cxf - cx0, ty = cyf - cy0;
-                float d00 = (float)abs((int)coastdist[cy0 * LM_W + cx0]),     d10 = (float)abs((int)coastdist[cy0 * LM_W + cx0 + 1]);
-                float d01 = (float)abs((int)coastdist[(cy0 + 1) * LM_W + cx0]), d11 = (float)abs((int)coastdist[(cy0 + 1) * LM_W + cx0 + 1]);
-                float dc = lerpf(lerpf(d00, d10, tx), lerpf(d01, d11, tx), ty);
-                float u = (dc - SV_FRINGE_IN) / (SV_FRINGE_OUT - SV_FRINGE_IN);
-                float wc = (1.f - (u <= 0.f ? 0.f : u >= 1.f ? 1.f : u * u * (3.f - 2.f * u))) * portw;
-                if (wc > 0.001f && base > 0.f) d = lerpf(d, h_land - base + 0.4f * sd, wc);   // land: GEBCO's slope instead of the wall
+                float d00 = coastdist_f[cy0 * LM_W + cx0],       d10 = coastdist_f[cy0 * LM_W + cx0 + 1];
+                float d01 = coastdist_f[(cy0 + 1) * LM_W + cx0], d11 = coastdist_f[(cy0 + 1) * LM_W + cx0 + 1];
+                dcs = lerpf(lerpf(d00, d10, tx), lerpf(d01, d11, tx), ty);
             }
         }
-        // the shoreline band: see the note above. The sea side reaches further (the first sea
-        // cell sits at -0.37, the second at -0.5): where the authored map says land there, the
-        // mountain's foot continues into what the raster cut off as a vertical face.
-        float ab = fabsf(base);
-        float band = base < 0.f ? 0.78f : SV_COAST_BAND, core = base < 0.f ? 0.32f : SV_COAST_CORE;
-        if (ab < band) {
-            float t = (ab - core) / (band - core);
-            float w = (1.f - (t <= 0.f ? 0.f : t >= 1.f ? 1.f : t * t * (3.f - 2.f * t))) * portw;
-            if (w > 0.001f) {
-                float hc = 0.5f * cell;
-                float blur = 0.25f * (world_height(wx + hc, wz) + world_height(wx - hc, wz) + world_height(wx, wz + hc) + world_height(wx, wz - hc));
-                // the wiggle's shortest wavelength is four ring texels: finer than that it
-                // aliases into a sawtooth along the shore instead of a natural line
-                float wf = minf(40.f, 1.f / (8.f * f->step / WORLD_K));
-                float wig = (world_fbm(lon * wf + 3.f, lat * wf + 11.f, 2, 0x5A17u) - 0.5f) * (fine ? 0.08f : 0.22f);
-                float target;
-                if (fine) {
-                    float hs = h > 0.05f ? h_land : h < -0.05f ? h_sea : (base > 0.f ? h_land : h_sea);   // decisive, else stay on the base's side
-                    target = hs - base + wig;
-                } else
-                    target = (blur - base) + wig;
-                d = lerpf(d, target, w);
-            }
+        float adc = fabsf(dcs);
+        // The coastal fringe (1.5 .. 5 cells inland): the authored relief *replaces* the
+        // procedural cliff field instead of only raising it, so a shore GEBCO says is gentle
+        // is not walled by 0.17's cliff noise.
+        if (fine && portw > 0.001f && dcs > 0.f && adc < SV_FRINGE_OUT) {
+            float u = (adc - SV_FRINGE_IN) / (SV_FRINGE_OUT - SV_FRINGE_IN);
+            float wc = (1.f - (u <= 0.f ? 0.f : u >= 1.f ? 1.f : u * u * (3.f - 2.f * u))) * portw;
+            if (wc > 0.001f) d = lerpf(d, maxf(h, 0.20f) - base + 0.4f * sd, wc);
         }
-        f->buf[j * SV_RES + i] = d;
+        // The shore itself (0.22): a *profile* of the distance to the coastline.
+        //
+        // The base heightfield steps from +0.12 to -0.30 across one cell at the waterline - a
+        // seven-kilometre stair the camera reads as a wall - and small islands are lifted to a
+        // flat 0.55 so they clear the water. Inside two and a half cells of the line the ground
+        // is reshaped instead:
+        //   * a beach coast: wadeable water (-0.08 at the line) deepening to the shelf, and sand
+        //     rising gently to ~0.22 two cells inland before the real relief returns;
+        //   * a cliff coast (world.c's cliff field, the same noise the base map used): the face
+        //     rises inside the first cell to a shoulder, then the relief, and the water off it
+        //     drops steeply - Madeira, not Normandy;
+        //   * every lifted island gets the beach ring and keeps its plateau behind it.
+        // The shoreline position does not move (the profile is zero at dcs = 0, and harbours are
+        // protected), so navigation and the ports see exactly the coast they were placed on.
+        // Reach: five cells to seaward (the base shelf is six cells deep, so its cell-shaped
+        // edge is replaced by the round one), six inland - a lifted island is under ~80 cells
+        // and its centre is never more than five from the water, so the whole of it rises as
+        // one dome from beach ring to top instead of flattening where the band gives up.
+        float reach = dcs < 0.f ? 5.0f : 6.0f;
+        if (adc < reach && portw > 0.001f) {
+            float w = (1.f - smoothstep_(reach * 0.66f, reach, adc)) * portw;
+            // Is this a cliff coast? Only where there is high ground to make one of. The cliff
+            // noise alone turned the Venetian lagoon into a limestone wall; now it needs land of
+            // some height within a cell, and a real mountain coast (the Dinaric shore) is a cliff
+            // whatever the noise says - with deep water off it, because that is what a mountain
+            // plunging into the sea has.
+            float near_land = maxf(maxf(base, world_height(wx + cell, wz)), maxf(world_height(wx - cell, wz), maxf(world_height(wx, wz + cell), world_height(wx, wz - cell))));
+            float cliff = world_fbm(lon * 0.7f + 55.f, lat * 0.7f + 5.f, 3, G.seed + 77);   // world.c compute_heightmap's field
+            float cl = clampf((cliff - 0.50f) / 0.22f, 0.f, 1.f) * smoothstep_(0.35f, 0.9f, near_land);
+            cl = maxf(cl, smoothstep_(1.2f, 2.6f, near_land));
+            // the contour wiggle: shortest wavelength four ring texels (finer aliases into a
+            // sawtooth); weaker on cliffs, which are straighter than beaches
+            float wf = minf(40.f, 1.f / (8.f * f->step / WORLD_K));
+            float wig = (world_fbm(lon * wf + 3.f, lat * wf + 11.f, 2, 0x5A17u) - 0.5f) * 0.12f * (1.f - 0.5f * cl);
+            float target;
+            if (dcs < 0.f) {
+                // the sea floor: wadeable at the line, a gentle sandy shelf, then the drop to
+                // the base's shelf depth by five cells; off a cliff the bottom falls away at once
+                float sn = -dcs;
+                float shelf = (0.06f + 0.24f * cl) + (0.30f + 0.9f * cl) * (1.f - expf(-sn * (0.55f + 1.4f * cl)));
+                float drop  = 1.1f * smoothstep_(2.5f, 5.0f, sn);          // SHELF_DEPTH, where the base takes over
+                target = -(shelf + drop);
+                // where the authored bathymetry is deeper, let it take over away from the line
+                if (fine && h < target) target = lerpf(target, h, smoothstep_(1.0f, 4.5f, sn));
+            } else {
+                float relief = fine ? maxf(h, base) : base;
+                // a beach coast: sand ramping up, then the relief returning as a *dome* - the
+                // ground rises as the square root of the distance to the water, so a lifted
+                // island (a flat 0.55 inside its coast) comes up as a rounded hill, and a
+                // mainland shore has a gentle approach instead of a step
+                float beach  = 0.04f + 0.30f * (1.f - expf(-dcs * 0.75f));
+                float dome   = relief * sqrtf(smoothstep_(0.0f, reach, dcs));
+                float gentle = maxf(beach, dome);
+                // a cliff coast: a steep face in the first cell and a half, rising only as high as
+                // the land behind it allows (plus a lip), then a rounded shoulder into the relief
+                float face   = 0.05f + minf(2.2f, relief + 0.35f) * smoothstep_(0.05f, 1.4f, dcs);
+                float steep  = lerpf(face, maxf(face, relief), smoothstep_(1.2f, reach, dcs));
+                target = lerpf(gentle, steep, cl);
+            }
+            target += wig;
+            d = lerpf(d, target - base, w);
+        }
+        f->buf[j * f->res + i] = d;
     }
     // a band's own tally, folded in once (the rows are disjoint, so this is a plain add per
     // worker rather than a contended counter per texel)
@@ -217,9 +257,9 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     r->last_compose = RF.time;
     r->seen_residency = resgen;
     double t0 = diag_now();
-    float step = r->extent / (SV_RES - 1);
+    float step = r->extent / (r->res - 1);
     sv_fill_t f;                                 // snapped to the sample grid so detail never swims
-    f.buf = r->buf;
+    f.buf = r->buf; f.res = r->res;
     f.x0 = floorf((cx - r->extent * 0.5f) / step) * step;
     f.z0 = floorf((cz - r->extent * 0.5f) / step) * step;
     f.step = step; f.max_level = r->max_level;
@@ -227,13 +267,16 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     f.nports = 0;   // every harbour the ring touches: the shoreline stays as placed around it
     for (int i = 0; i < G.nports && f.nports < 96; ++i) {
         const port_t *p = &G.ports[i];
-        if (p->x < f.x0 - SV_PORT_FADE || p->x > f.x0 + r->extent + SV_PORT_FADE || p->z < f.z0 - SV_PORT_FADE || p->z > f.z0 + r->extent + SV_PORT_FADE) continue;
-        f.port_xz[f.nports][0] = p->x; f.port_xz[f.nports][1] = p->z; f.nports++;
+        if (p->size <= 0 && !p->lx && !p->lz) continue;
+        float keep = (0.55f + 0.3f * (p->size > 0 ? p->size : 0)) + 0.35f, margin = keep + SV_PORT_FADE_W;
+        float px = p->lx ? p->lx : p->x, pz = p->lz ? p->lz : p->z;    // the town stands on the land anchor
+        if (px < f.x0 - margin || px > f.x0 + r->extent + margin || pz < f.z0 - margin || pz > f.z0 + r->extent + margin) continue;
+        f.port_xz[f.nports][0] = px; f.port_xz[f.nports][1] = pz; f.port_xz[f.nports][2] = keep; f.nports++;
     }
-    jobs_parallel_for(JOB_LANE_WORKER, sv_fill_rows, &f, SV_RES, 32);
+    jobs_parallel_for(JOB_LANE_WORKER, sv_fill_rows, &f, r->res, 32);
     {   // what the ring holds: the range of the delta and how much of it the shore work touched
         float mn = 1e9f, mx = -1e9f; int big = 0;
-        for (int i = 0; i < SV_RES * SV_RES; ++i) { float v = r->buf[i]; mn = minf(mn, v); mx = maxf(mx, v); big += v < -0.5f; }
+        for (int i = 0; i < r->res * r->res; ++i) { float v = r->buf[i]; mn = minf(mn, v); mx = maxf(mx, v); big += v < -0.5f; }
         int sf = 0, sc = 0, su = 0;
         for (int k = 0; k < SV_MAX_SLOTS; ++k) { sf += f.src[k][0]; sc += f.src[k][1]; su += f.src[k][2]; }
         LOG_DEBUG("stream", "ring %s composed at %.1f,%.1f: delta %.2f..%.2f, %d texels lowered over 0.5, %d harbours; sources: %d fine, %d GEBCO chunk, %d u16 cut",
@@ -260,9 +303,11 @@ void StreamView::update() {
         sv_inited = 1;
         static const float extent[SV_RINGS] = { SV_NEAR_EXTENT, SV_FAR_EXTENT };
         static const int   lvl[SV_RINGS]    = { STREAM_L_TACTICAL, STREAM_L_COASTAL };
+        static const int   res[SV_RINGS]    = { SV_RES, SV_RES_FAR };
         for (int i = 0; i < SV_RINGS; ++i) {
-            sv_ring[i].buf = (float *)malloc((size_t)SV_RES * SV_RES * sizeof(float));
-            sv_ring[i].tex = rhi_texture_make(SV_RES, SV_RES, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+            sv_ring[i].res = res[i];
+            sv_ring[i].buf = (float *)malloc((size_t)res[i] * res[i] * sizeof(float));
+            sv_ring[i].tex = rhi_texture_make(res[i], res[i], RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
             sv_ring[i].extent = extent[i]; sv_ring[i].max_level = lvl[i]; sv_ring[i].last_compose = -1e9;
         }
         const char *e = getenv("MARE_STREAM_TILES"); if (e) stream_show_tiles = atoi(e) != 0;   // overlay on for unattended captures
@@ -324,7 +369,7 @@ void StreamView::detail_rect(int ring, float out[4]) {
     const sv_ring_t *r = &sv_ring[(unsigned)ring < SV_RINGS ? ring : 0];
     out[0] = r->x0; out[1] = r->z0; out[2] = 1.f / r->extent; out[3] = 1.f / r->extent;
 }
-float  StreamView::detail_texel(int ring) { return ((unsigned)ring < SV_RINGS ? sv_ring[ring].extent : SV_NEAR_EXTENT) / (SV_RES - 1); }
+float  StreamView::detail_texel(int ring) { return (unsigned)ring < SV_RINGS ? sv_ring[ring].extent / (sv_ring[ring].res - 1) : SV_NEAR_EXTENT / (SV_RES - 1); }
 
 // Authored terrain tiles (`tile_l<level>_<tx>_<ty>` assets): drawn through the normal asset
 // path. Called inside the scene_assets_begin/end bracket (scene_build_ports).

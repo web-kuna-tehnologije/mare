@@ -56,40 +56,96 @@ void main(){
   float h = v_h; float lat = -v_wpos.z / u_k; float lon = v_wpos.x / u_k;
   float slope = 1.0 - n.y;
   float nz = noise(v_wpos.xz*0.9) * 0.6 + noise(v_wpos.xz*3.7)*0.4;
-  vec3 sand  = vec3(0.78,0.72,0.52);
-  vec3 grass = mix(vec3(0.33,0.50,0.22), vec3(0.22,0.38,0.16), nz);
-  vec3 dry   = mix(vec3(0.55,0.50,0.32), vec3(0.45,0.42,0.28), nz);
-  vec3 rock  = vec3(0.46,0.43,0.40);
-  vec3 snow  = vec3(0.93,0.94,0.96);
-  vec3 desert= mix(vec3(0.86,0.74,0.48), vec3(0.80,0.66,0.42), nz);
-  vec3 tundra= mix(vec3(0.55,0.58,0.48), vec3(0.70,0.72,0.68), nz);
-// Mediterranean scrub: between the olive belt and the Alps the lowland green goes dry and
-// silvery (the reference art's hills are olive, not Irish). Cliffs come in earlier and harder
-// than they used to: the ridged relief is steep, and rock is what a steep face shows.
+// --- the palette (sRGB), from the aerial references in assets/example (0.22): pale warm
+// beaches, olive scrub on the sunny slopes, dark woods in the gullies and on the shaded
+// sides, pale karst limestone in the Mediterranean belt and dark basalt-like rock elsewhere,
+// warm bare crests, scree at the foot of every cliff
+  vec3 sand      = mix(vec3(0.87,0.81,0.65), vec3(0.80,0.74,0.58), nz);
+  vec3 wetsand   = vec3(0.55,0.50,0.40);
+  vec3 grass     = mix(vec3(0.33,0.50,0.22), vec3(0.22,0.38,0.16), nz);
+  vec3 scrub     = mix(vec3(0.47,0.51,0.29), vec3(0.61,0.58,0.36), nz);
+  vec3 forest    = mix(vec3(0.13,0.26,0.12), vec3(0.19,0.33,0.15), nz);
+  vec3 dry       = mix(vec3(0.58,0.53,0.36), vec3(0.48,0.45,0.31), nz);
+  vec3 limestone = mix(vec3(0.77,0.73,0.65), vec3(0.68,0.64,0.57), nz);
+  vec3 basalt    = mix(vec3(0.41,0.36,0.31), vec3(0.33,0.29,0.26), nz);
+  vec3 crest     = vec3(0.53,0.43,0.32);
+  vec3 scree     = mix(vec3(0.61,0.57,0.50), vec3(0.52,0.49,0.43), nz);
+  vec3 snow      = vec3(0.93,0.94,0.96);
+  vec3 desert    = mix(vec3(0.86,0.74,0.48), vec3(0.80,0.66,0.42), nz);
+  vec3 tundra    = mix(vec3(0.55,0.58,0.48), vec3(0.70,0.72,0.68), nz);
   float med = smoothstep(32.0, 35.5, abs(lat)) * (1.0 - smoothstep(44.5, 47.5, abs(lat))) * smoothstep(-12.0, -6.0, lon) * (1.0 - smoothstep(40.0, 44.0, lon));
-  vec3 scrub = mix(vec3(0.42,0.50,0.27), vec3(0.55,0.53,0.33), nz);
-  float wgrass = smoothstep(0.15, 0.6, h), wdry = smoothstep(2.5, 5.0, h), wrock = smoothstep(0.17, 0.42, slope), wsnow = smoothstep(6.5, 8.5, h) * (1.0 - smoothstep(0.55, 0.75, slope));
-  vec3 c = mix(sand, mix(grass, scrub, med * 0.6), wgrass);
-  c = mix(c, vec3(0.30, 0.40, 0.36), (1.0 - smoothstep(-1.4, 0.0, h)) * 0.9);
-// the sea floor: pale sand at the beach, dark silt and weed where it drops away
-  c = mix(c, dry, wdry);
+// --- the weights
+// cliffs: rock wherever the ground is steep; limestone in the Mediterranean, basalt elsewhere,
+// warming to a bare brown crest high up; horizontal beds broken by noise on the steep faces
+  float wrock = smoothstep(0.16, 0.40, slope);
+  vec3 rock = mix(basalt, limestone, med);
+  rock = mix(rock, crest, smoothstep(2.5, 6.0, h) * 0.6);
+// bedding: a few beds per unit of height, their phase warped by two scales of noise so no
+// two faces band alike, a tonal swing of a few percent, only on steep rock, and only up
+// close - from the regional view a regular band reads as a contour line, not a cliff
+  float dist_s = distance(v_wpos, u_campos);
+  float strat = 0.5 + 0.5 * sin(v_wpos.y * 9.0 + noise(v_wpos.xz * 1.3) * 6.0 + noise(v_wpos.xz * 5.1) * 2.0);
+  float stratk = mix(1.0, 0.95 + 0.09 * strat, wrock * smoothstep(0.25, 0.45, slope) * (1.0 - smoothstep(18.0, 45.0, dist_s)));
+// scree: the talus at a cliff's foot - moderate slope below steep ground, low on the hill
+  float wscree = smoothstep(0.07, 0.17, slope) * (1.0 - smoothstep(0.22, 0.40, slope)) * (1.0 - smoothstep(0.4, 1.4, h)) * 0.8;
+// the beach: low, gentle ground. Its width is the slope's - a flat coast has a wide strand,
+// a steep one none - and the last wave leaves a darker wet band at the line
+  float wbeach = (1.0 - smoothstep(0.04, 0.30, h)) * (1.0 - smoothstep(0.06, 0.20, slope));
+  float wwet   = 1.0 - smoothstep(0.0, 0.07, h);
+// vegetation: grass on the lowlands, scrub where the belt is Mediterranean, woods in the
+// gullies and on the shaded sides. Aspect comes from the normal: +z is south, so a face with
+// n.z < 0 looks north and keeps its shade
+  float wgrass = smoothstep(0.12, 0.5, h);
+  float gully  = smoothstep(0.42, 0.78, noise(v_wpos.xz * 0.5 + 7.0) * 0.6 + noise(v_wpos.xz * 1.9 + 3.0) * 0.4);
+  float shade  = clamp(0.5 - 0.5 * n.z / max(length(n.xz), 1e-3), 0.0, 1.0) * smoothstep(0.04, 0.18, slope);
+  float wforest = clamp(0.55 * gully + 0.45 * shade, 0.0, 1.0) * (1.0 - smoothstep(3.0, 5.0, h)) * (0.55 + 0.45 * med) * wgrass;
+  float wdry  = smoothstep(2.5, 5.0, h);
+  float wsnow = smoothstep(6.5, 8.5, h) * (1.0 - smoothstep(0.55, 0.75, slope));
+  float under = 1.0 - smoothstep(-0.02, 0.02, h);
+// the lowland patchwork (0.22): fields, hay meadows and rough grazing at the scale of the
+// Designer sheet's countryside - a low-frequency noise picks between green turf, a drier
+// straw-coloured grass and a darker meadow, so the plain is a quilt rather than one carpet
+  float field  = noise(v_wpos.xz * 4.0 + 13.0) * 0.65 + noise(v_wpos.xz * 0.34 + 13.0) * 0.35;   // a field is a kilometre or two; the regional term keeps whole districts drier or greener
+  float field2 = noise(v_wpos.xz * 9.0 + 41.0);
+  vec3 hay    = mix(vec3(0.66,0.58,0.32), vec3(0.74,0.66,0.40), nz);
+  vec3 meadow = mix(vec3(0.27,0.43,0.18), vec3(0.31,0.47,0.20), nz);
+  vec3 lowland = mix(grass, hay, smoothstep(0.52, 0.70, field) * 0.85);
+  lowland = mix(lowland, meadow, smoothstep(0.30, 0.46, field) * (1.0 - smoothstep(0.52, 0.60, field)) * 0.7);
+  lowland = mix(lowland, grass * 0.92, smoothstep(0.62, 0.80, field2) * 0.4);
+  float wpatch = (1.0 - smoothstep(0.14, 0.32, slope)) * (1.0 - smoothstep(2.0, 3.6, h));
+  grass = mix(grass, lowland, wpatch);
+// macchia: the olive scrub belongs to the dry southern belt (Sicily, the Aegean, Andalusia,
+// the Maghreb), not to the Po plain or the Venetian lagoon, which are farmland
+  float scrubk = smoothstep(32.0, 36.0, abs(lat)) * (1.0 - smoothstep(41.5, 44.5, abs(lat))) * smoothstep(-12.0, -6.0, lon) * (1.0 - smoothstep(40.0, 44.0, lon));
+// --- composition, low to high
+  vec3 c = mix(grass, scrub, scrubk * 0.75);
+  c = mix(c, forest, wforest);
+  c = mix(c, dry, wdry * (1.0 - 0.5 * wforest));
+  c = mix(c, sand, wbeach);
+  c = mix(c, wetsand, wbeach * wwet);
+  c = mix(c, scree, wscree);
   c = mix(c, rock, wrock);
-  c = mix(c, rock * 0.72, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.8);
-// wet, dark rock at the waterline
+  c = mix(c, rock * 0.62, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.85);
+// wet, dark rock in the splash zone
   c = mix(c, snow, wsnow);
+// the sea floor: the beach sand runs on under the water and shades into silt and weed where
+// the shelf drops - it is this pale bottom that the turquoise shallows are seen through
+  vec3 seabed = mix(sand * 0.92, vec3(0.30, 0.40, 0.36), smoothstep(-0.12, -1.0, h));
+  c = mix(c, seabed, under);
 // deserts: sahara, arabia, northern mexico, atacama
   float des = 0.0;
   des = max(des, (1.0-smoothstep(30.0,33.0,lat)) * smoothstep(13.0,16.0,lat) * smoothstep(-18.0,-14.0,lon) * (1.0-smoothstep(36.0,40.0,lon)));
   des = max(des, smoothstep(14.0,18.0,lat)*(1.0-smoothstep(30.0,34.0,lat))*smoothstep(35.0,38.0,lon));
   des = max(des, smoothstep(22.0,25.0,lat)*(1.0-smoothstep(32.0,35.0,lat))*smoothstep(-116.0,-112.0,lon)*(1.0-smoothstep(-103.0,-100.0,lon)));
   des = max(des, smoothstep(-30.0,-26.0,lat)*(1.0-smoothstep(-16.0,-14.0,lat))*smoothstep(-72.0,-70.0,lon)*(1.0-smoothstep(-66.0,-64.0,lon)));
-  c = mix(c, desert, des * smoothstep(0.12, 0.5, h) * (1.0 - smoothstep(5.0, 7.0, h)));
+  float wdes = des * smoothstep(0.12, 0.5, h) * (1.0 - smoothstep(5.0, 7.0, h));
+  c = mix(c, desert, wdes);
   float cold = smoothstep(52.0, 64.0, abs(lat));
   c = mix(c, tundra, cold * smoothstep(0.3,1.0,h));
   c = mix(c, snow, smoothstep(64.0, 70.0, abs(lat)) * 0.8);
-// Textured ground (0.17): the atlas materials follow the same weights as the flat colours
-// above, at two scales (fine repeats for the city and battle tiers, a coarse repeat that
-// survives the regional view), triplanar for the rock so cliff faces are not smeared, and
+// Textured ground (0.17, re-cast 0.22): the atlas materials follow the same weights as the
+// flat colours, at two scales (fine repeats for the city and battle tiers, a coarse repeat
+// that survives the regional view), triplanar for the rock so cliff faces are not smeared,
 // faded out with distance so the strategic map keeps its clean biome colours.
   float dist0 = distance(v_wpos, u_campos);
   float tdet = (1.0 - smoothstep(90.0, 420.0, dist0)) * u_has_atlas * (1.0 - u_mapness);
@@ -97,26 +153,37 @@ void main(){
     vec3 tw = pow(abs(n), vec3(6.0)); tw /= (tw.x + tw.y + tw.z);
     vec2 pxz = v_wpos.xz * 1.6, mxz = v_wpos.xz * 0.21;
     float far = smoothstep(8.0, 45.0, dist0);
-// fine -> coarse repeat with distance
     vec3 grassT  = mix(mix(atlas_cell(1, pxz), atlas_cell(13, pxz), 0.35), atlas_cell(1, mxz), far);
-    vec3 scrubT  = mix(mix(atlas_cell(2, pxz), atlas_cell(14, pxz), 0.5), atlas_cell(11, mxz), far);
+    vec3 hayT    = mix(mix(atlas_cell(2, pxz), atlas_cell(13, pxz), 0.55), atlas_cell(9, mxz), far);   // soil through thin dry grass: stubble
+    vec3 meadowT = mix(atlas_cell(7, pxz), atlas_cell(7, mxz), far);
+    grassT = mix(grassT, hayT,    smoothstep(0.52, 0.70, field) * 0.85 * wpatch);
+    grassT = mix(grassT, meadowT, smoothstep(0.30, 0.46, field) * (1.0 - smoothstep(0.52, 0.60, field)) * 0.7 * wpatch);
+    vec3 scrubT  = mix(mix(atlas_cell(13, pxz), atlas_cell(2, pxz), 0.35), atlas_cell(9, mxz), far);
+    vec3 forestT = mix(mix(atlas_cell(14, pxz), atlas_cell(11, pxz), 0.45), atlas_cell(14, mxz), far);
     vec3 sandT   = mix(atlas_cell(3, pxz), atlas_cell(10, mxz), far);
     vec3 dryT    = mix(mix(atlas_cell(9, pxz), atlas_cell(2, pxz), 0.4), atlas_cell(9, mxz), far);
+    vec3 screeT  = mix(mix(atlas_cell(9, pxz), atlas_cell(4, pxz), 0.5), atlas_cell(4, mxz), far);
     vec3 rockT   = atlas_cell(0, mix(pxz, mxz, far)) * tw.y + atlas_cell(0, mix(v_wpos.xy * 1.6, v_wpos.xy * 0.21, far)) * tw.z + atlas_cell(0, mix(v_wpos.zy * 1.6, v_wpos.zy * 0.21, far)) * tw.x;
     vec3 desertT = mix(atlas_cell(6, pxz), atlas_cell(5, mxz), 0.5 + 0.5 * far);
     vec3 tundraT = mix(atlas_cell(14, pxz), atlas_cell(16, mxz), 0.4 + 0.5 * far);
-    vec3 t = mix(sandT, mix(grassT, scrubT, med * 0.7), wgrass);
-    t = mix(t, dryT, wdry);
+    vec3 t = mix(grassT, scrubT, scrubk * 0.75);
+    t = mix(t, forestT, wforest);
+    t = mix(t, dryT, wdry * (1.0 - 0.5 * wforest));
+    t = mix(t, sandT, wbeach);
+    t = mix(t, sandT * 0.7, wbeach * wwet);
+    t = mix(t, screeT, wscree);
     t = mix(t, rockT, wrock);
-    t = mix(t, rockT * 0.6, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.8);
+    t = mix(t, rockT * 0.6, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.85);
     t = mix(t, mix(rockT, vec3(0.9, 0.92, 0.95), 0.8), wsnow);
-    t = mix(t, desertT, des * smoothstep(0.12, 0.5, h) * (1.0 - smoothstep(5.0, 7.0, h)));
+    t = mix(t, sandT * 0.9, under * (1.0 - smoothstep(-0.12, -1.0, h)));
+    t = mix(t, desertT, wdes);
     t = mix(t, tundraT, cold * smoothstep(0.3, 1.0, h));
     vec3 ts = linear_to_srgb(t);
 // the atlas is sRGB-sampled (linear); the colour mix below is in sRGB
     c = mix(c, ts * (0.55 + 0.45 * (c / max(ts, vec3(0.02)))), 0.78 * tdet);
 // keep the biome's hue, take the material's grain
   }
+  c *= stratk;
 // Ground materials (0.19): each surface has its own roughness - grass and scrub matte, dry
 // soil a little less, bare rock and shingle tighter, snow a soft gloss, and the rock in the
 // splash zone wet and dark-glossy - and, close in, a micro-relief normal from the grain map
@@ -125,7 +192,9 @@ void main(){
   float rough = 0.95;
   rough = mix(rough, 0.84, wdry);
   rough = mix(rough, 0.72, wrock);
-  rough = mix(rough, 0.80, (1.0 - wgrass) * (1.0 - wrock));          // beach sand
+  rough = mix(rough, 0.80, wbeach);                                   // beach sand
+  rough = mix(rough, 0.45, wbeach * wwet);                            // the wet strand
+  rough = mix(rough, 0.90, wforest);
   rough = mix(rough, 0.55, wsnow);
   rough = mix(rough, 0.40, wet * 0.8);
   float micro = (1.0 - smoothstep(12.0, 60.0, dist0)) * (1.0 - u_mapness);

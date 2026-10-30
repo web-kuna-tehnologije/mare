@@ -107,7 +107,9 @@ void Hdr::bloom_pass() {
 
 void Hdr::ao_pass() {
     if (!hdr_target.fbo) return;
-    int w = hdr_target.w / 2, h = hdr_target.h / 2;
+    // never below a pixel: a minimised or focus-flapped window reports a 1x1 framebuffer, and
+    // half of that is a 0x0 target the driver refuses (it killed two unattended capture runs)
+    int w = hdr_target.w / 2 > 0 ? hdr_target.w / 2 : 1, h = hdr_target.h / 2 > 0 ? hdr_target.h / 2 : 1;
     if (ao_target.w != w || ao_target.h != h) { if (ao_target.fbo) rhi_target_free(&ao_target); ao_target = rhi_target_make(w, h, RHI_FMT_R32F, 0); }
     rhi_target_begin(&ao_target, 1, 1, 1);
     rhi_pipeline_bind(&ao_prg);

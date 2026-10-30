@@ -16,7 +16,11 @@ extern "C" {
 #endif
 
 extern unsigned char *landmask;   // LM_W*LM_H, 1 = land (row 0 = north)
-extern short         *coastdist;  // cells to the nearest coast: +land, -water
+extern short         *coastdist;  // cells to the nearest coast: +land, -water (chessboard BFS; the simulation's placement rules read this)
+extern float         *coastdist_f; // the same as an exact *Euclidean* distance in cells (0.22): +land, -water, +-0.5 on the
+                                  // cells either side of the line so it crosses zero exactly on the coastline. Shapes the
+                                  // base shelf and plain (compute_heightmap) and the shore profile (gfx/streamview.cc):
+                                  // chessboard isolines are rounded squares, which is what made islands boxes
 extern float         *heightmap;  // LM_W*LM_H world units, sea level 0
 extern unsigned char *territory;  // TERR_W*TERR_H: 0 none, else owning nation + 1
 extern int            territory_dirty; // 1 = recompute from ports, 2 = recomputed, upload to the GPU

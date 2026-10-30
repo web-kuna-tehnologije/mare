@@ -63,15 +63,18 @@ void main(){
 // North Atlantic, not a lagoon: a blue-grey body colour. The old pair ran to cyan because
 // the shallow end was a tropical green-blue and the absorption killed red hardest.
   vec3 deep = vec3(0.035,0.070,0.115), shallow = vec3(0.21,0.285,0.325);
-// Warm seas (0.17): south of about 45 degrees the shelf goes turquoise and the deep a
-// saturated blue - the Mediterranean and the Caribbean of the reference art - while the
-// North Sea keeps its grey-blue body. Depth does the rest: the shelf the heightfield now
-// carries hangs a few tenths of a unit down, so it stays in the shallow colour and the floor
-// beyond it drops into the deep one.
-  float warm = 1.0 - smoothstep(36.0, 50.0, abs(lat));
-  shallow = mix(shallow, vec3(0.14, 0.56, 0.60), warm * 0.85);
-  deep = mix(deep, vec3(0.015, 0.09, 0.26), warm * 0.7);
-  vec3 bodyc = mix(shallow, deep, 1.0 - exp(-depth*0.9));
+// Warm seas (0.22, from the aerial references in assets/example): the colour is a *ramp of
+// stops* with depth, not one blend - pale aqua where sand shows through the first few metres,
+// turquoise over the shelf, a saturated mid blue where the shelf drops, cobalt past it. The
+// shelf edge is where the second and third stops meet, which is what draws the reef line the
+// photos all have. North of ~45 degrees the sea keeps its grey-blue body.
+  float warm = 1.0 - smoothstep(43.0, 53.0, abs(lat));   // the whole Mediterranean warm, the Channel and the North Sea grey
+  vec3 st0 = vec3(0.40, 0.75, 0.73), st1 = vec3(0.10, 0.58, 0.66), st2 = vec3(0.03, 0.26, 0.52), st3 = vec3(0.02, 0.10, 0.30);
+  vec3 warmc = depth < 0.22 ? mix(st0, st1, depth / 0.22)
+             : depth < 0.90 ? mix(st1, st2, (depth - 0.22) / 0.68)
+             :                mix(st2, st3, 1.0 - exp(-(depth - 0.90) * 0.9));
+  vec3 coldc = mix(shallow, deep, 1.0 - exp(-depth*0.9));
+  vec3 bodyc = mix(coldc, warmc, warm);
 // Abyssal darkening: the old ramp saturated at `deep` by ~3 units, so a shelf edge and an
 // ocean basin read the same. The real bathymetry (GEBCO tiles) hangs the basins 2.5-4 units
 // down; past the shelf the body keeps losing light exponentially towards an abyssal
@@ -181,7 +184,7 @@ void main(){
   float surf_tex = smoothstep(0.22, 0.6, dot(texture(u_albedo, p * 0.7 + shoredir * (t * 0.22) + u_drift1 * 0.5).rgb, vec3(0.3, 0.5, 0.2)));
   float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;
 // Shoreline: the thin lapping line at the waterline, as before.
-  float foam = (1.0 - smoothstep(0.0, 0.45 * sc, depth)) * (0.55 + 0.45*sin(depth*30.0/sc - t*2.0 + w1)) * detail;
+  float foam = (1.0 - smoothstep(0.0, 0.26 * sc, depth)) * (0.55 + 0.45*sin(depth*30.0/sc - t*2.0 + w1)) * detail;
 // Ships: white only where the ship is going. The bow wave the vertex stage raised breaks
 // at its crest (v_shipw), the stem throws spray ahead, and the forward half of the hull
 // breaks the water along its shoulders. Nothing trails astern: the long V wake this used to

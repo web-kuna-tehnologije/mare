@@ -17,6 +17,7 @@ extern "C" {
 
 unsigned char *landmask;
 short         *coastdist;
+float         *coastdist_f;
 float         *heightmap;
 unsigned char *territory;
 int            territory_dirty = 1;
@@ -41,6 +42,9 @@ private:
     static void raster_polygon(const float *pts, unsigned char value);
     static void raster_strait(const float *pts, float halfwidth);
     static void compute_coastdist();
+    static void compute_coastdist_euclid();
+    static void edt_rows(void *arg, int begin, int end, int slot);
+    static void edt_cols(void *arg, int begin, int end, int slot);
     static void compute_heightmap_rows(void *arg, int begin, int end, int slot);
     static void compute_heightmap(unsigned seed);
     static void raise_small_islands();
@@ -159,6 +163,92 @@ void World::compute_coastdist() {
 #define SHELF_DEPTH      1.1f    // ... hanging about a unit down (turquoise, not glass)
 #define DEEP_DEPTH       4.5f
 
+// ---------------------------------------------------------------------------
+// Exact Euclidean distance to the coast (0.22), by the separable squared-distance transform
+// of Felzenszwalb & Huttenlocher: one 1-D pass along every row, one along every column, each
+// linear in the cells. Two transforms - distance to the nearest water cell, and to the nearest
+// land cell - signed and combined. The BFS above is a chessboard metric whose isolines are
+// rounded squares; everything shaped from it (the shelf, the coastal plain, the lifted
+// islands) inherited that squareness. This field is what the heightfield and the shore
+// profile read instead; `coastdist` stays for the placement rules that count cells.
+
+#define EDT_BIG 1e10f
+typedef struct edt_job_t { float *f; float *d; } edt_job_t;
+
+// one row (or gathered column): the lower envelope of parabolas with f = 0 at the sources.
+// Cells that are not sources (and, in the column pass, rows that had no source at all) are
+// *skipped*, never carried as a huge value: in float32 a 1e10 swallows the q^2 term, two such
+// parabolas then compare equal and the envelope pops real sources off - which is how the
+// first version of this left every island a box.
+static void edt_1d(const float *f, float *d, int *v, float *z, int n) {
+    int k = -1;
+    for (int q = 0; q < n; ++q) {
+        if (f[q] >= EDT_BIG) continue;
+        if (k < 0) { k = 0; v[0] = q; z[0] = -EDT_BIG; z[1] = EDT_BIG; continue; }
+        float s;
+        for (;;) {
+            float fq = f[q] + (float)q * q, fv = f[v[k]] + (float)v[k] * v[k];
+            s = (fq - fv) / (2.f * (float)(q - v[k]));
+            if (s <= z[k] && k > 0) { k--; continue; }
+            break;
+        }
+        k++; v[k] = q; z[k] = s; z[k + 1] = EDT_BIG;
+    }
+    if (k < 0) { for (int q = 0; q < n; ++q) d[q] = EDT_BIG; return; }   // no source anywhere in this line
+    k = 0;
+    for (int q = 0; q < n; ++q) { while (z[k + 1] < (float)q) k++; float dq = (float)q - v[k]; d[q] = dq * dq + f[v[k]]; }
+}
+
+void World::edt_rows(void *arg, int begin, int end, int slot) {
+    (void)slot;
+    edt_job_t *j = (edt_job_t *)arg;
+    int *v = (int *)malloc(sizeof(int) * LM_W); float *z = (float *)malloc(sizeof(float) * (LM_W + 1));
+    for (int y = begin; y < end; ++y) edt_1d(j->f + (size_t)y * LM_W, j->d + (size_t)y * LM_W, v, z, LM_W);
+    free(v); free(z);
+}
+void World::edt_cols(void *arg, int begin, int end, int slot) {
+    (void)slot;
+    edt_job_t *j = (edt_job_t *)arg;
+    int *v = (int *)malloc(sizeof(int) * LM_H); float *z = (float *)malloc(sizeof(float) * (LM_H + 1));
+    float *col = (float *)malloc(sizeof(float) * LM_H), *out = (float *)malloc(sizeof(float) * LM_H);
+    for (int x = begin; x < end; ++x) {
+        for (int y = 0; y < LM_H; ++y) col[y] = j->d[(size_t)y * LM_W + x];
+        edt_1d(col, out, v, z, LM_H);
+        for (int y = 0; y < LM_H; ++y) j->f[(size_t)y * LM_W + x] = out[y];   // f is free by now: it becomes the result
+    }
+    free(v); free(z); free(col); free(out);
+}
+
+void World::compute_coastdist_euclid() {
+    const size_t N = (size_t)LM_W * LM_H;
+    if (!coastdist_f) coastdist_f = (float *)malloc(N * sizeof(float));
+    float *f = (float *)malloc(N * sizeof(float)), *d = (float *)malloc(N * sizeof(float));
+    for (int pass = 0; pass < 2; ++pass) {
+        // pass 0: the sources are water cells, giving land its distance to the sea;
+        // pass 1: the sources are land cells, giving water its distance to the shore
+        for (size_t i = 0; i < N; ++i) f[i] = ((landmask[i] != 0) == (pass == 1)) ? 0.f : EDT_BIG;
+        edt_job_t j = { f, d };
+        if (jobs_worker_count() > 0) jobs_parallel_for(JOB_LANE_WORKER, edt_rows, &j, LM_H, 32); else edt_rows(&j, 0, LM_H, 0);
+        if (jobs_worker_count() > 0) jobs_parallel_for(JOB_LANE_WORKER, edt_cols, &j, LM_W, 32); else edt_cols(&j, 0, LM_W, 0);
+        for (size_t i = 0; i < N; ++i) {
+            int land = landmask[i] != 0;
+            if ((pass == 0) != land) continue;
+            float dist = f[i] >= 1e9f ? 2000.f : maxf(sqrtf(f[i]) - 0.5f, 0.f);   // +-0.5 either side of the line; 2000 = no coast anywhere
+            coastdist_f[i] = land ? dist : -dist;
+        }
+    }
+    free(f); free(d);
+    {   // sanity: how the field looks, so a broken transform is a log line rather than a box
+        int unreached = 0; float lmax = 0, wmin = 0; double lsum = 0; long nl = 0;
+        for (size_t i = 0; i < N; ++i) {
+            float v = coastdist_f[i];
+            if (fabsf(v) >= 1999.f) unreached++;
+            if (landmask[i]) { lmax = maxf(lmax, v); lsum += v; nl++; } else wmin = minf(wmin, v);
+        }
+        LOG_INFO("world", "euclidean coast distance: land 0.5..%.1f cells (mean %.1f), sea to %.1f, %d cells unreached", lmax, nl ? lsum / nl : 0, -wmin, unreached);
+    }
+}
+
 void World::compute_heightmap_rows(void *arg, int begin, int end, int slot) {
     unsigned seed = ((const hm_job_t *)arg)->seed; (void)slot;
     for (int y = begin; y < end; ++y) for (int x = 0; x < LM_W; ++x) {
@@ -167,10 +257,10 @@ void World::compute_heightmap_rows(void *arg, int begin, int end, int slot) {
         float n1 = fbm(lon*0.35f, lat*0.35f, 4, seed);
         float n2 = fbm(lon*0.12f+31, lat*0.12f+17, 5, seed+99);
         float n3 = fbm(lon*1.2f, lat*1.2f, 3, seed+7);
-        int d = coastdist[i];
+        float d = coastdist_f[i];     // Euclidean: the plain, the cliff band and the shelf are round, not chessboard (0.22)
         float h;
         if (d > 0) {
-            float base = minf(d, 40) / 40.f;
+            float base = minf(d, 40.f) / 40.f;
             h = 0.12f + RELIEF_PLAIN * powf(base, 0.75f) * (0.5f + 0.5f*n1);
             // ridges: a warped ridge field, squared so the crests stay sharp and the valleys wide
             float wx = fbm(lon*0.5f+7, lat*0.5f+3, 3, seed+21) * 2.f - 1.f;
@@ -183,7 +273,7 @@ void World::compute_heightmap_rows(void *arg, int begin, int end, int slot) {
             h += RELIEF_HILLS * inland * ridge * (0.3f + 0.7f*m);
             // cliff coasts: where the cliff field is high, the shore rises straight out of the sea
             float cliff = fbm(lon*0.7f+55, lat*0.7f+5, 3, seed+77);
-            if (d <= 4 && cliff > 0.58f) h = maxf(h, 0.5f + RELIEF_CLIFF * (cliff - 0.58f) / 0.42f * clampf(d / 2.f, 0.35f, 1.f));
+            if (d <= 4.f && cliff > 0.58f) h = maxf(h, 0.5f + RELIEF_CLIFF * (cliff - 0.58f) / 0.42f * clampf(d / 2.f, 0.35f, 1.f));
             if (fabsf(lat) > 66) h *= 0.6f;
         } else {
             float shelf = clampf(-d / SHELF_CELLS, 0.f, 1.f);
@@ -206,7 +296,7 @@ void World::recarve_straits() {
     // goes back under the surface, so the sea draws over it and ships can pass
     for (int i = 0; i < LM_W*LM_H; ++i) if (!landmask[i] && heightmap[i] > 0.f) heightmap[i] = -0.4f;
 }
-void World::recompute_coastdist() { compute_coastdist(); }
+void World::recompute_coastdist() { compute_coastdist(); compute_coastdist_euclid(); }
 
 // Small islands must clear the water. The heightfield ramps land up from the coast over ~5
 // cells, so a one-or-two-cell island tops out around 0.25 - under the 0.35 the sea shader
@@ -292,6 +382,7 @@ void World::init(unsigned seed) {
     for (unsigned i = 0; i < sizeof(geo_water)/sizeof(geo_water[0]); ++i) raster_polygon(geo_water[i], 0);
     for (unsigned i = 0; i < sizeof(geo_straits)/sizeof(geo_straits[0]); ++i) raster_strait(geo_straits[i].pts, geo_straits[i].halfwidth);
     compute_coastdist();
+    compute_coastdist_euclid();
     compute_heightmap(seed);
     raise_small_islands();
     int land = 0; for (int i = 0; i < LM_W*LM_H; ++i) land += landmask[i];
