@@ -21,9 +21,37 @@
       fallback to the old split parts. The **lantina swings to the wind**: `lateen_yard` is
       its own asset, instanced with the (shared unit) lateen canvas on the mast pivot,
       trimmed off the apparent wind with a working oscillation (shipyard.c).
-- [ ] Tune the new masts on screen: yard rake orientation per class, bowsprit steeve (the
-      authored spar is horizontal; consider a baked tilt in blender_prepare_part.py), square
-      canvas heights against the authored yards.
+- [x] **Lantina visible again at every distance**: the authored lateen_yard / square_yard
+      assets lost their far LODs to decimation (a thin diagonal spar decimates to a sliver),
+      so the yards vanished beyond ~30 px. The spars are now *part of the unit sail meshes*
+      (rig_sail_lateen / rig_sail_square build their own bar, sized to the sail), so yard and
+      canvas swing to the wind as one mesh and exist at every LOD; the spar-asset instancing
+      is retired (the assets stay on disk, unused). Canvas-to-yard alignment is now exact by
+      construction.
+
+## Leftover tasks
+
+- [ ] Bowsprit steeve: the authored spar is horizontal; bake a ~18 degree tilt about the heel
+      in blender_prepare_part.py (instances have yaw only) and re-export.
+- [ ] Far-LOD budgets for thin-spar *masts* (the "LOD extent differs" warnings): raise the
+      LOD4/5 triangle budgets for the mast library or keep LOD3 longer in their descriptors.
+- [ ] A floating yard/bowsprit was once seen at water level beside a wake in a staged battle:
+      likely a part instanced while its hull was still streaming (shipyard_push draws parts
+      only after the hull resolves, so probably the occlusion-query partition) - reproduce
+      and pin down.
+- [ ] The asset loader fits a `forward: +z` part *after* rotation, so square_yard reported
+      size 0.9x1.17x16.7 with scale 17.96 (harmless while shipyard rescaled by bbox; the
+      asset is unused now, but the fit-vs-rotation order in asset.cc deserves a look).
+- [ ] Retire or repurpose the unused spar assets (lateen_yard, square_yard) and the parallel
+      session's whole-assembly imports (carrack_mast, mizzen_mast, ...) from the manifest.
+- [ ] Rewrite plan T4/T8: the abstract rhi::Device interface over GlDevice, then the Vulkan
+      backend (docs/REWRITE_PLAN.md); T9 folder sweep (physical src/ tree per namespace) and
+      the RmlUi decision (T7) after it.
+- [ ] Deepen the conversion: the classes still reach the shared C globals (G, RF, cam);
+      migrating callers onto the class APIs and injecting game_t is the next honest step.
+- [ ] Session coordination: oak/tmp keeps flipping between a symlink to C:\projects\mare\tmp
+      and a local directory (two sessions, one worktree); builds now address
+      /mnt/c/projects/mare/tmp/elm-cpp explicitly, but the flip-flop should stop.
 - [ ] A parallel session imported the same sources whole (carrack_mast, mizzen_mast, ... with
       .meshy.json markers) into the shared assets/elm; both sets coexist in the manifest.
 

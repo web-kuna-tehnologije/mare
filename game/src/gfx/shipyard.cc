@@ -241,7 +241,7 @@ int Shipyard::cloth_level(float t) { int l = (int)(t * 31.f + 0.5f); return l < 
 void Shipyard::rig_sail_square(mb_t *cloth, mb_t *spars, float x, float top, float bot, float hw) {
     const int N = 6, M = 4;
     float ya[3] = { x, top, -hw * 1.06f }, yb[3] = { x, top, hw * 1.06f };
-    if (spars) rig_bar(spars, ya, yb, RIG_YARD_W, spar_col);
+    if (spars) rig_bar(spars, ya, yb, maxf(RIG_YARD_W, 0.04f * hw), spar_col);
     for (int i = 0; i < N; ++i) {
         float t0 = i / (float)N, t1 = (i + 1) / (float)N;
         float y0 = top + (bot - top) * t0, y1 = top + (bot - top) * t1;
@@ -269,7 +269,7 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
     float T[3] = { sx + 0.42f * h, dy + 0.22f * h, z }, P[3] = { sx - 0.30f * h, dy + 1.02f * h, z };   // the yard
     float F[3] = { sx + 0.40f * h, dy + 0.12f * h, z }, C[3] = { sx - 0.34f * h, dy + 0.14f * h, z };   // the foot
     float ya[3] = { T[0] + 0.05f * h, T[1] - 0.06f * h, 0 }, yb[3] = { P[0] - 0.04f * h, P[1] + 0.05f * h, 0 };
-    if (spars) rig_bar(spars, ya, yb, RIG_YARD_W, spar_col);
+    if (spars) rig_bar(spars, ya, yb, maxf(RIG_YARD_W, 0.011f * h), spar_col);
     float hw = 0.36f * h;
     for (int i = 0; i < N; ++i) {
         float w0 = i / (float)N, w1 = (i + 1) / (float)N;
@@ -423,12 +423,10 @@ void Shipyard::request_all(void) {
         }
         if (c->oars  && (a = asset_find(c->oars)))  asset_request(a);
     }
-    // the shared spars of the new mast library: the swinging lantina, the braced square yard
-    // and the bowsprit
-    { asset_t *a;
-      if ((a = asset_find("lateen_yard"))) asset_request(a);
-      if ((a = asset_find("square_yard"))) asset_request(a);
-      if ((a = asset_find("bowsprit")))    asset_request(a); }
+    // the bowsprit is the one shared authored spar still instanced (the lantina and square
+    // yards are built into the swinging unit sail meshes: an authored thin spar loses its far
+    // LODs to decimation and vanishes at distance)
+    { asset_t *a; if ((a = asset_find("bowsprit"))) asset_request(a); }
 }
 
 int Shipyard::push(const shipyard_req_t *r) {
@@ -541,8 +539,6 @@ int Shipyard::push(const shipyard_req_t *r) {
             float rel = wrap_angle(wang - r->heading);
             float swing = clampf(rel * 0.35f, -0.55f, 0.55f)
                         + (0.03f + 0.05f * wstr) * sinf(RF.time * (0.8f + 0.3f * wstr) + (float)(r->key & 31u) * 0.21f);
-            asset_t *lantina = asset_find("lateen_yard") ? asset_get_role(ASSET_SHIP_PART, "lateen_yard") : NULL;
-            asset_t *sqyard  = asset_find("square_yard") ? asset_get_role(ASSET_SHIP_PART, "square_yard") : NULL;
             // square yards brace less than a lantina trims: toward the wind, clamped, with the
             // same working oscillation on the ship's own phase
             float brace = clampf(rel * 0.30f, -0.50f, 0.50f)
@@ -550,7 +546,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             if (!sq_cloth_built) {
                 for (int q = 0; q < SQ_KINDS; ++q) {
                     mb_t cl = mb_t{}; mb_material(&cl, 0.92f, 0.f);
-                    rig_sail_square(&cl, NULL, 0.f, 0.f, -sq_drop[q], 1.f);
+                    rig_sail_square(&cl, &cl, 0.f, 0.f, -sq_drop[q], 1.f);   // same for the square yards
                     sq_cloth_mesh[q] = mesh_upload(&cl);
                 }
                 sq_cloth_built = 1;
@@ -565,7 +561,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     float sw = r->heading + swing;
                     if (!lateen_cloth_built) {
                         mb_t cl = mb_t{}; mb_material(&cl, 0.92f, 0.f);
-                        rig_sail_lateen(&cl, NULL, 0.f, 0.f, 1.f);
+                        rig_sail_lateen(&cl, &cl, 0.f, 0.f, 1.f);   // the lantina is part of the mesh design: it swings with the canvas
                         lateen_cloth_mesh = mesh_upload(&cl); lateen_cloth_built = 1;
                     }
                     inst_t li = in;
@@ -573,16 +569,6 @@ int Shipyard::push(const shipyard_req_t *r) {
                     li.fx1 = 1.f; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
                     li.ax = r->x; li.az = r->z;
                     *instlist_push(&lateen_cloth_inst) = li;
-                    if (lantina) {
-                        float yh = lantina->bmax[1] - lantina->bmin[1];
-                        inst_t yi = in;
-                        yi.heading = sw;
-                        yi.scale = 0.90f * mh / maxf(yh, 0.01f);
-                        yi.x = bx + cosf(sw) * 0.06f * mh; yi.z = bz - sinf(sw) * 0.06f * mh;
-                        yi.y = deck_y2 + 0.62f * mh;      // the slung point (the model pivots there)
-                        yi.ax = r->x; yi.az = r->z;
-                        scene_asset_instance(lantina, yi, r->key ^ (unsigned)(0x77A1u + k * 0x33u), r->camdist);
-                    }
                     continue;
                 }
                 // square sails: each layer's canvas and its authored yard on the braced heading
@@ -601,15 +587,6 @@ int Shipyard::push(const shipyard_req_t *r) {
                     qi.fx1 = 1.f; qi.fx2 = wdx * wstr; qi.fx3 = wdz * wstr;
                     qi.ax = r->x; qi.az = r->z;
                     *instlist_push(&sq_cloth_inst[(int)ly->l[l].kind]) = qi;
-                    if (sqyard) {
-                        float yl = maxf(sqyard->bmax[0] - sqyard->bmin[0], sqyard->bmax[2] - sqyard->bmin[2]);
-                        inst_t yi = in;
-                        yi.heading = bhd;
-                        yi.scale = 2.12f * hw_w / maxf(yl, 0.01f);   // the canvas hangs to 1.06 hw each side
-                        yi.x = bx + cb * off; yi.z = bz + sb * off; yi.y = top_w;
-                        yi.ax = r->x; yi.az = r->z;
-                        scene_asset_instance(sqyard, yi, r->key ^ (unsigned)(0x51C3u + (k * 4 + l) * 0x2Bu), r->camdist);
-                    }
                 }
             }
             // --- the authored bowsprit, where the class carries one: stands where the
