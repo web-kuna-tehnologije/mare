@@ -13,6 +13,10 @@
 #ifndef MARE_GLSL_H
 #define MARE_GLSL_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define GLSL_VERSION ifdef(V3_MACOS, "#version 150\n", "#version 130\n")
 
 // the wave-set size shared between sea.c and common/waves.glsl (u_wave[SEA_WAVE_SLOTS])
@@ -26,5 +30,9 @@
 #define GLSL_LIGHT_UNIFORMS \
     "u_sun", "u_suncol", "u_ambsky", "u_ambgnd", "u_shadowmap", \
     "u_shadowvp0", "u_shadowvp1", "u_shadowvp2", "u_shadowsplit", "u_shadow_on", "u_shadow_texel", "u_shadow_wtexel", "u_shadow_debug", "u_fog", "u_cloud"
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

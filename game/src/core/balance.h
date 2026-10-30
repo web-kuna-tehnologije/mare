@@ -3,6 +3,10 @@
 #ifndef MARE_BALANCE_H
 #define MARE_BALANCE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // movement
 #define BASE_SPEED        (9.0f * WORLD_SCALE)    // world units per day at ship speed 1.0 (~2.25 deg/day)
 #define ENGAGE_RANGE      (3.0f * WORLD_SCALE)    // broadside range (world units)
@@ -144,5 +148,9 @@
 #define DAYNIGHT_START     0.40f   // time of day at day 0 (mid-morning: a new game opens in daylight)
 #define DAYNIGHT_MIN_ELEV  0.12f   // sine of the lowest sun elevation used for shadows (~7 degrees)
 #define DAYNIGHT_NOON      0.62f   // time of day used when the cycle is off (the old fixed afternoon)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

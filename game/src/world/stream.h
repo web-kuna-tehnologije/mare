@@ -21,6 +21,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define STREAM_LEVELS   4
 #define STREAM_RES      257                   // payload samples per tile edge (257x257 floats)
 #define STREAM_L0_CELLS 1024                  // landmask cells per L0 tile edge (64 degrees at 16 cells/deg); halves per level
@@ -97,5 +101,9 @@ typedef struct stream_chunk_ref_t {
 } stream_chunk_ref_t;
 int stream_dump_chunk_reference(int level, int tx, int ty, int res, const char *path,
                                 stream_chunk_ref_t *out);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

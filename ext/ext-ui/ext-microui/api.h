@@ -1,6 +1,7 @@
 #include "3rd/microui.h"
 
 mu_Container *mu_exists(mu_Context *ctx, const char *name);
+extern mu_Context *ui_ctx;   // the framework's microui context (defined in ext-ui/gui(microui).h); game/src/ui draws through it
 
 #if CODE
 #pragma once

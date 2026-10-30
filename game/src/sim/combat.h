@@ -12,10 +12,18 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // apply `dmg` hull points to a random ship of `victim`. attacker may be NULL (forts, storms).
 // handles sinking/capture, loot, bounties, morale, logging and fleet destruction
 void fleet_take_damage(fleet_t *victim, fleet_t *attacker, float dmg);
 void combat_tick(float dt);            // engagements between all hostile fleets in range
 void siege_tick(fleet_t *f, float dt); // per fleet with ORDER_SIEGE/ORDER_BLOCKADE at its target port
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

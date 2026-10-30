@@ -15,6 +15,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct gltf_material_t {
     char  name[64];
     float base_color[4];           // baseColorFactor (sRGB, straight alpha)
@@ -62,5 +66,9 @@ typedef struct gltf_model_t {
 int  gltf_load_file(const char *path, gltf_model_t *m);
 int  gltf_load_memory(const void *data, size_t size, const char *dir, gltf_model_t *m);
 void gltf_free(gltf_model_t *m);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

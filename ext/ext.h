@@ -1,4 +1,6 @@
 // auto-generated file. do not edit  
+// (one local exception: MARE_SKIP_CPP_UNSAFE drops the entries whose vendored headers
+// declare C++ overloads/templates - see game/src/platform/v3cpp.hh. Re-apply after EXT.bat.)
 // list of extensions included here 
  
 #if __has_include("ext-3rd/ext-0/ext-3rd/ext-glad/api.h") 
@@ -67,7 +69,7 @@
 #if __has_include("ext-3rd/ext-minithread/api.h") 
 #         include "ext-3rd/ext-minithread/api.h" 
 #endif 
-#if __has_include("ext-3rd/ext-sokolaudio/api.h") 
+#if __has_include("ext-3rd/ext-sokolaudio/api.h") && !defined(MARE_SKIP_CPP_UNSAFE) 
 #         include "ext-3rd/ext-sokolaudio/api.h" 
 #endif 
 #if __has_include("ext-app/ext-app/api.h") 
@@ -115,7 +117,7 @@
 #if __has_include("ext-embed/api.h") 
 #         include "ext-embed/api.h" 
 #endif 
-#if __has_include("ext-game/ext-ds/api.h") 
+#if __has_include("ext-game/ext-ds/api.h") && !defined(MARE_SKIP_CPP_UNSAFE) 
 #         include "ext-game/ext-ds/api.h" 
 #endif 
 #if __has_include("ext-game/ext-eval/api.h") 
@@ -154,13 +156,13 @@
 #if __has_include("ext-lab/ext-rendertarget/api.h") 
 #         include "ext-lab/ext-rendertarget/api.h" 
 #endif 
-#if __has_include("ext-lab/ext-sokolgfx/api.h") 
+#if __has_include("ext-lab/ext-sokolgfx/api.h") && !defined(MARE_SKIP_CPP_UNSAFE) 
 #         include "ext-lab/ext-sokolgfx/api.h" 
 #endif 
-#if __has_include("ext-lab/ext-spine/api.h") 
+#if __has_include("ext-lab/ext-spine/api.h") && !defined(MARE_SKIP_CPP_UNSAFE) 
 #         include "ext-lab/ext-spine/api.h" 
 #endif 
-#if __has_include("ext-lab/ext-spine-sokol/api.h") 
+#if __has_include("ext-lab/ext-spine-sokol/api.h") && !defined(MARE_SKIP_CPP_UNSAFE) 
 #         include "ext-lab/ext-spine-sokol/api.h" 
 #endif 
 #if __has_include("ext-lab/ext-sprite/api.h") 

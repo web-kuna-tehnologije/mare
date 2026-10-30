@@ -12,6 +12,10 @@
 #include "../core/types.h"
 #include "gpu.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct scene_hints_t {   // filled by the UI each frame before drawing
     int sel_fleet_id, hover_fleet_id, sel_port, hover_port;
     int route_edit;              // the selected fleet's route is being edited (draw it green, open)
@@ -62,5 +66,9 @@ int  scene_submit_smoke(void);    // after meshes_bind_smoke(), once the sea is 
 int  scene_submit_shadow(void);   // after meshes_bind_depth(): towns + ships as shadow casters
 void scene_push_icons(void);      // icons for far/map-view ports, fleets and storms (between icons_begin/icons_draw)
 void scene_draw_overlays(void);   // debug-draw lines: selected path, routes, lanes, storms, wind arrows (flushed by dd_flush)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

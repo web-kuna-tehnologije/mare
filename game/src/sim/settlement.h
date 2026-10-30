@@ -17,6 +17,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline int port_is_gone(const port_t *p) { return p->merged_into >= 0; }          // absorbed by a merge: skip everywhere
 static inline int port_is_site(const port_t *p) { return p->size == 0 && p->merged_into < 0; } // unsettled, can be founded
 
@@ -32,5 +36,9 @@ void  settlements_tick(float dt);                      // daily: immigration, as
 int   settlement_dominant_culture(const port_t *p);    // nation id with the largest culture share
 float settlement_foreign_share(const port_t *p);       // 0..1 share of population not of the owner's culture
 const char *settlement_generate_name(int nation, float lon, float lat);   // "<prefix> <suffix>", deterministic per location
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

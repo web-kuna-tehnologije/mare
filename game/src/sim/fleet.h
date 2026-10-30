@@ -11,6 +11,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ---- lifecycle -----------------------------------------------------------------------------------
 fleet_t *fleet_new(int nation, int role, float x, float z, const char *name);   // name NULL = auto. NULL if the table is full (logged)
 void     fleet_add_ship(fleet_t *f, int type);          // SHIP_* at full hull; ignored when the fleet is full
@@ -37,5 +41,9 @@ void fleets_precompute_speeds(void);     // parallel pre-pass: wind factor + eff
 // ---- trade lanes: the emergent route network drawn in map view --------------------------------------
 void lane_register(int a, int b, const fleet_t *f);     // a fleet departs a -> b along its current path
 void lanes_decay(float dt);                             // traffic fades ~1.5% per day
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -15,6 +15,10 @@
 
 #include "gpu.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct shipyard_req_t {
     int      type, nation, role;    // SHIP_*, NATION_*, ROLE_*
     float    x, z, heading;         // world position and heading (radians, as fleet_t uses)
@@ -59,5 +63,9 @@ extern int shipyard_oars_drawn;     // oar instances submitted this frame (dashb
 extern int shipyard_ships_drawn;    // authored ships submitted this frame
 extern int shipyard_fallbacks;      // ships that fell back to the procedural hull this frame
 extern int shipyard_rigged;         // ships drawn with rigging and canvas this frame
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

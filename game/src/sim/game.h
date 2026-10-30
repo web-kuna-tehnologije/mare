@@ -5,6 +5,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void game_new(int player_nation, unsigned seed);   // rebuild G from the data tables (requires world_init + nav_init first)
 void game_tick(float dt_days);                     // one fixed step (SIM_STEP): economy, settlements, events, fleets, combat, nation AI
 void game_advance(float days);                     // run `days` worth of fixed steps (headless runs, --skip)
@@ -32,5 +36,9 @@ int  game_load_async(const char *path);            // 1 = started, 0 = refused (
 int  game_io_poll(game_io_result_t *out);          // main thread, once per frame: 1 when an operation finished this call (a finished load is applied before returning)
 game_io_kind_t game_io_state(void);                // what is in flight right now
 void game_io_flush(void);                          // block until nothing is in flight, polling as the main thread would (tests, shutdown)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

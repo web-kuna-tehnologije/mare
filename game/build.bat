@@ -24,10 +24,10 @@ if "%1"=="test" (
     diag_test.exe || exit /b 1
     cl %COMMON% %LANG_CXX% /O2 /MT game\tests\jobs_test.cpp /Fe:jobs_test.exe || exit /b 1
     jobs_test.exe || exit /b 1
-    cl %COMMON% %LANG_C% /O2 /MT game\tests\sim_test.c diag_t.obj jobs_t.obj /Fe:sim_test.exe || exit /b 1
+    cl %COMMON% %LANG_CXX% /O2 /MT game\tests\sim_test.cpp diag_t.obj jobs_t.obj /Fe:sim_test.exe || exit /b 1
     sim_test.exe 2
     if errorlevel 1 exit /b 1
-    cl %COMMON% %LANG_C% /O2 /MT game\tests\asset_test.c diag_t.obj /Fe:asset_test.exe || exit /b 1
+    cl %COMMON% %LANG_CXX% /O2 /MT game\tests\asset_test.cpp diag_t.obj /Fe:asset_test.exe || exit /b 1
     asset_test.exe || exit /b 1
     cl %COMMON% %LANG_CXX% /O2 /MT game\tests\entity_test.cpp game\src\engine\entity_manager.cc diag_t.obj jobs_t.obj /Fe:entity_test.exe || exit /b 1
     entity_test.exe || exit /b 1
@@ -36,12 +36,16 @@ if "%1"=="test" (
 )
 set FLAGS=/O2 /DNDEBUG=1 /MT
 if "%1"=="debug" set FLAGS=/Zi /Od /MTd
-cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\core\diag.cc /Fo:diag.obj || exit /b 1
-cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\core\worker_pool.cc /Fo:jobs.obj || exit /b 1
-cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\engine\entity_manager.cc /Fo:entities.obj || exit /b 1
-cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\engine\shader_library.cc /Fo:shaders.obj || exit /b 1
-cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\game\weather.cc /Fo:weather.obj || exit /b 1
-cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\game\game_entities.cc /Fo:gament.obj || exit /b 1
-cl %COMMON% %LANG_C% /MP %FLAGS% /I. game\mare.c diag.obj jobs.obj entities.obj shaders.obj weather.obj gament.obj /Fe:mare.exe || exit /b 1
-del mare.obj diag.obj jobs.obj entities.obj shaders.obj weather.obj gament.obj >nul 2>nul
+rem Every module under game\src compiles as its own C++20 TU (docs/CPP_CONVERSION.md); the
+rem C11 unity build (mare.c) holds the v3 framework and whatever is not converted yet.
+if exist ccobj rmdir /s /q ccobj
+mkdir ccobj
+for %%d in (core engine game sim world gfx ui assets platform) do (
+    if exist game\src\%%d\*.cc (
+        cl %COMMON% %LANG_CXX% /MP %FLAGS% /I. /Igame /c /Foccobj\ game\src\%%d\*.cc || exit /b 1
+    )
+)
+cl %COMMON% %LANG_C% /MP %FLAGS% /I. /c /Foccobj\ game\src\platform\v3_impl.c || exit /b 1
+cl %COMMON% %LANG_CXX% /MP %FLAGS% /I. /Igame /c /Foccobj\ game\mare.cc || exit /b 1
+cl /nologo %FLAGS% ccobj\*.obj /Fe:mare.exe || exit /b 1
 echo done: mare.exe  (logs are written to .\logs\ next to the executable)

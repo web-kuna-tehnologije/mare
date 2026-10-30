@@ -12,6 +12,10 @@
 #ifndef MARE_DETAILVIEW_H
 #define MARE_DETAILVIEW_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { DV_OFF = 0, DV_BATTLE, DV_CITY };
 
 int  detailview_mode(void);                    // DV_OFF when inactive (world renders as usual)
@@ -25,5 +29,9 @@ int  detailview_submit_shadow(void);           // the same scene for a shadow ca
 int  detailview_submit_smoke(void);            // gunsmoke, after the translucent bind
 void detailview_sea(void);                     // the staged scene's water (same shader and waves as the map)
 void detailview_clouds(void);                  // cloud overlay, after hdr_resolve (no-op when clear)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

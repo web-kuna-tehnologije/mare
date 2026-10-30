@@ -33,6 +33,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ASSET_MAX          256
 #define ASSET_MAX_LODS     6      // LOD0..LOD5 (tools/meshy_import.py); the selector allows one more level for the icon
 #define ASSET_MAX_MATRULES 8
@@ -155,5 +159,9 @@ int  asset_desc_parse(const char *json, size_t n, const char *dir, asset_desc_t 
 int  asset_desc_validate(const asset_desc_t *d, char *err, size_t errcap);
 int  asset_build(asset_t *a);                              // synchronous build (tools/tests): same as asset_load
 const char *asset_type_name(asset_type_t t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

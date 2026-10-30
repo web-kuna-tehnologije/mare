@@ -15,6 +15,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct trade_plan_t {
     int   port;                 // destination (-1 = nothing worth doing)
     float profit, score;        // expected profit of the outbound leg; score = profit per day incl. return estimate
@@ -35,5 +39,9 @@ fleet_t *spawn_merchant(int nation, int port);        // 1-2 trading ships with 
 fleet_t *spawn_warfleet(int nation, int port, int strength);   // `strength` warships (frigates/galleons/liners)
 fleet_t *spawn_pirates(int haven, int nships);        // sloops/frigates based at a haven
 void     spawn_treasure_fleet(void);                  // Spanish flota from Veracruz/Cartagena/Portobelo to Seville
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

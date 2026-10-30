@@ -21,6 +21,10 @@
 #ifndef MARE_OCCLUSION_H
 #define MARE_OCCLUSION_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef float (*occ_height_fn)(float x, float z);
 
 extern int occlusion_enabled;            // dashboard toggle / MARE_OCCLUSION=0
@@ -35,5 +39,9 @@ int  occ_ray_hidden(occ_height_fn h, float px, float py, float pz, float skip, c
 // A vertical cylinder of radius r standing on the ground at (x,z) up to y = top: hidden only
 // if its top centre and the tops of both lateral extremes are.
 int  occ_sphere_hidden(occ_height_fn h, float x, float z, float r, float top);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

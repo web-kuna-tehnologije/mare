@@ -6,6 +6,10 @@
 #ifndef MARE_GEO_COAST_H
 #define MARE_GEO_COAST_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define END 9999.f
 
 // ---------------------------------------------------------------------------
@@ -224,5 +228,9 @@ static const geo_strait_t geo_straits[] = {
     {0.35f, strait_st_lawrence}, {0.6f, strait_hudson},
 };
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

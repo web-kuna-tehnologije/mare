@@ -29,6 +29,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // The atlas layout in terrain_textures.png: cells are read left to right, top to bottom.
 #define TERRAIN_ATLAS_X 6
 #define TERRAIN_ATLAS_Y 3
@@ -84,5 +88,9 @@ void  terrainmap_apply_to_world(void);
 // placement stay sound. Call between terraintiles_init and nav_init; MARE_TERRAIN_GEO=0
 // disables it. Returns the number of cells changed.
 int   terrainmap_bake_geography(const char *tiles_dir);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -11,6 +11,8 @@ extern int*   (*keyboard)(void);
 
 extern unsigned * (*keytext)(unsigned *count);
 
+extern int button_(int vk);   // raw key state (key_idle/held/down/up) by GLFW or ASCII code; game/src/ui/ui.h KDOWN/KHELD use it
+
 #define key_up(vk)   (key(vk) == key_up)
 #define key_down(vk) (key(vk) == key_down)
 #define key_held(vk) (key(vk) == key_held)

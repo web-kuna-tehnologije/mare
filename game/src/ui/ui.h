@@ -9,6 +9,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct ui_state_t {
     int sel_fleet_id, hover_fleet_id;   // 0 = none
     int sel_port, hover_port;           // -1 = none
@@ -62,5 +66,9 @@ void input_frame(float dt, int ui_blocked);          // picking, clicks (select 
 fleet_t *ui_player_fleet(void);                      // selected fleet if it belongs to the player, else NULL
 void ui_select_fleet(const fleet_t *f);              // NULL clears
 void ui_select_port(int i);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

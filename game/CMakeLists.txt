@@ -11,13 +11,12 @@ set(CMAKE_CXX_STANDARD 20)          # mare::core and everything the C++ rewrite 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_filename_component(V3_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 
-# The ported C++ code behind the C ABIs in src/core/*.h and src/engine/entities.h.
-set(MARE_CORE_CXX src/core/diag.cc src/core/worker_pool.cc)
-set(MARE_ENGINE_CXX src/engine/entity_manager.cc src/engine/shader_library.cc)
-set(MARE_GAME_CXX src/game/weather.cc src/game/game_entities.cc)
+# The ported C++ modules (docs/CPP_CONVERSION.md): every .cc under src/ is its own TU.
+file(GLOB_RECURSE MARE_CXX CONFIGURE_DEPENDS src/*.cc)
+set(MARE_CORE_CXX src/core/diag.cc src/core/worker_pool.cc)   # what the headless tests link
 
 # The C11 unity build of the unported modules, plus the C++ units linked alongside.
-add_executable(mare mare.c ${MARE_CORE_CXX} ${MARE_ENGINE_CXX} ${MARE_GAME_CXX})
+add_executable(mare mare.cc src/platform/v3_impl.c ${MARE_CXX})
 target_include_directories(mare PRIVATE "${V3_ROOT}")
 if(WIN32)
     target_compile_definitions(mare PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -37,11 +36,11 @@ endif()
 
 # headless tests: no framework, no GL (each links the C++ core it exercises)
 enable_testing()
-add_executable(sim_test tests/sim_test.c ${MARE_CORE_CXX})   # nav_ports_precompute runs on the job system
+add_executable(sim_test tests/sim_test.cpp ${MARE_CORE_CXX})   # nav_ports_precompute runs on the job system
 add_executable(diag_test tests/diag_test.c src/core/diag.cc)
-add_executable(asset_test tests/asset_test.c src/core/diag.cc)
+add_executable(asset_test tests/asset_test.cpp src/core/diag.cc)
 add_executable(jobs_test tests/jobs_test.cpp)                # includes worker_pool.cc directly
-add_executable(stream_test tests/stream_test.c ${MARE_CORE_CXX})   # world streaming loads on the pool
+add_executable(stream_test tests/stream_test.cpp ${MARE_CORE_CXX})   # world streaming loads on the pool
 add_executable(entity_test tests/entity_test.cpp src/engine/entity_manager.cc ${MARE_CORE_CXX})
 foreach(t sim_test diag_test asset_test jobs_test stream_test entity_test)
     if(WIN32)

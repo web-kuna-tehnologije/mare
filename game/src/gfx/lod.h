@@ -20,6 +20,10 @@
 #ifndef MARE_LOD_H
 #define MARE_LOD_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define LOD_HYST    0.12f     // +-12% around a threshold before a level change is accepted
 #define LOD_FADE_S  0.30f     // seconds a cross-fade lasts
 #define LOD_MAX_LEVELS 7      // meshes (ASSET_MAX_LODS) + icon
@@ -78,5 +82,9 @@ extern int lod_pops;        // multi-level jumps the one-step clamp had to hold 
 extern int lod_fading;      // instances mid-fade this frame
 extern int lod_tracked;     // live entries in the state table
 void lod_reset(void);       // forget every instance (new game / load)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

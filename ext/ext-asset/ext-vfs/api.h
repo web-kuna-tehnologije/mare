@@ -1,4 +1,4 @@
-bool (*vfs_mount)(const char *pathfile); // only .zip supported at the moment
+extern bool (*vfs_mount)(const char *pathfile); // only .zip supported at the moment (extern: a C++ TU has no tentative definitions)
 
 #if CODE
 #pragma once

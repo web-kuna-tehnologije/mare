@@ -39,19 +39,19 @@ while the game builds and the five test suites stay green after every task.
       preprocesses and caches them, with a C shim `shader_source()` for unported pipelines and
       a dev-mode missing-file error that names the file. DRY: the fog/color/wave chunks exist
       exactly once.
-- [ ] **T4 — Render device abstraction (`mare::engine::rhi`).** rhi.h/rhi_gl.c become an
+- [~] **T4 — (seam in place: GlDevice class behind the rhi.h C ABI; the abstract Device interface lands with the Vulkan work) — Render device abstraction (`mare::engine::rhi`).** rhi.h/rhi_gl.c become an
       abstract `rhi::Device` interface + `rhi::GlDevice`; backend chosen at startup
       (`--rhi=gl|vulkan|dx12`); the C `rhi_*` functions become shims over the active device so
       unported gfx code is agnostic. This is the seam T8 plugs into.
-- [ ] **T5 — gfx port (`engine::render` + `game::view`).** terrain/sea/sky/hdr/lighting/
+- [x] **T5 — gfx port (`engine::render` + `game::view`).** terrain/sea/sky/hdr/lighting/
       meshes/lod/occlusion/textures/streamview → classes (Entities where the lifecycle fits);
       shipyard/scene/detailview → `game::view`. Shared fullscreen-pass and mesh-builder helpers
       deduplicated.
-- [ ] **T6 — sim port (`mare::game`).** game/fleet/settlement/region/economy/ai/combat/events
+- [x] **T6 — sim port (`mare::game`).** game/fleet/settlement/region/economy/ai/combat/events
       → classes; inheritance where a real is-a exists (map agents, port vs inland settlements);
       `G` becomes a `game::Game` instance; world/nav/stream/terrain tiles → `game::world`;
       sim_test/stream_test ported and still bit-deterministic.
-- [ ] **T7 — UI port (`mare::ui`) + UI technology decision.** Port uikit/hud/dashboard/input to
+- [x] **T7 — UI port (`mare::ui`) + UI technology decision.** Port uikit/hud/dashboard/input to
       classes. Recommendation (see below): no embedded browser; optionally adopt RmlUi behind a
       `ui::Backend` interface if richer layout is wanted.
 - [ ] **T8 — Vulkan backend.** `rhi::VulkanDevice` implementing the T4 interface (swapchain,

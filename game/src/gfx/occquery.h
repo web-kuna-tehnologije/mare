@@ -21,6 +21,10 @@
 #include "gpu.h"
 #include "../assets/asset.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern int occq_enabled;                 // dashboard toggle / MARE_OCCQ=0; 2 = issue the queries but never hide (cost measurement)
 extern int occq_hidden, occq_queried, occq_tracked, occq_moving, occq_pending;   // this frame (dashboard, metrics)
 extern int occq_timeouts;                // queries abandoned unanswered this run
@@ -31,5 +35,9 @@ int  occq_visible(unsigned key);         // last known answer for this instance;
 void occq_request(unsigned key, const asset_t *a, const inst_t *in);   // query this instance after the opaque pass (once per key per frame)
 void occq_flush(void);                   // render thread, after the opaque meshes: draw the proxies inside queries
 void occq_reset(void);                   // forget everything (new game / load)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

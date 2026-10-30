@@ -6,6 +6,10 @@
 #include "../core/types.h"
 #include "../core/util.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ---------------------------------------------------------------------------
 // static tables
 
@@ -67,5 +71,9 @@ static const char *const region_names[REG_COUNT] = {   // (referenced by the UI 
     "South America", "Africa", "Arctic", "Pacific", "Indian Ocean",
 };
 
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

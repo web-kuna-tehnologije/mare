@@ -10,6 +10,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 event_t       *event_add(int type, float duration_days);   // appends an active event (oldest dropped when full)
 const event_t *storm_at(float x, float z);                // storm covering this position, or NULL
 void           event_spawn_storm(int region_hint);        // -1 = pick by season (hurricanes Jul-Oct, winter gales)
@@ -19,5 +23,9 @@ void set_war(int a, int b, int war, const char *reason);  // reason may be NULL
 int  ai_accepts_peace(int ai_nation, int with);           // exhausted, broke, or losing ports
 
 void events_tick(float dt);                               // scripted history, event expiry/movement, random spawns, war timers
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

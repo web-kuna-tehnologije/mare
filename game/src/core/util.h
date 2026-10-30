@@ -6,6 +6,10 @@
 #include <math.h>
 #include "types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline float clampf(float v, float a, float b) { return v < a ? a : v > b ? b : v; }
 static inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 static inline float maxf(float a, float b) { return a > b ? a : b; }
@@ -54,5 +58,9 @@ static inline unsigned rgb(unsigned r, unsigned g, unsigned b) { return RGB_(r,g
 static inline float col_r(unsigned c) { return ((c>>0)&255)/255.f; }
 static inline float col_g(unsigned c) { return ((c>>8)&255)/255.f; }
 static inline float col_b(unsigned c) { return ((c>>16)&255)/255.f; }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

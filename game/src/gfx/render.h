@@ -8,6 +8,7 @@
 #define MARE_RENDER_H
 
 #include "gpu.h"
+#include "../core/types.h"   // SHIP_COUNT for the procedural mesh set below
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,6 +57,7 @@ extern int stream_show_tiles;                       // dashboard toggle
 // applied triplanar to the meshes (they carry no UVs)
 void detail_init(void);
 float terrain_max_height(void);          // highest heightmap value (occlusion ray early-out)
+const rhi_texture_t *terrain_heightmap_texture(void);   // the terrain's R32F height texture (terrain.cc; the sea and mesh vertex shaders sample it)
 extern int terrain_ao_on;                // baked horizon occlusion on the terrain's ambient (MARE_TERRAIN_AO=0)
 // sky and clouds (sky.c, DESIGN_VISUAL.md step 8)
 void sky_update(float dt);                    // cover from the weather, drift with the wind
@@ -99,6 +101,7 @@ extern int   daynight_enabled;
 extern float daynight_period_days;       // simulated days per full cycle
 void  light_bind(const rhi_pipeline_t *p);  // sets the GLSL_LIGHT uniforms (sun, ambient, shadow atlas)
 void  shadow_render(void);               // renders the 3 cascades of the sun shadow atlas (before the main passes)
+void  shadow_dump(const char *path);     // MARE_SHADOWDUMP: write the depth atlas as a PGM (lighting.cc; mare.cc calls it)
 extern int shadow_enabled;               // 0 disables the shadow pass and the lookup
 extern int shadow_casters_drawn;         // stats for the dashboard (ships/towns; the terrain only receives)
 vec3  srgb_to_linear3(vec3 c);           // CPU-side colour conversion (clear colours, debug-draw)

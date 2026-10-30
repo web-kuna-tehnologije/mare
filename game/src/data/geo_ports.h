@@ -6,6 +6,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ---------------------------------------------------------------------------
 // ports & colony sites. Production tags: string of good initials (see geo_tag_good).
 //   G grain, F fish, T timber, S salt, W wine, C cloth, A arms, U sugar, O tobacco,
@@ -155,5 +159,9 @@ static inline int geo_tag_good(char c) {
 
 
 #define GEO_NPORTS ((int)(sizeof(geo_ports)/sizeof(geo_ports[0])))
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -18,6 +18,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define TT_TILE        512          // samples per tile edge (must match tools/terrain_tiles.py)
 #define TT_MAX_TILES   2048
 #define TT_BUDGET_MB   192          // resident tile payload; MARE_TERRAIN_MB overrides
@@ -80,5 +84,9 @@ unsigned terraintiles_generation(void);   // bumps when residency changes
 int terraintiles_bake(const char *dir, float *hm, unsigned char *lm, int w, int h,
                       float lon0, float lat1, float cells_per_deg,
                       const unsigned char *protect, int *flips);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

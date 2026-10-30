@@ -13,6 +13,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern unsigned char *navgrid;    // NAV_W*NAV_H, 1 = navigable water
 extern unsigned char *navcoast;   // 1 = water cell touching land (path cost penalty)
 
@@ -35,5 +39,9 @@ void  nav_ports_reset(void);                             // forget all rows (new
 float nav_port_dist(int a, int b);                       // sea distance in world units, <0 unreachable (computes row a on first use)
 void  nav_ports_precompute(void);                        // optional loading step: all rows now
 void  nav_ports_added(int port_index);                   // after appending a settlement: one row + column, no full reset
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

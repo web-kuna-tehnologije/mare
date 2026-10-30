@@ -10,6 +10,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum { JS_NULL, JS_BOOL, JS_NUM, JS_STR, JS_ARR, JS_OBJ } gjtype_t;
 typedef struct gjtok_t { unsigned char type; int start, len; int ntok, nchild; } gjtok_t;
 typedef struct gjson_t { const char *s; int n; gjtok_t *t; int ntok, cap; } gjson_t;
@@ -124,5 +128,9 @@ static void jstrcpy(const gjson_t *j, int tok, char *dst, int cap) {   // basic 
 static void jfloats(const gjson_t *j, int arr, float *out, int n) {    // leaves defaults where missing
     for (int i = 0; i < n; ++i) { int t = jat(j, arr, i); if (t >= 0) out[i] = (float)jnum(j, t, out[i]); }
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
