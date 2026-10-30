@@ -1,3 +1,33 @@
+# Session summary (2026-10-30 late, worktree `oak`, 0.20.0)
+
+- **`assets/data/how_to.txt` implemented as written** (`world/geochunks.h/.cc`): the export is
+  read as 513x513 float32-metre chunks with `coverage.r8`, bounds from the manifest checked
+  against a shipped `tile.json`, streamed IO -> MAIN under a 96 MB budget, and preferred over
+  the u16 cut in the clipmap rings. Measured source split on the Adriatic: near ring 262144
+  texels from the fine set, far ring 80250 from the chunks + 111372 from the cut.
+- **Height atlas** (`gfx/heightatlas.h/.cc`, `terrain/atlas.glsl`): resident fine tiles on the
+  GPU, sampled by the vertex/tess stages for the sub-ring residual, clamped so it can never
+  cross the waterline. It probes the data first and **disables itself**: the residual is
+  0.0016 rms / 0.031 peak world units against relief of 0.7-4.1, because at WORLD_K 16 the
+  ring texel (~1.1 km) is already within 1.8x of the fine set's 620 m samples.
+- **Vulkan step two**: memory types, buffers, mapping, command pool/buffer, queue submit,
+  fence wait and a checked 64 KB GPU transfer - passed on an RTX 5070 Ti in 0.11 ms.
+- **No terrain geometry shader**, deliberately: at 28 km per world unit, scatter geometry is
+  meaningless. Reasoning recorded in DESIGN_RENDERER.md 0.20.
+- Build loop moved to a **sources-only mirror** (C:\projects\mare\tmp\oak-s20, 15 s) with
+  `MARE_ASSETS` pointing at the main checkout's asset tree - another session deleted
+  C:\projects\mare\tmp mid-session and the worktree's `tmp` symlink flipped to a local dir.
+
+## Leftover tasks (0.20)
+
+- [ ] **A finer DEM is the only thing that will sharpen the near coast** - the renderer is
+      already Nyquist-matched to the data (DESIGN_TERRAIN.md 3d). EU-DEM + EMODnet for the
+      Adriatic, cut into `height_fine`, would turn the height atlas on automatically.
+- [ ] Vulkan pipelines need SPIR-V: install the Vulkan SDK or glslang on the build machine.
+- [ ] The islands `raise_small_islands` lifts still read as flat-topped plateaux.
+- [ ] `geochunks` is not used by the one-shot geography bake (that still reads the u16 cut);
+      harmless, but the bake would be exact too if it read the chunks.
+
 # Session summary (2026-10-30 night, worktree `oak`, 0.19.0)
 
 - **The issue screenshot (assets/issue-1.png)**: the "lantinas in the wrong place" were the

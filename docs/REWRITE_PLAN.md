@@ -63,6 +63,12 @@ while the game builds and the five test suites stay green after every task.
       the shader library, the swapchain over the v3 window, pipeline objects baked from
       `rhi_pipeline_desc_t`, per-pipeline uniform blocks, a pass graph; GL stays default until
       screenshot parity. `gfx/rhi_dx12.cc` is the API-neutrality stub.
+      **Step two (0.20):** the memory, command, queue and fence layers are implemented and
+      *verified* - buffers created and bound, a host-coherent allocation mapped, a transfer
+      recorded into a command buffer, submitted to the graphics queue, fence-waited and read
+      back byte for byte (64 KB, 0.11 ms submit to fence, no mismatches on an RTX 5070 Ti).
+      The blocker for pipelines is tooling, not design: there is no Vulkan SDK or glslang on
+      the build machine, so no SPIR-V can be produced. Installing either unblocks the rest.
 - [ ] **T9 — Final folder/docs sweep.** Retire what is left of mare.c; src/ tree fully matches
       the namespaces; README/docs/build scripts reflect the C++ layout.
 - [ ] **T10 — Known bug fixes** (docs/TODO.md "Still open"): `MARE_PASSES=sea` +

@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.20.0 — the export read as chunks, a self-measuring height atlas, Vulkan's memory and command path
+
+- **The GEBCO export is read as the chunks it is** (`world/geochunks.h/.cc`, new
+  `mare::game::world::GeoChunks`), which is what `assets/data/how_to.txt` asks for and the game
+  was not doing. It streams `chunks/{y}/{x}/height.r32` - 513x513 little-endian float32 **metres** -
+  with its `coverage.r8` mask, derives each chunk's bounds from the manifest and checks them
+  against the shipped `tile.json`, and samples bilinearly. Previously the game only ever saw a
+  u16 resample of this export (`tools/terrain_from_gebco.py`); now the source is read directly,
+  the coverage mask is honoured as "unknown ground" rather than guessed at, and the exported
+  edge agreement (verified at 0 m in the source, and re-verified here) is kept by construction.
+  Decoding uses the identical land/sea calibration the u16 cut decoded to, so every shading
+  threshold, wave gate and depth fade keeps its meaning. IO lane reads, MAIN lane publishes,
+  96 MB budget, `MARE_GEOCHUNKS=0` / `MARE_GEOCHUNK_DIR` / `MARE_GEOCHUNK_MB`.
+- **Three height sources, best first** (`gfx/streamview.cc`): the fine regional set, then the
+  GEBCO chunks, then the u16 cut. Measured on the Adriatic: the near clipmap ring takes all
+  262144 of its texels from the fine set, and the far ring mixes 80250 from the chunks with
+  the cut where neither reaches. Each compose logs its source split at debug level.
+- **A height atlas that measures whether it is worth existing** (`gfx/heightatlas.h/.cc`,
+  `terrain/atlas.glsl`): resident fine tiles held on the GPU as one atlas with a slot lookup,
+  sampled by the terrain's vertex and tessellation stages for the detail the clipmap ring is
+  too coarse to carry - reconstructing what the ring holds and subtracting it, so the layers
+  sum to the data exactly once. It then **probes the data and switches itself off**, because
+  the honest measurement is that there is nothing to add: the residual below the ring texel is
+  0.0016 world units rms and 0.031 at worst against relief of 0.7-4.1. At 16 units per degree
+  the ring texel is ~1.1 km and the fine set's samples are ~620 m, so the ring is already
+  within 1.8x of the data. **The near ground looks smooth because of the data, not the
+  renderer.** The machinery stays, self-measuring, and turns itself on the day a real
+  high-resolution DEM is dropped in (`MARE_HEIGHT_ATLAS=1` forces it on to see the residual).
+  Anything it does contribute is clamped so it can never cross the waterline the ports and the
+  navigation grid were placed against (`ha_shape`).
+- **Vulkan: the memory, command and queue layers, proved** (`gfx/rhi_vk.cc`, T8 step two). The
+  backend now allocates buffers, picks a memory type, maps host-coherent memory, creates a
+  command pool and buffer, records a transfer, submits it to the graphics queue, waits on a
+  fence and reads the result back byte for byte. On an RTX 5070 Ti: 64 KB round-tripped with
+  no mismatches, 0.11 ms submit to fence. Pipelines and render passes still wait on SPIR-V -
+  there is no Vulkan SDK or glslang on this machine - and drawing stays on GL.
+- **RHI**: sub-rectangle texture upload (`rhi_texture_update_rect`) through the device
+  interface; backend selection moved out of file statics into `rhi::BackendSelector`.
+- **No geometry shader for the terrain, deliberately.** At 16 world units per degree one unit
+  is ~28 km, so scatter geometry - the usual reason to reach for the stage on terrain - would
+  be kilometres wide and is meaningless at this scale. Tessellation remains the right
+  amplification for the ground (as 0.18 already concluded), and the one place a geometry stage
+  genuinely earns its keep is the rig's cordage, where it has been doing per-primitive
+  screen-space expansion since 0.19. Vegetation belongs in the staged scenes, where a unit is
+  about 2.8 m.
+
 ## 0.19.0 — the authored rig, hemp not poles, flags that fly, a shore that follows the Earth, a device behind the RHI
 
 - **Authored yards on every station** (`gfx/shipyard.cc`): the lantina (`assets/elm/lateen_yard`,

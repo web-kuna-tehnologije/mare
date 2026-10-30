@@ -24,6 +24,7 @@ extern "C" {
 #include "src/world/world.h"
 #include "src/world/terrainmap.h"
 #include "src/world/terraintiles.h"
+#include "src/world/geochunks.h"
 #include "src/world/stream.h"
 #include "src/world/nav.h"
 #include "src/sim/game.h"
@@ -240,6 +241,10 @@ int main(int argc, char **argv) {
     // the regions and the ports are built against it. MARE_TERRAIN_TILES=0 / MARE_TERRAIN_GEO=0
     // bring the old world back.
     terraintiles_init(NULL);
+    // The GEBCO export read as the chunks it is (assets/data/how_to.txt): float32 metres and
+    // the coverage mask, straight from the source rather than through the u16 cut. The
+    // clipmap rings prefer it over that cut wherever a chunk is resident.
+    geochunks_init(NULL);
     terrainmap_bake_geography(NULL);
     nav_init();
     if (getenv("MARE_WAVES")) { sea_wave_amp = clampf((float)atof(getenv("MARE_WAVES")), 0.f, 4.f);

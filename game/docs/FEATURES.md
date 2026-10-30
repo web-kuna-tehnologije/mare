@@ -119,6 +119,11 @@ Status as of the current codebase. Each entry names the module that owns it.
   sail's swung/braced heading; cordage as geometry-stage lines of physical width; verlet flags
   pinned to the main masthead; canvas, water and ground materials (DESIGN_SHIPS.md 3c,
   DESIGN_RENDERER.md 0.19).
+- The GEBCO export read as delivered (0.20): 27x14 chunks of 513x513 float32 metres with
+  their coverage masks, streamed on the job system and preferred over the u16 cut
+  (`world/geochunks.h`, `assets/data/how_to.txt`). A GPU height atlas (`gfx/heightatlas.h`)
+  holds resident fine tiles for the tessellation stage and measures whether they carry
+  anything below the clipmap ring's resolution - on today's data they do not, so it stays off.
 - Coast polish (0.19): the clipmap rings move the shoreline inside a band around the raster
   coast towards the authored GEBCO shore (blur + texel-aware wiggle elsewhere), harbours
   protected, and the sea samples the rings (DESIGN_TERRAIN.md 3c).

@@ -26,6 +26,10 @@ public:
     int      height(float lon, float lat, float *out);
     int      normal(float lon, float lat, float out[3]);
     int      resident(float lon, float lat);
+    int      fine_info(tt_setinfo_t *out);
+    const void *fine_tile(int tx, int ty);
+    int      height_fine(float lon, float lat, float *out);
+    static float decode_u16(unsigned short v) { return tt_h_of(v / 65535.f); }
     void     stats(tt_stats_t *out);
     unsigned generation() { return tt_gen; }
     int      bake(const char *dir, float *hm, unsigned char *lm, int w, int h,
@@ -388,6 +392,30 @@ int TerrainTiles::bake(const char *dir, float *hm, unsigned char *lm, int w, int
     return changed;
 }
 
+// --- the fine set, for the GPU height atlas (gfx/heightatlas.cc)
+
+int TerrainTiles::fine_info(tt_setinfo_t *out) {
+    const tt_set_t *s = &sets[TT_HEIGHT_FINE];
+    memset(out, 0, sizeof *out);
+    if (!s->present) return 0;
+    out->present = 1; out->tiles_x = s->tiles_x; out->tiles_y = s->tiles_y;
+    out->width = s->width; out->height = s->height; out->bytes_per_sample = s->bytes_per_sample;
+    out->lon0 = s->lon0; out->lat0 = s->lat0; out->lon1 = s->lon1; out->lat1 = s->lat1;
+    return 1;
+}
+const void *TerrainTiles::fine_tile(int tx, int ty) {
+    const tt_set_t *s = &sets[TT_HEIGHT_FINE];
+    if (!s->present || (unsigned)tx >= (unsigned)s->tiles_x || (unsigned)ty >= (unsigned)s->tiles_y) return NULL;
+    const tt_tile_t *t = &s->tile[ty * s->tiles_x + tx];
+    return t->state == TT_READY ? t->data : NULL;
+}
+int TerrainTiles::height_fine(float lon, float lat, float *out) {
+    float g;
+    if (!tt_sample_u16(&sets[TT_HEIGHT_FINE], lon, lat, &g)) return 0;
+    *out = tt_h_of(g);
+    return 1;
+}
+
 int TerrainTiles::resident(float lon, float lat) {
     int tx, ty; float fx, fy;
     const tt_set_t *s = &sets[TT_HEIGHT];
@@ -422,6 +450,10 @@ int      terraintiles_normal(float lon, float lat, float out[3]) { return mare::
 int      terraintiles_resident(float lon, float lat) { return mare::game::world::terraintiles().resident(lon, lat); }
 void     terraintiles_stats(tt_stats_t *out) { mare::game::world::terraintiles().stats(out); }
 unsigned terraintiles_generation(void) { return mare::game::world::terraintiles().generation(); }
+int  terraintiles_fine_info(tt_setinfo_t *out) { return mare::game::world::terraintiles().fine_info(out); }
+const void *terraintiles_fine_tile(int tx, int ty) { return mare::game::world::terraintiles().fine_tile(tx, ty); }
+int  terraintiles_height_fine(float lon, float lat, float *out) { return mare::game::world::terraintiles().height_fine(lon, lat, out); }
+float terraintiles_decode_u16(unsigned short v) { return mare::game::world::TerrainTiles::decode_u16(v); }
 int terraintiles_bake(const char *dir, float *hm, unsigned char *lm, int w, int h,
                       float lon0, float lat1, float cells_per_deg,
                       const unsigned char *protect, int *flips) {

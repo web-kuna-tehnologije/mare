@@ -10,6 +10,7 @@ uniform sampler2D u_atlas; uniform float u_has_atlas;
 uniform sampler2D u_grain;
 // the procedural surface-grain normal map (detail.c): micro relief on the close ground
 #include "terrain/detail.glsl"
+#include "terrain/atlas.glsl"
 out vec4 fragColor;
 // One cell of the atlas, tiled: the uv wraps inside the cell by hand (an atlas cannot use
 // the sampler's repeat) and the derivatives come from the *unwrapped* coordinate, so the
@@ -40,6 +41,16 @@ void main(){
     float e = det_step(v_wpos.xz);
     gx += dk * (det_at(v_wpos.xz + vec2(e,0.0)) - det_at(v_wpos.xz - vec2(e,0.0))) / (2.0*e);
     gz += dk * (det_at(v_wpos.xz + vec2(0.0,e)) - det_at(v_wpos.xz - vec2(0.0,e))) / (2.0*e);
+// and the atlas residual, differentiated at the fine set's own step: without this the shape
+// the vertex stage just added would be lit by the ring's smooth normals and read as painted
+    if (u_ha_on.x > 0.5) {
+      float ea = max(u_ha_on.y * 0.25, 0.004);
+// faded out at the waterline exactly as ha_shape stops the displacement there, so the
+// lighting follows the surface the vertex stage actually built
+      float wk = dk * smoothstep(0.0, 0.22, abs(v_h));
+      gx += wk * (ha_detail(v_wpos.xz + vec2(ea,0.0)) - ha_detail(v_wpos.xz - vec2(ea,0.0))) / (2.0*ea);
+      gz += wk * (ha_detail(v_wpos.xz + vec2(0.0,ea)) - ha_detail(v_wpos.xz - vec2(0.0,ea))) / (2.0*ea);
+    }
   }
   vec3 n = normalize(vec3(-gx, 1.0, -gz));
   float h = v_h; float lat = -v_wpos.z / u_k; float lon = v_wpos.x / u_k;

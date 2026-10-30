@@ -401,6 +401,11 @@ void texture_update(rhi_texture_t *t, const void *data) {
     glBindTexture(GL_TEXTURE_2D, t->id);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, t->w, t->h, format, type, data);
 }
+void texture_update_rect(rhi_texture_t *t, int x, int y, int w, int h, const void *data) {
+    GLint internal; GLenum format, type; gl_format(t->fmt, &internal, &format, &type);
+    glBindTexture(GL_TEXTURE_2D, t->id);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, format, type, data);
+}
 void texture_bind(int slot, const rhi_texture_t *t) {
     glActiveTexture(GL_TEXTURE0 + slot); glBindTexture(GL_TEXTURE_2D, t->id);
 }

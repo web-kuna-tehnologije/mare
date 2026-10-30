@@ -27,10 +27,13 @@ extern "C" {
 #include "../world/world.h"
 #include "../world/stream.h"
 #include "../world/terraintiles.h"
+#include "../world/geochunks.h"
+#include "heightatlas.h"
 #include "../assets/asset.h"
 }
 
 #define SV_RES     512
+#define SV_MAX_SLOTS 64         // worker slots the tally array covers (jobs_slot_count())
 #define SV_MIN_RECOMPOSE_S 0.20     // residency bursts (a tile a frame) fold into one rebuild
 
 // Two clipmap rings (DESIGN_STREAMING.md follow-up 3). The near window carries the tactical
@@ -81,7 +84,8 @@ private:
     // one row band of a ring; reads tile payloads which only ever appear (never vanish) while the
     // main thread sits in the parallel_for below
     typedef struct sv_fill_t { float *buf; float x0, z0, step; int max_level;
-                               float port_xz[96][2]; int nports; } sv_fill_t;   // the harbours inside the ring (coast polish keeps clear of them)
+                               float port_xz[96][2]; int nports;
+                               int src[SV_MAX_SLOTS][3]; } sv_fill_t;   // which source answered, per worker slot (no atomics: the bands are disjoint)   // the harbours inside the ring (coast polish keeps clear of them)
     static void sv_fill_rows(void *arg, int begin, int end, int slot);
     double sv_ring_compose(sv_ring_t *r, float cx, float cz);
     void sv_sync_authored();
@@ -108,8 +112,9 @@ StreamView &stream_view() { static StreamView s; return s; }
 #define SV_FRINGE_OUT   5.0f
 
 void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
-    const sv_fill_t *f = (const sv_fill_t *)arg; (void)slot;
+    sv_fill_t *f = (sv_fill_t *)arg;
     const float cell = WORLD_K / CELLS_PER_DEG;
+    int src_fine = 0, src_chunk = 0, src_cut = 0;   // which source answered, tallied per band
     for (int j = begin; j < end; ++j) for (int i = 0; i < SV_RES; ++i) {
         float wx = f->x0 + i * f->step, wz = f->z0 + j * f->step, h;
         float lon = x2lon(wx), lat = z2lat(wz);
@@ -121,7 +126,14 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         // is a loose Earth (its coastline disagrees with the base in places), so the delta is
         // clamped to the base's side of the waterline: relief and bathymetry, never a landform
         // rising through the sea or a hole opening in a coast the ports were placed against.
-        int fine = terraintiles_height(lon, lat, &h);
+        // Three authored sources, best first: the fine regional cut (~520 m), then the GEBCO
+        // chunks read exactly as exported (float32 metres, assets/data/how_to.txt), then the
+        // u16 global cut of that same export. All three decode to the same world units, so
+        // which one answers only changes the fidelity, never the calibration.
+        int fine = 0;
+        if      (terraintiles_height_fine(lon, lat, &h)) { fine = 1; src_fine++; }
+        else if (geochunks_height(lon, lat, &h))         { fine = 1; src_chunk++; }
+        else if (terraintiles_height(lon, lat, &h))      { fine = 1; src_cut++; }
         float d;
         if (fine) {
             // the authored map's broad relief carries the synthesized ridges on top (0.17): the
@@ -188,6 +200,10 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         }
         f->buf[j * SV_RES + i] = d;
     }
+    // a band's own tally, folded in once (the rows are disjoint, so this is a plain add per
+    // worker rather than a contended counter per texel)
+    int k = (unsigned)slot < SV_MAX_SLOTS ? slot : 0;
+    f->src[k][0] += src_fine; f->src[k][1] += src_chunk; f->src[k][2] += src_cut;
 }
 
 // Rebuild one ring when the residency changed or the camera left its inner half. Returns the
@@ -195,10 +211,11 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
 double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     int moved = !r->on || fabsf(cx - (r->x0 + r->extent * 0.5f)) > r->extent * 0.25f
                        || fabsf(cz - (r->z0 + r->extent * 0.5f)) > r->extent * 0.25f;
-    int changed = r->seen_residency != (stream_residency_generation() ^ (terraintiles_generation() * 2654435761u));
+    unsigned resgen = stream_residency_generation() ^ (terraintiles_generation() * 2654435761u) ^ (geochunks_generation() * 2246822519u);
+    int changed = r->seen_residency != resgen;
     if (!(moved || changed) || RF.time - r->last_compose <= SV_MIN_RECOMPOSE_S) return 0;
     r->last_compose = RF.time;
-    r->seen_residency = stream_residency_generation() ^ (terraintiles_generation() * 2654435761u);
+    r->seen_residency = resgen;
     double t0 = diag_now();
     float step = r->extent / (SV_RES - 1);
     sv_fill_t f;                                 // snapped to the sample grid so detail never swims
@@ -206,6 +223,7 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     f.x0 = floorf((cx - r->extent * 0.5f) / step) * step;
     f.z0 = floorf((cz - r->extent * 0.5f) / step) * step;
     f.step = step; f.max_level = r->max_level;
+    memset(f.src, 0, sizeof f.src);
     f.nports = 0;   // every harbour the ring touches: the shoreline stays as placed around it
     for (int i = 0; i < G.nports && f.nports < 96; ++i) {
         const port_t *p = &G.ports[i];
@@ -216,7 +234,10 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     {   // what the ring holds: the range of the delta and how much of it the shore work touched
         float mn = 1e9f, mx = -1e9f; int big = 0;
         for (int i = 0; i < SV_RES * SV_RES; ++i) { float v = r->buf[i]; mn = minf(mn, v); mx = maxf(mx, v); big += v < -0.5f; }
-        LOG_DEBUG("stream", "ring %s composed at %.1f,%.1f: delta %.2f..%.2f, %d texels lowered over 0.5, %d harbours", r->extent < 100.f ? "near" : "far", f.x0, f.z0, mn, mx, big, f.nports);
+        int sf = 0, sc = 0, su = 0;
+        for (int k = 0; k < SV_MAX_SLOTS; ++k) { sf += f.src[k][0]; sc += f.src[k][1]; su += f.src[k][2]; }
+        LOG_DEBUG("stream", "ring %s composed at %.1f,%.1f: delta %.2f..%.2f, %d texels lowered over 0.5, %d harbours; sources: %d fine, %d GEBCO chunk, %d u16 cut",
+                  r->extent < 100.f ? "near" : "far", f.x0, f.z0, mn, mx, big, f.nports, sf, sc, su);
     }
     rhi_texture_update(&r->tex, r->buf);
     r->x0 = f.x0; r->z0 = f.z0; r->on = 1;
@@ -257,6 +278,10 @@ void StreamView::update() {
     // city view holds a couple of tiles and the strategic map a band across the ocean.
     terraintiles_update(x2lon(cam.tx), z2lat(cam.tz),
                         clampf(cam.dist / WORLD_K * 0.9f + 2.f, 2.f, 40.f));
+    // A chunk is 13 degrees across, so one or two cover any view: a small radius is enough and
+    // keeps the 1.3 MB reads rare.
+    geochunks_update(x2lon(cam.tx), z2lat(cam.tz), clampf(cam.dist / WORLD_K * 0.5f + 1.f, 1.f, 14.f));
+    heightatlas_update();
     if (sv_seen_assets != asset_generation()) { sv_seen_assets = asset_generation(); sv_sync_authored(); }
     sv_tiles_unmodeled = 0;   // wanted land leaves without an authored mesh: the "still to model" list
     for (int i = 0; i < stream_tile_count(); ++i) { const stream_tile_t *t = stream_tile_at_index(i);
@@ -275,6 +300,12 @@ void StreamView::update() {
     { tt_stats_t ts; terraintiles_stats(&ts);
       metric_set(m_tt_res, ts.resident); metric_set(m_tt_load, ts.loading);
       metric_set(m_tt_mb, ts.bytes / (1024.0 * 1024.0)); metric_set(m_tt_ev, ts.evicted); }
+    static int m_gc_res = -1, m_gc_mb, m_gc_load, m_ha_slots;
+    if (m_gc_res < 0) { m_gc_res = metric_id("terrain.chunks_resident"); m_gc_mb = metric_id("terrain.chunks_mb");
+                        m_gc_load = metric_id("terrain.chunks_loading"); m_ha_slots = metric_id("terrain.atlas_slots"); }
+    { gc_stats_t gs; geochunks_stats(&gs);
+      metric_set(m_gc_res, gs.resident); metric_set(m_gc_mb, gs.bytes / (1024.0 * 1024.0));
+      metric_set(m_gc_load, gs.loading); metric_set(m_ha_slots, heightatlas_resident()); }
     static int m_res = -1, m_want, m_load, m_mb, m_evict, m_disk, m_gen, m_win, m_unmod;
     if (m_res < 0) { m_res = metric_id("stream.resident"); m_want = metric_id("stream.wanted"); m_load = metric_id("stream.loading");
                      m_mb = metric_id("stream.mb"); m_evict = metric_id("stream.evicted"); m_disk = metric_id("stream.disk_hits");

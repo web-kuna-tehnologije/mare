@@ -15,28 +15,43 @@ extern "C" {
 
 namespace mare::engine::rhi {
 
-static Device *g_active = nullptr;
-static char    g_name[16] = "gl";
+// Which backend the game draws through. One object owns the choice and the name, so the
+// selection state is not loose file statics: the C shims below reach it through the singleton
+// exactly as every other module's shims do (docs/CPP_CONVERSION.md).
+class BackendSelector {
+public:
+    static BackendSelector &instance() { static BackendSelector b; return b; }
 
-void select(const char *name) {
-    if (!name || !*name) return;
-    if (!strcmp(name, "gl") || !strcmp(name, "opengl"))      { g_active = &gl_device();     snprintf(g_name, sizeof g_name, "gl"); }
-    else if (!strcmp(name, "vulkan") || !strcmp(name, "vk")) { g_active = &vulkan_device(); snprintf(g_name, sizeof g_name, "vulkan"); }
-    else if (!strcmp(name, "dx12") || !strcmp(name, "d3d12")){ g_active = &dx12_device();   snprintf(g_name, sizeof g_name, "dx12"); }
-    else { LOG_WARN("rhi", "unknown render backend '%s' (gl | vulkan | dx12): staying on GL", name); return; }
-    LOG_INFO("rhi", "render backend: %s", g_name);
-}
-
-Device &active() {
-    if (!g_active) {
-        const char *e = getenv("MARE_RHI");
-        if (e) select(e);
-        if (!g_active) g_active = &gl_device();
+    void select(const char *name) {
+        if (!name || !*name) return;
+        Device *d = nullptr; const char *picked = nullptr;
+        if      (!strcmp(name, "gl")     || !strcmp(name, "opengl")) { d = &gl_device();     picked = "gl"; }
+        else if (!strcmp(name, "vulkan") || !strcmp(name, "vk"))     { d = &vulkan_device(); picked = "vulkan"; }
+        else if (!strcmp(name, "dx12")   || !strcmp(name, "d3d12"))  { d = &dx12_device();   picked = "dx12"; }
+        else { LOG_WARN("rhi", "unknown render backend '%s' (gl | vulkan | dx12): staying on GL", name); return; }
+        active_ = d; snprintf(name_, sizeof name_, "%s", picked);
+        LOG_INFO("rhi", "render backend: %s", name_);
     }
-    return *g_active;
-}
 
-const char *backend_name() { return g_name; }
+    // The first call decides, so a pass that draws before main() has selected still gets a
+    // device; MARE_RHI is read here rather than at static-init time, when the log is not up.
+    Device &active() {
+        if (!active_) {
+            if (const char *e = getenv("MARE_RHI")) select(e);
+            if (!active_) active_ = &gl_device();
+        }
+        return *active_;
+    }
+    const char *name() const { return name_; }
+
+private:
+    Device *active_ = nullptr;
+    char    name_[16] = "gl";
+};
+
+void        select(const char *name) { BackendSelector::instance().select(name); }
+Device     &active() { return BackendSelector::instance().active(); }
+const char *backend_name() { return BackendSelector::instance().name(); }
 
 } // namespace mare::engine::rhi
 
@@ -93,6 +108,7 @@ void rhi_set_f4v(int loc, const float *v, int n)             { active().set_f4v(
 void rhi_set_f1v(int loc, const float *v, int n)             { active().set_f1v(loc, v, n); }
 rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data) { return active().texture_make(w, h, fmt, filter, wrap, data); }
 void rhi_texture_update(rhi_texture_t *t, const void *data) { active().texture_update(t, data); }
+void rhi_texture_update_rect(rhi_texture_t *t, int x, int y, int w, int h, const void *data) { active().texture_update_rect(t, x, y, w, h, data); }
 void rhi_texture_bind(int slot, const rhi_texture_t *t) { active().texture_bind(slot, t); }
 rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, int nverts, const unsigned *indices, int nindices) { return active().geometry_make(layout, verts, nverts, indices, nindices); }
 void rhi_geometry_free(rhi_geometry_t *g) { active().geometry_free(g); }

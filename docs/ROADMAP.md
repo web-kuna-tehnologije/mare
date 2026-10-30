@@ -1,5 +1,28 @@
 # Development roadmap
 
+## Done: 0.20 — the export read as chunks, a measured height atlas, Vulkan's memory path (worktree `oak`)
+
+`assets/data/how_to.txt` is now implemented as written: the GEBCO export is read as 27x14
+chunks of 513x513 float32 metres with their coverage masks (`world/geochunks.h`), feeding the
+clipmap rings ahead of the u16 cut. A GPU height atlas samples resident fine tiles at their
+own resolution from the tessellation stage - and measures that, on the data shipped today,
+there is nothing below the ring's resolution to add, so it stays off until a finer DEM lands.
+Vulkan's memory, command, queue and fence layers are implemented and verified by a checked
+GPU transfer.
+
+## Next
+
+- **A genuinely finer DEM for the home seas** - this is now the single highest-value terrain
+  item, and the measurement in DESIGN_TERRAIN.md 3d says why: the renderer already resolves
+  everything the current data holds. EU-DEM (25 m land) and EMODnet (115 m bathymetry) for
+  the Adriatic, cut into the `height_fine` set, would switch the height atlas on by itself.
+- Vulkan T8 remainder: SPIR-V (needs glslang or a Vulkan SDK on the build machine), the
+  swapchain over the v3 window, pipeline objects from `rhi_pipeline_desc_t`, uniform blocks.
+- A beach profile for the islands `raise_small_islands` lifts: they still read as plateaux.
+- Deepen the conversion (T9): move callers onto the class APIs, inject `game_t`, retire the
+  C shims and the globals that go with them.
+- UI decision (RmlUi vs classed-up kit); the mast far-LOD budgets; the bowsprit steeve.
+
 ## Done: 0.19 — the authored rig, simulated flags, a shore that follows the Earth, a device behind the RHI (worktree `oak`)
 
 Authored lantinas and split square yards stand on every station and swing with their canvas;
@@ -8,17 +31,7 @@ ground got their materials; the clipmap rings and the sea follow the authored sh
 band around the raster coast; `rhi::Device` sits behind the C ABI with the GL backend behind it,
 a Vulkan bring-up device (instance/device/queue, no drawing yet) and a DX12 stub.
 
-## Next
-
-- Vulkan T8 proper: SPIR-V for the shader library (glslang step in the asset pipeline, or
-  runtime glslang), swapchain over the v3 window, pipeline objects baked from
-  `rhi_pipeline_desc_t`, per-pipeline uniform blocks; GL stays default until screenshot parity.
-- Coast at close zoom, next step: the Dinaric coast still reads as a wall because the 7 km
-  raster cuts GEBCO's mountain foot at the waterline and the world is vertically exaggerated;
-  a beach profile for the islands raise_small_islands lifts, and a finer coastline raster.
-- Deepen the conversion: move callers onto the class APIs, inject game_t, retire the C shims.
-- UI decision (RmlUi vs classed-up kit) after the port; the mast far-LOD budgets; the
-  bowsprit steeve.
+(0.19's next items are folded into 0.20's list above.)
 
 ## Done: 0.18 — C++20 end to end, the real Earth, a living rig (worktree `oak`)
 

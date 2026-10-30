@@ -26,12 +26,14 @@ out vec4 fragColor;
 #include "common/nmap.glsl"
 #include "common/fog.glsl"
 #include "terrain/detail.glsl"
+#include "terrain/atlas.glsl"
 float depth_at(vec2 pp) {
 // water depth from the heightmap plus the streamed detail rings (staged scenes: constant)
   if (u_local_depth > 0.0) return u_local_depth;
   float lon = pp.x / u_k, lat = -pp.y / u_k;
   vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));
-  return max(-(texture(u_hm, uv).r + det_at(pp) * (1.0 - u_mapness)), 0.0);
+  float h = texture(u_hm, uv).r + det_at(pp) * (1.0 - u_mapness);
+  return max(-ha_shape(h, pp, 1.0 - u_mapness), 0.0);
 }
 void main(){
   if (u_hole.w > 0.5) {

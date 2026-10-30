@@ -50,6 +50,26 @@ the sun behind the sail, fuzz sheen - `meshes.frag`, keyed on `v_cloth`), water 
 (`sea.frag`), and ground roughness per material with a close-range micro-relief normal
 (`terrain.frag`, the grain map on unit 9).
 
+## 0.20: the height atlas, and why the terrain has no geometry stage
+
+`gfx/heightatlas.h` holds resident authored tiles on the GPU so the terrain's vertex and
+tessellation stages can sample them at their own resolution rather than through the clipmap
+ring's 512 texels, adding only the residual the ring cannot carry (it reconstructs what the
+ring holds and subtracts it, so the two layers sum to the data once). It measures that
+residual before allocating anything and, on the data shipped today, correctly declines to run:
+see DESIGN_TERRAIN.md section 3d for the numbers. Whatever it does contribute is clamped so it
+can never move the shoreline (`ha_shape`).
+
+**Why the terrain still has no geometry shader.** The stage's use on terrain is scatter -
+amplifying triangles into vegetation or rock. This world is 16 units per degree, so one world
+unit is about 28 km and the smallest thing the stage could emit would be kilometres across.
+Tessellation is the correct amplification for ground at this scale and already does the job
+(0.18). The place a geometry stage genuinely earns its keep here is per-primitive screen-space
+expansion, which is what the rig's cordage uses it for (`meshes/rope.geom`, 0.19): a rope has a
+physical width of a few centimetres and must still be visible as a line from a kilometre away,
+and no other stage can turn one primitive into a correctly-sized screen quad. If vegetation is
+wanted it belongs in the staged scenes (`gfx/detailview.cc`), where one unit is about 2.8 m.
+
 ## Step 10: profiling hooks (done)
 
 **GPU timers.** `rhi_gpu_begin/end` wrap each pass (terrain, shadow, meshes, sea, resolve) in an

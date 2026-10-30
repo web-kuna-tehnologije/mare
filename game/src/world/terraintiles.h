@@ -66,6 +66,18 @@ void terraintiles_update(float lon, float lat, float radius_deg);
 int  terraintiles_height(float lon, float lat, float *out);
 int  terraintiles_normal(float lon, float lat, float out[3]);
 
+// The fine regional set (height_fine, the ~520 m Mediterranean cut), exposed so the renderer
+// can hold resident tiles on the GPU and sample them at their own resolution instead of
+// through the clipmap ring, which carries only ~1 sample per 7 of them (gfx/heightatlas.h).
+typedef struct tt_setinfo_t {
+    int   present, tiles_x, tiles_y, width, height, bytes_per_sample;
+    float lon0, lat0, lon1, lat1;
+} tt_setinfo_t;
+int          terraintiles_fine_info(tt_setinfo_t *out);        // 0 when there is no fine set
+const void  *terraintiles_fine_tile(int tx, int ty);           // raw u16 samples, NULL unless resident
+int          terraintiles_height_fine(float lon, float lat, float *out);   // the fine set alone
+float        terraintiles_decode_u16(unsigned short v);        // one raw sample -> world units
+
 // Is the tile covering this point resident? (The renderer asks before it decides to ask for a
 // finer surface.)
 int  terraintiles_resident(float lon, float lat);

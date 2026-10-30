@@ -105,6 +105,9 @@ void rhi_set_f1v(int loc, const float *v, int n);
 // textures
 rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data);
 void rhi_texture_update(rhi_texture_t *t, const void *data);     // full-size upload
+// Upload one sub-rectangle (the height atlas pages a 512x512 tile into a slot of a much
+// larger texture without touching the rest of it).
+void rhi_texture_update_rect(rhi_texture_t *t, int x, int y, int w, int h, const void *data);
 void rhi_texture_bind(int slot, const rhi_texture_t *t);
 
 // geometry & draws

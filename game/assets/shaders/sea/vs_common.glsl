@@ -6,6 +6,7 @@ uniform float u_shallow;
 uniform float u_mapness_vs;
 // the map morph, for the detail rings below (the sea's own u_mapness is a fragment uniform)
 #include "terrain/detail.glsl"
+#include "terrain/atlas.glsl"
 out vec3 v_wpos; out vec3 v_nrm; out float v_slope; out float v_h; out float v_amp; out float v_edge; out float v_jac; out float v_crest; out float v_shipw;
 // The water a ship pushes aside. Each nearby ship (x, z, heading, speed in hull lengths per 
 // second; hull length) raises a bow wave: a crest heaped at the stem that rings outward 
@@ -47,5 +48,6 @@ float height_at(vec2 p) {
   if (u_local_depth > 0.0) return -u_local_depth;
   float lon = p.x / u_k, lat = -p.y / u_k;
   vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));
-  return texture(u_hm, uv).r + det_at(p) * (1.0 - u_mapness_vs);
+  float h = texture(u_hm, uv).r + det_at(p) * (1.0 - u_mapness_vs);
+  return ha_shape(h, p, 1.0 - u_mapness_vs);
 }

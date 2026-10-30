@@ -64,6 +64,7 @@ struct Device {
     // textures
     virtual rhi_texture_t texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data) = 0;
     virtual void          texture_update(rhi_texture_t *t, const void *data) = 0;
+    virtual void          texture_update_rect(rhi_texture_t *t, int x, int y, int w, int h, const void *data) = 0;
     virtual void          texture_bind(int slot, const rhi_texture_t *t) = 0;
 
     // geometry & draws
@@ -139,6 +140,7 @@ struct DelegatingDevice : Device {
     void set_f1v(int loc, const float *v, int n) override { gl().set_f1v(loc, v, n); }
     rhi_texture_t texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data) override { return gl().texture_make(w, h, fmt, filter, wrap, data); }
     void          texture_update(rhi_texture_t *t, const void *data) override { gl().texture_update(t, data); }
+    void          texture_update_rect(rhi_texture_t *t, int x, int y, int w, int h, const void *d) override { gl().texture_update_rect(t, x, y, w, h, d); }
     void          texture_bind(int slot, const rhi_texture_t *t) override { gl().texture_bind(slot, t); }
     rhi_geometry_t geometry_make(const rhi_layout_t *l, const void *v, int nv, const unsigned *i, int ni) override { return gl().geometry_make(l, v, nv, i, ni); }
     void           geometry_free(rhi_geometry_t *g) override { gl().geometry_free(g); }

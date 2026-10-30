@@ -39,6 +39,7 @@ extern "C" {
 #include "camera.h"
 #include "../assets/asset.h"
 #include "../engine/shaders.h"
+#include "heightatlas.h"
 }
 
 int sea_tess_on;                 // the tessellated path is in use (GL 4.0 and not MARE_SEA_TESS=0)
@@ -183,7 +184,8 @@ void Sea::init() {
     static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_shipwave", "u_shallow", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                           "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug",
-                                          "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs", GLSL_LIGHT_UNIFORMS, 0 };
+                                          "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs",
+                                          GLSL_ATLAS_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     // (C compound literals -> named descriptors: C++ cannot take &T{...}; the tess one is also
@@ -412,6 +414,9 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
         rhi_set_f2(rhi_uniform(p,"u_det_on"), dn ? 1.f : 0.f, df ? 1.f : 0.f);
         rhi_set_f2(rhi_uniform(p,"u_det_texel"), streamview_detail_texel(0), streamview_detail_texel(1));
         rhi_set_f1(rhi_uniform(p,"u_mapness_vs"), RF.mapness);
+        // the water has to meet the ground the terrain actually draws, so it reads the same
+        // atlas residual (staged scenes have no heightmap and no atlas)
+        heightatlas_bind(p, 10, 11, local_depth > 0.f ? 0.f : streamview_detail_texel(0));
     }
     { static int dbg = -1; if (dbg < 0) { const char *e = getenv("MARE_SEA_DEBUG"); dbg = e ? atoi(e) : 0; }
       rhi_set_f1(rhi_uniform(p,"u_sea_debug"), dbg ? 1.f : 0.f); }

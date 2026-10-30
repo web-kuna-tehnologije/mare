@@ -135,6 +135,38 @@ the water stops where the detailed ground meets it. The simulation never reads t
 is presentation, the navigation grid and the ports are untouched. Small islands lifted by
 `raise_small_islands` sit at 0.55 and above and keep their authored shape.
 
+## 3d. Reading the export as chunks, and what resolution is actually available (0.20)
+
+`assets/data/how_to.txt` describes the delivered data precisely: 27 x 14 chunks under
+`chunks/{y}/{x}`, each `height.r32` 513 x 513 little-endian float32 **metres** (negative is
+sea floor), each `coverage.r8` a 513 x 513 validity mask that is explicitly *not* a land/sea
+mask, each `tile.json` the chunk's WGS84 bounds, and - twice over - the instruction to use the
+float32 rather than the 16-bit preview. It also says plainly that the export is ~3 km per
+sample, "za globalni pregled, ne za detaljan teren".
+
+Until 0.20 the game read none of that directly: `tools/terrain_from_gebco.py` cut the export
+down to a u16 tile set and the renderer read the cut. `world/geochunks.h` now reads the
+chunks as published - exact metres, coverage honoured, bounds taken from the manifest and
+checked against a shipped `tile.json`, neighbouring chunks sharing their edge samples so the
+joins stay the 0 m the export verified. The clipmap rings prefer, in order: the fine regional
+set, these chunks, then the u16 cut; all three decode through the same land/sea calibration,
+so which one answers changes fidelity and nothing else.
+
+**What that buys, honestly.** The u16 cut was faithful - its quantisation step is about
+0.0006 world units - so the visible difference is nil. What changes is that the game reads
+the delivered format, handles missing samples as unknown rather than as data, and no longer
+depends on a resampling step having been run correctly.
+
+**And what no pipeline change can buy.** The near ground is smooth at battle zoom because the
+data is smooth, not because the renderer throws detail away. At `WORLD_K` 16 the near clipmap
+ring's texel is 0.157 world units, about 1.1 km; the finest authored set samples every 620 m.
+The ring is therefore within a factor of 1.8 of the data - essentially Nyquist-matched - and
+the detail left underneath it measures 0.0016 world units rms, 0.031 at worst, against local
+relief of 0.7 to 4.1. `gfx/heightatlas.cc` measures exactly this at start-up and disables
+itself on the strength of it. Getting a visibly sharper coast needs a genuinely finer DEM
+(EU-DEM, EMODnet bathymetry or similar for the Adriatic); the moment one is cut into the fine
+set, the probe will find the detail and the atlas will switch itself on.
+
 ## 4. Scale
 
 The world is 16 world units per degree (`WORLD_K` = 4 x `WORLD_SCALE`, 0.17), which makes the
