@@ -64,7 +64,9 @@ void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz
 //   partition the screen exactly (no holes, no double coverage, no sorting).
 //   fx1: 1 when the instance is hidden from the camera this frame (occquery.h): the main pass
 //   leaves it out, the shadow pass still draws it. fx2, fx3 are reserved.
-typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway, sel, bob, xlen; float dither, fx1, fx2, fx3; } inst_t;
+typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway, sel, bob, xlen; float dither, fx1, fx2, fx3;
+                        float ax, az;   // wave/roll anchor: the hull position a ship part is rigid to (0,0 = this IS the hull)
+} inst_t;
 typedef struct mesh_t { rhi_geometry_t geo; int ninst; } mesh_t;
 extern const rhi_layout_t mesh_layout;                // builder vertices + inst_t instances (meshes.c program)
 mesh_t mesh_upload(mb_t *m);                          // uploads and frees the builder

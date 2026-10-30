@@ -60,7 +60,10 @@ NEW_MASTS_M = {
     "mizzen_mast": 22, "tall_lateen_mast": 24, "separated_lateen_yard": 26,
 }
 BOWSPRIT_M = {"bowsprit": 15}
-KEEP_PIVOT = {"lateen_yard", "bowsprit"}
+# the braced square yard lies along model x and must stand *across* the ship: forward +z
+# turns it 90 degrees; gfx/shipyard.c braces it about the mast per sail layer
+ACROSS = {"square_yard": 20}
+KEEP_PIVOT = {"lateen_yard", "bowsprit", "square_yard"}
 
 # A ship is only ever at LOD 0 when it fills the screen in battle view: the imported LOD 0 is
 # the original scan (hundreds of thousands of triangles), so it hands over far sooner than a
@@ -106,6 +109,8 @@ for name in sorted(os.listdir(root)):
         typ, fit, size, px = "ship_part", "height", round(NEW_MASTS_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
     elif name in BOWSPRIT_M:
         typ, fit, size, px = "ship_part", "length", round(BOWSPRIT_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
+    elif name in ACROSS:
+        typ, fit, size, px = "ship_part", "length", round(ACROSS[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
     elif name in SHIP_MASTS_M or MAST_PART_RE.match(name):
         # A split rig's parts (tools/blender_split_masts.py writes <assembly>_m0.._m2) are
         # fitted to their assembly's height; gfx/shipyard.c then scales each by the class's
@@ -119,6 +124,7 @@ for name in sorted(os.listdir(root)):
     # along x, which is already heading 0, so they must not be rotated.
     forward = "+x" if name in SHIP_FWD_X else "-x" if (name in SHIP_HULLS_M or name in SHIP_MASTS_M or MAST_PART_RE.match(name)
                                                        or name in NEW_MASTS_M or name in BOWSPRIT_M) else "+z"
+    # (square_yard falls through to "+z": its long axis must land athwartships)
     desc = {
         "name": name, "type": typ, "role": name,
         "lods": [({"file": f, "node": f"{name}_LOD{i}", "dist": 0} if i == 0 else {"file": f, "node": f"{name}_LOD{i}", "px": px[i]}) for i, f in enumerate(lods)],
