@@ -14,6 +14,7 @@
 #include "../world/world.h"
 #include "../world/regions.h"
 #include "../assets/asset.h"
+#include "../engine/shaders.h"
 
 render_frame_t RF;
 int screen_w = 1, screen_h = 1, window_w = 1, window_h = 1;
@@ -40,164 +41,8 @@ static const float lod_dist[LODS-1] = { 45, 110, 240, 520 };
 // border; the near one cross-fades into the far rather than into nothing, so pulling the
 // camera back loses resolution, never relief. Shared by the vertex stage (height) and the
 // fragment stage (normals), which is why it lives in a string both of them include.
-#define GLSL_TERRAIN_DETAIL \
-    "uniform sampler2D u_det; uniform sampler2D u_det_far;\n" \
-    "uniform vec4 u_det_rect; uniform vec4 u_det_far_rect;\n" \
-    "uniform vec2 u_det_on; uniform vec2 u_det_texel;\n"   /* on: near, far | texel: world units per texel */ \
-    "float det_fade(vec2 uv){\n" \
-    "  if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return 0.0;\n" \
-    "  return clamp(min(min(uv.x, 1.0-uv.x), min(uv.y, 1.0-uv.y)) * 10.0, 0.0, 1.0); }\n" \
-    "float det_at(vec2 xz){\n" \
-    "  vec2 nuv = (xz - u_det_rect.xy) * u_det_rect.zw;\n" \
-    "  vec2 fuv = (xz - u_det_far_rect.xy) * u_det_far_rect.zw;\n" \
-    "  float nf = u_det_on.x > 0.5 ? det_fade(nuv) : 0.0;\n" \
-    "  float ff = u_det_on.y > 0.5 ? det_fade(fuv) : 0.0;\n" \
-    "  float dn = nf > 0.0 ? texture(u_det, nuv).r : 0.0;\n" \
-    "  float df = ff > 0.0 ? texture(u_det_far, fuv).r * ff : 0.0;\n" \
-    "  return mix(df, dn, nf); }\n" \
-    /* world-space step for differentiating det_at: the resolution of whichever ring is in use */ \
-    "float det_step(vec2 xz){\n" \
-    "  vec2 nuv = (xz - u_det_rect.xy) * u_det_rect.zw;\n" \
-    "  return (u_det_on.x > 0.5 && det_fade(nuv) > 0.0) ? u_det_texel.x : u_det_texel.y; }\n"
 
-static const char *terrain_vs =
-    "in vec3 a_pos;\n" // u, v, skirt
-    "uniform mat4 u_vp; uniform vec2 u_origin; uniform float u_size; uniform float u_flatten;\n"
-    "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_k;\n"
-    GLSL_TERRAIN_DETAIL
-    "out vec3 v_wpos; out vec2 v_uv; out float v_h;\n"
-    "void main(){\n"
-    "  vec2 xz = u_origin + a_pos.xy * u_size;\n"
-    "  float lon = xz.x / u_k, lat = -xz.y / u_k;\n"
-    "  vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));\n"
-    "  float h = texture(u_hm, uv).r;\n"
-    "  h += det_at(xz) * (1.0 - u_flatten);\n"
-    "  float hf = mix(h, (h > 0.0 ? 0.12 : -0.5), u_flatten);\n"
-    "  v_wpos = vec3(xz.x, hf - a_pos.z * 3.0, xz.y); v_uv = uv; v_h = h;\n"
-    "  gl_Position = u_vp * vec4(v_wpos, 1.0);\n"
-    "}\n";
 
-static const char *terrain_fs =
-    "in vec3 v_wpos; in vec2 v_uv; in float v_h;\n"
-    "uniform sampler2D u_hm; uniform sampler2D u_terr; uniform vec2 u_texel; uniform float u_texel_world;\n"
-    "uniform vec3 u_campos; uniform float u_mapness; uniform vec3 u_sky; uniform float u_k;\n"
-    "uniform sampler2D u_ao; uniform float u_ao_on;\n"   // baked horizon occlusion (terrain_init): 1 = open sky, lower in valleys
-    "uniform vec3 u_nation_colors[11]; uniform float u_daylight; uniform float u_regions; uniform vec2 u_terr_texel;\n"
-    "uniform float u_flatten;\n"
-    "uniform sampler2D u_atlas; uniform float u_has_atlas;\n"   // ground material atlas (assets/terrain/terrain_textures.png, 6x3 cells)
-    GLSL_TERRAIN_DETAIL
-    "out vec4 fragColor;\n"
-    // One cell of the atlas, tiled: the uv wraps inside the cell by hand (an atlas cannot use
-    // the sampler's repeat) and the derivatives come from the *unwrapped* coordinate, so the
-    // mip level is continuous across the wrap and the seam does not show. Cells are inset a
-    // little to keep the neighbour's texels out of the bilinear footprint.
-    "vec3 atlas_cell(int cell, vec2 p) {\n"
-    "  vec2 f = fract(p);\n"
-    "  vec2 cuv = (vec2(float(cell - (cell / 6) * 6), float(cell / 6)) + 0.012 + f * 0.976) / vec2(6.0, 3.0);\n"
-    "  vec2 ddx = dFdx(p) * (0.976 / 6.0), ddy = dFdy(p) * (0.976 / 6.0);\n"
-    "  return textureGrad(u_atlas, cuv, ddx, ddy).rgb;\n"
-    "}\n"
-    "float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }\n"
-    "float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n"
-    "  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }\n"
-    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_FOG
-    "void main(){\n"
-    "  float hl = texture(u_hm, v_uv - vec2(u_texel.x,0)).r, hr = texture(u_hm, v_uv + vec2(u_texel.x,0)).r;\n"
-    "  float hu = texture(u_hm, v_uv - vec2(0,u_texel.y)).r, hd = texture(u_hm, v_uv + vec2(0,u_texel.y)).r;\n"
-    "  float gx = (hr-hl)/(2.0*u_texel_world), gz = (hd-hu)/(2.0*u_texel_world);\n"
-    // The streamed detail moves the surface, so it has to light it too: without this the relief
-    // the rings add is shaded by the base map's normals and reads as flat painted ground.
-    "  float dk = 1.0 - u_flatten;\n"
-    "  if (dk > 0.01) {\n"
-    "    float e = det_step(v_wpos.xz);\n"
-    "    gx += dk * (det_at(v_wpos.xz + vec2(e,0.0)) - det_at(v_wpos.xz - vec2(e,0.0))) / (2.0*e);\n"
-    "    gz += dk * (det_at(v_wpos.xz + vec2(0.0,e)) - det_at(v_wpos.xz - vec2(0.0,e))) / (2.0*e);\n"
-    "  }\n"
-    "  vec3 n = normalize(vec3(-gx, 1.0, -gz));\n"
-    "  float h = v_h; float lat = -v_wpos.z / u_k; float lon = v_wpos.x / u_k;\n"
-    "  float slope = 1.0 - n.y;\n"
-    "  float nz = noise(v_wpos.xz*0.9) * 0.6 + noise(v_wpos.xz*3.7)*0.4;\n"
-    "  vec3 sand  = vec3(0.78,0.72,0.52);\n"
-    "  vec3 grass = mix(vec3(0.33,0.50,0.22), vec3(0.22,0.38,0.16), nz);\n"
-    "  vec3 dry   = mix(vec3(0.55,0.50,0.32), vec3(0.45,0.42,0.28), nz);\n"
-    "  vec3 rock  = vec3(0.46,0.43,0.40);\n"
-    "  vec3 snow  = vec3(0.93,0.94,0.96);\n"
-    "  vec3 desert= mix(vec3(0.86,0.74,0.48), vec3(0.80,0.66,0.42), nz);\n"
-    "  vec3 tundra= mix(vec3(0.55,0.58,0.48), vec3(0.70,0.72,0.68), nz);\n"
-    // Mediterranean scrub: between the olive belt and the Alps the lowland green goes dry and
-    // silvery (the reference art's hills are olive, not Irish). Cliffs come in earlier and harder
-    // than they used to: the ridged relief is steep, and rock is what a steep face shows.
-    "  float med = smoothstep(32.0, 35.5, abs(lat)) * (1.0 - smoothstep(44.5, 47.5, abs(lat))) * smoothstep(-12.0, -6.0, lon) * (1.0 - smoothstep(40.0, 44.0, lon));\n"
-    "  vec3 scrub = mix(vec3(0.42,0.50,0.27), vec3(0.55,0.53,0.33), nz);\n"
-    "  float wgrass = smoothstep(0.15, 0.6, h), wdry = smoothstep(2.5, 5.0, h), wrock = smoothstep(0.17, 0.42, slope), wsnow = smoothstep(6.5, 8.5, h) * (1.0 - smoothstep(0.55, 0.75, slope));\n"
-    "  vec3 c = mix(sand, mix(grass, scrub, med * 0.6), wgrass);\n"
-    "  c = mix(c, vec3(0.30, 0.40, 0.36), (1.0 - smoothstep(-1.4, 0.0, h)) * 0.9);\n"   // the sea floor: pale sand at the beach, dark silt and weed where it drops away
-    "  c = mix(c, dry, wdry);\n"
-    "  c = mix(c, rock, wrock);\n"
-    "  c = mix(c, rock * 0.72, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.8);\n"   // wet, dark rock at the waterline
-    "  c = mix(c, snow, wsnow);\n"
-    // deserts: sahara, arabia, northern mexico, atacama
-    "  float des = 0.0;\n"
-    "  des = max(des, (1.0-smoothstep(30.0,33.0,lat)) * smoothstep(13.0,16.0,lat) * smoothstep(-18.0,-14.0,lon) * (1.0-smoothstep(36.0,40.0,lon)));\n"
-    "  des = max(des, smoothstep(14.0,18.0,lat)*(1.0-smoothstep(30.0,34.0,lat))*smoothstep(35.0,38.0,lon));\n"
-    "  des = max(des, smoothstep(22.0,25.0,lat)*(1.0-smoothstep(32.0,35.0,lat))*smoothstep(-116.0,-112.0,lon)*(1.0-smoothstep(-103.0,-100.0,lon)));\n"
-    "  des = max(des, smoothstep(-30.0,-26.0,lat)*(1.0-smoothstep(-16.0,-14.0,lat))*smoothstep(-72.0,-70.0,lon)*(1.0-smoothstep(-66.0,-64.0,lon)));\n"
-    "  c = mix(c, desert, des * smoothstep(0.12, 0.5, h) * (1.0 - smoothstep(5.0, 7.0, h)));\n"
-    "  float cold = smoothstep(52.0, 64.0, abs(lat));\n"
-    "  c = mix(c, tundra, cold * smoothstep(0.3,1.0,h));\n"
-    "  c = mix(c, snow, smoothstep(64.0, 70.0, abs(lat)) * 0.8);\n"
-    // Textured ground (0.17): the atlas materials follow the same weights as the flat colours
-    // above, at two scales (fine repeats for the city and battle tiers, a coarse repeat that
-    // survives the regional view), triplanar for the rock so cliff faces are not smeared, and
-    // faded out with distance so the strategic map keeps its clean biome colours.
-    "  float dist0 = distance(v_wpos, u_campos);\n"
-    "  float tdet = (1.0 - smoothstep(90.0, 420.0, dist0)) * u_has_atlas * (1.0 - u_mapness);\n"
-    "  if (tdet > 0.01) {\n"
-    "    vec3 tw = pow(abs(n), vec3(6.0)); tw /= (tw.x + tw.y + tw.z);\n"
-    "    vec2 pxz = v_wpos.xz * 1.6, mxz = v_wpos.xz * 0.21;\n"
-    "    float far = smoothstep(8.0, 45.0, dist0);\n"                  // fine -> coarse repeat with distance
-    "    vec3 grassT  = mix(mix(atlas_cell(1, pxz), atlas_cell(13, pxz), 0.35), atlas_cell(1, mxz), far);\n"
-    "    vec3 scrubT  = mix(mix(atlas_cell(2, pxz), atlas_cell(14, pxz), 0.5), atlas_cell(11, mxz), far);\n"
-    "    vec3 sandT   = mix(atlas_cell(3, pxz), atlas_cell(10, mxz), far);\n"
-    "    vec3 dryT    = mix(mix(atlas_cell(9, pxz), atlas_cell(2, pxz), 0.4), atlas_cell(9, mxz), far);\n"
-    "    vec3 rockT   = atlas_cell(0, mix(pxz, mxz, far)) * tw.y + atlas_cell(0, mix(v_wpos.xy * 1.6, v_wpos.xy * 0.21, far)) * tw.z + atlas_cell(0, mix(v_wpos.zy * 1.6, v_wpos.zy * 0.21, far)) * tw.x;\n"
-    "    vec3 desertT = mix(atlas_cell(6, pxz), atlas_cell(5, mxz), 0.5 + 0.5 * far);\n"
-    "    vec3 tundraT = mix(atlas_cell(14, pxz), atlas_cell(16, mxz), 0.4 + 0.5 * far);\n"
-    "    vec3 t = mix(sandT, mix(grassT, scrubT, med * 0.7), wgrass);\n"
-    "    t = mix(t, dryT, wdry);\n"
-    "    t = mix(t, rockT, wrock);\n"
-    "    t = mix(t, rockT * 0.6, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.8);\n"
-    "    t = mix(t, mix(rockT, vec3(0.9, 0.92, 0.95), 0.8), wsnow);\n"
-    "    t = mix(t, desertT, des * smoothstep(0.12, 0.5, h) * (1.0 - smoothstep(5.0, 7.0, h)));\n"
-    "    t = mix(t, tundraT, cold * smoothstep(0.3, 1.0, h));\n"
-    "    vec3 ts = linear_to_srgb(t);\n"                                  // the atlas is sRGB-sampled (linear); the colour mix below is in sRGB
-    "    c = mix(c, ts * (0.55 + 0.45 * (c / max(ts, vec3(0.02)))), 0.78 * tdet);\n"   // keep the biome's hue, take the material's grain
-    "  }\n"
-    "  float diff = max(dot(n, u_sun), 0.0);\n"
-    // PBR: ground is a rough dielectric; rock/snow slightly smoother than vegetation
-    "  float rough = mix(0.95, 0.75, smoothstep(0.25, 0.6, slope) * 0.6 + smoothstep(6.5, 8.5, h) * 0.4);\n"
-    "  vec3 vdir = normalize(u_campos - v_wpos);\n"
-    "  float viewdist = distance(v_wpos, u_campos);\n"
-    "  float ao = u_ao_on > 0.5 ? mix(1.0, texture(u_ao, v_uv).r, 0.85) : 1.0;\n"
-    "  vec3 lit = sun_shade_ao(srgb_to_linear(c), n, vdir, v_wpos, rough, 0.0, viewdist, ao);\n"
-    // map style
-    "  vec4 tt = texture(u_terr, v_uv);\n"
-    "  int nid = int(tt.r * 255.0 + 0.5);\n"
-    "  float dev = tt.g * 255.0 / 80.0;\n"
-    "  float rid = tt.b, border = 0.0;\n"
-    "  if (u_regions > 0.5) { border += float(abs(texture(u_terr, v_uv + vec2(u_terr_texel.x,0)).b - rid) > 0.001); border += float(abs(texture(u_terr, v_uv + vec2(0,u_terr_texel.y)).b - rid) > 0.001); }\n"
-    "  vec3 parch = vec3(0.87,0.80,0.64) * (0.85 + 0.15*nz);\n"
-    "  vec3 owner = nid > 0 ? u_nation_colors[min(nid,10)] : parch;\n"
-    "  vec3 mapc = mix(parch, owner, nid > 0 ? 0.55 : 0.0);\n"
-    "  mapc *= 0.75 + 0.25 * diff;\n"
-    "  mapc = mix(mapc, mapc*0.45, smoothstep(6.0, 9.0, h)*0.6);\n"
-    "  float coastline = 1.0 - smoothstep(0.05, 0.28, h);\n"
-    "  mapc = mix(mapc, vec3(0.35,0.28,0.18), coastline*0.8);\n"
-    "  if (u_regions > 0.5) { vec3 devc = mix(vec3(0.55,0.50,0.40), vec3(0.95,0.85,0.45), clamp(dev/3.0,0.0,1.0)); mapc = mix(mapc, devc, 0.55); mapc = mix(mapc, vec3(0.15,0.10,0.05), min(border,1.0)*0.8); }\n"
-    "  vec3 col = mix(lit, srgb_to_linear(mapc) * u_daylight, u_mapness);\n"
-    "  col = fog_apply(col, viewdist, u_mapness, srgb_to_linear(u_sky));\n"
-    "  fragColor = vec4(col, 1.0);\n"
-    "}\n";
 
 
 static void build_lod(int lod) {
@@ -228,7 +73,7 @@ void terrain_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
     static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", GLSL_LIGHT_UNIFORMS, 0 };
-    terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = terrain_vs, .fs = terrain_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
+    terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("terrain/terrain.vert"), .fs = shader_source("terrain/terrain.frag"), .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int i = 0; i < LODS; ++i) build_lod(i);
     tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, heightmap);
     {   // Horizon occlusion (DESIGN_VISUAL.md step 9): at half the heightmap's resolution, the

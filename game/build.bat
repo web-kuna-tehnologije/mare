@@ -39,8 +39,9 @@ if "%1"=="debug" set FLAGS=/Zi /Od /MTd
 cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\core\diag.cc /Fo:diag.obj || exit /b 1
 cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\core\worker_pool.cc /Fo:jobs.obj || exit /b 1
 cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\engine\entity_manager.cc /Fo:entities.obj || exit /b 1
+cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\engine\shader_library.cc /Fo:shaders.obj || exit /b 1
 cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\game\weather.cc /Fo:weather.obj || exit /b 1
 cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\game\game_entities.cc /Fo:gament.obj || exit /b 1
-cl %COMMON% %LANG_C% /MP %FLAGS% /I. game\mare.c diag.obj jobs.obj entities.obj weather.obj gament.obj /Fe:mare.exe || exit /b 1
-del mare.obj diag.obj jobs.obj entities.obj weather.obj gament.obj >nul 2>nul
+cl %COMMON% %LANG_C% /MP %FLAGS% /I. game\mare.c diag.obj jobs.obj entities.obj shaders.obj weather.obj gament.obj /Fe:mare.exe || exit /b 1
+del mare.obj diag.obj jobs.obj entities.obj shaders.obj weather.obj gament.obj >nul 2>nul
 echo done: mare.exe  (logs are written to .\logs\ next to the executable)

@@ -13,7 +13,7 @@ get_filename_component(V3_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 
 # The ported C++ code behind the C ABIs in src/core/*.h and src/engine/entities.h.
 set(MARE_CORE_CXX src/core/diag.cc src/core/worker_pool.cc)
-set(MARE_ENGINE_CXX src/engine/entity_manager.cc)
+set(MARE_ENGINE_CXX src/engine/entity_manager.cc src/engine/shader_library.cc)
 set(MARE_GAME_CXX src/game/weather.cc src/game/game_entities.cc)
 
 # The C11 unity build of the unported modules, plus the C++ units linked alongside.

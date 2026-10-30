@@ -7,6 +7,7 @@
 #include "glsl.h"
 #include "../core/types.h"
 #include "../core/util.h"
+#include "../engine/shaders.h"
 
 const rhi_texture_t *terrain_heightmap_texture(void);
 
@@ -24,182 +25,15 @@ static rhi_pipeline_t meshes_prg;
 // instead of into it (a luffing sail). A square sail pressed back by a head wind stops at its
 // mast - the middle holds, the leeches blow past. Flags stream in the apparent wind. Both the
 // main and the depth pass run this, so a sail's shadow is the sail's shape.
-#define GLSL_CLOTH \
-    "  float cm = a_rm.y * 32.0; float cwq = floor(cm + 1e-4); float cw = cwq / 31.0; float cu = fract(cm + 1e-4) * 2.0 - 1.0;\n" \
-    "  float isc = i_fx.y > 0.5 ? 1.0 : 0.0; vec3 cnrm = a_nrm;\n" \
-    "  if (isc > 0.5 && cwq > 0.5) {\n" \
-    "    float wxs = i_fx.z * c - i_fx.w * s, wzs = i_fx.z * s + i_fx.w * c;\n"   /* the wind in the ship's frame: along (+ = from astern), across (+ = to starboard) */ \
-    "    float wstr = length(i_fx.zw);\n" \
-    "    float way = clamp(i_misc.x, 0.0, 1.2) * 0.5;\n"                          /* how much way she has on: moored 0.12, under sail 0.3-0.5 */ \
-    "    float hw = a_rm.x * i_scol.x;\n" \
-    "    float ph0 = i_pos.x * 0.7 + i_pos.z * 0.5;\n" \
-    "    if (a_mat > 0.5) {\n" \
-    /* a flag: this vertex sits cw of the way along a ribbon of length hw that the mesh trails \
-       aft; swing it to the apparent wind (her own way adds a head wind), droop it in a light \
-       air, ripple it along its length */ \
-    "      vec2 aw = vec2(wxs - way * 0.8, wzs); float al = length(aw);\n" \
-    "      vec2 fd = al > 1e-3 ? aw / al : vec2(-1.0, 0.0);\n" \
-    "      float L = hw * cw, lift = clamp(al / 0.6, 0.0, 1.0);\n" \
-    "      vec3 side = vec3(-fd.y, 0.0, fd.x);\n" \
-    "      float fph = u_time * (4.0 + 6.0 * al) - cw * 9.0 + ph0;\n" \
-    "      p.x += L * (fd.x + 1.0); p.z += L * fd.y;\n" \
-    "      p.y -= L * 0.6 * (1.0 - lift) * cw;\n" \
-    "      p += side * (L * 0.10 * sin(fph) * lift) + vec3(0.0, L * 0.05 * sin(fph * 1.3 + 1.0), 0.0);\n" \
-    "      cnrm = normalize(side + vec3(0.0, 0.35 * cos(fph), 0.0));\n" \
-    "    } else {\n" \
-    /* a sail: pressure is the wind through the canvas. A square sail (normal along the hull) \
-       also draws from the ship's own way, so a ship under sail is never shown with slack \
-       canvas; a lateen is sheeted to one side and so always holds a little shape */ \
-    "      float press = wxs * cnrm.x + wzs * cnrm.z;\n" \
-    "      float fill = abs(cnrm.x) > 0.5 ? press + way * 0.9 : (abs(press) < 0.15 ? 0.15 : press);\n" \
-    "      float mag = clamp(abs(fill), 0.0, 1.4), dir = fill < 0.0 ? -1.0 : 1.0;\n" \
-    "      float fn = 0.3 + 0.7 * min(mag, 1.0);\n" \
-    "      float prof = sin(3.14159 * min(cw * 0.82, 1.0));\n"              /* zero at the yard, fullest two thirds down, held at the foot */ \
-    "      float across = 0.35 + 0.65 * cos(cu * 1.5708);\n"               /* the leeches are held by their bowlines */ \
-    "      float belly = hw * 0.28 * fn * prof * across;\n" \
-    "      if (dir < 0.0 && abs(cnrm.x) > 0.5) belly *= 0.25 + 0.5 * abs(cu);\n"   /* aback: the mast stops the middle of the sail */ \
-    "      belly *= dir * (1.0 + 0.06 * sin(u_time * 1.3 + ph0));\n" \
-    "      float luff = 1.0 - clamp(mag / 0.35, 0.0, 1.0);\n" \
-    "      float fph = u_time * (3.0 + 4.0 * wstr) + cu * 6.0 + cw * 4.0 + ph0;\n" \
-    "      float flut = hw * (0.012 + 0.06 * luff) * cw * sin(fph);\n" \
-    "      p += cnrm * (belly + flut);\n" \
-    "      p.y += hw * 0.01 * cw * sin(fph * 1.31 + 2.2);\n" \
-    "      vec3 ct = vec3(-cnrm.z, 0.0, cnrm.x);\n"                        /* across the panel, the way cu grows */ \
-    "      cnrm = normalize(cnrm - vec3(0.0, 0.45 * dir * fn * cos(3.14159 * cw * 0.82) * across, 0.0) + ct * (0.6 * dir * fn * sin(cu * 1.5708) * prof));\n" \
-    "    }\n" \
-    "  }\n"
 
-static const char *meshes_vs =
-    "in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in float a_mat; in vec2 a_rm;\n"
-    "in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx;\n"   // xyz+heading | scale+rgb | sway, highlight, bob, x-stretch | dither, reserved
-    "uniform mat4 u_vp; uniform float u_time;\n"
-    "uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;\n"
-    "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;\n"
-    "out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither;\n"
-    GLSL_WAVES
-    "void main(){\n"
-    "  v_dither = i_fx.x;\n"
-    "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
-    "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
-    GLSL_CLOTH
-    /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
-       never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, \
-       or caught in a storm), so anchored ships barely stir while a storm throws them about. */ \
-    "  float ph = i_pos.x*3.0 + i_pos.z*2.0;\n"
-    "  float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.045;\n"
-    "  float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.022;\n"
-    "  float cr = cos(roll), sr = sin(roll), cp = cos(pitch), sp = sin(pitch);\n"
-    "  p = vec3(p.x, p.y*cr - p.z*sr, p.y*sr + p.z*cr);\n"
-    "  p = vec3(p.x*cp - p.y*sp, p.x*sp + p.y*cp, p.z);\n"
-    "  vec3 n = vec3(cnrm.x, cnrm.y*cr - cnrm.z*sr, cnrm.y*sr + cnrm.z*cr);\n"
-    "  n = vec3(n.x*cp - n.y*sp, n.x*sp + n.y*cp, n.z);\n"
-    "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;\n"
-    "  wp.y += i_misc.z * (sin(u_time*1.10 + i_pos.x*2.0) * 0.02 + sin(u_time*0.47 + i_pos.z*1.3) * 0.012);\n"
-    /* Floating instances (i_misc.z, the bob flag) ride the Gerstner swell the sea pass draws:
-       the hull is lifted to the surface at its own position and sheared by the surface slope, so
-       a ship pitches into a trough instead of sailing through it. The shadow pass applies the
-       same transform, so the shadow stays under the ship. */ \
-    "  float wamp = u_wave_amp * i_misc.z;\n"
-    "  if (wamp > 0.0) wamp *= wave_depth_fade(u_hm, i_pos.xz, u_geo, u_wk, u_wave_scale, u_local_depth);\n"
-    "  vec3 wtx, wtz; float wcrest;\n"
-    "  vec3 wdisp = wave_sum(i_pos.xz, wamp, u_wave_scale, 0.0, wtx, wtz, wcrest);\n"
-    "  vec3 wup = normalize(cross(wtz, wtx));\n"
-    "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
-    "  v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);\n"
-    "  v_col = mix(a_col, i_scol.yzw, a_mat);\n"
-    "  v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(mix(a_rm.x, 0.9, isc), mix(a_rm.y, 0.0, isc));\n"
-    "  gl_Position = u_vp * vec4(wp, 1.0);\n"
-    "}\n";
-static const char *meshes_fs =
-    "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither;\n"
-    "uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform sampler2D u_grain;\n"
-    "out vec4 fragColor;\n"
-    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_NMAP GLSL_FOG GLSL_DITHER
-    "void main(){\n"
-    "  dither_clip(v_dither);\n"
-    "  vec3 n = normalize(v_nrm);\n"
-    "  vec3 albedo = srgb_to_linear(v_col);\n"
-    "  vec3 vdir = normalize(u_campos - v_wpos);\n"
-    // Two-sided shading: sails, flags and roof slopes are single-quad surfaces drawn without
-    // backface culling, so flip the flat normal towards the viewer instead of letting whole
-    // faces fall into the ambient-only floor.
-    "  if (dot(n, vdir) < 0.0) n = -n;\n"
-    // triplanar surface grain, fading with distance so far meshes keep their clean silhouette;
-    // rougher materials (wood, cloth, stone) get more relief than painted ones
-    "  float dist0 = distance(v_wpos, u_campos);\n"
-    "  float grain = v_rm.x * 0.42 * (1.0 - smoothstep(30.0, 120.0, dist0));\n"
-    "  if (grain > 0.01) n = nmap_triplanar(u_grain, v_wpos * 1.6, n, 1.0, grain);\n"
-    "  float dist = dist0;\n"
-    "  vec3 c = sun_shade(albedo, n, vdir, v_wpos, v_rm.x, v_rm.y, dist);\n"
-    "  c = mix(c, srgb_to_linear(vec3(1.0,0.95,0.6)) * 1.6, v_sel * 0.35);\n"   // selection tint
-    "  c = fog_apply(c, dist, u_mapness, srgb_to_linear(u_sky));\n"
-    "  fragColor = vec4(c, 1.0);\n"
-    "}\n";
 
 // depth-only variant for the shadow cascades: same instance transform, no shading
-static const char *depth_vs =
-    "in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in float a_mat; in vec2 a_rm;\n"
-    "in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx;\n"
-    "uniform mat4 u_vp; uniform float u_time;\n"
-    "uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;\n"
-    "uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;\n"
-    "out float v_dither;\n"
-    GLSL_WAVES
-    "void main(){\n"
-    "  v_dither = i_fx.x;\n"
-    "  float h = i_pos.w; float c = cos(h), s = sin(h);\n"
-    "  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;\n"
-    GLSL_CLOTH
-    /* Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period \
-       never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, \
-       or caught in a storm), so anchored ships barely stir while a storm throws them about. */ \
-    "  float ph = i_pos.x*3.0 + i_pos.z*2.0;\n"
-    "  float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.045;\n"
-    "  float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.022;\n"
-    "  float cr = cos(roll), sr = sin(roll), cp = cos(pitch), sp = sin(pitch);\n"
-    "  p = vec3(p.x, p.y*cr - p.z*sr, p.y*sr + p.z*cr);\n"
-    "  p = vec3(p.x*cp - p.y*sp, p.x*sp + p.y*cp, p.z);\n"
-    "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;\n"
-    "  wp.y += i_misc.z * (sin(u_time*1.10 + i_pos.x*2.0) * 0.02 + sin(u_time*0.47 + i_pos.z*1.3) * 0.012);\n"
-    /* Floating instances (i_misc.z, the bob flag) ride the Gerstner swell the sea pass draws:
-       the hull is lifted to the surface at its own position and sheared by the surface slope, so
-       a ship pitches into a trough instead of sailing through it. The shadow pass applies the
-       same transform, so the shadow stays under the ship. */ \
-    "  float wamp = u_wave_amp * i_misc.z;\n"
-    "  if (wamp > 0.0) wamp *= wave_depth_fade(u_hm, i_pos.xz, u_geo, u_wk, u_wave_scale, u_local_depth);\n"
-    "  vec3 wtx, wtz; float wcrest;\n"
-    "  vec3 wdisp = wave_sum(i_pos.xz, wamp, u_wave_scale, 0.0, wtx, wtz, wcrest);\n"
-    "  vec3 wup = normalize(cross(wtz, wtx));\n"
-    "  wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);\n"
-    "  gl_Position = u_vp * vec4(wp, 1.0);\n"
-    "}\n";
 // Gunsmoke: the same instanced geometry, but shaded as a soft translucent volume instead of a
 // solid surface - alpha falls off towards the silhouette, so the sphere reads as a puff rather
 // than a ball. Blended, depth-tested but not depth-written, drawn after the sea.
-static const char *smoke_fs =
-    "in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither;\n"
-    "uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness;\n"
-    "out vec4 fragColor;\n"
-    GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_FOG
-    "void main(){\n"
-    "  vec3 n = normalize(v_nrm);\n"
-    "  vec3 vdir = normalize(u_campos - v_wpos);\n"
-    "  if (dot(n, vdir) < 0.0) n = -n;\n"
-    "  float facing = max(dot(n, vdir), 0.0);\n"
-    "  vec3 albedo = srgb_to_linear(v_col);\n"
-    "  float sh = shadow_at(v_wpos, n, max(dot(n, u_sun), 0.0), distance(v_wpos, u_campos));\n"
-    // soft, mostly ambient lighting: smoke scatters rather than reflects
-    "  vec3 c = albedo * (u_ambsky * 0.9 + u_ambgnd * 0.4 + u_suncol * 0.16 * sh * max(dot(n, u_sun), 0.0));\n"
-    "  c = fog_apply(c, distance(v_wpos, u_campos), u_mapness, srgb_to_linear(u_sky));\n"
-    "  fragColor = vec4(c, smoothstep(0.0, 0.75, facing) * 0.72);\n"
-    "}\n";
 static rhi_pipeline_t smoke_prg;
 
-static const char *depth_fs =
-    "in float v_dither;\n"
-    "out vec4 fragColor;\n"
-    GLSL_DITHER
-    "void main(){ dither_clip(v_dither); fragColor = vec4(1.0); }\n";   // shadows cross-fade with the meshes
+   // shadows cross-fade with the meshes
 static rhi_pipeline_t depth_prg;
 
 // ---------------------------------------------------------------------------
@@ -337,9 +171,9 @@ void meshes_init(void) {
     static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain",
                                       "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const char *depth_uniforms[] = { "u_vp", "u_time", "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, 0 };
-    meshes_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = meshes_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
-    depth_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = depth_vs, .fs = depth_fs, .layout = &mesh_layout, .uniforms = depth_uniforms, .depth_test = 1, .depth_write = 1 });
-    smoke_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = meshes_vs, .fs = smoke_fs, .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 0, .blend = RHI_BLEND_ALPHA });
+    meshes_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("meshes/meshes.vert"), .fs = shader_source("meshes/meshes.frag"), .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
+    depth_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("meshes/depth.vert"), .fs = shader_source("meshes/depth.frag"), .layout = &mesh_layout, .uniforms = depth_uniforms, .depth_test = 1, .depth_write = 1 });
+    smoke_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("meshes/meshes.vert"), .fs = shader_source("meshes/smoke.frag"), .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 0, .blend = RHI_BLEND_ALPHA });
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) build_ship(t, l);
     build_buildings();
     build_puff();

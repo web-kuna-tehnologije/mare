@@ -10,58 +10,13 @@
 #include "camera.h"
 #include "../core/util.h"
 #include "../core/diag.h"
+#include "../engine/shaders.h"
 
 float hdr_exposure = 1.f;
 static rhi_target_t hdr_target;
 static rhi_pipeline_t tonemap_prg;
 static rhi_geometry_t fs_tri;
 
-static const char *tonemap_vs =
-    "in vec2 a_pos;\n"
-    "out vec2 v_uv;\n"
-    "void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }\n";
-static const char *tonemap_fs =
-    "in vec2 v_uv;\n"
-    "uniform sampler2D u_scene; uniform float u_exposure; uniform sampler2D u_ao; uniform float u_ao_mix; uniform vec2 u_ao_texel;\n"
-    "uniform sampler2D u_bloom; uniform float u_bloom_mix;\n"
-    "uniform sampler2D u_depth; uniform mat4 u_inv_vp; uniform vec3 u_campos; uniform vec3 u_sun; uniform vec3 u_suncol;\n"
-    "uniform vec4 u_vfog;\n"       // x = density, y = scale height, z = sun in-scatter strength, w = max distance
-    "uniform vec3 u_vfogcol;\n"
-    "out vec4 fragColor;\n"
-    GLSL_COLOR
-    "void main(){\n"
-    "  vec3 c = texture(u_scene, v_uv).rgb * u_exposure;\n"
-    // --- volumetric fog. Density falls off exponentially with height, so the integral along the
-    // view ray has a closed form: no marching, and a valley fills while a hilltop stays clear.
-    // Looking towards the sun through it, the fog scatters his light back - haze glows, a storm
-    // does not. Driven by the weather, so clear air is left alone.
-    "  if (u_vfog.x > 0.0001) {\n"
-    "    float z = texture(u_depth, v_uv).r;\n"
-    "    vec4 wp = u_inv_vp * vec4(v_uv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0);\n"
-    "    vec3 P = wp.xyz / wp.w;\n"
-    "    vec3 V = P - u_campos; float L = min(length(V), u_vfog.w);\n"
-    "    vec3 dir = L > 1e-4 ? V / max(length(V), 1e-4) : vec3(0.0, 0.0, 1.0);\n"
-    "    float H = max(u_vfog.y, 1.0);\n"
-    "    float d0 = u_vfog.x * exp(-max(u_campos.y, 0.0) / H);\n"
-    "    float opt = abs(dir.y) > 1e-3 ? d0 * H / dir.y * (1.0 - exp(-dir.y * L / H)) : d0 * L;\n"
-    "    float f = 1.0 - exp(-max(opt, 0.0));\n"
-    "    float cs = max(dot(dir, u_sun), 0.0);\n"
-    "    vec3 fogc = u_vfogcol + u_suncol * pow(cs, 7.0) * u_vfog.z;\n"
-    "    c = mix(c, fogc, clamp(f, 0.0, 1.0));\n"
-    "  }\n"
-    "  if (u_bloom_mix > 0.001) c += texture(u_bloom, v_uv).rgb * u_bloom_mix;\n"
-    // ambient occlusion (hdr_ao_pass, half resolution): four bilinear taps blur the noise
-    "  if (u_ao_mix > 0.001) {\n"
-    "    float ao = (texture(u_ao, v_uv + u_ao_texel * vec2(-0.5, -0.5)).r + texture(u_ao, v_uv + u_ao_texel * vec2(0.5, -0.5)).r\n"
-    "              + texture(u_ao, v_uv + u_ao_texel * vec2(-0.5, 0.5)).r + texture(u_ao, v_uv + u_ao_texel * vec2(0.5, 0.5)).r) * 0.25;\n"
-    "    c *= mix(1.0, ao, u_ao_mix);\n"
-    "  }\n"
-    // Reinhard-style shoulder on luminance: keeps midtones, rolls highlights off smoothly
-    "  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
-    "  const float W = 3.0;  float lt = l * (1.0 + l / (W * W)) / (1.0 + l);\n"
-    "  c *= l > 1e-5 ? lt / l : 1.0;\n"
-    "  fragColor = vec4(linear_to_srgb(c), 1.0);\n"   // the only place linear becomes sRGB
-    "}\n";
 
 // Screen-space ambient occlusion (DESIGN_VISUAL.md step 9), at half resolution from the HDR
 // depth. World position comes back through the inverse view-projection, the normal from its
@@ -79,69 +34,19 @@ float hdr_ssao_strength = 0.7f; int hdr_ssao_enabled = 1;
 // light source rather than a white circle.
 static rhi_target_t bloom_a, bloom_b; static rhi_pipeline_t bright_prg, blur_prg;
 float hdr_bloom = 0.55f; int hdr_bloom_enabled = 1;
-static const char *bright_fs =
-    "in vec2 v_uv; out vec4 fragColor;\n"
-    "uniform sampler2D u_scene; uniform float u_threshold; uniform float u_exposure;\n"
-    "void main(){\n"
-    "  vec3 c = texture(u_scene, v_uv).rgb * u_exposure;\n"
-    "  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
-    "  float k = max(l - u_threshold, 0.0) / max(l, 1e-4);\n"
-    "  fragColor = vec4(c * k, 1.0);\n"
-    "}\n";
-static const char *blur_fs =
-    "in vec2 v_uv; out vec4 fragColor;\n"
-    "uniform sampler2D u_src; uniform vec2 u_dir;\n"      // u_dir: one texel along the blur axis
-    "void main(){\n"
-    "  const float w[5] = float[5](0.227027, 0.194595, 0.121622, 0.054054, 0.016216);\n"
-    "  vec3 c = texture(u_src, v_uv).rgb * w[0];\n"
-    "  for (int i = 1; i < 5; ++i) { vec2 o = u_dir * float(i) * 1.3; c += (texture(u_src, v_uv + o).rgb + texture(u_src, v_uv - o).rgb) * w[i]; }\n"
-    "  fragColor = vec4(c, 1.0);\n"
-    "}\n";
-static const char *ao_fs =
-    "in vec2 v_uv; out vec4 fragColor;\n"
-    "uniform sampler2D u_depth; uniform mat4 u_inv_vp; uniform mat4 u_vp; uniform vec3 u_campos; uniform vec2 u_texel; uniform float u_on;\n"
-    "vec3 wpos_at(vec2 uv, float z) { vec4 w = u_inv_vp * vec4(uv * 2.0 - 1.0, z * 2.0 - 1.0, 1.0); return w.xyz / w.w; }\n"
-    "float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n"
-    "void main(){\n"
-    "  float z = texture(u_depth, v_uv).r;\n"
-    "  if (u_on < 0.5 || z >= 0.99999) { fragColor = vec4(1.0); return; }\n"
-    "  vec3 P = wpos_at(v_uv, z);\n"
-    "  vec3 N = normalize(cross(dFdx(P), dFdy(P)));\n"
-    "  if (dot(N, u_campos - P) < 0.0) N = -N;\n"
-    "  float dist = distance(P, u_campos);\n"
-    "  if (dist > 220.0) { fragColor = vec4(1.0); return; }\n"
-    "  float R = 0.28 + 0.022 * dist;\n"
-    "  float rot = hash(v_uv * 1000.0) * 6.2831853;\n"
-    "  float occ = 0.0;\n"
-    "  for (int i = 0; i < 8; ++i) {\n"
-    "    float a = rot + float(i) * 0.7853982; float e = 0.35 + 0.6 * fract(float(i) * 0.618034 + hash(v_uv * 300.0 + float(i)));\n"
-    "    vec3 s = vec3(cos(a) * e, 0.0, sin(a) * e);\n"
-    "    vec3 up = abs(N.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);\n"
-    "    vec3 tx = normalize(cross(up, N)), tz = cross(N, tx);\n"
-    "    vec3 dir = tx * s.x + tz * s.z + N * (0.25 + 0.5 * e);\n"
-    "    vec3 Q = P + dir * R * (0.3 + 0.7 * float(i + 1) / 8.0);\n"
-    "    vec4 c = u_vp * vec4(Q, 1.0); vec2 uv2 = c.xy / c.w * 0.5 + 0.5;\n"
-    "    if (uv2.x < 0.0 || uv2.x > 1.0 || uv2.y < 0.0 || uv2.y > 1.0) continue;\n"
-    "    float z2 = texture(u_depth, uv2).r; vec3 Pq = wpos_at(uv2, z2);\n"
-    "    float dq = distance(Pq, u_campos), dQ = distance(Q, u_campos);\n"
-    "    float range = smoothstep(0.0, 1.0, R / max(abs(dq - dQ), 1e-4));\n"
-    "    occ += (dq < dQ - 0.03 * R ? 1.0 : 0.0) * range;\n"
-    "  }\n"
-    "  fragColor = vec4(vec3(1.0 - occ / 8.0), 1.0);\n"
-    "}\n";
 
 void hdr_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     static const char *uniforms[] = { "u_scene", "u_exposure", "u_ao", "u_ao_mix", "u_ao_texel", "u_bloom", "u_bloom_mix",
                                       "u_depth", "u_inv_vp", "u_campos", "u_sun", "u_suncol", "u_vfog", "u_vfogcol", 0 };
-    tonemap_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = tonemap_vs, .fs = tonemap_fs, .layout = &layout, .uniforms = uniforms });
+    tonemap_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("hdr/tonemap.frag"), .layout = &layout, .uniforms = uniforms });
     static const char *ao_uniforms[] = { "u_depth", "u_inv_vp", "u_vp", "u_campos", "u_texel", "u_on", 0 };
-    ao_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = tonemap_vs, .fs = ao_fs, .layout = &layout, .uniforms = ao_uniforms });
+    ao_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("hdr/ao.frag"), .layout = &layout, .uniforms = ao_uniforms });
     static const char *bright_uniforms[] = { "u_scene", "u_threshold", "u_exposure", 0 };
-    bright_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = tonemap_vs, .fs = bright_fs, .layout = &layout, .uniforms = bright_uniforms });
+    bright_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("hdr/bright.frag"), .layout = &layout, .uniforms = bright_uniforms });
     static const char *blur_uniforms[] = { "u_src", "u_dir", 0 };
-    blur_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = tonemap_vs, .fs = blur_fs, .layout = &layout, .uniforms = blur_uniforms });
+    blur_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("hdr/blur.frag"), .layout = &layout, .uniforms = blur_uniforms });
     { const char *b = getenv("MARE_BLOOM"); if (b) { hdr_bloom = clampf((float)atof(b), 0.f, 2.f); hdr_bloom_enabled = hdr_bloom > 0.f; LOG_INFO("gpu", "bloom %.2f (MARE_BLOOM)", hdr_bloom); } }
     float tri[] = { -1,-1, 3,-1, -1,3 };
     fs_tri = rhi_geometry_make(&layout, tri, 3, 0, 0);

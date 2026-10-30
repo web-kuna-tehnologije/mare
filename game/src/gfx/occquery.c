@@ -9,6 +9,7 @@
 #include "detailview.h"
 #include "../core/util.h"
 #include "../core/diag.h"
+#include "../engine/shaders.h"
 
 #define OCCQ_TABLE   8192         // instances tracked (power of two)
 #define OCCQ_MAX     768          // proxies drawn per frame; the rest count as visible
@@ -34,16 +35,6 @@ static int frame_no, active;
 static vec3 prev_pos, prev_fwd;
 static rhi_pipeline_t proxy_prg; static rhi_geometry_t proxy_geo; static int proxy_init;
 
-static const char *proxy_vs =
-    "in vec3 a_pos;\n"
-    "uniform mat4 u_vp; uniform vec4 u_pos; uniform vec4 u_bmin; uniform vec4 u_bmax;\n"   // u_pos: xyz + heading, u_bmin/u_bmax: bounds (w: scale)
-    "void main(){\n"
-    "  vec3 p = mix(u_bmin.xyz, u_bmax.xyz, a_pos) * u_bmin.w;\n"
-    "  float c = cos(u_pos.w), s = sin(u_pos.w);\n"
-    "  vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + u_pos.xyz;\n"
-    "  gl_Position = u_vp * vec4(wp, 1.0);\n"
-    "}\n";
-static const char *proxy_fs = "out vec4 fragColor; void main(){ fragColor = vec4(1.0); }\n";
 static const char *proxy_uniforms[] = { "u_vp", "u_pos", "u_bmin", "u_bmax", 0 };
 
 static void proxy_make(void) {
@@ -55,7 +46,7 @@ static void proxy_make(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3 * sizeof(float), 0 } };
     proxy_geo = rhi_geometry_make(&layout, v, 36, NULL, 0);
-    proxy_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = proxy_vs, .fs = proxy_fs, .layout = &layout, .uniforms = proxy_uniforms, .depth_test = 1, .depth_write = 0 });
+    proxy_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("occquery/proxy.vert"), .fs = shader_source("occquery/proxy.frag"), .layout = &layout, .uniforms = proxy_uniforms, .depth_test = 1, .depth_write = 0 });
     proxy_init = 1;
     LOG_INFO("gpu", "occlusion queries %s", rhi_occlusion_supported() ? "available: authored buildings are tested against the depth buffer" : "unsupported by this driver");
 }

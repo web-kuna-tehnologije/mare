@@ -23,6 +23,7 @@
 #include "../sim/settlement.h"
 #include "lod.h"
 #include "shipyard.h"
+#include "../engine/shaders.h"
 
 #define DV_SEA_AMP      0.45f        // staged wave height, relative to the map's (the sea is stretched x DV_SHIP_SCALE)
 #define DV_SHIP_SCALE   9.f          // world ship mesh -> local units (1 unit ~ 2.8 m: a ship of the line is ~19 units)
@@ -580,24 +581,6 @@ int detailview_submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.nins
 // ---------------------------------------------------------------------------
 // cloud overlay: procedural fbm clouds over the finished frame (after the tonemap)
 
-static const char *cloud_vs =
-    "in vec2 a_pos; out vec2 v_uv;\n"
-    "void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }\n";
-static const char *cloud_fs =
-    "in vec2 v_uv; uniform float u_cover, u_time, u_aspect;\n"
-    "out vec4 fragColor;\n"
-    "float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }\n"
-    "float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n"
-    "  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }\n"
-    "void main(){\n"
-    "  if (u_cover <= 0.001) discard;\n"
-    "  vec2 p = vec2(v_uv.x * u_aspect, v_uv.y) * 3.0 + vec2(u_time * 0.05, u_time * 0.013);\n"
-    "  float f = 0.0, a = 0.55; for (int i = 0; i < 5; ++i) { f += a * noise(p); p *= 2.03; a *= 0.5; }\n"
-    "  float edge = 1.05 - u_cover * 1.6;\n"                       // cover grows: threshold sweeps down through the fbm
-    "  float alpha = smoothstep(edge, edge + 0.38, f) * smoothstep(0.0, 0.08, u_cover);\n"
-    "  vec3 col = mix(vec3(0.78, 0.82, 0.88), vec3(0.98, 0.985, 1.0), f);\n"
-    "  fragColor = vec4(col, alpha);\n"
-    "}\n";
 
 void detailview_clouds(void) {
     float cover = dv_cover();
@@ -606,7 +589,7 @@ void detailview_clouds(void) {
         static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
         static const rhi_layout_t layout = { attrs, 1, { 2 * sizeof(float), 0 } };
         static const char *uniforms[] = { "u_cover", "u_time", "u_aspect", 0 };
-        dv.cloud_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = cloud_vs, .fs = cloud_fs, .layout = &layout, .uniforms = uniforms, .blend = RHI_BLEND_ALPHA });
+        dv.cloud_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("detailview/clouds.frag"), .layout = &layout, .uniforms = uniforms, .blend = RHI_BLEND_ALPHA });
         float tri[6] = { -1, -1, 3, -1, -1, 3 };
         dv.cloud_geo = rhi_geometry_make(&layout, tri, 3, 0, 0);
         dv.cloud_init = 1;

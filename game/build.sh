@@ -33,15 +33,16 @@ set -x
 $CXX -std=c++20 -c game/src/core/diag.cc -o mare_diag.o $FLAGS || exit 1
 $CXX -std=c++20 -pthread -c game/src/core/worker_pool.cc -o mare_jobs.o $FLAGS || exit 1
 $CXX -std=c++20 -c game/src/engine/entity_manager.cc -o mare_entities.o $FLAGS || exit 1
+$CXX -std=c++20 -c game/src/engine/shader_library.cc -o mare_shaders.o $FLAGS || exit 1
 $CXX -std=c++20 -c game/src/game/weather.cc -o mare_weather.o $FLAGS || exit 1
 $CXX -std=c++20 -c game/src/game/game_entities.cc -o mare_gament.o $FLAGS || exit 1
 if [ "$(uname)" = "Darwin" ]; then
     export SDKROOT=$(xcrun --show-sdk-path)
     $CC -ObjC -c game/mare.c -o mare_main.o -I. $FLAGS || exit 1
-    $CXX mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_weather.o mare_gament.o -o mare $FLAGS -framework cocoa -framework iokit -framework audiotoolbox || exit 1
+    $CXX mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_shaders.o mare_weather.o mare_gament.o -o mare $FLAGS -framework cocoa -framework iokit -framework audiotoolbox || exit 1
 else
     # dev packages (Debian/Ubuntu): gcc g++ libx11-dev libgl1-mesa-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libasound2-dev
     $CC -c game/mare.c -o mare_main.o -I. $FLAGS || exit 1
-    $CXX mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_weather.o mare_gament.o -o mare $FLAGS -lm -ldl -lpthread -lasound || exit 1
+    $CXX mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_shaders.o mare_weather.o mare_gament.o -o mare $FLAGS -lm -ldl -lpthread -lasound || exit 1
 fi
-rm -f mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_weather.o mare_gament.o
+rm -f mare_main.o mare_diag.o mare_jobs.o mare_shaders.o mare_entities.o mare_weather.o mare_gament.o

@@ -13,6 +13,7 @@
 
 #include "../core/math.hh"
 #include "../engine/entity.hh"
+#include "../engine/shaders.h"
 
 extern "C" {
 #include "../core/diag.h"
@@ -40,27 +41,6 @@ constexpr float WX_TAU = 3.0f;         // seconds the state takes to follow a ch
 
 float towards(float cur, float target, float dt) { return cur + (target - cur) * (1.f - std::exp(-dt / WX_TAU)); }
 
-// --- rain: three layers of streaks falling with the wind's slant, drawn over the finished frame
-const char *rain_vs = "in vec2 a_pos; out vec2 v_uv; void main(){ v_uv = a_pos * 0.5 + 0.5; gl_Position = vec4(a_pos, 0.0, 1.0); }\n";
-const char *rain_fs =
-    "in vec2 v_uv; uniform float u_rain, u_time, u_aspect, u_slant; out vec4 fragColor;\n"
-    "float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n"
-    "void main(){\n"
-    "  if (u_rain <= 0.001) discard;\n"
-    "  vec2 p = vec2(v_uv.x * u_aspect, v_uv.y);\n"
-    "  float a = 0.0;\n"
-    "  for (int i = 0; i < 3; ++i) {\n"
-    "    float sc = 70.0 + 45.0 * float(i);\n"
-    "    vec2 q = p * sc; q.x += q.y * u_slant * 0.45; q.y += u_time * (16.0 + 7.0 * float(i));\n"
-    "    vec2 cell = floor(q); float h = hash(cell);\n"
-    "    float on = step(0.86 - 0.3 * u_rain, hash(cell + vec2(7.0, 3.0)));\n"
-    "    float fx = fract(q.x), fy = fract(q.y);\n"
-    "    float streak = smoothstep(0.09, 0.0, abs(fx - 0.5 - (h - 0.5) * 0.5)) * smoothstep(0.0, 0.25, fy) * smoothstep(1.0, 0.7, fy);\n"
-    "    a += streak * on * (0.32 - 0.07 * float(i));\n"
-    "  }\n"
-    "  fragColor = vec4(vec3(0.78, 0.82, 0.90), clamp(a, 0.0, 1.0) * u_rain * 0.6);\n"
-    "}\n";
-
 } // namespace
 
 class Weather final : public engine::Entity {
@@ -76,7 +56,8 @@ public:
         static const rhi_layout_t layout = { attrs, 1, { 2 * sizeof(float), 0 } };
         static const char *uniforms[] = { "u_rain", "u_time", "u_aspect", "u_slant", nullptr };
         rhi_pipeline_desc_t desc = {};
-        desc.vs = rain_vs; desc.fs = rain_fs; desc.layout = &layout; desc.uniforms = uniforms; desc.blend = RHI_BLEND_ALPHA;
+        desc.vs = shader_source("common/fullscreen.vert"); desc.fs = shader_source("weather/rain.frag");
+        desc.layout = &layout; desc.uniforms = uniforms; desc.blend = RHI_BLEND_ALPHA;
         rain_prg_ = rhi_pipeline_make(&desc);
         float tri[6] = { -1, -1, 3, -1, -1, 3 };
         rain_geo_ = rhi_geometry_make(&layout, tri, 3, nullptr, 0);
