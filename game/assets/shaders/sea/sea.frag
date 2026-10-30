@@ -68,7 +68,13 @@ void main(){
   float warm = 1.0 - smoothstep(36.0, 50.0, abs(lat));
   shallow = mix(shallow, vec3(0.14, 0.56, 0.60), warm * 0.85);
   deep = mix(deep, vec3(0.015, 0.09, 0.26), warm * 0.7);
-  vec3 c = srgb_to_linear(mix(shallow, deep, 1.0 - exp(-depth*0.9)));
+  vec3 bodyc = mix(shallow, deep, 1.0 - exp(-depth*0.9));
+// Abyssal darkening: the old ramp saturated at `deep` by ~3 units, so a shelf edge and an
+// ocean basin read the same. The real bathymetry (GEBCO tiles) hangs the basins 2.5-4 units
+// down; past the shelf the body keeps losing light exponentially towards an abyssal
+// near-black, which is what draws the deep-water gradient over a trench.
+  bodyc *= mix(1.0, 0.28, 1.0 - exp(-max(depth - 1.2, 0.0) * 0.55));
+  vec3 c = srgb_to_linear(bodyc);
 // --- refraction (step 5 follow-up). The scene behind the surface, sampled where the
 // surface normal bends the view; what comes back is absorbed by the water column (red
 // first), so past a few units of depth the seabed - and whether a terrain chunk was drawn

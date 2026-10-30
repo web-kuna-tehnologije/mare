@@ -45,6 +45,23 @@ SHIP_MASTS_M = {        # mast assembly height, metres (sheet height minus freeb
     "coastal_trader_masts": 20, "cog_masts": 25, "fusta_masts": 20, "mediterranean_masts": 24,
     "armed_cog_masts": 28, "hulk_masts": 33, "carrack_masts": 37, "war_carrack_masts": 45,
 }
+# The per-type mast library (assets/ships/new_masts, imported by tools/blender_prepare_part.py
+# + blender_export_glb.py): one asset per mast *type*, shared across classes - gfx/shipyard.c
+# stands them at each class's stations. Heights are the explanation.txt rig spec against the
+# design-sheet hulls. The lateen yard (lantina) is its own asset so it can swing with the wind;
+# it keeps its authored pivot (the slung point is modelled at the origin). The bowsprit is a
+# fore-and-aft spar: fitted by length, pivot kept (modelled about its own centre).
+NEW_MASTS_M = {
+    "mast_cog_single": 25, "mast_cog_two": 30, "mast_carrack": 37, "mast_great_carrack": 45,
+    "mast_mizzen": 22, "mast_lateen_tall": 24, "lateen_yard": 26,
+    # the same sources imported whole (meshy_import.py naming) by a parallel session: keep
+    # them correctly typed whichever session regenerates the descriptors first
+    "cog_yard_mast": 25, "cog_two_yards_mast": 30, "carrack_mast": 37, "great_carrack_mast": 45,
+    "mizzen_mast": 22, "tall_lateen_mast": 24, "separated_lateen_yard": 26,
+}
+BOWSPRIT_M = {"bowsprit": 15}
+KEEP_PIVOT = {"lateen_yard", "bowsprit"}
+
 # A ship is only ever at LOD 0 when it fills the screen in battle view: the imported LOD 0 is
 # the original scan (hundreds of thousands of triangles), so it hands over far sooner than a
 # building does.
@@ -85,6 +102,10 @@ for name in sorted(os.listdir(root)):
     elif name in GROUND: typ, fit, size = "prop", "max", GROUND[name]
     elif name in SHIP_HULLS_M:
         typ, fit, size, px = "ship", "length", round(SHIP_HULLS_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
+    elif name in NEW_MASTS_M:
+        typ, fit, size, px = "ship_part", "height", round(NEW_MASTS_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
+    elif name in BOWSPRIT_M:
+        typ, fit, size, px = "ship_part", "length", round(BOWSPRIT_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
     elif name in SHIP_MASTS_M or MAST_PART_RE.match(name):
         # A split rig's parts (tools/blender_split_masts.py writes <assembly>_m0.._m2) are
         # fitted to their assembly's height; gfx/shipyard.c then scales each by the class's
@@ -96,14 +117,15 @@ for name in sorted(os.listdir(root)):
     # Buildings come out of Meshy facing -z in Blender terms, +z after the Y-up export (same as
     # the church). The ship scans are generated from side-view references and come out lying
     # along x, which is already heading 0, so they must not be rotated.
-    forward = "+x" if name in SHIP_FWD_X else "-x" if (name in SHIP_HULLS_M or name in SHIP_MASTS_M or MAST_PART_RE.match(name)) else "+z"
+    forward = "+x" if name in SHIP_FWD_X else "-x" if (name in SHIP_HULLS_M or name in SHIP_MASTS_M or MAST_PART_RE.match(name)
+                                                       or name in NEW_MASTS_M or name in BOWSPRIT_M) else "+z"
     desc = {
         "name": name, "type": typ, "role": name,
         "lods": [({"file": f, "node": f"{name}_LOD{i}", "dist": 0} if i == 0 else {"file": f, "node": f"{name}_LOD{i}", "px": px[i]}) for i, f in enumerate(lods)],
         "scale": {"fit": fit, "size": size},
         # A map chunk keeps its own origin: it is modelled with sea level at y = 0, and the
         # streamer places it at the tile centre at y = 0, so re-pivoting would sink or float it.
-        "pivot": "keep" if tile else "base_center", "forward": forward,
+        "pivot": "keep" if (tile or name in KEEP_PIVOT) else "base_center", "forward": forward,
         "materials": [{"match": "*", "rough": 0.85, "metal": 0, "bake_texture": True}],
         "collision": {"type": "aabb"},
     }

@@ -153,6 +153,7 @@ int terrainmap_bake_geography(const char *tiles_dir) {
     { const char *on = getenv("MARE_TERRAIN_GEO");
       if (on && atoi(on) == 0) { LOG_INFO("terrain", "geography fold off (MARE_TERRAIN_GEO=0)"); return 0; } }
     char fallback[512], probe[600];
+    if (!tiles_dir) tiles_dir = getenv("MARE_TERRAIN_DIR");   // same override terraintiles_init honours
     if (!tiles_dir) {   // the per-worktree tile set first, the shared one as the fallback (terraintiles.c)
         snprintf(fallback, sizeof fallback, "%s/terrain/tiles", asset_root());
         snprintf(probe, sizeof probe, "%s/height.json", fallback);

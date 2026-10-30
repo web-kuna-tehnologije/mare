@@ -4,7 +4,7 @@ in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx;
 uniform mat4 u_vp; uniform float u_time;
 uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;
 uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;
-out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither;
+out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet;
 #include "common/waves.glsl"
 void main(){
   v_dither = i_fx.x;
@@ -34,6 +34,9 @@ void main(){
   vec3 wdisp = wave_sum(i_pos.xz, wamp, u_wave_scale, 0.0, wtx, wtz, wcrest);
   vec3 wup = normalize(cross(wtz, wtx));
   wp.y += wdisp.y - (wup.x * (wp.x - i_pos.x) + wup.z * (wp.z - i_pos.z)) / max(wup.y, 0.35);
+// Wet band: how soaked this vertex is, 1 at the local water surface fading out over ~a fifth
+// of the hull's scale above it. Floating instances only - a town's foundations stay dry.
+  v_wet = i_misc.z > 0.0 ? clamp(1.0 - (wp.y - (i_pos.y + wdisp.y)) / (0.20 * i_scol.x), 0.0, 1.0) : 0.0;
   v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);
   v_col = mix(a_col, i_scol.yzw, a_mat);
   v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(mix(a_rm.x, 0.9, isc), mix(a_rm.y, 0.0, isc));

@@ -19,19 +19,18 @@ static double    tt_last_read_ms;
 
 // Sea level in the 16-bit heightfield, and the relief either side of it.
 //
-// Measured, not guessed - guessing floods continents. Sampling the cut tiles at known places
-// (tools/terrain_calibrate.py --probe) gives land 0.54 (Andes) .. 0.63 (Amazon, Alps) and sea
-// 0.22 (Atlantic abyss) .. 0.43 (shallow North Sea), so the shoreline sits at about 0.50.
-//
-// Note what those numbers say about the source: the Amazon lowland (0.612) and the Alps
-// (0.624) are a hundredth apart, while the oceans use half the range. This map spends its
-// dynamic range on bathymetry and compresses the land, so the authored *heights* are coarse
-// however they are scaled - the land scale below is stretched to pull some relief out of that
-// narrow band. The fine detail on land comes from the normal map, which is where a 32768
-// square source actually pays.
+// The tiles are cut from the real GEBCO export (assets/data/export-global) by
+// tools/terrain_from_gebco.py, which *defines* the encoding instead of the old AI map's
+// measured one: 0.5 is exactly sea level, the land half spans 0..9000 m linearly, and the
+// sea half 0..-12000 m sqrt-compressed (the cutter explains why: a linear real-metre shelf
+// put the whole north Adriatic at ~0.04 units and washed every coastal sea into the shallow
+// colour). Decoded through the linear scales below: Mont Blanc (3600 m at the export's 3 km
+// sampling) ~10 units, the Dinaric crest ~5.6; the -70 m shelf ~0.7 units down, the Ionian
+// deep ~4.8 - the band the shallows gate and the sea-floor darkening were tuned for. The old
+// AI-map cut is kept in terrain/tiles-aimap; MARE_TERRAIN_DIR points at any cut for A/B runs.
 #define TT_SEA           0.500f
-#define TT_HEIGHT_SCALE  28.0f
-#define TT_DEPTH_SCALE    9.0f
+#define TT_HEIGHT_SCALE  28.0f      // world units for the full 9000 m land range
+#define TT_DEPTH_SCALE    9.0f      // world units for the full 12000 m depth range
 
 // ---------------------------------------------------------------------------
 // index
@@ -95,6 +94,7 @@ int terraintiles_init(const char *dir) {
     // cannot invent. MARE_TERRAIN_TILES=0 brings the old purely procedural world back.
     { const char *on = getenv("MARE_TERRAIN_TILES");
       if (on && atoi(on) == 0) { LOG_INFO("terrain", "streamed terrain tiles off (MARE_TERRAIN_TILES=0)"); return 0; } }
+    if (!dir) dir = getenv("MARE_TERRAIN_DIR");           // A/B: point at any other tile cut
     if (!dir) dir = tt_default_dir(fallback, sizeof fallback);
     terraintiles_shutdown();
     const char *e = getenv("MARE_TERRAIN_MB");
