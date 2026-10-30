@@ -72,6 +72,7 @@ void rhi_viewport(int x, int y, int w, int h);                   // sub-rect of 
 void rhi_target_clear_depth(const rhi_target_t *t);              // bind a depth-only target and clear it
 void rhi_target_free(rhi_target_t *t);                           // for resize (recreate after)
 void rhi_target_begin(const rhi_target_t *t, float r, float g, float b);  // bind + viewport + clear color/depth
+void rhi_target_resume(const rhi_target_t *t);                             // bind + viewport, keep contents (continue drawing into it)
 void rhi_backbuffer(int w, int h);                               // bind the window backbuffer, no clear
 void rhi_read_pixels(int x, int y, int w, int h, unsigned char *rgba);    // from the bound target (screenshots, smoke tests)
 void rhi_target_snapshot(const rhi_target_t *t, rhi_texture_t *dst);     // copy the bound target's colour into dst (created/resized to match): the scene behind the water

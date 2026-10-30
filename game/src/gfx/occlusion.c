@@ -2,8 +2,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include "occlusion.h"
+#include "../core/types.h"
 
-#define OCC_STEP        0.5f     // one heightmap cell (CELLS_PER_DEG = 8 per 4 units)
+#define OCC_STEP        ((float)WORLD_K / CELLS_PER_DEG)   // one heightmap cell
 #define OCC_STEP_GROW   0.02f    // step grows with the distance marched: far occluders are big
 #define OCC_MARGIN      0.25f    // the ground must clear the ray by this much to count ...
 #define OCC_MARGIN_PER_UNIT 0.004f   // ... plus this per unit of distance from the camera (terrain LOD)

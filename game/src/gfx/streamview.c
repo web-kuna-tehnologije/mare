@@ -72,7 +72,12 @@ static void sv_fill_rows(void *arg, int begin, int end, int slot) {
         // rising through the sea or a hole opening in a coast the ports were placed against.
         if (terraintiles_height(x2lon(wx), z2lat(wz), &h)) {
             float base = world_height(wx, wz);
-            f->buf[j * SV_RES + i] = (base > 0.f ? maxf(h, 0.15f) : minf(h, -0.1f)) - base;
+            // the authored map's broad relief carries the synthesized ridges on top (0.17): the
+            // source's land band is compressed and smooth, the ridges are what makes it a range
+            // and, as in the bake, the authored map may only raise land and only deepen sea: a
+            // loose coastline neither flattens a hill nor lifts a sea floor to the surface
+            f->buf[j * SV_RES + i] = (base > 0.f ? maxf(h, base) : minf(h, base)) - base
+                                   + 0.7f * stream_delta_at_level(wx, wz, f->max_level);
         } else
             f->buf[j * SV_RES + i] = stream_delta_at_level(wx, wz, f->max_level);
     }

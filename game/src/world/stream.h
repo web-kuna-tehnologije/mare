@@ -23,7 +23,7 @@
 
 #define STREAM_LEVELS   4
 #define STREAM_RES      257                   // payload samples per tile edge (257x257 floats)
-#define STREAM_L0_CELLS 512                   // landmask cells per L0 tile edge; halves per level
+#define STREAM_L0_CELLS 1024                  // landmask cells per L0 tile edge (64 degrees at 16 cells/deg); halves per level
 #define STREAM_FADE_H   0.5f                  // base height below which the delta fades to 0
 #define STREAM_SPLIT_K  2.0f                  // a child tile is wanted while the camera is within K x the child's size of its centre
 #define STREAM_MAX_INFLIGHT 8                 // tile loads started per stream_update at most

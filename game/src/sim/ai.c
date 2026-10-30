@@ -26,7 +26,7 @@
 
 static float risk_at_port(int b) {
     float r = 0; const port_t *p = &G.ports[b];
-    for (int i = 0; i < G.nfleets; ++i) { const fleet_t *o = &G.fleets[i]; if (o->alive && o->role == ROLE_PIRATE && dist2d(o->x, o->z, p->x, p->z) < 40) r += 1; }
+    for (int i = 0; i < G.nfleets; ++i) { const fleet_t *o = &G.fleets[i]; if (o->alive && o->role == ROLE_PIRATE && dist2d(o->x, o->z, p->x, p->z) < 20.f * WORLD_SCALE) r += 1; }
     return r;
 }
 

@@ -21,6 +21,12 @@ static const struct { const char *name; float lon, lat; } region_name_pins[] = {
     {"Mexico",-96,19.5f},{"Yucatan",-90,20},{"Honduras",-86,15.5f},{"Darien",-79.5f,9},{"Spanish Main",-75,10.5f},{"Cuba",-80,22.5f},{"Hispaniola",-70.5f,19},{"Guiana",-55,6},{"Pernambuco",-35,-8},
     {"Bahia",-38.5f,-13},{"Rio Coast",-43,-23},{"Plate Estuary",-57,-34.5f},{"Peru",-77,-12},{"Chile",-71.5f,-33},{"Gold Coast",-1,5},{"Senegambia",-17,14.5f},{"Angola",13,-9},{"Cape",18.5f,-34},
     {"Swahili Coast",39.5f,-5},{"Hejaz",39,21.5f},{"Yemen",43.5f,13},{"Levant",35,33},{"Anatolia",27,38.5f},{"Morocco",-6.5f,34.5f},{"Canaries",-15.5f,28},{"Hudson Bay",-92,57},{"Labrador",-60,55},
+    // the Adriatic and the Mediterranean at the 0.17 segment length (3.2 degrees of coast)
+    {"Istria",13.9f,45.2f},{"Dalmatia",16.3f,43.8f},{"Ragusa",18.0f,42.75f},{"Albania",19.8f,41.2f},{"Epirus",20.6f,39.7f},{"Morea",22.0f,37.5f},
+    {"Attica",23.7f,38.2f},{"Macedonia",23.0f,40.6f},{"Apulia",16.8f,41.0f},{"Calabria",16.3f,39.0f},{"Sicily",14.2f,37.5f},{"Sardinia",9.0f,40.0f},
+    {"Corsica",9.1f,42.2f},{"Crete",25.0f,35.3f},{"Cyprus",33.2f,35.1f},{"Tuscany",11.0f,43.3f},{"Lazio",12.5f,42.0f},{"Balearics",3.0f,39.6f},
+    {"Valencia",-0.5f,39.4f},{"Murcia",-1.0f,37.8f},{"Languedoc",3.5f,43.4f},{"Cyrenaica",21.5f,32.5f},{"Ionia",27.2f,38.3f},{"Caria",28.0f,36.9f},
+    {"Friuli",13.2f,45.9f},{"Romagna",12.4f,44.3f},{"Abruzzo",14.3f,42.4f},{"Marche",13.6f,43.4f},
 };
 static const struct { float lon, lat; int good; float amount; } deposits[] = {   // historical pins
     {-65.7f,-19.6f,G_SILVER,2.0f},{-102.6f,22.8f,G_SILVER,1.6f},{-43.5f,-20.5f,G_GOLD,1.5f},{-1.5f,6.0f,G_GOLD,1.0f},{15.6f,60.6f,G_COPPER,1.5f},
@@ -51,9 +57,15 @@ void regions_generate(unsigned seed, int write_state) {
     // 1. coast segments: flood along the coast until the segment spans REGION_SEGMENT_DEG
     float seg = REGION_SEGMENT_DEG; int nreg;
     for (int attempt = 0; attempt < 6; ++attempt, seg *= 1.3f) {
-        memset(regionmap, 0, N); nreg = 0; int span = (int)(seg * CELLS_PER_DEG / TERR_DIV);
+        memset(regionmap, 0, N); nreg = 0;
         for (int start = 0; start < N && nreg < MAX_REGIONS; ++start) {
             if (regionmap[start] || !is_coast(start % TERR_W, start / TERR_W)) continue;
+            // The Mediterranean and the Adriatic are the campaign's home seas: their coasts are cut
+            // at REGION_SEGMENT_DEG (Istria, Dalmatia and Ragusa are three regions), the rest of
+            // the world at twice that, so the region cap is spent where the player looks.
+            float slon = cx2lon((start % TERR_W) * TERR_DIV + TERR_DIV/2), slat = cy2lat((start / TERR_W) * TERR_DIV + TERR_DIV/2);
+            int home = slon > -7.f && slon < 42.f && slat > 29.f && slat < 47.f;
+            int span = (int)((home ? seg : seg * 2.f) * CELLS_PER_DEG / TERR_DIV);
             int id = ++nreg, qh = 0, qt = 0, minx = start % TERR_W, maxx = minx, miny = start / TERR_W, maxy = miny;
             queue[qt++] = start; regionmap[start] = id;
             while (qh < qt) { int c = queue[qh++], x = c % TERR_W, y = c / TERR_W;
@@ -108,6 +120,13 @@ void regions_attach_ports(void) {
     for (int i = 0; i < G.nports; ++i) { port_t *p = &G.ports[i]; p->hinterland = -1; p->hub_share = 0;
         if (port_is_gone(p)) continue;
         int r = region_at(p->lx, p->lz); if (r < 0) r = region_at(p->x, p->z);
+        if (r < 0) {   // the town sits in a territory cell whose centre is water: take the nearest land cell's region
+            int cx = lon2cx(x2lon(p->lx)) / TERR_DIV, cy = lat2cy(z2lat(p->lz)) / TERR_DIV;
+            for (int rad = 1; rad <= 3 && r < 0; ++rad) for (int dy = -rad; dy <= rad && r < 0; ++dy) for (int dx = -rad; dx <= rad; ++dx) {
+                int x = cx + dx, y = cy + dy; if (x < 0 || y < 0 || x >= TERR_W || y >= TERR_H) continue;
+                if (regionmap[y*TERR_W+x]) { r = (int)regionmap[y*TERR_W+x] - 1; break; }
+            }
+        }
         if (r < 0) continue;
         p->hinterland = r; region_t *R = &G.regions[r];
         if (p->size > 0 && R->nhub < MAX_REGION_PORTS) { R->hub[R->nhub++] = i; }

@@ -30,7 +30,7 @@ static double    tt_last_read_ms;
 // narrow band. The fine detail on land comes from the normal map, which is where a 32768
 // square source actually pays.
 #define TT_SEA           0.500f
-#define TT_HEIGHT_SCALE  20.0f
+#define TT_HEIGHT_SCALE  28.0f
 #define TT_DEPTH_SCALE    9.0f
 
 // ---------------------------------------------------------------------------
@@ -328,8 +328,11 @@ int terraintiles_bake(const char *dir, float *hm, unsigned char *lm, int w, int 
                 int was_land = lm[i] != 0, keep = protect && protect[i];
                 if (allow_flips && !was_land && votes >= 6 && !keep) {   // authored island (experiment, see below)
                     lm[i] = 1; hm[i] = maxf(hc, 0.45f); newland++; changed++;
-                } else if (was_land && hc > 0.f && votes >= 3) {   // shared land: authored relief
-                    hm[i] = maxf(hc, 0.12f); changed++;
+                } else if (was_land && hc > 0.f && votes >= 3) {   // shared land: authored relief, where it is higher
+                    // The source compresses its land into a narrow band, so taken as-is it
+                    // flattened every coast into a plain. It adds the ranges it knows about;
+                    // the procedural ridges stay where it is smooth.
+                    if (hc > hm[i]) { hm[i] = hc; changed++; }
                 } else if (!was_land && hc < 0.f && votes <= 1) {  // shared sea: authored bathymetry
                     hm[i] = minf(hc, -0.12f); changed++;
                 }                                                  // shoreline disagreement: the base stands

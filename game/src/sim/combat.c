@@ -85,7 +85,7 @@ void siege_tick(fleet_t *f, float dt) {
     int pi = f->target_port; if (pi < 0) { f->order = ORDER_IDLE; return; }
     port_t *p = &G.ports[pi];
     if (p->nation == f->nation || p->size <= 0) { f->order = ORDER_IDLE; return; }
-    if (dist2d(f->x, f->z, p->x, p->z) > 3.5f) return;     // still approaching
+    if (dist2d(f->x, f->z, p->x, p->z) > 1.75f * WORLD_SCALE) return;     // still approaching (~0.44 degrees)
     f->pathi = f->npath;                                    // hold station
     p->blockaded_by = f->nation; p->blockade_timer = 1.0f;
     if (f->order != ORDER_SIEGE) return;

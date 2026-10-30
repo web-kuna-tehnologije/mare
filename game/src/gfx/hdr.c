@@ -185,6 +185,9 @@ void hdr_ao_pass(void) {
     rhi_set_f2(UNI(ao_prg, "u_texel"), 1.f / w, 1.f / h);
     rhi_set_f1(UNI(ao_prg, "u_on"), hdr_ssao_enabled && RF.mapness < 0.5f ? 1.f : 0.f);
     rhi_draw(&fs_tri, 0);
+    // Back to the scene: the AO pass now runs *before* the water (mare.c), so whatever follows
+    // must draw into the HDR target again, not into this half-resolution buffer.
+    rhi_target_resume(&hdr_target);
 }
 
 // bind the HDR target for the 3D passes (recreated on resize); clears to the sky colour

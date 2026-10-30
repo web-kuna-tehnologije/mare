@@ -28,15 +28,20 @@
 // heights, which halves both; the simulation's distances and the camera's ranges are expressed
 // in terms of it (core/balance.h, gfx/camera.h) so gameplay is unchanged - a day's sail still
 // covers the same degrees of ocean.
-#define WORLD_SCALE    2.f      // raise to 3 for a 3x world; everything below follows
+// 0.17: WORLD_SCALE 4 - the world is twice as wide again (16 units per degree), so a region
+// the size of Istria or Dalmatia is a place and not a pixel - and the base grid is twice as
+// fine (16 cells per degree, 2816x2080): coasts and islands rasterize at half the old step. The
+// navigation and territory grids keep their old cell size (NAV_DIV 4, TERR_DIV 8), so the A*
+// costs, the region segmentation and the save layout of those maps are untouched.
+#define WORLD_SCALE    4.f      // raise to 6 for a 3x world; everything below follows
 #define WORLD_K        (4.f * WORLD_SCALE)   // world units per degree
-#define CELLS_PER_DEG  8        // land mask / heightmap resolution
-#define LM_W  1408              // = (LON1-LON0)*CELLS_PER_DEG
-#define LM_H  1040              // = (LAT1-LAT0)*CELLS_PER_DEG
-#define NAV_DIV   2             // navigation grid = land mask / NAV_DIV
+#define CELLS_PER_DEG  16       // land mask / heightmap resolution
+#define LM_W  2816              // = (LON1-LON0)*CELLS_PER_DEG
+#define LM_H  2080              // = (LAT1-LAT0)*CELLS_PER_DEG
+#define NAV_DIV   4             // navigation grid = land mask / NAV_DIV (704x520, as before)
 #define NAV_W  (LM_W/NAV_DIV)
 #define NAV_H  (LM_H/NAV_DIV)
-#define TERR_DIV  4             // territory map = land mask / TERR_DIV
+#define TERR_DIV  8             // territory map = land mask / TERR_DIV (352x260, as before)
 #define TERR_W (LM_W/TERR_DIV)
 #define TERR_H (LM_H/TERR_DIV)
 
@@ -48,7 +53,7 @@
 #define MAX_SHIPS       12      // per fleet
 #define MAX_NATIONS     10
 #define MAX_GOODS       17      // 12 trade goods + 5 regional rare goods (iron, coal, copper, silver, gold)
-#define MAX_REGIONS    160      // land regions (hinterlands)
+#define MAX_REGIONS    250      // land regions (hinterlands); regionmap stores id+1 in a byte, so <= 254
 #define MAX_INLAND     320      // inland settlements (mines, farms, fur posts)
 #define MAX_REGION_PORTS 3
 #define MAX_BUILDINGS    6
@@ -256,7 +261,7 @@ typedef struct lane_t {
 } lane_t;
 
 #define SAVE_MAGIC   0x4D415245u  // 'MARE'
-#define SAVE_VERSION 4
+#define SAVE_VERSION 5          // 5: MAX_REGIONS 250 (0.17)
 
 typedef struct game_t {
     unsigned magic, version, size;

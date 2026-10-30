@@ -269,6 +269,7 @@ static const char *sea_fs =
     "uniform vec2 u_drift1; uniform vec2 u_drift2;\n"   // accumulated downwind drift of the two ripple layers (sea_update_waves)
     "uniform vec4 u_hole;\n"                     // xy = centre, z = half size, w = 1 when the world pass must cut the detail square out
     "uniform vec2 u_clip;\n"                     // x = world z the water stops at, y = 1 when that clip is on (staged city: the shore)
+    "uniform float u_sea_debug;\n"              // MARE_SEA_DEBUG=1: red = depth/2, green = land reading, blue = refraction on
     "out vec4 fragColor;\n"
     GLSL_COLOR GLSL_PBR GLSL_LIGHT GLSL_NMAP GLSL_FOG
     "float depth_at(vec2 pp) {\n"              // water depth from the heightmap (staged scenes: constant)
@@ -301,12 +302,22 @@ static const char *sea_fs =
     // North Atlantic, not a lagoon: a blue-grey body colour. The old pair ran to cyan because
     // the shallow end was a tropical green-blue and the absorption killed red hardest.
     "  vec3 deep = vec3(0.035,0.070,0.115), shallow = vec3(0.21,0.285,0.325);\n"
-    "  vec3 c = srgb_to_linear(mix(shallow, deep, 1.0 - exp(-depth*0.75)));\n"
+    // Warm seas (0.17): south of about 45 degrees the shelf goes turquoise and the deep a
+    // saturated blue - the Mediterranean and the Caribbean of the reference art - while the
+    // North Sea keeps its grey-blue body. Depth does the rest: the shelf the heightfield now
+    // carries hangs a few tenths of a unit down, so it stays in the shallow colour and the floor
+    // beyond it drops into the deep one.
+    "  float warm = 1.0 - smoothstep(36.0, 50.0, abs(lat));\n"
+    "  shallow = mix(shallow, vec3(0.14, 0.56, 0.60), warm * 0.85);\n"
+    "  deep = mix(deep, vec3(0.015, 0.09, 0.26), warm * 0.7);\n"
+    "  vec3 c = srgb_to_linear(mix(shallow, deep, 1.0 - exp(-depth*0.9)));\n"
     // --- refraction (step 5 follow-up). The scene behind the surface, sampled where the
     // surface normal bends the view; what comes back is absorbed by the water column (red
     // first), so past a few units of depth the seabed - and whether a terrain chunk was drawn
     // there at all - no longer shows. Samples that land on something in front of the water
     // (a hull) fall back to the straight-down sample.
+    "  vec3 vdir0 = normalize(u_campos - v_wpos);\n"
+    "  vec3 body0 = sun_shade(c, normalize(wn + vec3(slope.x, 0.0, slope.y)), vdir0, v_wpos, 0.9, 0.0, dist);\n"   // the lit water column: what the refraction fades *into*
     "  vec3 refr = c; float refr_on = 0.0;\n"
     "  if (u_refract > 0.5 && u_mapness < 0.99) {\n"
     "    vec2 suv = gl_FragCoord.xy / u_scene_size;\n"
@@ -323,9 +334,14 @@ static const char *sea_fs =
     // Absorption with green nearer red than blue: what comes back reads grey-blue rather than
     // teal. The shallower coefficient also lets the bottom show through further out - the
     // transparency the water was missing.
-    "    vec3 absorb = vec3(1.55, 1.12, 0.78) / u_wave_scale;\n"
+    // Absorption (0.17: stronger). The shelf the heightfield now carries is shallow enough that
+    // the old coefficients showed the sand through almost unfiltered; at a unit of depth the
+    // floor should be a turquoise suggestion, not the ground plane.
+    "    vec3 absorb = vec3(5.5, 3.6, 2.2) / u_wave_scale;\n"
     "    vec3 tr = exp(-absorb * depth * 1.05);\n"
-    "    refr = mix(c, bg, tr); refr_on = 1.0;\n"
+    // Mix towards the *lit* water column, not the raw body colour: the sunlit seabed is twenty
+    // times brighter than an unlit blue, and won every shallow pixel however small `tr` was.
+    "    refr = mix(body0, bg, tr); refr_on = 1.0;\n"
     "  }\n"
     // authored surface: the foam albedo rides the swell layer (and a finer copy the chop), its
     // bright streaks become whitecaps over the depth colour and its tonal variation breaks up
@@ -366,7 +382,7 @@ static const char *sea_fs =
     "  float sp = pow(max(dot(nsp, normalize(u_sun + vdir)), 0.0), 190.0);\n"
     "  glint += u_suncol * sp * 0.22 * detail * (1.0 - 0.6 * u_calm);\n"
     "  vec3 body = sun_shade(c, n, vdir, v_wpos, 0.9, 0.0, dist);\n"                   // the little diffuse the suspended sediment gives
-    "  vec3 col3d = mix(mix(body, refr * (0.62 + 0.45 * u_ambsky.g * 3.0), refr_on), skyrefl, fres3) + glint;\n"
+    "  vec3 col3d = mix(mix(body, refr, refr_on), skyrefl, fres3) + glint;\n"
     // --- foam (DESIGN_VISUAL.md step 6). Four sources, one white.
     // Whitecaps: where the Gerstner displacement folds the surface - the horizontal Jacobian
     // drops below 1 as the crest compresses - plus the steepest faces. Textured by the foam
@@ -432,6 +448,7 @@ static const char *sea_fs =
     "  vec3 col = fog_apply(mix(col3d, srgb_to_linear(mapc) * u_daylight, u_mapness), dist, u_mapness, srgb_to_linear(u_sky));\n"
     // transparency: the terrain below has already been drawn, so shallow water reveals the
     // seabed and deep water goes opaque; the map view stays solid parchment
+    "  if (u_sea_debug > 0.5) { fragColor = vec4(clamp(depth * 0.5, 0.0, 1.0), v_h > 0.35 ? 1.0 : 0.0, refr_on, 1.0); return; }\n"
     "  float alpha = mix(0.38, 0.92, smoothstep(0.0, 1.6 * u_wave_scale, depth));\n"   // clearer shallows, seabed reads through a little further out
     "  alpha = max(alpha, caps_a * 0.9);\n"        // foam stays visible over the seabed
     "  alpha = mix(alpha, 1.0, max(u_mapness, refr_on));\n"   // refraction composites the background itself: opaque
@@ -440,7 +457,7 @@ static const char *sea_fs =
 
 static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_shipwave", "u_shallow", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                       "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
-                                      "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", GLSL_LIGHT_UNIFORMS, 0 };
+                                      "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug", GLSL_LIGHT_UNIFORMS, 0 };
 
 void sea_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
@@ -702,6 +719,8 @@ static void sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float loc
     rhi_set_f1(rhi_uniform(p,"u_wave_scale"), wave_scale);
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
+    { static int dbg = -1; if (dbg < 0) { const char *e = getenv("MARE_SEA_DEBUG"); dbg = e ? atoi(e) : 0; }
+      rhi_set_f1(rhi_uniform(p,"u_sea_debug"), dbg ? 1.f : 0.f); }
     light_bind(p);
 }
 

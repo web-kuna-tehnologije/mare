@@ -43,8 +43,29 @@ mizzens; ignore the hull distortion). Both live in `C:\projects\mare\assets`.
       manifest, sea textures, terrain maps + tiles). The asset root resolves to `assets/elm`
       before `game/assets`; terrain tiles resolve per-worktree first. Builds in `tmp/elm-fin`.
 
+## Part 3 — done (0.17.0)
+
+- [x] World 2x again (WORLD_SCALE 4) with every gameplay distance expressed in the scale; base
+      grid 2x (16 cells/degree) with nav/territory/stream geography unchanged.
+- [x] Regions: cap 250, 3.2-degree coast segments in the Mediterranean home seas, Istria /
+      Dalmatia / Ragusa and 25 more Mediterranean name pins.
+- [x] Relief: ridged domain-warped mountains, hills everywhere inland, cliff coasts, a shelf;
+      ridged streamed chunk detail; authored tiles add relief only where higher.
+- [x] Textured ground from the material atlas (triplanar rock cliffs, scrub, snow, deserts),
+      wet rock at the waterline, darker sea floor, warm turquoise shallows.
+- [x] Found and fixed the vanished sea (AO pass left its framebuffer bound after the 0.16
+      reorder) and three reversed-edge smoothsteps.
+
 ## Still open
 
+- [ ] **A real DEM and coastline** (the one thing the terrain still needs): a 16-bit GEBCO /
+      ETOPO equirectangular export plus a Natural Earth land-mask raster, dropped into
+      `assets/elm/terrain`. The cutter, calibration, bake and rings are all in place; the AI
+      map only ever supplies relief. See DESIGN_TERRAIN.md "What would make it real".
+- [ ] Mountains are still modest against the reference art; the next lever is erosion (thermal
+      / hydraulic passes on the ridged field) and a snow/rock crest treatment in the shader.
+- [ ] `MARE_PASSES=sea` with `MARE_SEA_DEBUG=1` dies on an incomplete render target (the
+      refraction snapshot with no opaque pass before it) - a debug-only path.
 - [ ] The Great Carrack hull is still the war carrack's model stretched ×1.19: generating a
       true 56 m hull (and a four-mast rig to split) needs a new Meshy generation — external.
       The bonaventure reuses the mizzen part deliberately: k-means-splitting the three-mast

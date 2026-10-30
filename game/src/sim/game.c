@@ -38,10 +38,12 @@ static void port_snap(port_t *p) {
     // town centre: nearest land cell a little inland from the harbour
     int cx = lon2cx(x2lon(p->x)), cy = lat2cy(z2lat(p->z));
     p->lx = p->x; p->lz = p->z;
-    for (int r = 1; r <= 12; ++r) for (int dy = -r; dy <= r; ++dy) for (int dx = -r; dx <= r; ++dx) {
+    // distances in cells follow the grid: a quarter of a degree inland, searched over 1.5 degrees
+    const int inland = CELLS_PER_DEG / 4, reach = (CELLS_PER_DEG * 3) / 2;
+    for (int r = 1; r <= reach; ++r) for (int dy = -r; dy <= r; ++dy) for (int dx = -r; dx <= r; ++dx) {
         if (abs(dx) != r && abs(dy) != r) continue;
         int x = cx+dx, y = cy+dy; if (x < 1 || y < 1 || x >= LM_W-1 || y >= LM_H-1) continue;
-        if (landmask[y*LM_W+x] && coastdist[y*LM_W+x] >= 2) { p->lx = lon2x(cx2lon(x)); p->lz = lat2z(cy2lat(y)); return; }
+        if (landmask[y*LM_W+x] && coastdist[y*LM_W+x] >= inland) { p->lx = lon2x(cx2lon(x)); p->lz = lat2z(cy2lat(y)); return; }
     }
 }
 

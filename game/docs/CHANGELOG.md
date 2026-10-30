@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.17.0 — a world twice as wide again, 16 cells per degree, ridged relief, textured ground, warm shallows
+
+- **WORLD_SCALE 4** (16 world units per degree): the map is twice as wide as 0.16, so Istria,
+  Dalmatia and Ragusa are places rather than pixels. Every gameplay distance that had not yet
+  been expressed in `WORLD_SCALE` now is (siege approach, pirate threat radius, expel offset,
+  patrol radius, settlement harbour reach, battle gathering), so the rules are what they were.
+- **CELLS_PER_DEG 16** (2816x2080 base grid): coasts and islands rasterize at half the old
+  step. The navigation and territory grids keep their cell size (`NAV_DIV` 4, `TERR_DIV` 8) and
+  the stream tiles their geography (`STREAM_L0_CELLS` 1024, an L3 chunk is still 8 degrees);
+  port town placement, the occlusion march step and the AO bake follow the grid. The
+  heightfield is computed on the job pool (131 ms for 5.9 M cells).
+- **Relief** (`world.c`): a domain-warped *ridged* field - crests in lines, steep flanks - lifted
+  by the broad mountain mask and, more gently, everywhere inland (`RELIEF_HILLS`), so no coast
+  is billiard flat; cliff coasts where the cliff field is high rise straight out of the sea;
+  below the waterline a shelf about a unit deep hangs for half a degree before the floor drops
+  to the deep. The streamed chunks carry ridged, slope-aware detail on top (`stream.c`), the
+  authored tiles add their relief only where it is *higher* than the procedural ground (the
+  source's compressed land band used to flatten every coast into a plain), and the clipmap
+  rings may only raise land and deepen sea.
+- **Textured ground** (`gfx/terrain.c`): the 6x3 material atlas is finally sampled - grass,
+  turf and meadow on the lowlands, Mediterranean scrub between 33 and 46 degrees, soil and
+  gravel on the dry heights, **triplanar rock on slopes over ~0.2** (cliffs no longer smear),
+  sand on the beach, dune and cracked clay in the deserts, moss in the tundra, snow above 6.5
+  - two repeat scales blended by distance, faded out towards the strategic view. Wet dark rock
+  at the waterline; a darker silt-and-weed sea floor from the shoreline down.
+- **Warm seas** (`gfx/sea.c`): south of ~45 degrees the shelf runs turquoise and the deep a
+  saturated blue. Water absorption is three times stronger and the refraction now fades into
+  the *lit* water column rather than the unlit body colour - the sunlit seabed is twenty times
+  brighter than an unlit blue and used to win every shallow pixel.
+- **Regions**: `MAX_REGIONS` 250 (save version 5), coast segments of 3.2 degrees in the
+  Mediterranean home seas (twice that elsewhere, so the cap is spent where the player looks)
+  and 28 new name pins: Istria, Dalmatia, Ragusa, Albania, Epirus, Morea, Attica, Macedonia,
+  Apulia, Calabria, Sicily, Sardinia, Corsica, Crete, Cyprus, Tuscany, Lazio, Balearics,
+  Valencia, Murcia, Languedoc, Cyrenaica, Ionia, Caria, Friuli, Romagna, Abruzzo, Marche.
+- **Fixed: the sea vanished after the 0.16 AO reorder** - `hdr_ao_pass` left its half-res
+  framebuffer bound, so the refraction snapshot copied the AO buffer and the water was drawn
+  *into* it. The pass now resumes the HDR target (`rhi_target_resume`). Also fixed three
+  reversed-edge `smoothstep` calls (undefined in GLSL; the Intel driver returned ~1 and painted
+  the whole world in the seabed colour).
+- `MARE_SEA_DEBUG=1` paints the sea's depth / land / refraction readings; the geography bake
+  logs land height statistics before and after the fold.
+
 ## 0.16.0 — the island seas, battle lines, buoyancy, and a sea without a grid
 
 - **Every island of the Adriatic and the Greek seas** (`data/geo_coast.h`): the Dalmatian chain

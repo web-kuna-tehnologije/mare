@@ -84,11 +84,50 @@ level (`world/stream.h`, DESIGN_STREAMING.md). The authored maps slot into that 
 `terrainmap_ground` is a pure function of its arguments so the same rule can run on the CPU
 (placement, the minimap) and in the shader, and the two cannot disagree.
 
+## 3b. The relief model and the textured ground (0.17)
+
+`compute_heightmap` (world.c, on the job pool) is no longer a coast ramp plus fbm. Land rises
+over a coastal plain, then a **domain-warped ridged field** - crests in lines, steep flanks -
+is lifted by the broad mountain mask (`RELIEF_MOUNTAIN`) and, more gently, everywhere inland
+(`RELIEF_HILLS`); where the cliff field is high the coast skips the beach and rises straight
+out of the sea; below the waterline a shelf about a unit deep (`SHELF_CELLS`, `SHELF_DEPTH`)
+hangs for half a degree before the floor drops to the deep. Small islands are lifted clear of
+the water afterwards. The streamed chunks (`stream.c tile_generate`) carry the same ridge shape
+one and two octaves finer, growing with the ground's height; the authored tiles add relief
+only where they are *higher* than the procedural ground (their land band is compressed and
+smooth - taken as-is it flattened every coast into a plain) and the clipmap rings may only
+raise land and deepen sea.
+
+The terrain shader samples the 6x3 material atlas (`atlas_cell`: per-cell wrap by hand, mip
+derivatives from the unwrapped coordinate so the seam does not show): grass/turf/meadow on the
+lowlands, Mediterranean scrub between 33 and 46 degrees, soil and gravel on the dry heights,
+**triplanar rock wherever the slope passes ~0.2**, sand on the beach, dune and cracked clay in
+the deserts, moss in the tundra, snow above 6.5; two repeat scales blended by distance, faded
+out towards the strategic view so the map keeps its clean biome colours. The sea floor darkens
+from the shoreline down, and warm seas (south of ~45 degrees) run turquoise over the shelf.
+
+The reference for all of this is the aerial art under `assets/example/`: rugged ridged
+mountains with vegetation and exposed rock on the crests, cliff coasts, turquoise shelves
+dropping to deep blue. What the relief model cannot supply on its own is the *real* geography
+at that fidelity - see "what would make it real" below.
+
 ## 4. Scale
 
-The world is 4 world units per degree (`WORLD_K`), which makes the playable extent 704 x 520
-units for ground that rises ~9 units — vertically exaggerated by roughly an order of magnitude,
-which is why a mountain range reads as a ridge of sticks rather than terrain.
+The world is 16 world units per degree (`WORLD_K` = 4 x `WORLD_SCALE`, 0.17), which makes the
+playable extent 2816 x 2080 units for ground that rises ~10-15 units - a vertical exaggeration
+of two to three, which keeps a range readable from the regional view without turning it into a
+ridge of sticks. The base grid is 16 cells per degree (2816 x 2080); navigation (704 x 520)
+and territory (352 x 260) keep their old cell sizes.
+
+### What would make it real
+
+A real DEM and a real coastline. The 32768-square map in `assets/terrain` is a loose AI Earth,
+so it supplies relief only. To replace it: a 16-bit greyscale equirectangular height/bathymetry
+export (GEBCO 2024 or ETOPO 2022, 15 arc-seconds, lon -180..180 / lat 90..-90 or the playable
+window) dropped into `assets/<tree>/terrain/world-heightmap.png`, cut with
+`tools/terrain_tiles.py`, calibrated with `tools/terrain_calibrate.py` (`TT_SEA`,
+`TT_HEIGHT_SCALE`, `TT_DEPTH_SCALE` in terraintiles.c); and a land-mask raster (Natural Earth
+10 m) from which `data/geo_coast.h` can be regenerated at the full grid resolution.
 
 Doubling `WORLD_K` to 8 halves that exaggeration and is the intended next step. It is **not**
 done here, because it moves every world coordinate: port positions, the navigation grid, lane

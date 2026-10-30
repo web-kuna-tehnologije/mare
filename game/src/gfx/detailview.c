@@ -208,7 +208,7 @@ static void build_battle(int fleet_id) {
     int real = 0;
     if (hot) {   // everyone in the fight: fleets near the hot one that fired recently (both sides)
         for (int i = 0; i < G.nfleets && dv.nships < DV_MAX_SHIPS; ++i) { const fleet_t *f = &G.fleets[i];
-            if (!f->alive || f->at_port >= 0 || dist2d(f->x, f->z, hot->x, hot->z) > 12.f) continue;
+            if (!f->alive || f->at_port >= 0 || dist2d(f->x, f->z, hot->x, hot->z) > 6.f * WORLD_SCALE) continue;
             if (f->last_fire < G.day - 1.f && f->id != hot->id) continue;
             int side = f->nation == hot->nation ? 0 : 1; real = 1;
             unsigned col = f->role == ROLE_PIRATE ? rgb(25,25,25) : nations_info[f->nation].color;

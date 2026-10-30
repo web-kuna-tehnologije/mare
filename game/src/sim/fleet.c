@@ -72,7 +72,7 @@ void fleet_expel(fleet_t *f) {
     if (f->at_port < 0) return;
     const port_t *p = &G.ports[f->at_port];
     float ang = atan2f(p->z - p->lz, p->x - p->lx);          // out to sea
-    f->x = p->x + cosf(ang) * 2.5f; f->z = p->z + sinf(ang) * 2.5f; nav_snap(&f->x, &f->z, 6);
+    f->x = p->x + cosf(ang) * 1.25f * WORLD_SCALE; f->z = p->z + sinf(ang) * 1.25f * WORLD_SCALE; nav_snap(&f->x, &f->z, 6);
     f->at_port = -1; f->order = ORDER_IDLE; f->npath = 0; f->think_timer = 0.5f;
 }
 static void clear_targets(fleet_t *f) { f->target_port = -1; f->target_fleet_id = 0; }
@@ -115,7 +115,7 @@ static void fleet_arrived(fleet_t *f) {
     switch (f->order) {
     case ORDER_MOVE: case ORDER_RAID: f->order = ORDER_IDLE; break;
     case ORDER_PATROL: {
-        float ang = rnd_f(&G.rng) * 6.28f, r = rnd_range(&G.rng, 4, 12), tx = f->dest_x + cosf(ang)*r, tz = f->dest_z + sinf(ang)*r;
+        float ang = rnd_f(&G.rng) * 6.28f, r = rnd_range(&G.rng, 2.f * WORLD_SCALE, 6.f * WORLD_SCALE), tx = f->dest_x + cosf(ang)*r, tz = f->dest_z + sinf(ang)*r;
         if (!nav_snap_reachable(&tx, &tz, 10, f->x, f->z) || !fleet_set_path(f, tx, tz)) f->order = ORDER_IDLE;
     } break;
     case ORDER_DOCK: case ORDER_TRADE: case ORDER_FLEE: {

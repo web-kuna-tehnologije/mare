@@ -8,6 +8,7 @@
 #include "../core/util.h"
 #include "../data/geo_coast.h"
 #include "../core/diag.h"
+#include "../core/jobs.h"
 
 unsigned char *landmask;
 short         *coastdist;
@@ -111,8 +112,25 @@ static void compute_coastdist(void) {
 // ---------------------------------------------------------------------------
 // heightfield
 
-static void compute_heightmap(unsigned seed) {
-    for (int y = 0; y < LM_H; ++y) for (int x = 0; x < LM_W; ++x) {
+// The relief model (0.17). Land rises from the shore over a coastal plain, then the broad
+// mountain mask (n2) lifts *ridged* relief: a domain-warped ridge field whose crests run in
+// lines and whose flanks are steep, which is what reads as a range rather than a heap of
+// bumps. Lower hills carry a gentler copy of the same ridges so lowlands are never billiard
+// flat. Where the cliff field is high the coast skips the beach and rises straight out of the
+// sea. Below the waterline a shallow shelf (eight cells, ~half a degree) hangs at a few tenths
+// of a unit - the turquoise band of the reference art - before the floor drops to the deep.
+#define RELIEF_PLAIN     3.2f    // coastal plain height at full coast distance
+#define RELIEF_MOUNTAIN 12.0f    // mountain amplitude at full mask
+#define RELIEF_HILLS     3.8f    // ridged hills everywhere inland
+#define RELIEF_CLIFF     3.0f    // how high a cliff coast rises in its first cells
+#define SHELF_CELLS      6.f     // ~0.4 degrees of shelf ...
+#define SHELF_DEPTH      1.1f    // ... hanging about a unit down (turquoise, not glass)
+#define DEEP_DEPTH       4.5f
+
+typedef struct hm_job_t { unsigned seed; } hm_job_t;
+static void compute_heightmap_rows(void *arg, int begin, int end, int slot) {
+    unsigned seed = ((const hm_job_t *)arg)->seed; (void)slot;
+    for (int y = begin; y < end; ++y) for (int x = 0; x < LM_W; ++x) {
         int i = y*LM_W+x;
         float lon = cx2lon(x), lat = cy2lat(y);
         float n1 = world_fbm(lon*0.35f, lat*0.35f, 4, seed);
@@ -122,17 +140,32 @@ static void compute_heightmap(unsigned seed) {
         float h;
         if (d > 0) {
             float base = minf(d, 40) / 40.f;
-            h = 0.12f + 3.2f * powf(base, 0.75f) * (0.5f + 0.5f*n1);
-            float m = maxf(0, n2 - 0.52f) / 0.48f;
-            float inland = clampf((d - 5) / 10.f, 0, 1);
-            h += 9.0f * m * m * inland * (0.6f + 0.4f*n3);
+            h = 0.12f + RELIEF_PLAIN * powf(base, 0.75f) * (0.5f + 0.5f*n1);
+            // ridges: a warped ridge field, squared so the crests stay sharp and the valleys wide
+            float wx = world_fbm(lon*0.5f+7, lat*0.5f+3, 3, seed+21) * 2.f - 1.f;
+            float wy = world_fbm(lon*0.5f+19, lat*0.5f+29, 3, seed+22) * 2.f - 1.f;
+            float ridge = 1.f - fabsf(2.f * world_fbm((lon + wx*0.6f)*1.6f+31, (lat + wy*0.6f)*1.6f+17, 4, seed+99) - 1.f);
+            ridge *= ridge;
+            float m = maxf(0, n2 - 0.40f) / 0.60f;
+            float inland = clampf((d - 2) / 8.f, 0, 1);
+            h += RELIEF_MOUNTAIN * m * m * inland * (0.45f + 0.55f*ridge) * (0.7f + 0.3f*n3);
+            h += RELIEF_HILLS * inland * ridge * (0.3f + 0.7f*m);
+            // cliff coasts: where the cliff field is high, the shore rises straight out of the sea
+            float cliff = world_fbm(lon*0.7f+55, lat*0.7f+5, 3, seed+77);
+            if (d <= 4 && cliff > 0.58f) h = maxf(h, 0.5f + RELIEF_CLIFF * (cliff - 0.58f) / 0.42f * clampf(d / 2.f, 0.35f, 1.f));
             if (fabsf(lat) > 66) h *= 0.6f;
         } else {
-            float dd = minf(-d, 30) / 30.f;
-            h = -0.25f - 4.0f * powf(dd, 0.7f) - 0.3f*n3;
+            float shelf = clampf(-d / SHELF_CELLS, 0.f, 1.f);
+            float drop  = clampf((-d - SHELF_CELLS) / 14.f, 0.f, 1.f);
+            h = -0.30f - SHELF_DEPTH * powf(shelf, 1.5f) - DEEP_DEPTH * powf(drop, 0.8f) - 0.3f*n3*shelf;
         }
         heightmap[i] = h;
     }
+}
+static void compute_heightmap(unsigned seed) {
+    hm_job_t j = { seed };
+    if (jobs_worker_count() > 0) jobs_parallel_for(JOB_LANE_WORKER, compute_heightmap_rows, &j, LM_H, 16);
+    else compute_heightmap_rows(&j, 0, LM_H, 0);
 }
 
 void world_recarve_straits(void) {

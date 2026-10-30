@@ -1,6 +1,7 @@
 // Terrain: one heightmap texture sampled in the vertex shader, 5 LOD grids with skirts,
 // frustum-culled 64x64-cell chunks, biome colouring, parchment map style with territories.
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -12,6 +13,7 @@
 #include "../data/tables.h"
 #include "../world/world.h"
 #include "../world/regions.h"
+#include "../assets/asset.h"
 
 render_frame_t RF;
 int screen_w = 1, screen_h = 1, window_w = 1, window_h = 1;
@@ -29,6 +31,7 @@ static chunk_t chunks[CHUNKS_X*CHUNKS_Y];
 static rhi_pipeline_t terrain_prg;
 static rhi_geometry_t terrain_geo[LODS];
 static rhi_texture_t tex_height, tex_territory, tex_ao;
+static int tex_atlas = -1;               // textures.c handle of the ground material atlas (NULL until streamed in)
 int terrain_ao_on = 1;    // baked horizon occlusion on the ambient term (MARE_TERRAIN_AO=0)
 static const float lod_dist[LODS-1] = { 45, 110, 240, 520 };
 
@@ -81,8 +84,19 @@ static const char *terrain_fs =
     "uniform sampler2D u_ao; uniform float u_ao_on;\n"   // baked horizon occlusion (terrain_init): 1 = open sky, lower in valleys
     "uniform vec3 u_nation_colors[11]; uniform float u_daylight; uniform float u_regions; uniform vec2 u_terr_texel;\n"
     "uniform float u_flatten;\n"
+    "uniform sampler2D u_atlas; uniform float u_has_atlas;\n"   // ground material atlas (assets/terrain/terrain_textures.png, 6x3 cells)
     GLSL_TERRAIN_DETAIL
     "out vec4 fragColor;\n"
+    // One cell of the atlas, tiled: the uv wraps inside the cell by hand (an atlas cannot use
+    // the sampler's repeat) and the derivatives come from the *unwrapped* coordinate, so the
+    // mip level is continuous across the wrap and the seam does not show. Cells are inset a
+    // little to keep the neighbour's texels out of the bilinear footprint.
+    "vec3 atlas_cell(int cell, vec2 p) {\n"
+    "  vec2 f = fract(p);\n"
+    "  vec2 cuv = (vec2(float(cell - (cell / 6) * 6), float(cell / 6)) + 0.012 + f * 0.976) / vec2(6.0, 3.0);\n"
+    "  vec2 ddx = dFdx(p) * (0.976 / 6.0), ddy = dFdy(p) * (0.976 / 6.0);\n"
+    "  return textureGrad(u_atlas, cuv, ddx, ddy).rgb;\n"
+    "}\n"
     "float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }\n"
     "float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);\n"
     "  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x), mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x), f.y); }\n"
@@ -110,10 +124,18 @@ static const char *terrain_fs =
     "  vec3 snow  = vec3(0.93,0.94,0.96);\n"
     "  vec3 desert= mix(vec3(0.86,0.74,0.48), vec3(0.80,0.66,0.42), nz);\n"
     "  vec3 tundra= mix(vec3(0.55,0.58,0.48), vec3(0.70,0.72,0.68), nz);\n"
-    "  vec3 c = mix(sand, grass, smoothstep(0.15, 0.6, h));\n"
-    "  c = mix(c, dry, smoothstep(2.5, 5.0, h));\n"
-    "  c = mix(c, rock, smoothstep(0.25, 0.55, slope));\n"
-    "  c = mix(c, snow, smoothstep(6.5, 8.5, h));\n"
+    // Mediterranean scrub: between the olive belt and the Alps the lowland green goes dry and
+    // silvery (the reference art's hills are olive, not Irish). Cliffs come in earlier and harder
+    // than they used to: the ridged relief is steep, and rock is what a steep face shows.
+    "  float med = smoothstep(32.0, 35.5, abs(lat)) * (1.0 - smoothstep(44.5, 47.5, abs(lat))) * smoothstep(-12.0, -6.0, lon) * (1.0 - smoothstep(40.0, 44.0, lon));\n"
+    "  vec3 scrub = mix(vec3(0.42,0.50,0.27), vec3(0.55,0.53,0.33), nz);\n"
+    "  float wgrass = smoothstep(0.15, 0.6, h), wdry = smoothstep(2.5, 5.0, h), wrock = smoothstep(0.17, 0.42, slope), wsnow = smoothstep(6.5, 8.5, h) * (1.0 - smoothstep(0.55, 0.75, slope));\n"
+    "  vec3 c = mix(sand, mix(grass, scrub, med * 0.6), wgrass);\n"
+    "  c = mix(c, vec3(0.30, 0.40, 0.36), (1.0 - smoothstep(-1.4, 0.0, h)) * 0.9);\n"   // the sea floor: pale sand at the beach, dark silt and weed where it drops away
+    "  c = mix(c, dry, wdry);\n"
+    "  c = mix(c, rock, wrock);\n"
+    "  c = mix(c, rock * 0.72, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.8);\n"   // wet, dark rock at the waterline
+    "  c = mix(c, snow, wsnow);\n"
     // deserts: sahara, arabia, northern mexico, atacama
     "  float des = 0.0;\n"
     "  des = max(des, (1.0-smoothstep(30.0,33.0,lat)) * smoothstep(13.0,16.0,lat) * smoothstep(-18.0,-14.0,lon) * (1.0-smoothstep(36.0,40.0,lon)));\n"
@@ -124,6 +146,33 @@ static const char *terrain_fs =
     "  float cold = smoothstep(52.0, 64.0, abs(lat));\n"
     "  c = mix(c, tundra, cold * smoothstep(0.3,1.0,h));\n"
     "  c = mix(c, snow, smoothstep(64.0, 70.0, abs(lat)) * 0.8);\n"
+    // Textured ground (0.17): the atlas materials follow the same weights as the flat colours
+    // above, at two scales (fine repeats for the city and battle tiers, a coarse repeat that
+    // survives the regional view), triplanar for the rock so cliff faces are not smeared, and
+    // faded out with distance so the strategic map keeps its clean biome colours.
+    "  float dist0 = distance(v_wpos, u_campos);\n"
+    "  float tdet = (1.0 - smoothstep(90.0, 420.0, dist0)) * u_has_atlas * (1.0 - u_mapness);\n"
+    "  if (tdet > 0.01) {\n"
+    "    vec3 tw = pow(abs(n), vec3(6.0)); tw /= (tw.x + tw.y + tw.z);\n"
+    "    vec2 pxz = v_wpos.xz * 1.6, mxz = v_wpos.xz * 0.21;\n"
+    "    float far = smoothstep(8.0, 45.0, dist0);\n"                  // fine -> coarse repeat with distance
+    "    vec3 grassT  = mix(mix(atlas_cell(1, pxz), atlas_cell(13, pxz), 0.35), atlas_cell(1, mxz), far);\n"
+    "    vec3 scrubT  = mix(mix(atlas_cell(2, pxz), atlas_cell(14, pxz), 0.5), atlas_cell(11, mxz), far);\n"
+    "    vec3 sandT   = mix(atlas_cell(3, pxz), atlas_cell(10, mxz), far);\n"
+    "    vec3 dryT    = mix(mix(atlas_cell(9, pxz), atlas_cell(2, pxz), 0.4), atlas_cell(9, mxz), far);\n"
+    "    vec3 rockT   = atlas_cell(0, mix(pxz, mxz, far)) * tw.y + atlas_cell(0, mix(v_wpos.xy * 1.6, v_wpos.xy * 0.21, far)) * tw.z + atlas_cell(0, mix(v_wpos.zy * 1.6, v_wpos.zy * 0.21, far)) * tw.x;\n"
+    "    vec3 desertT = mix(atlas_cell(6, pxz), atlas_cell(5, mxz), 0.5 + 0.5 * far);\n"
+    "    vec3 tundraT = mix(atlas_cell(14, pxz), atlas_cell(16, mxz), 0.4 + 0.5 * far);\n"
+    "    vec3 t = mix(sandT, mix(grassT, scrubT, med * 0.7), wgrass);\n"
+    "    t = mix(t, dryT, wdry);\n"
+    "    t = mix(t, rockT, wrock);\n"
+    "    t = mix(t, rockT * 0.6, (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope) * 0.8);\n"
+    "    t = mix(t, mix(rockT, vec3(0.9, 0.92, 0.95), 0.8), wsnow);\n"
+    "    t = mix(t, desertT, des * smoothstep(0.12, 0.5, h) * (1.0 - smoothstep(5.0, 7.0, h)));\n"
+    "    t = mix(t, tundraT, cold * smoothstep(0.3, 1.0, h));\n"
+    "    vec3 ts = linear_to_srgb(t);\n"                                  // the atlas is sRGB-sampled (linear); the colour mix below is in sRGB
+    "    c = mix(c, ts * (0.55 + 0.45 * (c / max(ts, vec3(0.02)))), 0.78 * tdet);\n"   // keep the biome's hue, take the material's grain
+    "  }\n"
     "  float diff = max(dot(n, u_sun), 0.0);\n"
     // PBR: ground is a rough dielectric; rock/snow slightly smoother than vegetation
     "  float rough = mix(0.95, 0.75, smoothstep(0.25, 0.6, slope) * 0.6 + smoothstep(6.5, 8.5, h) * 0.4);\n"
@@ -178,7 +227,7 @@ static void build_lod(int lod) {
 void terrain_init(void) {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", GLSL_LIGHT_UNIFORMS, 0 };
     terrain_prg = rhi_pipeline_make(&(rhi_pipeline_desc_t){ .vs = terrain_vs, .fs = terrain_fs, .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 });
     for (int i = 0; i < LODS; ++i) build_lod(i);
     tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, heightmap);
@@ -207,6 +256,12 @@ void terrain_init(void) {
         const char *e = getenv("MARE_TERRAIN_AO"); if (e) terrain_ao_on = atoi(e) != 0;
     }
     tex_territory = rhi_texture_make(TERR_W, TERR_H, RHI_FMT_RGB8, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
+    {   // the ground material atlas, streamed like the sea textures: this worktree's terrain folder first
+        char path[600]; FILE *pf;
+        snprintf(path, sizeof path, "%s/terrain/terrain_textures.png", asset_root());
+        if ((pf = fopen(path, "rb"))) fclose(pf); else snprintf(path, sizeof path, "%s/../terrain/terrain_textures.png", asset_root());
+        tex_atlas = texture_request(path, RHI_FMT_SRGB8, RHI_FILTER_MIPMAP, RHI_WRAP_CLAMP);
+    }
     for (int cy = 0; cy < CHUNKS_Y; ++cy) for (int cx = 0; cx < CHUNKS_X; ++cx) {
         chunk_t *c = &chunks[cy*CHUNKS_X+cx]; float mn = 1e9f, mx = -1e9f;
         for (int y = cy*CHUNK; y <= (cy+1)*CHUNK && y < LM_H; ++y) for (int x = cx*CHUNK; x <= (cx+1)*CHUNK && x < LM_W; ++x) { float h = heightmap[y*LM_W+x]; mn = minf(mn, h); mx = maxf(mx, h); }
@@ -252,6 +307,9 @@ void terrain_draw(float planes[6][4]) {
         rhi_set_f2(UNI(terrain_prg,"u_det_texel"), streamview_detail_texel(0), streamview_detail_texel(1));
     }
     rhi_texture_bind(1, &tex_territory);
+    { const rhi_texture_t *atlas = texture_get(tex_atlas);
+      rhi_set_i1(UNI(terrain_prg,"u_atlas"), 8); rhi_texture_bind(8, atlas ? atlas : &tex_territory);
+      rhi_set_f1(UNI(terrain_prg,"u_has_atlas"), atlas ? 1.f : 0.f); }
     rhi_set_f4(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(UNI(terrain_prg,"u_k"), WORLD_K);
     rhi_set_f2(UNI(terrain_prg,"u_texel"), 1.f/LM_W, 1.f/LM_H);

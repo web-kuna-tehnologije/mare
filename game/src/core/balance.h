@@ -54,7 +54,7 @@
 #define PROSPERITY_OUTPUT   0.25f   // prosperity bonus at 1 unit of output per 1000 pop per day
 
 // hinterlands (0.7)
-#define REGION_SEGMENT_DEG   5.5f   // coast length per region
+#define REGION_SEGMENT_DEG   3.2f   // coast length per region (Istria, Dalmatia and Ragusa are three regions, not one)
 #define REGION_RURAL_RATE    0.10f  // units/day per 1000 rural pop per unit of potential (staples)
 #define REGION_CONSUME_MUL   0.15f   // rural per-capita consumption vs towns (self-sufficient)
 #define REGION_THROUGHPUT_BASE 20.f  // link capacity units/day at wilderness

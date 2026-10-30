@@ -171,8 +171,12 @@ int terrainmap_bake_geography(const char *tiles_dir) {
             }
         }
     int flips = 0;
+    double lm0 = 0, lmax0 = 0; long nl = 0;      // land height statistics, so a fold that flattens the world is visible in the log
+    for (int i = 0; i < LM_W * LM_H; ++i) if (landmask[i]) { lm0 += heightmap[i]; if (heightmap[i] > lmax0) lmax0 = heightmap[i]; nl++; }
     int changed = terraintiles_bake(tiles_dir, heightmap, landmask, LM_W, LM_H,
                                     LON0, LAT1, (float)CELLS_PER_DEG, protect, &flips);
+    { double lm1 = 0, lmax1 = 0; for (int i = 0; i < LM_W * LM_H; ++i) if (landmask[i]) { lm1 += heightmap[i]; if (heightmap[i] > lmax1) lmax1 = heightmap[i]; }
+      LOG_INFO("terrain", "land height mean %.2f max %.2f before the fold, %.2f / %.2f after", nl ? lm0 / nl : 0, lmax0, nl ? lm1 / nl : 0, lmax1); }
     free(protect);
     if (flips) {   // the mask changed (MARE_TERRAIN_ISLANDS experiment): repair what depends on it
         world_recarve_straits();

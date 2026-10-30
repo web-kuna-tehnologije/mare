@@ -152,6 +152,12 @@ void rhi_target_begin(const rhi_target_t *t, float r, float g, float b) {
     glClearColor(r, g, b, 1); glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
 }
+void rhi_target_resume(const rhi_target_t *t) {
+    glBindFramebuffer(GL_FRAMEBUFFER, t->fbo);
+    glViewport(0, 0, t->w, t->h);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LEQUAL); glDisable(GL_CULL_FACE);
+}
 void rhi_backbuffer(int w, int h) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, w, h);

@@ -62,7 +62,7 @@ void site_potential(float lon, float lat, float pot[MAX_GOODS]) {
 int site_check(float wx, float wz, int nation, char *reason, int n) {
     float hx = wx, hz = wz;
     if (!world_is_land(wx, wz)) { snprintf(reason, n, "Colonies are founded on land"); return 0; }
-    if (!nav_snap(&hx, &hz, SITE_WATER_REACH) || dist2d(hx, hz, wx, wz) > 3.5f) { snprintf(reason, n, "No harbour: too far from navigable water"); return 0; }
+    if (!nav_snap(&hx, &hz, SITE_WATER_REACH) || dist2d(hx, hz, wx, wz) > 1.75f * WORLD_SCALE) { snprintf(reason, n, "No harbour: too far from navigable water"); return 0; }   // ~0.44 degrees, whatever the world scale
     float lat = z2lat(wz); if (fabsf(lat) > 66) { snprintf(reason, n, "Too far north: the sea is ice"); return 0; }
     for (int i = 0; i < G.nports; ++i) { const port_t *p = &G.ports[i]; if (port_is_gone(p)) continue;
         float d = dist2d(p->x, p->z, hx, hz);
