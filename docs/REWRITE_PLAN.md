@@ -21,19 +21,19 @@ while the game builds and the five test suites stay green after every task.
 
 ## Task list
 
-- [ ] **T1 — Foundation: cleanup + `mare::core`.** Split the unity build (framework C TU +
+- [x] **T1 — Foundation: cleanup + `mare::core`.** Split the unity build (framework C TU +
       game C++ TUs); port diag.c → `core::Logger`/`core::Metrics`/`core::Profiler` behind a
       `Diagnostics` facade with pluggable sinks (SRP/OCP); refactor jobs.cpp into
       `core::WorkerPool` (RAII, lanes, parallel_for) — C ABI of diag.h/jobs.h preserved for
       unported code; tests link the C++ objects instead of including .c files; build scripts
       and CMake updated; MSVC mirror build + all ctest suites green.
-- [ ] **T2 — Entity lifecycle (`mare::engine`).** `engine::Entity` base class with virtual
+- [x] **T2 — Entity lifecycle (`mare::engine`).** `engine::Entity` base class with virtual
       `onLoad / onLoadAsync / onUpdate / onRender / onUnload`; `engine::EntityManager` owns
       entities, runs `onLoadAsync` on the WorkerPool lanes, dispatches `onUpdate` through
       `jobs_parallel_for` for entities that declare `UpdatePolicy::Parallel` (serial default:
       determinism), `onRender` always on the GL thread. First real entities ported
       (wind, weather) and the main loop drives the manager.
-- [ ] **T3 — Shaders to files.** Every embedded GLSL string (core macros in gfx/glsl.h and the
+- [x] **T3 — Shaders to files.** Every embedded GLSL string (core macros in gfx/glsl.h and the
       ~20 shaders inline in gfx/*.c) moves to `game/assets/shaders/**` as .vert/.frag/.tesc/
       .tese files with `#include` for the shared chunks; `engine::ShaderLibrary` (C++) loads,
       preprocesses and caches them, with a C shim `shader_source()` for unported pipelines and
