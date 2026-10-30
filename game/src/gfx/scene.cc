@@ -838,7 +838,7 @@ int SceneBuilder::submit_ports(void) { return submit_town_meshes(0) + assets_sub
 // squares). Gunsmoke is deliberately left out: a hard-edged shadow from a smoke ball looks wrong.
 int SceneBuilder::submit_shadow(void) {
     int n = detailview_mode() != DV_OFF ? detailview_submit_shadow()   // the staged scene is the only caster set
-                                        : submit_town_meshes(1) + assets_submit_shadow() + submit_ship_meshes(1) + shipyard_submit();
+                                        : submit_town_meshes(1) + assets_submit_shadow() + submit_ship_meshes(1) + shipyard_submit_shadow();
     return n;
 }
 

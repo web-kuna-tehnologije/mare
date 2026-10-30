@@ -9,8 +9,9 @@
 #include <cstring>
 #include <cstdlib>
 
+#include "rhi_device.hh"
+
 extern "C" {
-#include "rhi.h"
 #include "glsl.h"
 #include "../core/diag.h"
 #include "../core/util.h"
@@ -35,8 +36,9 @@ namespace mare::engine::render {
 #define RHI_GPU_LAG 4
 struct gpu_scope_t { const char *name; unsigned q[RHI_GPU_LAG]; int issued[RHI_GPU_LAG]; float ms; };
 
-class GlDevice {
+class GlDevice : public rhi::Device {
 public:
+    const char *backend_name() override { return "gl"; }
     // --- the whole former file-scope state, same names so the bodies read unchanged
     float rhi_aniso_max = 0, rhi_aniso = 0;    // driver maximum, and what we ask for
     // Mipmapped textures made so far, so the dashboard knob can re-apply the level to textures
@@ -45,6 +47,7 @@ public:
     rhi_mem_t rhi_mem = {};
     unsigned rhi_bound_vao = 0;      // avoid redundant binds in per-chunk loops
     int rhi_bound_patches = 0;       // the bound pipeline tessellates: draw issues GL_PATCHES
+    int rhi_bound_lines = 0;         // the bound pipeline takes a line list (a geometry stage expands it)
     rhi_stats_t rhi_stats = {};
     gpu_scope_t gpu_scopes[RHI_GPU_SCOPES] = {};
     int gpu_nscopes = 0, gpu_frame = 0, gpu_open = -1, gpu_supported = -1;
@@ -212,6 +215,30 @@ int tessellation_supported() {
     }
     return sup;
 }
+#ifndef GL_GEOMETRY_SHADER
+#define GL_GEOMETRY_SHADER 0x8DD9
+#endif
+// Geometry stage: core since GL 3.2. MARE_GEOM=0 forces the vertex-only fallbacks (the rig's
+// cordage goes back to fixed-width quads), which is the A/B for the screen-space ropes.
+int geometry_shader_supported() {
+    static int sup = -1;
+    if (sup < 0) {
+        const char *e = getenv("MARE_GEOM");
+        sup = (GLAD_GL_VERSION_3_2 || GLAD_GL_VERSION_4_0) && glCreateShader ? 1 : 0;
+        if (e && !atoi(e)) sup = 0;
+        LOG_INFO("gpu", "geometry stage %s%s", sup ? "available (GL 3.2)" : "unavailable", e && !atoi(e) ? " (disabled by MARE_GEOM=0)" : "");
+    }
+    return sup;
+}
+void set_f1(int loc, float x)                            { glUniform1f(loc, x); }
+void set_f2(int loc, float x, float y)                   { glUniform2f(loc, x, y); }
+void set_f3(int loc, float x, float y, float z)          { glUniform3f(loc, x, y, z); }
+void set_f4(int loc, float x, float y, float z, float w) { glUniform4f(loc, x, y, z, w); }
+void set_i1(int loc, int x)                              { glUniform1i(loc, x); }
+void set_mat4(int loc, const float *m16)                 { glUniformMatrix4fv(loc, 1, GL_FALSE, m16); }
+void set_f3v(int loc, const float *v, int n)             { glUniform3fv(loc, n, v); }
+void set_f4v(int loc, const float *v, int n)             { glUniform4fv(loc, n, v); }
+void set_f1v(int loc, const float *v, int n)             { glUniform1fv(loc, n, v); }
 // the framework's shader() helper knows vertex/fragment/geometry only; tessellation stages
 // compile here, with the same source dump on failure
 static unsigned stage(GLenum type, int n, const char **src, const char *what) {
@@ -226,15 +253,22 @@ static unsigned stage(GLenum type, int n, const char **src, const char *what) {
 
 rhi_pipeline_t pipeline_make(const rhi_pipeline_desc_t *d) {
     rhi_pipeline_t p = { .depth_test = d->depth_test, .depth_write = d->depth_write, .blend = d->blend };
-    int tess = d->tcs && d->tes;
-    // every stage of one program takes the same version header; tessellation needs 4.00
-    const char *ver = tess ? "#version 400\n" : GLSL_VERSION;
+    p.lines = d->lines;
+    int tess = d->tcs && d->tes, geom = d->gs != NULL;
+    // every stage of one program takes the same version header; tessellation needs 4.00, a
+    // geometry stage 1.50 (GL 3.2)
+    const char *ver = tess ? "#version 400\n" : geom ? "#version 150\n" : GLSL_VERSION;
     const char *v[2] = { ver, d->vs }, *f[2] = { ver, d->fs };
-    unsigned vsh = tess ? stage(GL_VERTEX_SHADER, 2, v, "vertex") : shader('v', 2, v);
-    unsigned fsh = tess ? stage(GL_FRAGMENT_SHADER, 2, f, "fragment") : shader('f', 2, f);
+    unsigned vsh = tess || geom ? stage(GL_VERTEX_SHADER, 2, v, "vertex") : shader('v', 2, v);
+    unsigned fsh = tess || geom ? stage(GL_FRAGMENT_SHADER, 2, f, "fragment") : shader('f', 2, f);
     p.id = glCreateProgram();
     glAttachShader(p.id, vsh); glAttachShader(p.id, fsh);
-    unsigned csh = 0, esh = 0;
+    unsigned csh = 0, esh = 0, gsh = 0;
+    if (geom) {
+        const char *g[2] = { ver, d->gs };
+        gsh = stage(GL_GEOMETRY_SHADER, 2, g, "geometry");
+        glAttachShader(p.id, gsh);
+    }
     if (tess) {
         const char *c[2] = { ver, d->tcs }, *e[2] = { ver, d->tes };
         csh = stage(GL_TESS_CONTROL_SHADER, 2, c, "tess control"); esh = stage(GL_TESS_EVALUATION_SHADER, 2, e, "tess evaluation");
@@ -247,7 +281,7 @@ rhi_pipeline_t pipeline_make(const rhi_pipeline_desc_t *d) {
     GLint ok; glGetProgramiv(p.id, GL_LINK_STATUS, &ok);
     if (!ok) { char log[2048]; glGetProgramInfoLog(p.id, sizeof log, 0, log); LOG_FATAL("rhi", "shader link failed: %s", log); }
     glDeleteShader(vsh); glDeleteShader(fsh);
-    if (csh) glDeleteShader(csh); if (esh) glDeleteShader(esh);
+    if (csh) glDeleteShader(csh); if (esh) glDeleteShader(esh); if (gsh) glDeleteShader(gsh);
     for (int i = 0; d->uniforms && d->uniforms[i] && p.nuniforms < 24; ++i) { p.names[p.nuniforms] = d->uniforms[i]; p.locs[p.nuniforms] = glGetUniformLocation(p.id, d->uniforms[i]); p.nuniforms++; }
     LOG_DEBUG("rhi", "pipeline %u linked (%d attribs, %d uniforms)", p.id, d->layout->nattrs, p.nuniforms);
     return p;
@@ -312,6 +346,7 @@ void pipeline_bind(const rhi_pipeline_t *p) {
     glUseProgram(p->id);
     rhi_bound_vao = 0;   // v3 (debug draw, microui) may have bound its own VAO between passes
     rhi_bound_patches = p->patches;
+    rhi_bound_lines = p->lines;
     if (p->patches && glPatchParameteri) glPatchParameteri(GL_PATCH_VERTICES, p->patches);
     if (p->depth_test) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
     glDepthMask(p->depth_write ? GL_TRUE : GL_FALSE);
@@ -418,6 +453,23 @@ void geometry_free(rhi_geometry_t *g) {
     memset(g, 0, sizeof *g);
 }
 
+// Dynamic vertices (a simulated flag rebuilt every frame): orphan the buffer, refill it, and
+// grow it when the vertex count outruns the allocation. Accounting stays truthful.
+void geometry_update(rhi_geometry_t *g, const void *verts, int nverts) {
+    if (!g || !g->vbo || nverts <= 0) return;
+    glBindBuffer(GL_ARRAY_BUFFER, g->vbo);
+    if (nverts > g->nverts) {
+        rhi_mem.buffers -= (size_t)g->nverts * g->vstride;
+        glBufferData(GL_ARRAY_BUFFER, (size_t)nverts * g->vstride, verts, GL_STREAM_DRAW);
+        rhi_mem.buffers += (size_t)nverts * g->vstride;
+    } else {
+        glBufferData(GL_ARRAY_BUFFER, (size_t)g->nverts * g->vstride, 0, GL_STREAM_DRAW);   // orphan: no stall on the frame in flight
+        glBufferSubData(GL_ARRAY_BUFFER, 0, (size_t)nverts * g->vstride, verts);
+    }
+    g->nverts = nverts;
+    rhi_stats.upload_bytes += (size_t)nverts * g->vstride;
+}
+
 void geometry_instances(rhi_geometry_t *g, const void *data, int n) {
     if (n <= 0) return;
     glBindBuffer(GL_ARRAY_BUFFER, g->ibo);
@@ -470,8 +522,8 @@ void color_write(int on) { glColorMask(on, on, on, on); }
 void draw(rhi_geometry_t *g, int ninstances) {
     if (g->vao != rhi_bound_vao) { glBindVertexArray(g->vao); rhi_bound_vao = g->vao; }
     rhi_stats.draws++; rhi_stats.instances += ninstances ? ninstances : 1;
-    rhi_stats.tris += (g->nindices ? g->nindices : g->nverts) / 3 * (ninstances ? ninstances : 1);   // patches: the tessellator decides; counted as control points / 3
-    GLenum mode = rhi_bound_patches ? GL_PATCHES : GL_TRIANGLES;
+    rhi_stats.tris += (g->nindices ? g->nindices : g->nverts) / (rhi_bound_lines ? 1 : 3) * (ninstances ? ninstances : 1);   // patches: the tessellator decides; counted as control points / 3; a line becomes one quad (2 tris)
+    GLenum mode = rhi_bound_patches ? GL_PATCHES : rhi_bound_lines ? GL_LINES : GL_TRIANGLES;
     if (g->nindices) {
         if (ninstances) glDrawElementsInstanced(mode, g->nindices, GL_UNSIGNED_INT, 0, ninstances);
         else glDrawElements(mode, g->nindices, GL_UNSIGNED_INT, 0);
@@ -483,69 +535,9 @@ void draw(rhi_geometry_t *g, int ninstances) {
 
 };  // class GlDevice
 
-GlDevice &gl_device() { static GlDevice d; return d; }
+GlDevice &gl_device_impl() { static GlDevice d; return d; }
 
 } // namespace mare::engine::render
 
-// ---------------------------------------------------------------------------
-// C ABI (rhi.h): the unported passes call the device through these
-
-using mare::engine::render::gl_device;
-
-extern "C" {
-float rhi_anisotropy(void) { return gl_device().anisotropy(); }
-float rhi_anisotropy_max(void) { return gl_device().anisotropy_max(); }
-void rhi_set_anisotropy(float level) { gl_device().set_anisotropy(level); }
-void rhi_init(void) { gl_device().init(); }
-const char *rhi_info(void) { return gl_device().info(); }
-int rhi_check_errors(const char *where) { return gl_device().check_errors(where); }
-void rhi_frame_begin(int w, int h, float r, float g, float b) { gl_device().frame_begin(w, h, r, g, b); }
-rhi_mem_t rhi_memory(void) { return gl_device().memory(); }
-rhi_target_t rhi_target_make(int w, int h, rhi_format_t color_fmt, int with_depth) { return gl_device().target_make(w, h, color_fmt, with_depth); }
-rhi_target_t rhi_target_depth_make(int w, int h) { return gl_device().target_depth_make(w, h); }
-void rhi_target_clear_depth(const rhi_target_t *t) { gl_device().target_clear_depth(t); }
-void rhi_viewport(int x, int y, int w, int h) { gl_device().viewport(x, y, w, h); }
-void rhi_target_snapshot(const rhi_target_t *t, rhi_texture_t *dst) { gl_device().target_snapshot(t, dst); }
-void rhi_target_free(rhi_target_t *t) { gl_device().target_free(t); }
-void rhi_target_begin(const rhi_target_t *t, float r, float g, float b) { gl_device().target_begin(t, r, g, b); }
-void rhi_target_resume(const rhi_target_t *t) { gl_device().target_resume(t); }
-void rhi_backbuffer(int w, int h) { gl_device().backbuffer(w, h); }
-void rhi_read_pixels(int x, int y, int w, int h, unsigned char *rgba) { gl_device().read_pixels(x, y, w, h, rgba); }
-void rhi_read_depth(const rhi_target_t *t, float *depth) { gl_device().read_depth(t, depth); }
-int rhi_tessellation_supported(void) { return gl_device().tessellation_supported(); }
-rhi_pipeline_t rhi_pipeline_make(const rhi_pipeline_desc_t *d) { return gl_device().pipeline_make(d); }
-void rhi_frame_stats_reset(void) { gl_device().frame_stats_reset(); }
-rhi_stats_t rhi_frame_stats(void) { return gl_device().frame_stats(); }
-int rhi_gpu_timers_supported(void) { return gl_device().gpu_timers_supported(); }
-int rhi_gpu_scope(const char *name) { return gl_device().gpu_scope(name); }
-const char *rhi_gpu_scope_name(int s) { return gl_device().gpu_scope_name(s); }
-int rhi_gpu_scope_count(void) { return gl_device().gpu_scope_count(); }
-float rhi_gpu_ms(int s) { return gl_device().gpu_ms(s); }
-void rhi_gpu_begin(int s) { gl_device().gpu_begin(s); }
-void rhi_gpu_end(void) { gl_device().gpu_end(); }
-void rhi_gpu_collect(void) { gl_device().gpu_collect(); }
-void rhi_pipeline_bind(const rhi_pipeline_t *p) { gl_device().pipeline_bind(p); }
-int rhi_uniform(const rhi_pipeline_t *p, const char *name) { return gl_device().uniform(p, name); }
-void rhi_set_f1(int loc, float x)                            { glUniform1f(loc, x); }
-void rhi_set_f2(int loc, float x, float y)                   { glUniform2f(loc, x, y); }
-void rhi_set_f3(int loc, float x, float y, float z)          { glUniform3f(loc, x, y, z); }
-void rhi_set_f4(int loc, float x, float y, float z, float w) { glUniform4f(loc, x, y, z, w); }
-void rhi_set_i1(int loc, int x)                              { glUniform1i(loc, x); }
-void rhi_set_mat4(int loc, const float *m16)                 { glUniformMatrix4fv(loc, 1, GL_FALSE, m16); }
-void rhi_set_f3v(int loc, const float *v, int n)             { glUniform3fv(loc, n, v); }
-void rhi_set_f4v(int loc, const float *v, int n)             { glUniform4fv(loc, n, v); }
-void rhi_set_f1v(int loc, const float *v, int n)             { glUniform1fv(loc, n, v); }
-rhi_texture_t rhi_texture_make(int w, int h, rhi_format_t fmt, rhi_filter_t filter, rhi_wrap_t wrap, const void *data) { return gl_device().texture_make(w, h, fmt, filter, wrap, data); }
-void rhi_texture_update(rhi_texture_t *t, const void *data) { gl_device().texture_update(t, data); }
-void rhi_texture_bind(int slot, const rhi_texture_t *t) { gl_device().texture_bind(slot, t); }
-rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, int nverts, const unsigned *indices, int nindices) { return gl_device().geometry_make(layout, verts, nverts, indices, nindices); }
-void rhi_geometry_free(rhi_geometry_t *g) { gl_device().geometry_free(g); }
-void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n) { gl_device().geometry_instances(g, data, n); }
-int rhi_occlusion_supported(void) { return gl_device().occlusion_supported(); }
-unsigned rhi_query_make(void) { return gl_device().query_make(); }
-void rhi_query_begin(unsigned q) { gl_device().query_begin(q); }
-void rhi_query_end(void) { gl_device().query_end(); }
-int rhi_query_result(unsigned q, int *passed) { return gl_device().query_result(q, passed); }
-void rhi_color_write(int on) { gl_device().color_write(on); }
-void rhi_draw(rhi_geometry_t *g, int ninstances) { gl_device().draw(g, ninstances); }
-}
+// the abstract-device accessor (rhi_device.hh); the C ABI shims live in rhi.cc
+namespace mare::engine::rhi { Device &gl_device() { return mare::engine::render::gl_device_impl(); } }

@@ -109,10 +109,19 @@ Status as of the current codebase. Each entry names the module that owns it.
   that turn hostile; player diplomacy (declare war / sue for peace).
 
 ## Rendering (`src/gfx`)
-- API-agnostic RHI (`rhi.h`): pipelines with baked depth/blend state, geometry objects with
-  streamed instance buffers, format-enum textures. GL3 backend (`rhi_gl.c`) is the only game
-  file calling GL; the backend include in `mare.c` is the switch point for Vulkan/DX12 later.
-  Modernisation roadmap: docs/DESIGN_RENDERER.md.
+- API-agnostic RHI (`rhi.h`): pipelines with baked depth/blend state (optional tessellation and
+  geometry stages, triangle or line geometry), geometry objects with streamed instance buffers
+  and per-frame vertex updates, format-enum textures. The C functions are shims over the
+  abstract `rhi::Device` (`rhi_device.hh`, `rhi.cc`): `GlDevice` draws, `VulkanDevice` brings
+  Vulkan up (instance, device, queue, adapter report) and delegates drawing to GL, `Dx12Device`
+  is a stub; `--rhi=` / `MARE_RHI` pick one. Modernisation roadmap: docs/DESIGN_RENDERER.md.
+- Authored rig (0.19): the lantina and the split square yards instanced on every station on the
+  sail's swung/braced heading; cordage as geometry-stage lines of physical width; verlet flags
+  pinned to the main masthead; canvas, water and ground materials (DESIGN_SHIPS.md 3c,
+  DESIGN_RENDERER.md 0.19).
+- Coast polish (0.19): the clipmap rings move the shoreline inside a band around the raster
+  coast towards the authored GEBCO shore (blur + texel-aware wiggle elsewhere), harbours
+  protected, and the sea samples the rings (DESIGN_TERRAIN.md 3c).
 - HDR: 3D passes render into an RGBA16F target, tonemapped to the backbuffer (`hdr.c`, exposure
   control); UI composites on top. `MARE_SCREENSHOT` captures the backbuffer for smoke tests.
 - Linear/sRGB pipeline: sRGB author colours converted on input, lighting in linear, a single

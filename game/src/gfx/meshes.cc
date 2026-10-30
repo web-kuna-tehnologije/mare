@@ -11,6 +11,7 @@ extern "C" {
 #include "glsl.h"
 #include "../core/types.h"
 #include "../core/util.h"
+#include "../core/diag.h"
 #include "../engine/shaders.h"
 }
 
@@ -50,6 +51,15 @@ private:
 
        // shadows cross-fade with the meshes
     rhi_pipeline_t depth_prg;
+    // Cordage (gfx/shipyard.cc): the rig's ropes are line segments expanded by a geometry
+    // stage to screen-facing quads of physical width with a pixel minimum (meshes/rope.geom).
+    // rope_on = 0 when the GL context has no geometry stage: the shipyard then builds its old
+    // fixed-width cross quads and draws them through meshes_prg like everything else.
+    rhi_pipeline_t rope_prg; int rope_on = 0;
+public:
+    int  rope_available() { return rope_on; }
+    void bind_rope();
+private:
 
     static void hull_profile(int type, float t, float *halfw, float *depth, float *deck);
     void build_ship(int type, int lod);
@@ -205,6 +215,15 @@ void Meshes::init() {
     depth_prg = rhi_pipeline_make(&depth_desc);
     const rhi_pipeline_desc_t smoke_desc{ .vs = shader_source("meshes/meshes.vert"), .fs = shader_source("meshes/smoke.frag"), .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 0, .blend = RHI_BLEND_ALPHA };
     smoke_prg = rhi_pipeline_make(&smoke_desc);
+    rope_on = rhi_geometry_shader_supported();
+    if (rope_on) {
+        static const char *rope_uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", "u_viewport", "u_rope",
+                                               "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+        const rhi_pipeline_desc_t rope_desc{ .vs = shader_source("meshes/rope.vert"), .fs = shader_source("meshes/meshes.frag"), .layout = &mesh_layout, .uniforms = rope_uniforms,
+                                             .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_NONE, .gs = shader_source("meshes/rope.geom"), .lines = 1 };
+        rope_prg = rhi_pipeline_make(&rope_desc);
+        LOG_INFO("gpu", "rigging: cordage as geometry-stage lines (physical width, %.1f px minimum)", 0.6);
+    }
     for (int t = 0; t < SHIP_COUNT; ++t) for (int l = 0; l < 2; ++l) build_ship(t, l);
     build_buildings();
     build_puff();
@@ -234,6 +253,24 @@ void Meshes::bind() {
     light_bind(&meshes_prg);
 }
 
+// the rope pipeline: everything meshes_bind sets, plus the viewport and the pixel-per-unit
+// factor the geometry stage needs to turn a rope's physical width into pixels
+void Meshes::bind_rope() {
+    if (!rope_on) { bind(); return; }
+    rhi_pipeline_bind(&rope_prg);
+    meshes_bind_waves(&rope_prg);
+    rhi_set_i1(UNI(rope_prg,"u_grain"), 2); rhi_texture_bind(2, detail_grain());
+    rhi_set_mat4(UNI(rope_prg,"u_vp"), &RF.vp.x.x);
+    rhi_set_f1(UNI(rope_prg,"u_time"), RF.time);
+    rhi_set_f3(UNI(rope_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    rhi_set_f3(UNI(rope_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
+    rhi_set_f1(UNI(rope_prg,"u_mapness"), RF.mapness);
+    rhi_set_f2(UNI(rope_prg,"u_viewport"), (float)screen_w, (float)screen_h);
+    float px1 = (float)screen_h / (2.f * tanf(45.f * 0.0174533f * 0.5f));   // pixels per world unit at distance 1 (camera.c: 45 degree vertical FOV)
+    rhi_set_f2(UNI(rope_prg,"u_rope"), px1, 0.6f);
+    light_bind(&rope_prg);
+}
+
 void Meshes::bind_smoke() {
     rhi_pipeline_bind(&smoke_prg);
     meshes_bind_waves(&smoke_prg);
@@ -260,5 +297,7 @@ float ship_scale(int type) { return mare::engine::render::meshes().ship_scale(ty
 void meshes_init(void) { mare::engine::render::meshes().init(); }
 void meshes_bind(void) { mare::engine::render::meshes().bind(); }
 void meshes_bind_smoke(void) { mare::engine::render::meshes().bind_smoke(); }
+void meshes_bind_rope(void) { mare::engine::render::meshes().bind_rope(); }
+int  meshes_rope_available(void) { return mare::engine::render::meshes().rope_available(); }
 void meshes_bind_depth(const mat44 *lightvp) { mare::engine::render::meshes().bind_depth(lightvp); }
 }

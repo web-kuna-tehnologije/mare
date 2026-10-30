@@ -56,6 +56,10 @@ static inline float mb_cloth_code(int free_level, float across) {
     return ((float)free_level + (across + 1.f) * 0.5f) / 32.f;
 }
 void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat);                // axis aligned, half extents
+// A line segment (two vertices) for a pipeline built with `lines` (rhi.h): the rig's cordage,
+// expanded on the GPU by meshes/rope.geom. `halfw` is the rope's physical half-width in model
+// units and travels in the roughness channel.
+void mb_line(mb_t *m, const float a[3], const float b[3], float halfw, float r, float g, float b_);
 
 // instancing. inst_t = position + heading (radians, 0 = +x), uniform scale + rgb, misc:
 //   sway (roll animation 0/1), sel (highlight 0..1), bob (vertical bobbing 0/1), xlen (>0: stretch along x, for walls/piers)

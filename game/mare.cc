@@ -199,6 +199,7 @@ int main(int argc, char **argv) {
         else if (!strncmp(argv[i], "--skip=", 7)) skip = atoi(argv[i]+7);
         else if (!strcmp(argv[i], "--dev")) dev = 1;
         else if (!strcmp(argv[i], "--no-shadows")) shadow_enabled = 0;
+        else if (!strncmp(argv[i], "--rhi=", 6)) rhi_select(argv[i]+6);   // gl (default) | vulkan | dx12 (docs/REWRITE_PLAN.md T4/T8)
         else if (!strncmp(argv[i], "--log-level=", 12)) { int l = diag_level_parse(argv[i]+12); if (l >= 0) dc.console_level = l; }
         else if (!strncmp(argv[i], "--log-dir=", 10)) dc.logdir = argv[i]+10;
         else if (strncmp(argv[i], "--fps", 5)) fprintf(stderr, "unknown option %s\n", argv[i]);

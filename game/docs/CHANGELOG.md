@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.19.0 — the authored rig, hemp not poles, flags that fly, a shore that follows the Earth, a device behind the RHI
+
+- **Authored yards on every station** (`gfx/shipyard.cc`): the lantina (`assets/elm/lateen_yard`,
+  the Meshy part-segmented 45-degree spar slung at its middle) stands on every lateen station and
+  the split square yards (`yard_cog_*`, `yard_carrack_*`, `yard_great_*`, generic `square_yard`)
+  on every square layer, each instanced on the sail's own swung or braced heading so canvas and
+  spar turn to the wind as one piece about the mast. The unit lateen canvas is cut to the asset's
+  line (`LAT_TACK_*`/`LAT_PEAK_*`), so it hangs on the authored spar by construction. Below
+  ~44 px of projected spar the sail's own procedural spar takes over (a decimated thin spar is a
+  sliver), so the yard exists at every distance. The yard descriptors are generated
+  (`tools/gen_asset_descriptors.py`: forward +z, fit *width* 1, pivot centre - the old
+  `square_yard` descriptor fitted the wrong axis and came out 18x long), and the eight split
+  yards were re-exported with full six-level LOD chains (`tmp/s19tools/yardlods.bat`).
+- **Cordage is hemp, not poles**: ropes are line segments the new **geometry stage**
+  (`meshes/rope.geom`, GL 3.2) widens to their *physical* size on screen - a 4 cm shroud - with a
+  0.6 px floor, lit as a cylinder; they were fixed-width quads that came out 37 cm thick in the
+  staged battle and read as black spars lying across the ship (the "lantinas in the wrong place"
+  of the issue screenshot). Tarred-hemp brown instead of near-black; the shrouds anchor at the
+  class's own beam so no scan's rail puts them in the sea. `MARE_GEOM=0` or a context without a
+  geometry stage falls back to thinner cross quads.
+- **Flags fly**: a verlet cloth per ship (9x5 particles, pinned along the hoist to the main
+  masthead, in the ship's frame so the mesh shader's roll, pitch and swell carry it) driven by
+  real gravity for the class's length and the apparent wind - true wind in the ship's frame
+  less her way - with gusts; the mesh is rebuilt per frame through the new
+  `rhi_geometry_update`. The nearest 48 rigged ships are simulated, LRU beyond.
+- **Materials**: canvas with cloth seams, head and foot tablings, a weave micro-normal, a
+  grimier foot, *transmission* (the sun behind a sail lights it from within, shadowed) and a
+  fuzz sheen; water with crest scattering (the green-turquoise glow of light through a wave
+  seen against the sun); ground with per-material roughness (matte grass, tighter rock, soft
+  snow, wet dark-glossy rock in the splash zone) and a close-range micro-relief normal.
+- **Coast polish** (`gfx/streamview.cc`, `sea/vs_common.glsl`): inside a band around the base
+  raster's waterline the clipmap rings may now move the shore - where the authored GEBCO map is
+  decisive its side of the waterline wins (a sea cell never shallower than -0.30, a land cell
+  never under 0.20, so the sea's shallow shading keeps its calibration), elsewhere the raster
+  corners are box-blurred and a texel-aware fbm wiggles the contour - and in the coastal fringe
+  the authored relief replaces the 0.17 cliff field on land; everything fades out around every
+  harbour. The **sea reads the detail rings too**, so the water's edge is the detailed shore
+  and not the 7 km cell steps. Presentation only: the simulation never reads the rings. Ring
+  composes log their delta range at debug level.
+- **`rhi::Device`** (`gfx/rhi_device.hh`, T4): the abstract render device; `GlDevice` implements
+  it, the `rhi_*` C functions are shims onto the active one (`gfx/rhi.cc`), chosen by `--rhi=`
+  / `MARE_RHI`. **Vulkan bring-up** (`gfx/rhi_vk.cc`, the first slice of T8): loads the loader at
+  run time with no SDK, creates instance, physical device (discrete preferred), logical device
+  and graphics queue, reports adapter, API version and device-local memory; drawing is delegated
+  to GL until the SPIR-V/swapchain/pipeline work lands. `rhi_dx12.cc` is the API-neutrality
+  stub. The RHI also gained `lines` geometry, an optional `gs` stage and dynamic vertex updates.
+- Shipyard shadow submission split (`shipyard_submit_shadow`): canvas and spars cast, line
+  ropes and flags do not; `mb_line` in the mesh builder.
+
 ## 0.18.0 — full C++20, the real Earth, a living rig, tessellated ground
 
 - **Full C++ conversion**: all 40 game modules are C++20 classes in `mare::` namespaces

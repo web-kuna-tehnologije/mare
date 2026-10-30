@@ -60,10 +60,15 @@ NEW_MASTS_M = {
     "mizzen_mast": 22, "tall_lateen_mast": 24, "separated_lateen_yard": 26,
 }
 BOWSPRIT_M = {"bowsprit": 15}
-# the braced square yard lies along model x and must stand *across* the ship: forward +z
-# turns it 90 degrees; gfx/shipyard.c braces it about the mast per sail layer
-ACROSS = {"square_yard": 20}
-KEEP_PIVOT = {"lateen_yard", "bowsprit", "square_yard"}
+# The square yards (0.19): the generic square_yard and the per-mast sets split off the mast
+# library by tools/blender_prepare_part.py (--pivot bbox). All lie along model x and must stand
+# *across* the ship: forward +z turns them 90 degrees, and they are normalised to a unit span
+# across (fit "width" 1.0) about their middle, so gfx/shipyard.cc scales each to the head of
+# the sail it carries and braces it about the mast with the canvas.
+ACROSS = {"square_yard": 1.0, "yard_cog_single": 1.0, "yard_cog_course": 1.0, "yard_cog_top": 1.0,
+          "yard_carrack_course": 1.0, "yard_carrack_top": 1.0,
+          "yard_great_course": 1.0, "yard_great_main": 1.0, "yard_great_top": 1.0}
+KEEP_PIVOT = {"lateen_yard", "bowsprit"}
 
 # A ship is only ever at LOD 0 when it fills the screen in battle view: the imported LOD 0 is
 # the original scan (hundreds of thousands of triangles), so it hands over far sooner than a
@@ -91,7 +96,8 @@ for name in sorted(os.listdir(root)):
     if not lods and not os.path.exists(desc_path): continue
     names.append(name)
     if os.path.exists(desc_path): continue
-    if len(lods) < 2: names.pop(); print("skip", name, "(export incomplete:", len(lods), "LODs)"); continue
+    if len(lods) < 2 and name not in ACROSS: names.pop(); print("skip", name, "(export incomplete:", len(lods), "LODs)"); continue
+    if len(lods) < 2: print("note:", name, "has a single LOD (the sail's own spar stands in at distance, gfx/shipyard.cc)")
     if len(lods) < NLODS: print("note:", name, "has", len(lods), "of", NLODS, "LODs")
     px = LOD_PX
     tile = re.match(r"^tile_l(\d)_(\d+)_(\d+)$", name)
@@ -110,7 +116,7 @@ for name in sorted(os.listdir(root)):
     elif name in BOWSPRIT_M:
         typ, fit, size, px = "ship_part", "length", round(BOWSPRIT_M[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
     elif name in ACROSS:
-        typ, fit, size, px = "ship_part", "length", round(ACROSS[name] * SHIP_M_PER_UNIT, 3), SHIP_LOD_PX
+        typ, fit, size, px = "ship_part", "width", ACROSS[name], SHIP_LOD_PX
     elif name in SHIP_MASTS_M or MAST_PART_RE.match(name):
         # A split rig's parts (tools/blender_split_masts.py writes <assembly>_m0.._m2) are
         # fitted to their assembly's height; gfx/shipyard.c then scales each by the class's
@@ -131,7 +137,7 @@ for name in sorted(os.listdir(root)):
         "scale": {"fit": fit, "size": size},
         # A map chunk keeps its own origin: it is modelled with sea level at y = 0, and the
         # streamer places it at the tile centre at y = 0, so re-pivoting would sink or float it.
-        "pivot": "keep" if (tile or name in KEEP_PIVOT) else "base_center", "forward": forward,
+        "pivot": "keep" if (tile or name in KEEP_PIVOT) else "center" if name in ACROSS else "base_center", "forward": forward,
         "materials": [{"match": "*", "rough": 0.85, "metal": 0, "bake_texture": True}],
         "collision": {"type": "aabb"},
     }

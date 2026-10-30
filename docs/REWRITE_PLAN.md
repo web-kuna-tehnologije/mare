@@ -39,10 +39,11 @@ while the game builds and the five test suites stay green after every task.
       preprocesses and caches them, with a C shim `shader_source()` for unported pipelines and
       a dev-mode missing-file error that names the file. DRY: the fog/color/wave chunks exist
       exactly once.
-- [~] **T4 — (seam in place: GlDevice class behind the rhi.h C ABI; the abstract Device interface lands with the Vulkan work) — Render device abstraction (`mare::engine::rhi`).** rhi.h/rhi_gl.c become an
-      abstract `rhi::Device` interface + `rhi::GlDevice`; backend chosen at startup
-      (`--rhi=gl|vulkan|dx12`); the C `rhi_*` functions become shims over the active device so
-      unported gfx code is agnostic. This is the seam T8 plugs into.
+- [x] **T4 — Render device abstraction (`mare::engine::rhi`).** `gfx/rhi_device.hh` is the
+      abstract `rhi::Device`; `GlDevice` (rhi_gl.cc) implements it; the C `rhi_*` functions are
+      shims over the active device (`gfx/rhi.cc`), chosen at startup (`--rhi=gl|vulkan|dx12`,
+      `MARE_RHI`). The interface also carries the 0.19 additions: line geometry, an optional
+      geometry stage, dynamic vertex updates. This is the seam T8 plugs into.
 - [x] **T5 — gfx port (`engine::render` + `game::view`).** terrain/sea/sky/hdr/lighting/
       meshes/lod/occlusion/textures/streamview → classes (Entities where the lifecycle fits);
       shipyard/scene/detailview → `game::view`. Shared fullscreen-pass and mesh-builder helpers
@@ -54,9 +55,14 @@ while the game builds and the five test suites stay green after every task.
 - [x] **T7 — UI port (`mare::ui`) + UI technology decision.** Port uikit/hud/dashboard/input to
       classes. Recommendation (see below): no embedded browser; optionally adopt RmlUi behind a
       `ui::Backend` interface if richer layout is wanted.
-- [ ] **T8 — Vulkan backend.** `rhi::VulkanDevice` implementing the T4 interface (swapchain,
-      baked pipelines, per-pipeline uniform blocks, pass graph); GL stays default until
-      screenshot parity; DX12 remains a stub proving the interface is API-neutral.
+- [~] **T8 — Vulkan backend.** First slice landed (`gfx/rhi_vk.cc`): `rhi::VulkanDevice`
+      loads the loader at run time (no SDK, no link dependency), creates instance, physical
+      device (discrete preferred), logical device and graphics queue, reports adapter / API /
+      device-local memory, and delegates every draw to the GL device through
+      `DelegatingDevice`. Verified on the RTX 5070 Ti (API 1.4, 11.8 GB). Remaining: SPIR-V for
+      the shader library, the swapchain over the v3 window, pipeline objects baked from
+      `rhi_pipeline_desc_t`, per-pipeline uniform blocks, a pass graph; GL stays default until
+      screenshot parity. `gfx/rhi_dx12.cc` is the API-neutrality stub.
 - [ ] **T9 — Final folder/docs sweep.** Retire what is left of mare.c; src/ tree fully matches
       the namespaces; README/docs/build scripts reflect the C++ layout.
 - [ ] **T10 — Known bug fixes** (docs/TODO.md "Still open"): `MARE_PASSES=sea` +

@@ -138,6 +138,8 @@ extern float sea_clip_z; extern int sea_clip_on;   // staged scenes: the shoreli
 void meshes_bind(void);             // bind the instanced-mesh program (call before mesh_draw / scene_draw_*)
 void meshes_bind_depth(const mat44 *lightvp);   // depth-only instanced pipeline for the shadow pass
 void meshes_bind_smoke(void);       // translucent instanced pipeline for gunsmoke (after sea_draw)
+void meshes_bind_rope(void);        // cordage: line geometry expanded by a geometry stage (falls back to meshes_bind when there is none)
+int  meshes_rope_available(void);   // 1 when the rope pipeline exists (the shipyard then builds ropes as line pairs)
 extern int terrain_chunks_drawn, terrain_tris_drawn;   // stats for the dashboard
 extern int terrain_show_regions;                       // map view: shade hinterlands by development and draw their borders
 

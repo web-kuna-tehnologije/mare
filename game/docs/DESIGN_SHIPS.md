@@ -137,6 +137,38 @@ Both meshes are built the first time a class's hull *and* rig are resident, sinc
 set the mast stations. Below `RIG_MIN_PX` (90 px) the whole rig is skipped - cordage below a
 pixel is noise.
 
+### Yards, cordage and flags (0.19)
+
+**Yards are authored.** Every sail hangs from an imported spar: the lantina
+(`assets/elm/lateen_yard`, a part-segmented 45-degree spar slung at its middle, low end forward
+after the import's `-x` turn) on each lateen station, and the square yards split off the mast
+library (`yard_cog_single/course/top`, `yard_carrack_course/top`, `yard_great_course/main/top`,
+generic `square_yard`) on each square layer, chosen per mast type by `yard_sets[]`. Yard and
+canvas are instanced on the same swung (lateen, up to ~70 degrees) or braced (square, up to
+~30) heading about the mast axis, so they turn to the wind as one piece. The unit lateen canvas
+is cut to the asset's line (`LAT_TACK_*` / `LAT_PEAK_*`, mast-height units), the square yard is
+normalised to unit span across (descriptor: forward `+z`, fit `width` 1, pivot `center`) and
+scaled to the sail's head; both are placed from the asset's own bounds at run time, so the
+canvas hangs on its spar by construction. Past `YARD_ASSET_MIN_PX` (44 px of projected spar) a
+decimated thin spar is a sliver, so the sail switches to the cut of its unit mesh that carries a
+procedural spar (`lateen_cloth_mesh[1]`, `sq_cloth_mesh[kind][1]`).
+
+**Cordage is physical.** A rope is a line segment (`mb_line`) with its half-width in the
+roughness channel - `RIG_ROPE_W` 0.0009 of hull length, a 4 cm shroud on a carrack, stays x1.35,
+ratlines x0.6 - drawn through the rope pipeline (`meshes/rope.vert` + `rope.geom`, GL 3.2
+geometry stage): the stage projects that width to pixels, never under 0.6 px, and shades the
+quad as a cylinder. Without a geometry stage (`MARE_GEOM=0`) the old cross quads stand in,
+thinner than before. Line ropes are not submitted to the shadow pass (a triangle pipeline
+cannot draw them, and they would not show in a shadow texel). Tarred-hemp brown, not black.
+
+**Flags are simulated.** `flag_sim_t`: a 9x5 verlet grid per ship in the ship's frame (hull
+fractions), pinned along the hoist to the main masthead. Gravity is 9.81 m/s² over the class's
+length; the wind is the true wind turned into the ship's frame less her way (`FLAG_WIND_MS`,
+`FLAG_WAY_MS`), with drag towards the air, gusts along the fly and four constraint iterations
+(structural + shear). The mesh is rebuilt every frame (`rhi_geometry_update`) and drawn with the
+rig's instance, so the mesh shader's roll, pitch and swell carry it with the mast. The nearest
+48 rigged ships keep a flag; beyond that the least recently seen slot is reused.
+
 ### How the cloth moves
 
 There is no integration; the shape is the steady state of a sheet pinned along one edge,

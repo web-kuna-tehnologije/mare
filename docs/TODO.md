@@ -1,3 +1,39 @@
+# Session summary (2026-10-30 night, worktree `oak`, 0.19.0)
+
+- **The issue screenshot (assets/issue-1.png)**: the "lantinas in the wrong place" were the
+  rig's *ropes* - fixed-width quads that came out 37 cm thick at the staged battle's scale and
+  read as black spars; the "stock lantinas" were the sails' procedural spars. Ropes are now
+  line segments a geometry stage widens to their physical size (0.6 px floor); every sail
+  hangs from the authored lantina / split square yard instanced on its own swung heading,
+  with the procedural spar only past 44 px (gfx/shipyard.cc).
+- **Flags** are verlet cloth per ship, pinned to the main masthead, in real units for the
+  class; **materials** for canvas (seams, tablings, weave, transmission, sheen), water (crest
+  scattering) and ground (per-material roughness, micro relief).
+- **Coast**: the clipmap rings move the shore inside a band around the raster waterline -
+  authored GEBCO heights where resident, blurred raster corners and a texel-aware wiggle
+  elsewhere, harbours protected - and the sea samples the rings, so the waterline follows.
+- **RHI**: `rhi::Device` + `GlDevice`, `rhi.cc` shims, `--rhi=`; Vulkan bring-up device (loader,
+  instance, device, queue, adapter report; draws via GL); DX12 stub.
+- Verified on screen: staged battle wide and close (hemp, lantinas, flags), Dalmatian coast
+  close-ups, `--rhi=vulkan` run; headless suites green.
+
+## Leftover tasks (0.19)
+
+- [x] Yard LOD chains: re-exported with `tmp/s19tools/yardlods.bat` (Blender 5.2, budgets
+      60k/20k/6k/2k/700/250) into both asset trees; descriptors regenerated. The far levels
+      are slivers, so the sail's own spar still takes over below 44 px.
+- [ ] Dalmatian walls: the plateau behind the coast at 16.45E 43.5N is GEBCO's own Dinaric
+      relief (the ring's debug line shows the near ring lowering nothing there), cut vertically
+      by the 7 km raster at the waterline and shown with the world's 2-3x vertical exaggeration.
+      The sea-side shore band now lets the mountain foot continue where GEBCO says land; the
+      islands lifted by raise_small_islands keep a plateau profile. Next levers: a beach
+      profile for lifted islands, a lower height scale near the coast, and a finer raster.
+- [ ] Vulkan T8: SPIR-V, swapchain, pipelines, uniform blocks (see REWRITE_PLAN).
+- [ ] The GL context runs on the Intel iGPU while Vulkan picked the RTX: an adapter preference
+      for the GL window (NvOptimusEnablement export) would move the whole game to the dGPU.
+- [ ] Gunsmoke puffs still read faceted very close (visible beside the flags in the battle
+      wide shot); the sphere needs more segments or a billboard.
+
 # Session summary (2026-10-30 evening, worktree `oak`)
 
 - **Fine terrain + tessellation**: new `height_fine` Mediterranean set (19x8 tiles, ~520 m,

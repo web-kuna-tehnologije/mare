@@ -94,7 +94,7 @@ void TerrainRenderer::build_lod(int lod) {
 void TerrainRenderer::init() {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_grain", GLSL_LIGHT_UNIFORMS, 0 };
     const rhi_pipeline_desc_t terrain_desc{ .vs = shader_source("terrain/terrain.vert"), .fs = shader_source("terrain/terrain.frag"), .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 };   // (C compound literal -> named: C++ cannot take &T{...})
     terrain_prg = rhi_pipeline_make(&terrain_desc);
     // Tessellated terrain (GL 4.0; MARE_TERRAIN_TESS=0 reverts to the grids): one 8x8 lattice
@@ -114,7 +114,7 @@ void TerrainRenderer::init() {
             for (int ci = 0; ci < 4; ++ci) { pv[pk++] = corner[ci][0]; pv[pk++] = corner[ci][1]; pv[pk++] = 0; }
         }
         patch_geo = rhi_geometry_make(&layout, pv, TP * TP * 4, 0, 0);
-        static const char *tess_uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_tess", GLSL_LIGHT_UNIFORMS, 0 };
+        static const char *tess_uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_tess", "u_grain", GLSL_LIGHT_UNIFORMS, 0 };
         const rhi_pipeline_desc_t tess_desc{ .vs = shader_source("terrain/terrain_tess.vert"), .fs = shader_source("terrain/terrain.frag"),
                                              .tcs = shader_source("terrain/terrain.tesc"), .tes = shader_source("terrain/terrain.tese"), .patch_verts = 4,
                                              .layout = &layout, .uniforms = tess_uniforms, .depth_test = 1, .depth_write = 1 };
@@ -209,6 +209,7 @@ void TerrainRenderer::draw(float planes[6][4]) {
     { const rhi_texture_t *atlas = texture_get(tex_atlas);
       rhi_set_i1(UNI(terrain_prg,"u_atlas"), 8); rhi_texture_bind(8, atlas ? atlas : &tex_territory);
       rhi_set_f1(UNI(terrain_prg,"u_has_atlas"), atlas ? 1.f : 0.f); }
+    rhi_set_i1(UNI(terrain_prg,"u_grain"), 9); rhi_texture_bind(9, detail_grain());   // micro relief on the close ground (0.19 materials)
     rhi_set_f4(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(UNI(terrain_prg,"u_k"), WORLD_K);
     rhi_set_f2(UNI(terrain_prg,"u_texel"), 1.f/LM_W, 1.f/LM_H);

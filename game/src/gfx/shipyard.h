@@ -52,7 +52,10 @@ void shipyard_request_all(void);
 // Per-frame bracket for the procedural rigging and canvas (one instance per ship of a class).
 void shipyard_frame_begin(void);   // before any shipyard_push
 void shipyard_upload(void);        // after the last one, before drawing
-int  shipyard_submit(void);        // with the instanced mesh pipeline bound
+int  shipyard_submit(void);        // main pass, with the instanced mesh pipeline bound (binds the rope pipeline for the cordage and restores)
+int  shipyard_submit_shadow(void); // shadow pass, with the depth pipeline bound: canvas and spars only (line ropes and flags cast nothing worth a draw)
+extern int shipyard_flags_live;    // verlet flags simulated this frame (dashboard)
+extern int shipyard_yards_authored; // authored yard instances stood this frame (dashboard)
 
 const char *shipyard_class_name(int type, int nation);   // dashboard / logs
 // The class's stats for a ship type under a flag. Always fills `out`: a type with no authored

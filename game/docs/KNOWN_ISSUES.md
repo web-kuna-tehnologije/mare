@@ -8,6 +8,17 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 "Framework" marks issues in v3 itself that we work around rather than fix.
 
 ## Rendering
+- **L** The split square yards' far LODs (LOD4/5, 700 and 250 triangles) decimate a thin spar
+  to a sliver, which is why the sail's own procedural spar stands in below 44 px of projected
+  spar (`YARD_ASSET_MIN_PX`); the loader's "LOD 5 extent differs" warnings for `yard_*` and
+  the mast library are that same decimation and are harmless.
+- **M** **Cliff coasts outside the authored tiles still rise as walls.** Where no GEBCO tile is
+  resident the 0.17 cliff field lifts the first inland cells straight out of the sea; inside the
+  tiles the coastal fringe takes the authored relief (0.19). The islands lifted by
+  `raise_small_islands` keep a plateau profile with a lip of grass over rock.
+- **L** The GL context is created on the first adapter the driver offers (the Intel iGPU on a
+  hybrid laptop) while `--rhi=vulkan` picks the discrete GPU for its report: an
+  `NvOptimusEnablement` / `AmdPowerXpressRequestHighPerformance` export would move GL to the dGPU.
 - **M** **The tessellated sea shows a faint grid at regional zoom.** Dark lines at the sea
   patch lattice (12 world units) appear on a running sea from roughly 50-90 units of camera
   distance. Reproduce: `MARE_CAM=-20,42,60,25 --seed=7 --skip=120.45`. `MARE_SEA_TESS=0`

@@ -35,7 +35,8 @@ colours, directories) — the framework (v3/GLFW/microui) covers windowing, GL a
 
 Flags: `--nation=N` (skip the menu: 1 Spain, 2 England, 3 France, 4 United Provinces, 5 Portugal, 6 Venice, 7 Ottomans,
 8 Denmark), `--seed=N`, `--skip=DAYS` (pre-simulate), `--simulate=DAYS` (headless balance report, exits), `--dev` (dashboard +
-verbose logging + metrics CSV), `--log-level=LEVEL`, `--log-dir=PATH`.
+verbose logging + metrics CSV), `--log-level=LEVEL`, `--log-dir=PATH`, `--rhi=gl|vulkan|dx12` (render backend; `vulkan` brings
+the device up and reports the adapter, drawing stays on GL until the Vulkan pipeline work lands - docs/REWRITE_PLAN.md T8).
 Saves go to `mare_save.bin` next to the executable (v3 changes into the executable's directory at startup).
 
 ## Documentation

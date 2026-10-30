@@ -111,6 +111,30 @@ mountains with vegetation and exposed rock on the crests, cliff coasts, turquois
 dropping to deep blue. What the relief model cannot supply on its own is the *real* geography
 at that fidelity - see "what would make it real" below.
 
+### 3c. The shoreline band (0.19)
+
+The base heightfield is the coastline polygons rasterized at 16 cells per degree, so at battle
+zoom its waterline reads as 7 km steps. The clipmap rings (`gfx/streamview.cc sv_fill_rows`)
+now treat a band around that waterline - `|base| < 0.62` on land (full under 0.22), `< 0.78`
+on the sea side (full under 0.32): the first land cell and the first two sea cells -
+differently from the rest of the ring: where an authored tile is resident and *decisive* (over
+0.05 or under -0.05) its side of the waterline wins - a base sea cell GEBCO calls land rises
+to the authored height (a mountain foot continues where the raster cut it), a base land cell
+GEBCO calls sea goes under - with a base sea cell never shallower than -0.30 (the sea's shallow
+shading was tuned for that floor; GEBCO's real 2-30 m shallows would turn every bay white) and
+a base land cell never under 0.20 (a beach above the sea's land threshold). Elsewhere the
+raster corners are rounded with a half-cell box blur, and a fbm whose shortest wavelength is
+eight ring texels wiggles the contour so it reads as a shore rather than a ruler. Inside the
+coastal *fringe* (1.5-5 cells of coast distance, interpolated so it has no cell steps) the
+authored relief replaces the procedural one on base land instead of only raising it, so the
+0.17 cliff field no longer walls a shore GEBCO says is gentle. `--log-level=debug` logs every
+ring compose with the delta's range and how many texels the shore work lowered. The band fades to nothing within `SV_PORT_FADE`
+(3.2 units) of every harbour, so no port town ends up in the sea. The sea's vertex stages and
+the surf band sample the same rings (`sea/vs_common.glsl height_at`, `sea.frag depth_at`), so
+the water stops where the detailed ground meets it. The simulation never reads the rings: this
+is presentation, the navigation grid and the ports are untouched. Small islands lifted by
+`raise_small_islands` sit at 0.55 and above and keep their authored shape.
+
 ## 4. Scale
 
 The world is 16 world units per degree (`WORLD_K` = 4 x `WORLD_SCALE`, 0.17), which makes the

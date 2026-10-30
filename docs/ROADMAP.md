@@ -1,5 +1,25 @@
 # Development roadmap
 
+## Done: 0.19 — the authored rig, simulated flags, a shore that follows the Earth, a device behind the RHI (worktree `oak`)
+
+Authored lantinas and split square yards stand on every station and swing with their canvas;
+cordage is physical hemp through a geometry stage; flags are verlet cloth; canvas, water and
+ground got their materials; the clipmap rings and the sea follow the authored shoreline inside a
+band around the raster coast; `rhi::Device` sits behind the C ABI with the GL backend behind it,
+a Vulkan bring-up device (instance/device/queue, no drawing yet) and a DX12 stub.
+
+## Next
+
+- Vulkan T8 proper: SPIR-V for the shader library (glslang step in the asset pipeline, or
+  runtime glslang), swapchain over the v3 window, pipeline objects baked from
+  `rhi_pipeline_desc_t`, per-pipeline uniform blocks; GL stays default until screenshot parity.
+- Coast at close zoom, next step: the Dinaric coast still reads as a wall because the 7 km
+  raster cuts GEBCO's mountain foot at the waterline and the world is vertically exaggerated;
+  a beach profile for the islands raise_small_islands lifts, and a finer coastline raster.
+- Deepen the conversion: move callers onto the class APIs, inject game_t, retire the C shims.
+- UI decision (RmlUi vs classed-up kit) after the port; the mast far-LOD budgets; the
+  bowsprit steeve.
+
 ## Done: 0.18 — C++20 end to end, the real Earth, a living rig (worktree `oak`)
 
 The game and engine are C++20 classes behind stable C shims (docs/CPP_CONVERSION.md,
@@ -7,15 +27,8 @@ docs/REWRITE_PLAN.md); the terrain streams real GEBCO bathymetry with a fine Med
 set and tessellates on GL 4.0; masts/yards/sails are authored parts whose canvas and spars
 answer the wind as one body. Known polish items live in docs/TODO.md "Leftover tasks".
 
-## Next
-
-- rhi::Device abstraction over GlDevice, then the Vulkan backend; DX12 stub (plan T4/T8).
-- Deepen the conversion: move callers onto the class APIs, inject game_t, retire the C shims.
-- Coastline at close zoom: the landmask raster's square cells read as steps at battle
-  distance; vectorize the near coast or supersample the mask (the fine tiles already carry
-  the real relief).
-- UI decision (RmlUi vs classed-up kit) after the port; the mast far-LOD budgets; the
-  bowsprit steeve.
+(0.18's next items - the Device abstraction, the Vulkan start, the coastline at close zoom -
+landed in 0.19 above.)
 
 ## Done: world streaming 0.10 (game/docs/DESIGN_STREAMING.md)
 

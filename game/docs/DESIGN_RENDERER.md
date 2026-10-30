@@ -24,6 +24,32 @@ each step landed fully working on all platforms before the next started.
         VRAM (buffer/texture allocation tracking in the RHI), process RAM; all surfaced in the
         dashboard and metrics CSV.
 
+## 0.19: the device behind the RHI, a geometry stage, dynamic vertices
+
+`gfx/rhi_device.hh` is the abstract `mare::engine::rhi::Device` the rewrite plan's T4 asked
+for: every `rhi_*` C function is now a one-line shim in `gfx/rhi.cc` onto the active device,
+which is chosen once before `rhi_init` (`--rhi=gl|vulkan|dx12`, `MARE_RHI`). `GlDevice`
+(rhi_gl.cc) is the production backend. `VulkanDevice` (rhi_vk.cc) is the first slice of T8: it
+loads the loader at run time with hand-written declarations for the few 1.0 structs it needs
+(no SDK, no link dependency), creates instance, physical device, logical device and graphics
+queue, and reports adapter / API version / device-local memory in `rhi_info()`; every draw is
+delegated to the GL device through `DelegatingDevice` until SPIR-V, swapchain and pipeline
+objects exist. `Dx12Device` is the API-neutrality stub.
+
+Three capabilities joined the interface for the rig work: pipelines may carry a **geometry
+stage** (`rhi_pipeline_desc_t.gs`, `#version 150`, `rhi_geometry_shader_supported`) and take
+**line geometry** (`.lines`, drawn as `GL_LINES`), and a geometry's vertices can be
+re-uploaded per frame (`rhi_geometry_update`, orphan + refill). The cordage uses the first two
+(meshes/rope.geom: a line widened to a screen-facing quad of physical width with a pixel floor),
+the simulated flags the third. Tessellation is still the terrain's and the sea's amplification;
+the geometry stage is used only where it does what nothing else can - per-primitive screen-space
+expansion.
+
+Materials added in the same step: canvas (seams, tablings, weave micro-normal, transmission with
+the sun behind the sail, fuzz sheen - `meshes.frag`, keyed on `v_cloth`), water crest scattering
+(`sea.frag`), and ground roughness per material with a close-range micro-relief normal
+(`terrain.frag`, the grain map on unit 9).
+
 ## Step 10: profiling hooks (done)
 
 **GPU timers.** `rhi_gpu_begin/end` wrap each pass (terrain, shadow, meshes, sea, resolve) in an

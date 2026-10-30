@@ -37,6 +37,7 @@ typedef struct rhi_pipeline_t {
     int   depth_test, depth_write; rhi_blend_t blend;
     int   patches;                                 // >0: tessellated, draws GL_PATCHES of this many vertices
     int   nuniforms; const char *names[24]; int locs[24];   // cached uniform locations
+    int   lines;                                   // 1: the geometry is a line list (a geometry stage expands it)
 } rhi_pipeline_t;
 
 // vertex layout: per-attribute buffer slot (0 = vertex, 1 = instance), float component count,
@@ -52,6 +53,11 @@ typedef struct rhi_pipeline_desc_t {
     const char **uniforms;               // NULL-terminated names to pre-resolve (optional)
     int depth_test, depth_write;         // default off: set explicitly
     rhi_blend_t blend;
+    // optional geometry stage (GL 3.2; rhi_geometry_shader_supported). The rig's cordage is
+    // drawn as line segments the stage expands to screen-facing quads with a pixel minimum
+    // (meshes/rope.geom); callers keep a plain-triangle fallback.
+    const char *gs;
+    int lines;                           // 1: draw the geometry as GL_LINES (pairs of vertices)
 } rhi_pipeline_desc_t;
 
 // offscreen render target: one colour attachment + optional depth
@@ -106,6 +112,9 @@ rhi_geometry_t rhi_geometry_make(const rhi_layout_t *layout, const void *verts, 
                                  const unsigned *indices, int nindices);  // indices optional
 void rhi_geometry_instances(rhi_geometry_t *g, const void *data, int n); // stream per-frame instance data (grows the buffer)
 void rhi_geometry_free(rhi_geometry_t *g);           // release the buffers (LOD streaming evicts meshes)
+// Re-upload the vertex data of a *dynamic* geometry (a simulated flag, rebuilt every frame): the
+// buffer is orphaned and refilled, growing when `nverts` outruns what was allocated.
+void rhi_geometry_update(rhi_geometry_t *g, const void *verts, int nverts);
 void rhi_draw(rhi_geometry_t *g, int ninstances);    // indexed if indices exist; ninstances 0 = plain draw
 
 // per-frame statistics (draw calls, instances drawn, triangles, bytes streamed to the GPU);
@@ -145,6 +154,15 @@ void     rhi_color_write(int on);              // colour mask for depth-only pro
 // tessellation (DESIGN_VISUAL.md step 5): available on GL 4.0+ contexts; a pipeline with
 // tcs/tes draws its geometry as patches. Callers keep a non-tessellated fallback.
 int rhi_tessellation_supported(void);
+// geometry stage (GL 3.2+): a pipeline with `gs` runs it between the vertex and fragment
+// stages. MARE_GEOM=0 disables it (every user has a vertex-only fallback).
+int rhi_geometry_shader_supported(void);
+
+// Backend selection (docs/REWRITE_PLAN.md T4/T8): "gl" (default), "vulkan", "dx12". Must be
+// called before rhi_init; also read from MARE_RHI. The non-GL backends are bring-up devices
+// today - they open the API, report the adapter and hand every draw to the GL device.
+void        rhi_select(const char *backend);
+const char *rhi_backend(void);                       // the active backend's name
 
 // anisotropic filtering (DESIGN_VISUAL.md step 2): applied to every mipmapped texture at
 // creation. 1 = off/unsupported. Changing it affects textures made afterwards; rhi_reanisotropy

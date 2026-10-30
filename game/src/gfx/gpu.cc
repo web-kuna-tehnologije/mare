@@ -86,6 +86,13 @@ void quad_cloth(mb_t *m, const float a[3], const float b[3], const float c[3], c
     m->metal = keep_m; m->rough = keep_r;
 }
 
+void line(mb_t *m, const float a[3], const float b[3], float halfw, float r, float g, float b_) {
+    float keep_r = m->rough; m->rough = halfw > 0.f ? halfw : 0.001f;
+    float n[3] = { 0, 1, 0 };
+    push(m, a, n, r, g, b_, 0.f); push(m, b, n, r, g, b_, 0.f);
+    m->rough = keep_r;
+}
+
 void box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat) {
     float p[8][3]; for (int i = 0; i < 8; ++i) { p[i][0] = cx + (i&1 ? hx : -hx); p[i][1] = cy + (i&2 ? hy : -hy); p[i][2] = cz + (i&4 ? hz : -hz); }
     quad(m, p[0],p[2],p[3],p[1], r,g,b,mat); quad(m, p[4],p[5],p[7],p[6], r,g,b,mat);
@@ -130,6 +137,7 @@ void mb_quad2(mb_t *m, const float a[3], const float b[3], const float c[3], con
 void mb_quad_grad(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], float w_ab, float w_cd, float r, float g, float b_, float mat) { mesh_kit().quad_grad(m, a, b, c, d, w_ab, w_cd, r, g, b_, mat); }
 void mb_quad_cloth(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], const float n[3], float code_a, float code_b, float code_c, float code_d, float halfw, float r, float g, float b_, float mat) { mesh_kit().quad_cloth(m, a, b, c, d, n, code_a, code_b, code_c, code_d, halfw, r, g, b_, mat); }
 void mb_box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat) { mesh_kit().box(m, cx, cy, cz, hx, hy, hz, r, g, b, mat); }
+void mb_line(mb_t *m, const float a[3], const float b[3], float halfw, float r, float g, float b_) { mesh_kit().line(m, a, b, halfw, r, g, b_); }
 mesh_t mesh_upload(mb_t *m) { return mesh_kit().upload(m); }
 mesh_t mesh_upload_indexed(const float *verts, int nverts, const unsigned *idx, int nidx) { return mesh_kit().upload_indexed(verts, nverts, idx, nidx); }
 void mesh_set_instances(mesh_t *m, const inst_t *inst, int n) { mesh_kit().set_instances(m, inst, n); }

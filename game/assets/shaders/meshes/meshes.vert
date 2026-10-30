@@ -5,6 +5,7 @@ uniform mat4 u_vp; uniform float u_time;
 uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;
 uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;
 out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet;
+out vec3 v_cloth;   // canvas material (meshes.frag): x = 1 on a cloth instance, y = across the panel -1..1, z = head 0 .. foot 1
 #include "common/waves.glsl"
 void main(){
   v_dither = i_fx.x;
@@ -53,5 +54,6 @@ void main(){
   v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);
   v_col = mix(a_col, i_scol.yzw, a_mat);
   v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(mix(a_rm.x, 0.9, isc), mix(a_rm.y, 0.0, isc));
+  v_cloth = vec3(isc * (a_mat > 0.5 ? 0.5 : 1.0), cu, cw);
   gl_Position = u_vp * vec4(wp, 1.0);
 }

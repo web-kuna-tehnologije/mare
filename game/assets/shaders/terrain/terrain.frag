@@ -7,6 +7,8 @@ uniform vec3 u_nation_colors[11]; uniform float u_daylight; uniform float u_regi
 uniform float u_flatten;
 uniform sampler2D u_atlas; uniform float u_has_atlas;
 // ground material atlas (assets/terrain/terrain_textures.png, 6x3 cells)
+uniform sampler2D u_grain;
+// the procedural surface-grain normal map (detail.c): micro relief on the close ground
 #include "terrain/detail.glsl"
 out vec4 fragColor;
 // One cell of the atlas, tiled: the uv wraps inside the cell by hand (an atlas cannot use
@@ -26,6 +28,7 @@ float noise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
 #include "common/pbr.glsl"
 #include "common/light.glsl"
 #include "common/fog.glsl"
+#include "common/nmap.glsl"
 void main(){
   float hl = texture(u_hm, v_uv - vec2(u_texel.x,0)).r, hr = texture(u_hm, v_uv + vec2(u_texel.x,0)).r;
   float hu = texture(u_hm, v_uv - vec2(0,u_texel.y)).r, hd = texture(u_hm, v_uv + vec2(0,u_texel.y)).r;
@@ -103,9 +106,23 @@ void main(){
     c = mix(c, ts * (0.55 + 0.45 * (c / max(ts, vec3(0.02)))), 0.78 * tdet);
 // keep the biome's hue, take the material's grain
   }
+// Ground materials (0.19): each surface has its own roughness - grass and scrub matte, dry
+// soil a little less, bare rock and shingle tighter, snow a soft gloss, and the rock in the
+// splash zone wet and dark-glossy - and, close in, a micro-relief normal from the grain map
+// so the beach and the rock faces stop reading as painted planes under a low sun.
+  float wet = (1.0 - smoothstep(0.0, 0.35, h)) * smoothstep(0.12, 0.3, slope);
+  float rough = 0.95;
+  rough = mix(rough, 0.84, wdry);
+  rough = mix(rough, 0.72, wrock);
+  rough = mix(rough, 0.80, (1.0 - wgrass) * (1.0 - wrock));          // beach sand
+  rough = mix(rough, 0.55, wsnow);
+  rough = mix(rough, 0.40, wet * 0.8);
+  float micro = (1.0 - smoothstep(12.0, 60.0, dist0)) * (1.0 - u_mapness);
+  if (micro > 0.01) {
+    float mstr = mix(0.25, 0.55, wrock) * micro;
+    n = nmap_triplanar(u_grain, v_wpos * 1.3, n, 1.0, mstr);
+  }
   float diff = max(dot(n, u_sun), 0.0);
-// PBR: ground is a rough dielectric; rock/snow slightly smoother than vegetation
-  float rough = mix(0.95, 0.75, smoothstep(0.25, 0.6, slope) * 0.6 + smoothstep(6.5, 8.5, h) * 0.4);
   vec3 vdir = normalize(u_campos - v_wpos);
   float viewdist = distance(v_wpos, u_campos);
   float ao = u_ao_on > 0.5 ? mix(1.0, texture(u_ao, v_uv).r, 0.85) : 1.0;

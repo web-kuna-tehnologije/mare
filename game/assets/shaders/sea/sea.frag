@@ -25,12 +25,13 @@ out vec4 fragColor;
 #include "common/light.glsl"
 #include "common/nmap.glsl"
 #include "common/fog.glsl"
+#include "terrain/detail.glsl"
 float depth_at(vec2 pp) {
-// water depth from the heightmap (staged scenes: constant)
+// water depth from the heightmap plus the streamed detail rings (staged scenes: constant)
   if (u_local_depth > 0.0) return u_local_depth;
   float lon = pp.x / u_k, lat = -pp.y / u_k;
   vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));
-  return max(-texture(u_hm, uv).r, 0.0);
+  return max(-(texture(u_hm, uv).r + det_at(pp) * (1.0 - u_mapness)), 0.0);
 }
 void main(){
   if (u_hole.w > 0.5) {
@@ -151,6 +152,14 @@ void main(){
   vec3 body = sun_shade(c, n, vdir, v_wpos, 0.9, 0.0, dist);
 // the little diffuse the suspended sediment gives
   vec3 col3d = mix(mix(body, refr, refr_on), skyrefl, fres3) + glint;
+// Crest scattering (0.19 water material): looking through a wave towards the sun, the thin
+// crest lets light through and glows a pale green-turquoise - the one thing that makes a
+// swell read as water rather than a moving relief. Strongest on the lifted part of the
+// surface, against the light, in the detail band, and gone in a flat calm.
+  float lift = clamp(v_wpos.y / max(0.35 * u_wave_scale * max(v_amp, 0.05), 1e-3), 0.0, 1.0);
+  float against = pow(max(dot(vdir, -u_sun), 0.0), 2.5);
+  float sss = lift * against * (0.35 + 0.65 * v_crest) * detail * clamp(v_amp, 0.0, 1.0) * (1.0 - fres);
+  col3d += srgb_to_linear(vec3(0.18, 0.62, 0.52)) * u_suncol * sss * 0.45;
 // --- foam (DESIGN_VISUAL.md step 6). Four sources, one white.
 // Whitecaps: where the Gerstner displacement folds the surface - the horizontal Jacobian
 // drops below 1 as the crest compresses - plus the steepest faces. Textured by the foam

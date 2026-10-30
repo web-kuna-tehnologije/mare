@@ -182,7 +182,8 @@ Sea &sea() { static Sea s; return s; }
 void Sea::init() {
     static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_shipwave", "u_shallow", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
-                                          "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug", GLSL_LIGHT_UNIFORMS, 0 };
+                                          "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug",
+                                          "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs", GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     // (C compound literals -> named descriptors: C++ cannot take &T{...}; the tess one is also
@@ -397,6 +398,21 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     rhi_set_f1(rhi_uniform(p,"u_wave_scale"), wave_scale);
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
+    {   // the streamed detail rings (streamview.cc), bound exactly as the terrain binds them,
+        // so the shoreline the water stops at is the shoreline the ground draws (0.19)
+        const rhi_texture_t *dn = local_depth > 0.f ? 0 : streamview_detail_tex(0), *df = local_depth > 0.f ? 0 : streamview_detail_tex(1);
+        float rn[4] = { 0, 0, 1, 1 }, rf[4] = { 0, 0, 1, 1 };
+        if (dn) streamview_detail_rect(0, rn);
+        if (df) streamview_detail_rect(1, rf);
+        const rhi_texture_t *hm = terrain_heightmap_texture();
+        rhi_set_i1(rhi_uniform(p,"u_det"), 8);     rhi_texture_bind(8, dn ? dn : hm);
+        rhi_set_i1(rhi_uniform(p,"u_det_far"), 9); rhi_texture_bind(9, df ? df : hm);
+        rhi_set_f4(rhi_uniform(p,"u_det_rect"), rn[0], rn[1], rn[2], rn[3]);
+        rhi_set_f4(rhi_uniform(p,"u_det_far_rect"), rf[0], rf[1], rf[2], rf[3]);
+        rhi_set_f2(rhi_uniform(p,"u_det_on"), dn ? 1.f : 0.f, df ? 1.f : 0.f);
+        rhi_set_f2(rhi_uniform(p,"u_det_texel"), streamview_detail_texel(0), streamview_detail_texel(1));
+        rhi_set_f1(rhi_uniform(p,"u_mapness_vs"), RF.mapness);
+    }
     { static int dbg = -1; if (dbg < 0) { const char *e = getenv("MARE_SEA_DEBUG"); dbg = e ? atoi(e) : 0; }
       rhi_set_f1(rhi_uniform(p,"u_sea_debug"), dbg ? 1.f : 0.f); }
     light_bind(p);

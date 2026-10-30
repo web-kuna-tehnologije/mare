@@ -620,7 +620,7 @@ int DetailView::submit_shadow(void) {
         n += mesh_house.ninst + mesh_roof.ninst + mesh_tower.ninst + mesh_wall.ninst + mesh_pier.ninst + mesh_flagpole.ninst;
     }
     n += scene_assets_submit_shadow();   // authored hulls cast in both modes
-    n += shipyard_submit();
+    n += shipyard_submit_shadow();
     return n;
 }
 
