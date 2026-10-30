@@ -17,6 +17,10 @@
 #include <stdarg.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum { LOG_TRACE=0, LOG_DEBUG, LOG_INFO, LOG_WARN, LOG_ERROR, LOG_FATAL, LOG_LEVELS };
 
 typedef struct log_record_t {
@@ -111,5 +115,9 @@ const prof_scope_t *prof_get(int id);           // rolling stats are valid after
 int  prof_frame_index(void);            // frames since init
 double prof_frame_ms(void);             // last whole frame, ms
 const double *prof_frame_history(void); // PROF_WINDOW entries, ring indexed by frame index
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

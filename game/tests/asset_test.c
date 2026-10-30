@@ -18,7 +18,7 @@
 #define STBI_ONLY_BMP
 #define STBI_NO_STDIO
 #include "../../ext/ext-image/ext-image/3rd/stb_image.h"
-#include "../src/core/diag.c"
+#include "../src/core/diag.h"    // linked from ../src/core/diag.cc
 #include "../src/assets/gltf.c"
 #define ASSET_NO_JOBS            // headless: every pipeline stage runs inline (the job system's synchronous mode)
 #include "../src/assets/asset.c"

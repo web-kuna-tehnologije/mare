@@ -12,8 +12,8 @@
 // 800 ms texture decode. JOB_LANE_MAIN jobs are only ever run by the thread that called
 // jobs_init (the one owning the GL context), when it calls jobs_main_drain or waits.
 //
-// This is a C API over a C++17 implementation (core/jobs.cpp, the only C++ translation unit):
-// portable threads, mutexes, condition variables and atomics without a per-platform wrapper.
+// This is the C API over mare::core::WorkerPool (core/worker_pool.hh / .cc). C++ code calls
+// the class directly; unported C modules go through these shims.
 //
 // Rules worth knowing before using it:
 //   * Waiting helps. jobs_wait and jobs_parallel_for run queued jobs on the calling thread while

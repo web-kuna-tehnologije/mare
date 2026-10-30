@@ -7,7 +7,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../src/core/diag.c"
+#include "../src/core/diag.h"   // implementation in ../src/core/diag.cc, linked as C++
+
+#ifdef _WIN32
+#include <direct.h>
+#define diag_mkdir(p) _mkdir(p)
+#else
+#include <sys/stat.h>
+#define diag_mkdir(p) mkdir(p, 0777)
+#endif
 
 // portable helpers (no shell): the log directory is reused, files are removed individually
 static void remove_logs(const char *dir) {

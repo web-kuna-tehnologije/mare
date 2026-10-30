@@ -11,7 +11,7 @@
 #include <thread>
 #include <vector>
 
-#include "../src/core/jobs.cpp"
+#include "../src/core/worker_pool.cc"
 
 static int failures;
 #define CHECK(cond, ...) do { if (!(cond)) { failures++; printf("FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
@@ -225,7 +225,7 @@ static void test_main_budget(void) {
 static void test_backpressure(void) {
     jobs_init(2);
     g_counter_hits.store(0);
-    const int N = JOB_QUEUE_CAP * 3;                // more than one lane can hold at once
+    const int N = mare::core::WorkerPool::QUEUE_CAP * 3;                // more than one lane can hold at once
     job_counter_t c = jobs_counter();
     for (int i = 0; i < N; ++i) jobs_submit(JOB_LANE_WORKER, bump, NULL, c);
     jobs_wait(c);
@@ -250,7 +250,7 @@ static void test_counters(void) {
     // the slab is finite: allocate it dry and check the caller gets a clean refusal
     std::vector<job_counter_t> all;
     for (;;) { job_counter_t h = jobs_counter(); if (!h) break; all.push_back(h); }
-    CHECK(all.size() == (size_t)JOB_MAX_COUNTERS, "counter slab size: %d", (int)all.size());
+    CHECK(all.size() == (size_t)mare::core::WorkerPool::MAX_COUNTERS, "counter slab size: %d", (int)all.size());
     for (size_t i = 0; i < all.size(); ++i) jobs_release(all[i]);
     CHECK(jobs_counter() != JOB_NO_COUNTER, "counters are reusable after release");
     jobs_shutdown();
@@ -284,7 +284,7 @@ int main(void) {
 
     { int n = jobs_init(-1);                         // auto sizing (MARE_JOBS may pin it)
       printf("auto worker count: %d (hardware_concurrency %u)\n", n, std::thread::hardware_concurrency());
-      CHECK(n >= 0 && n <= JOB_MAX_WORKERS, "auto worker count is sane: %d", n);
+      CHECK(n >= 0 && n <= mare::core::WorkerPool::MAX_WORKERS, "auto worker count is sane: %d", n);
       jobs_shutdown(); }
 
     if (failures) printf("jobs_test: %d FAILURES\n", failures);

@@ -1,21 +1,15 @@
 // MARE LIBERUM - 17th century naval trade & war RTS on the v3 framework.
-// Unity build: this file pulls in every module except the job system, which is the one C++
-// translation unit and is compiled and linked alongside it (game/docs/DESIGN_JOBS.md).
-// See README.md for the layout and game/build.sh / build.bat for the canonical builds.
-//
-//   linux:   cc -c game/mare.c -I. -O2 && c++ -std=c++17 -c game/src/core/jobs.cpp -O2 &&
-//            c++ mare.o jobs.o -o mare -lm -ldl -lpthread -lasound
-//   windows: cl /std:c11 /std:c++17 game\mare.c game\src\core\jobs.cpp -I. /O2 /Fe:mare.exe
-//   osx:     cc -ObjC -c game/mare.c -I. -O2 && c++ -std=c++17 -c game/src/core/jobs.cpp -O2 &&
-//            c++ mare.o jobs.o -o mare -framework cocoa -framework iokit -framework audiotoolbox
+// Unity build of the modules not yet ported to C++ (docs/REWRITE_PLAN.md): the v3 framework
+// and the remaining C game code compile here; mare::core (src/core/*.cc) compiles as C++20
+// translation units linked alongside. See game/build.sh / build.bat for the canonical builds.
 
 #define V3_IMPLEMENTATION
 #include "v3.h"
 
-#include "src/core/jobs.h"   // C ABI over src/core/jobs.cpp (linked separately)
+#include "src/core/jobs.h"   // C ABI over src/core/worker_pool.cc (linked separately)
+#include "src/core/diag.h"   // C ABI over src/core/diag.cc (linked separately)
 
 // simulation (framework independent)
-#include "src/core/diag.c"
 #include "src/core/log.c"
 #include "src/world/world.c"
 #include "src/world/terraintiles.c"

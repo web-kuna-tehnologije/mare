@@ -7,12 +7,15 @@ cmake_minimum_required(VERSION 3.16)
 project(mare_liberum C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_STANDARD 17)          # src/core/jobs.cpp only (see game/docs/DESIGN_JOBS.md)
+set(CMAKE_CXX_STANDARD 20)          # mare::core and everything the C++ rewrite ports (docs/REWRITE_PLAN.md)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 get_filename_component(V3_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 
-# Two translation units: the C11 unity build, and the job system's C++17 unit behind a C ABI.
-add_executable(mare mare.c src/core/jobs.cpp)
+# The ported C++ core (mare::core) behind the C ABIs in src/core/*.h.
+set(MARE_CORE_CXX src/core/diag.cc src/core/worker_pool.cc)
+
+# The C11 unity build of the unported modules, plus the C++ core linked alongside.
+add_executable(mare mare.c ${MARE_CORE_CXX})
 target_include_directories(mare PRIVATE "${V3_ROOT}")
 if(WIN32)
     target_compile_definitions(mare PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
@@ -30,13 +33,13 @@ else()
     target_link_libraries(mare PRIVATE m dl Threads::Threads asound)
 endif()
 
-# headless tests: no framework, no GL
+# headless tests: no framework, no GL (each links the C++ core it exercises)
 enable_testing()
-add_executable(sim_test tests/sim_test.c src/core/jobs.cpp)   # nav_ports_precompute runs on the job system
-add_executable(diag_test tests/diag_test.c)
-add_executable(asset_test tests/asset_test.c)
-add_executable(jobs_test tests/jobs_test.cpp)
-add_executable(stream_test tests/stream_test.c src/core/jobs.cpp)   # world streaming loads on the pool
+add_executable(sim_test tests/sim_test.c ${MARE_CORE_CXX})   # nav_ports_precompute runs on the job system
+add_executable(diag_test tests/diag_test.c src/core/diag.cc)
+add_executable(asset_test tests/asset_test.c src/core/diag.cc)
+add_executable(jobs_test tests/jobs_test.cpp)                # includes worker_pool.cc directly
+add_executable(stream_test tests/stream_test.c ${MARE_CORE_CXX})   # world streaming loads on the pool
 foreach(t sim_test diag_test asset_test jobs_test stream_test)
     if(WIN32)
         target_compile_definitions(${t} PRIVATE _CRT_SECURE_NO_WARNINGS)

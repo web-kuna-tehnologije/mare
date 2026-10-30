@@ -14,8 +14,8 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#include "../src/core/jobs.h"      // linked from src/core/jobs.cpp: nav's precompute runs on the pool
-#include "../src/core/diag.c"
+#include "../src/core/jobs.h"      // linked from src/core/worker_pool.cc: nav's precompute runs on the pool
+#include "../src/core/diag.h"      // linked from src/core/diag.cc
 #include "../src/core/log.c"
 #include "../src/world/world.c"
 #include "../src/world/nav.c"
