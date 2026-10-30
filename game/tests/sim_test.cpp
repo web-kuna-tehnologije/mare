@@ -16,6 +16,7 @@
 
 #include "../src/core/jobs.h"      // linked from src/core/worker_pool.cc: nav's precompute runs on the pool
 #include "../src/core/diag.h"      // linked from src/core/diag.cc
+#include "../src/data/tables.cc"   // the gameplay tables are defined once (0.21)
 #include "../src/core/log.cc"
 #include "../src/world/world.cc"
 #include "../src/world/nav.cc"

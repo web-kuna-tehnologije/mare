@@ -50,6 +50,34 @@ the sun behind the sail, fuzz sheen - `meshes.frag`, keyed on `v_cloth`), water 
 (`sea.frag`), and ground roughness per material with a close-range micro-relief normal
 (`terrain.frag`, the grain map on unit 9).
 
+## 0.21: three backends, the right GPU, and the settings panel
+
+**The GPU.** `mare.cc` exports `NvOptimusEnablement` and `AmdPowerXpressRequestHighPerformance`.
+Without them a hybrid laptop gives an OpenGL program the integrated chip: 52.7 fps against
+202.7 on the discrete one over the same scene, which is the largest single change the renderer
+has ever had for two lines.
+
+**Vulkan** (`gfx/rhi_vk.cc`) is built against the real headers with `VK_NO_PROTOTYPES`, the
+loader opened at run time, so there is no link dependency and no driver requirement. Bring-up
+creates instance, physical device (discrete preferred), logical device and a graphics queue;
+two self tests then prove the layers the renderer will sit on - a transfer (map, copy on the
+queue, fence, byte-exact read-back) and a **render** (offscreen image, render pass, graphics
+pipeline from SPIR-V, triangle, pixels checked for the interpolated gradient). The self-test
+SPIR-V is committed so no build needs a compiler (`tools/vk/spv2h.py`).
+
+**DX12** (`gfx/rhi_dx12.cc`) does the equivalent: DXGI adapter by high-performance preference,
+`ID3D12Device` at the best feature level it accepts, a direct command queue, `d3d12.dll` and
+`dxgi.dll` loaded at run time.
+
+Neither draws the game yet, and the reason is structural rather than missing code: the v3
+window's GL context owns the surface. A Vulkan swapchain has to *replace* it, so the port has
+to reach the point where every pass can run on Vulkan before the switch is worth throwing.
+
+**Options** (`ui/options.h`) exposes the knobs that were environment variables - shadow
+distance, anisotropy, tessellation, LOD bias, wave height, exposure, bloom, SSAO, backend - as
+a panel of sliders persisted to `mare_options.cfg`, read before the device is created.
+Environment variables still win, so the A/B scripts are unaffected.
+
 ## 0.20: the height atlas, and why the terrain has no geometry stage
 
 `gfx/heightatlas.h` holds resident authored tiles on the GPU so the terrain's vertex and

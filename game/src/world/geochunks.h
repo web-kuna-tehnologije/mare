@@ -68,6 +68,18 @@ int  geochunks_height_m(float lon, float lat, float *out_metres);
 // keeps its meaning - what changes is that the value is exact instead of quantised.
 int  geochunks_height(float lon, float lat, float *out_world);
 
+// One-shot geography fold straight from the export (world/terrainmap.h drives it; the same
+// contract as terraintiles_bake, which it replaces when the chunks are present): walk the
+// chunk grid one row of chunks at a time - the whole export is never resident - and write the
+// authored Earth into a base grid of `w` x `h` cells. Per cell: authored relief where both
+// agree on land, authored bathymetry where both agree on sea, base land never removed, and
+// new land only under MARE_TERRAIN_ISLANDS. `protect` (optional, w*h bytes, 1 = keep) pins the
+// harbour basins. Returns cells written, 0 when the export is absent so the caller can fall
+// back to the cut tiles.
+int  geochunks_bake(float *hm, unsigned char *lm, int w, int h,
+                    float lon0, float lat1, float cells_per_deg,
+                    const unsigned char *protect, int *flips);
+
 int  geochunks_resident(float lon, float lat);
 void geochunks_stats(gc_stats_t *out);
 unsigned geochunks_generation(void);      // bumps when residency changes

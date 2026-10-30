@@ -25,7 +25,8 @@ extern "C" {
 render_frame_t RF;
 int screen_w = 1, screen_h = 1, window_w = 1, window_h = 1;
 int terrain_chunks_drawn, terrain_tris_drawn, terrain_show_regions;
-int terrain_ao_on = 1;    // baked horizon occlusion on the ambient term (MARE_TERRAIN_AO=0)
+int terrain_ao_on = 1;          // baked horizon occlusion on the ambient term (MARE_TERRAIN_AO=0)
+int terrain_tess_enabled = 1;   // ui/options.h; only consulted when the context supports tessellation
 
 #define CHUNK 64
 #define CHUNKS_X ((LM_W + CHUNK-1)/CHUNK)
@@ -182,9 +183,10 @@ int TerrainRenderer::aabb_visible(float planes[6][4], float x0, float y0, float 
 void TerrainRenderer::draw(float planes[6][4]) {
     // the local name shadows the member on purpose: every uniform below goes to whichever
     // pipeline is active, grid or tessellated
-    rhi_pipeline_t &terrain_prg = tess_on ? terrain_tess_prg : this->terrain_prg;
+    int tess = tess_on && terrain_tess_enabled;   // the player can turn the path off at run time
+    rhi_pipeline_t &terrain_prg = tess ? terrain_tess_prg : this->terrain_prg;
     rhi_pipeline_bind(&terrain_prg);
-    if (tess_on) {
+    if (tess) {
         // level = (edge world length) * (pixels per unit at distance 1) / target px per quad
         float px1 = (float)screen_h * 1.2071f;               // 45 degree vertical fov
         rhi_set_f2(UNI(terrain_prg, "u_tess"), px1 / 14.f, 32.f);
@@ -240,7 +242,7 @@ void TerrainRenderer::draw(float planes[6][4]) {
         int lod = 0; while (lod < LODS-1 && d > lod_dist[lod]) lod++;
         if (RF.mapness > 0.99f && lod < 2) lod = 2;
         rhi_set_f2(loc_origin, c->x0, c->z0);
-        if (tess_on) { rhi_draw(&patch_geo, 0); terrain_tris_drawn += patch_geo.nverts/3; }
+        if (tess) { rhi_draw(&patch_geo, 0); terrain_tris_drawn += patch_geo.nverts/3; }
         else { rhi_draw(&terrain_geo[lod], 0); terrain_tris_drawn += terrain_geo[lod].nindices/3; }   // rhi_draw caches the geometry binding across chunks
         terrain_chunks_drawn++;
     }

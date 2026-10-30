@@ -13,6 +13,7 @@ extern "C" {
 #include "../core/diag.h"
 #include "../assets/asset.h"
 #include "terraintiles.h"
+#include "geochunks.h"
 #include "../data/geo_ports.h"   // the protection mask in terrainmap_bake_geography
 }
 
@@ -198,7 +199,13 @@ int TerrainMap::bake_geography(const char *tiles_dir) {
     int flips = 0;
     double lm0 = 0, lmax0 = 0; long nl = 0;      // land height statistics, so a fold that flattens the world is visible in the log
     for (int i = 0; i < LM_W * LM_H; ++i) if (landmask[i]) { lm0 += heightmap[i]; if (heightmap[i] > lmax0) lmax0 = heightmap[i]; nl++; }
-    int changed = terraintiles_bake(tiles_dir, heightmap, landmask, LM_W, LM_H,
+    // The export itself where it is there (exact float32 metres and the coverage mask,
+    // assets/data/how_to.txt), the u16 cut of it otherwise. Both fold under identical rules
+    // and decode through the same calibration, so this changes fidelity, not geography.
+    int changed = geochunks_bake(heightmap, landmask, LM_W, LM_H,
+                                 LON0, LAT1, (float)CELLS_PER_DEG, protect, &flips);
+    if (!changed)
+        changed = terraintiles_bake(tiles_dir, heightmap, landmask, LM_W, LM_H,
                                     LON0, LAT1, (float)CELLS_PER_DEG, protect, &flips);
     { double lm1 = 0, lmax1 = 0; for (int i = 0; i < LM_W * LM_H; ++i) if (landmask[i]) { lm1 += heightmap[i]; if (heightmap[i] > lmax1) lmax1 = heightmap[i]; }
       LOG_INFO("terrain", "land height mean %.2f max %.2f before the fold, %.2f / %.2f after", nl ? lm0 / nl : 0, lmax0, nl ? lm1 / nl : 0, lmax1); }

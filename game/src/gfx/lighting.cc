@@ -41,6 +41,7 @@ int shadow_casters_drawn;
 // so a building a street away cast nothing. The cascades now cover the distance at which meshes
 // are still drawn, and scene.c collects casters from the same radius - and only from it.
 float shadow_radius = 300.f;
+float shadow_distance_scale = 1.f;   // ui/options.h
 
 // ---------------------------------------------------------------------------
 // day and night
@@ -270,7 +271,7 @@ void Lighting::shadow_render() {
     // Cascades only need to reach as far as the meshes themselves: past PORT_DETAIL_DIST the
     // towns and ships are replaced by icons, so there is nothing left to cast. Beyond this the
     // lookup returns "lit".
-    float zfar = clampf(cam.dist * 2.6f + 70.f, 120.f, 650.f);
+    float zfar = clampf(cam.dist * 2.6f + 70.f, 120.f, 650.f) * clampf(shadow_distance_scale, 0.3f, 3.f);
     shadow_radius = zfar;
     float znear = cam.znear;
     for (int i = 0; i < SHADOW_CASCADES; ++i) {

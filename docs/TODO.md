@@ -1,3 +1,35 @@
+# Session summary (2026-10-30 night, worktree `oak`, 0.21.0)
+
+- **Wrong GPU, found by measuring**: the executable did not ask for the discrete chip, so GL
+  ran on the Intel iGPU. Two exported symbols later: 52.7 -> 202.7 fps (3.85x).
+- **Vulkan renders**: real SDK headers, loader at run time, transfer *and* render self tests
+  passing (SPIR-V pipeline -> offscreen triangle -> verified pixels) on an RTX 5070 Ti.
+- **DX12 bring-up**: DXGI adapter, device at feature level 12.2, direct command queue.
+- **Options panel** with sliders, persisted to `mare_options.cfg`, verified by A/B on the
+  metrics (shadow radius 113 vs 452; draw calls 93 vs 111 with tessellation).
+- **geochunks finished**: the geography fold reads the float32 chunks (3,925,398 cells vs the
+  cut's 2,205,872) and runs on the job pool, 1019 -> 251 ms.
+- **Classes**: Tables, Json, Math/Geo/Rng/Calendar/Colour, EntityRegistry, Options,
+  BackendSelector - the header-only modules now have one definition instead of forty.
+
+## Process note, worth remembering
+
+`/tmp/mare_tools/mirror.sh` was **overwritten by another session** mid-run, so it silently
+synced a different worktree to a different folder. Several builds and test runs in this
+session were therefore against stale sources before I noticed, including a "no change" result
+for the GPU hint that was simply never compiled. The mirror is now
+`C:\projects\mare-oak-s21` with the rsync written inline per command rather than in a shared
+script, and every batch helper lives under that folder. **Verify the mirror received the edit
+before trusting a build result** - `grep` the mirrored file, it costs nothing.
+
+## Leftover tasks (0.21)
+
+- [ ] Vulkan/DX12 draw nothing yet - see KNOWN_ISSUES. The next step is one real pass on
+      Vulkan, which needs the GLSL library compiled to SPIR-V as a build step.
+- [ ] A finer DEM is still the only thing that will sharpen the near coast.
+- [ ] T9's remainder: the C-ABI globals and their shims.
+- [ ] The islands `raise_small_islands` lifts still read as flat-topped plateaux.
+
 # Session summary (2026-10-30 late, worktree `oak`, 0.20.0)
 
 - **`assets/data/how_to.txt` implemented as written** (`world/geochunks.h/.cc`): the export is

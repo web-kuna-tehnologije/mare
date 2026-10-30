@@ -8,6 +8,13 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 "Framework" marks issues in v3 itself that we work around rather than fix.
 
 ## Rendering
+- **M** `--rhi=vulkan` and `--rhi=dx12` bring their device up, pass their self tests and then
+  **delegate every draw to OpenGL**. They are not yet alternative renderers: the window's GL
+  context owns the surface, and a swapchain would have to replace it rather than share it.
+  The Options panel says "restart to switch" and the log says which backend is active, but the
+  pixels come from GL whichever is selected.
+- **L** The Vulkan render self test allocates a 64x64 image and a pipeline at start-up
+  (~0.4 ms) only when the Vulkan backend is selected; it is not run under GL.
 - **L** The split square yards' far LODs (LOD4/5, 700 and 250 triangles) decimate a thin spar
   to a sliver, which is why the sail's own procedural spar stands in below 44 px of projected
   spar (`YARD_ASSET_MIN_PX`); the loader's "LOD 5 extent differs" warnings for `yard_*` and

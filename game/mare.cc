@@ -43,7 +43,26 @@ extern "C" {
 #include "src/gfx/detailview.h"
 #include "src/gfx/weather.h"
 #include "src/ui/ui.h"
+#include "src/ui/options.h"
 }
+
+// Ask a hybrid laptop for the discrete GPU.
+//
+// On a machine with an Intel iGPU and an NVIDIA or AMD dGPU, the driver hands an OpenGL
+// program the integrated chip unless the executable says otherwise. Both vendors read these
+// exported symbols out of the .exe at process start; this is the documented way to opt in and
+// there is no runtime cost. Measured over the Dalmatian coast at 1600x900, 20 s with the sea
+// clock frozen: 52.7 fps on the Intel iGPU, 202.7 fps once the driver handed the context to
+// the RTX 5070 Ti - 3.85x, for two exported symbols. The game had been drawing a tessellated
+// sea and terrain on the integrated chip while the discrete GPU sat idle. Neither driver
+// reads an opt-out from the process, so forcing the iGPU back is the per-application setting
+// in the vendor control panel.
+#ifdef _WIN32
+extern "C" {
+__declspec(dllexport) unsigned long NvOptimusEnablement = 1;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+#endif
 
 // How long the render thread may spend per frame on work the pool handed back to it (GPU
 // uploads). At 60 Hz the frame has ~16 ms: 2 ms of uploads is invisible, and anything that does
@@ -212,6 +231,10 @@ int main(int argc, char **argv) {
     { int nw = jobs_init(-1); atexit(jobs_shutdown);
       LOG_INFO("jobs", "%s: %d worker threads, %d slots", nw ? "job system" : "job system (synchronous)", nw, jobs_slot_count()); }
     LOG_INFO("main", "mare liberum starting: seed %u nation %d dev %d headless %d", seed, autostart, dev, headless);
+    // Graphics settings before anything creates a device: the backend the player picked is
+    // in the file, and MARE_RHI (set by the measurement scripts) still overrides it.
+    options_load();
+    if (!getenv("MARE_RHI") && OPT.backend[0]) rhi_select(OPT.backend);
     if (map_chunk) return map_chunk_dump(map_chunk, seed);    // reference image for a map chunk, then out
     if (map_chunks) return map_chunks_list(map_chunks, seed); // the whole authoring work list, then out
     if (headless) {   // balance run without a window
@@ -460,6 +483,7 @@ int main(int argc, char **argv) {
                                toast("Game loaded (%s)", ui_date(G.day)); }
               else toast("No compatible saved game found");
           } }
+        options_apply();                      // the sliders reach the systems that own them
         if (territory_dirty == 2) render_territory_upload();
 
         // ---- 3d

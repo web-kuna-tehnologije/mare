@@ -67,10 +67,24 @@ while the game builds and the five test suites stay green after every task.
       *verified* - buffers created and bound, a host-coherent allocation mapped, a transfer
       recorded into a command buffer, submitted to the graphics queue, fence-waited and read
       back byte for byte (64 KB, 0.11 ms submit to fence, no mismatches on an RTX 5070 Ti).
-      The blocker for pipelines is tooling, not design: there is no Vulkan SDK or glslang on
-      the build machine, so no SPIR-V can be produced. Installing either unblocks the rest.
-- [ ] **T9 — Final folder/docs sweep.** Retire what is left of mare.c; src/ tree fully matches
-      the namespaces; README/docs/build scripts reflect the C++ layout.
+      **Step three (0.21):** the SDK is installed, so the backend is built against the real
+      headers (VK_NO_PROTOTYPES, loader opened at run time - still no link dependency) and
+      **renders**: an offscreen image, a render pass, a graphics pipeline from committed
+      SPIR-V, a triangle drawn and its interpolated pixels verified on read-back. Transfer and
+      render self tests both pass on an RTX 5070 Ti and are reported by rhi_info().
+      What remains is porting the passes themselves: pipelines built from rhi_pipeline_desc_t
+      (which needs the GLSL shader library compiled to SPIR-V, not just the two self-test
+      shaders), descriptor sets for what are loose uniforms today, and a swapchain - which
+      means *replacing* the window's GL context rather than sharing it, since two APIs cannot
+      present to one surface. `gfx/rhi_dx12.cc` is now a real bring-up too (DXGI adapter,
+      ID3D12Device at feature level 12.2, direct command queue).
+- [~] **T9 — Final folder/docs sweep.** The header-only modules are classes as of 0.21
+      (`mare::data::Tables`, `mare::assets::Json`, `mare::core::Math/Geo/Rng/Calendar/Colour`,
+      `mare::game::EntityRegistry`, `mare::ui::Options`, `rhi::BackendSelector`), each with one
+      definition instead of a copy per translation unit. What is left is the deliberate part:
+      the C-ABI globals (`G`, `cam`, `RF`, `SH`, the `*_enabled` flags) stay global until the
+      shims that read them are retired, which means moving callers onto the class APIs and
+      injecting `game_t`. `core/types.h` stays plain structs by design.
 - [ ] **T10 — Known bug fixes** (docs/TODO.md "Still open"): `MARE_PASSES=sea` +
       `MARE_SEA_DEBUG=1` incomplete render target; hard-edged overhead cloud layer and faceted
       close-range gunsmoke; consume or drop the 300 MB normal-map tile cut; retire the

@@ -21,6 +21,7 @@
 #include "../src/core/diag.h"    // linked from ../src/core/diag.cc
 #include "../src/assets/gltf.cc"
 #define ASSET_NO_JOBS            // headless: every pipeline stage runs inline (the job system's synchronous mode)
+#include "../src/assets/gjson.cc"   // the JSON parser is defined once (0.21)
 #include "../src/assets/asset.cc"
 #include "../src/gfx/lod.cc"      // screen-space LOD selector: pure math, no GL
 #include "../src/gfx/occlusion.cc" // terrain occlusion rays: pure math over a height callback

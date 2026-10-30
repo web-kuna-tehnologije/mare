@@ -15,6 +15,14 @@ rem (src\core\diag.cc + src\core\worker_pool.cc, see docs\REWRITE_PLAN.md). cl r
 rem and /std:c++20 on one command line (D8016), so the C++ units compile on their own and are
 rem handed to the link step.
 set COMMON=/nologo /utf-8 /D_CRT_SECURE_NO_WARNINGS /DNOMINMAX /DWIN32_LEAN_AND_MEAN /wd4244 /wd4305
+rem The Vulkan backend compiles against the real headers when the SDK is installed; without
+rem them gfx/rhi_vk.cc builds a stub that reports the backend as unavailable (no link
+rem dependency either way - the loader is opened at run time).
+if defined VULKAN_SDK (
+    if exist "%VULKAN_SDK%\Include\vulkan\vulkan.h" set COMMON=%COMMON% /I"%VULKAN_SDK%\Include"
+) else (
+    for /d %%v in (C:\VulkanSDK\*) do if exist "%%v\Include\vulkan\vulkan.h" set COMMON=%COMMON% /I"%%v\Include"
+)
 set LANG_C=/std:c11
 set LANG_CXX=/std:c++20 /EHsc
 if "%1"=="test" (
@@ -40,7 +48,7 @@ rem Every module under game\src compiles as its own C++20 TU (docs/CPP_CONVERSIO
 rem C11 unity build (mare.c) holds the v3 framework and whatever is not converted yet.
 if exist ccobj rmdir /s /q ccobj
 mkdir ccobj
-for %%d in (core engine game sim world gfx ui assets platform) do (
+for %%d in (core engine game sim world gfx ui assets data platform) do (
     if exist game\src\%%d\*.cc (
         cl %COMMON% %LANG_CXX% /MP %FLAGS% /I. /Igame /c /Foccobj\ game\src\%%d\*.cc || exit /b 1
     )

@@ -35,8 +35,19 @@ colours, directories) — the framework (v3/GLFW/microui) covers windowing, GL a
 
 Flags: `--nation=N` (skip the menu: 1 Spain, 2 England, 3 France, 4 United Provinces, 5 Portugal, 6 Venice, 7 Ottomans,
 8 Denmark), `--seed=N`, `--skip=DAYS` (pre-simulate), `--simulate=DAYS` (headless balance report, exits), `--dev` (dashboard +
-verbose logging + metrics CSV), `--log-level=LEVEL`, `--log-dir=PATH`, `--rhi=gl|vulkan|dx12` (render backend; `vulkan` brings
-the device up and reports the adapter, drawing stays on GL until the Vulkan pipeline work lands - docs/REWRITE_PLAN.md T8).
+verbose logging + metrics CSV), `--log-level=LEVEL`, `--log-dir=PATH`, `--rhi=gl|vulkan|dx12` (render backend).
+
+**Graphics settings.** The **Options** button in the top bar opens sliders for shadow distance,
+anisotropic filtering, model detail, wave height, exposure and bloom, with checkboxes for
+shadows, terrain tessellation and ambient occlusion, and the renderer choice. They are written
+to `mare_options.cfg` beside the executable and read at start-up, so the renderer choice
+survives a restart (the others apply the moment the slider moves). Environment variables still
+override the file, which is what the measurement scripts rely on.
+
+**Backends.** `gl` draws. `vulkan` and `dx12` bring their device up, report the adapter and
+run their self tests, then delegate drawing to GL - the window's GL context owns the surface
+until the passes are ported (docs/REWRITE_PLAN.md T8). On a hybrid laptop the game now asks
+for the discrete GPU, which was worth 3.85x here.
 Saves go to `mare_save.bin` next to the executable (v3 changes into the executable's directory at startup).
 
 ## Documentation

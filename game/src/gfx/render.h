@@ -92,6 +92,7 @@ extern float hdr_exposure;                                 // tonemap multiplier
 
 // lighting & shadows (lighting.c): one directional sun shared by every 3D pass
 extern float shadow_radius;              // casters are taken from this distance around the camera, and the cascades cover it
+extern float shadow_distance_scale;      // player setting (ui/options.h): multiplies that range, 0.4 .. 2.5
 void  render_light_update(void);         // fills RF.suncol/ambsky/ambgnd from RF.sun and RF.daylight
 // Day/night: turns a time of day into the sun direction, daylight level and sky colour, so the
 // shadows actually move. Pinned by MARE_SUN, disabled by MARE_DAYNIGHT=0 (both keep the old
@@ -142,6 +143,7 @@ void meshes_bind_rope(void);        // cordage: line geometry expanded by a geom
 int  meshes_rope_available(void);   // 1 when the rope pipeline exists (the shipyard then builds ropes as line pairs)
 extern int terrain_chunks_drawn, terrain_tris_drawn;   // stats for the dashboard
 extern int terrain_show_regions;                       // map view: shade hinterlands by development and draw their borders
+extern int terrain_tess_enabled;                       // player setting: use the tessellated terrain path when the context has it
 
 // procedural meshes built at init
 extern mesh_t ship_mesh[SHIP_COUNT][2];   // [ship type][lod]: 0 = full hull/masts/sails/stripe/flag, 1 = simplified

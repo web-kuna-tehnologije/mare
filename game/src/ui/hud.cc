@@ -10,6 +10,7 @@
 
 extern "C" {
 #include "ui.h"
+#include "options.h"
 #include "../core/util.h"
 #include "../core/balance.h"
 #include "../core/diag.h"
@@ -92,7 +93,7 @@ void Hud::panel_topbar(void) {
     double net = me->stat_income - me->stat_expense;
     mu_layout_set_next(ui_ctx, mu_rect(580, 4, 190, 22), 0); ui_label_col(va("Yesterday: %s%.0f", net >= 0 ? "+" : "", net), net >= 0 ? mu_color(150,240,150,255) : mu_color(240,140,140,255));
     mu_layout_set_next(ui_ctx, mu_rect(770, 4, 170, 22), 0); ui_label_col(va("%s | Ports: %d", nations_info[G.player].name, me->ports), ui_mcol(nations_info[G.player].color, 255));
-    struct { const char *name; int *flag; } toggles[] = { {"Fleets", &U.show_fleets}, {"Log", &U.show_log}, {"Lanes", &U.show_lanes}, {"Regions", &U.show_regions}, {"Wind", &U.show_wind}, {"Stats", &U.show_stats}, {"Help", &U.show_help} };
+    struct { const char *name; int *flag; } toggles[] = { {"Fleets", &U.show_fleets}, {"Log", &U.show_log}, {"Lanes", &U.show_lanes}, {"Regions", &U.show_regions}, {"Wind", &U.show_wind}, {"Stats", &U.show_stats}, {"Options", &options_show}, {"Help", &U.show_help} };
     int x = W - 7*64 - 8;
     for (int i = 0; i < 7; ++i) { mu_layout_set_next(ui_ctx, mu_rect(x + i*64, 4, 60, 24), 0); if (ui_btn(*toggles[i].flag ? va("[%s]", toggles[i].name) : toggles[i].name)) *toggles[i].flag ^= 1; }
     int errs = diag_level_count(LOG_ERROR) + diag_level_count(LOG_FATAL);
@@ -371,6 +372,7 @@ int Hud::menu(void) {
 }
 
 void Hud::panels(void) {
+    options_panel();
     panel_topbar(); panel_selection(); panel_fleets(); panel_log(); panel_stats(); panel_help();
 }
 

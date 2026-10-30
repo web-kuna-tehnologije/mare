@@ -17,6 +17,7 @@
 
 #include "../src/core/jobs.h"      // linked from src/core/worker_pool.cc
 #include "../src/core/diag.h"      // linked from src/core/diag.cc
+#include "../src/data/tables.cc"   // the gameplay tables are defined once (0.21)
 #include "../src/core/log.cc"
 #include "../src/world/world.cc"
 #include "../src/world/stream.cc"

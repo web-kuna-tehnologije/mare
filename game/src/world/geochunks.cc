@@ -39,6 +39,19 @@ typedef struct gc_chunk_t {
 
 typedef struct gc_job_t { gc_chunk_t *c; float *height; unsigned char *coverage; double ms; } gc_job_t;
 
+#define GC_BAKE_SLOTS 64        // worker slots the bake's per-slot counters cover
+class GeoChunks;
+// one chunk row's worth of work for the geography fold, shared by the workers folding it
+typedef struct bake_band_t {
+    GeoChunks *self;
+    float **row; unsigned char **cov;
+    float *hm; unsigned char *lm; const unsigned char *protect;
+    int w, h, cy, y0;
+    float lon0, lat1, cells_per_deg, gw, gh;
+    int allow_flips;
+    int tally[GC_BAKE_SLOTS][2];   // [0] cells written, [1] new land
+} bake_band_t;
+
 enum { GC_EMPTY = 0, GC_QUEUED, GC_READY };
 
 class GeoChunks {
@@ -49,14 +62,22 @@ public:
     int      height_m(float lon, float lat, float *out);
     int      height_world(float lon, float lat, float *out);
     int      resident(float lon, float lat);
+    int      bake(float *hm, unsigned char *lm, int w, int h, float lon0, float lat1,
+                  float cells_per_deg, const unsigned char *protect, int *flips);
+    static void bake_rows(void *arg, int begin, int end, int slot);   // one band, on the pool
+
+    friend struct bake_band_t_access;
     void     stats(gc_stats_t *out);
     unsigned generation() { return gen; }
 
-private:
+public:
+    // read by bake_rows on the worker threads (the fold is the only thing that touches them
+    // from anywhere but the main thread, and only for reading)
     char  root[320] = {};
     int   present = 0, inited = 0;
     int   chunks_x = 0, chunks_y = 0;
     float bbox_w = -180.f, bbox_s = -90.f, bbox_e = 180.f, bbox_n = 90.f;
+private:
     gc_chunk_t *chunk = nullptr; int nchunks = 0;
     size_t bytes = 0, budget = (size_t)GC_BUDGET_MB * 1024 * 1024;
     unsigned update_no = 0, gen = 1;
@@ -360,6 +381,129 @@ int GeoChunks::height_world(float lon, float lat, float *out) {
     return 1;
 }
 
+// ---------------------------------------------------------------------------
+// the one-shot geography fold (see geochunks.h)
+
+// Bilinear sample from a loaded row of chunks. `row[cx]` holds that chunk's heights and
+// `cov[cx]` its coverage; both are NULL where the chunk is missing. Returns 0 (and leaves
+// `out` alone) outside the row, on a missing chunk, or where coverage says the sample is not
+// real - the how_to is explicit that a hole is unknown ground, not sea.
+static int gc_row_sample(float **row, unsigned char **cov, int chunks_x, int cyrow,
+                         float u, float v, float *out) {
+    int X = (int)u, Y = (int)v;
+    int cx = X / GC_CELLS;
+    if (cx < 0 || cx >= chunks_x || !row[cx]) return 0;
+    if (Y / GC_CELLS != cyrow) return 0;
+    int lx = X - cx * GC_CELLS, ly = Y - cyrow * GC_CELLS;
+    if (lx > GC_CELLS - 1) lx = GC_CELLS - 1;
+    if (ly > GC_CELLS - 1) ly = GC_CELLS - 1;
+    float fx = u - (float)(cx * GC_CELLS + lx), fy = v - (float)(cyrow * GC_CELLS + ly);
+    const float *h = row[cx]; const unsigned char *c = cov[cx];
+    size_t i00 = (size_t)ly * GC_SAMPLES + lx, i10 = i00 + 1;
+    size_t i01 = i00 + GC_SAMPLES, i11 = i01 + 1;
+    if (!c[i00] || !c[i10] || !c[i01] || !c[i11]) return 0;
+    *out = lerpf(lerpf(h[i00], h[i10], fx), lerpf(h[i01], h[i11], fx), fy);
+    return 1;
+}
+
+// one band of base rows, folded on a worker; `tally` is per slot so nothing is contended
+void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
+    bake_band_t *b = (bake_band_t *)arg;
+    int k = (unsigned)slot < GC_BAKE_SLOTS ? slot : 0;
+    static const float off[9][2] = { {0,0}, {-.33f,-.33f}, {0,-.33f}, {.33f,-.33f},
+                                     {-.33f,0}, {.33f,0}, {-.33f,.33f}, {0,.33f}, {.33f,.33f} };
+    const float bw = b->self->bbox_w, be = b->self->bbox_e, bs = b->self->bbox_s, bn = b->self->bbox_n;
+    for (int r = begin; r < end; ++r) {
+        int y = b->y0 + r;
+        float lat = b->lat1 - (y + 0.5f) / b->cells_per_deg;
+        for (int x = 0; x < b->w; ++x) {
+            float lon = b->lon0 + (x + 0.5f) / b->cells_per_deg;
+            if (lon < bw || lon > be || lat < bs || lat > bn) continue;
+            int i = y * b->w + x, votes = 0, got = 0;
+            float hc = 0;
+            for (int q = 0; q < 9; ++q) {
+                float u = (lon + off[q][0] / b->cells_per_deg - bw) / (be - bw) * b->gw;
+                float v = (bn - (lat + off[q][1] / b->cells_per_deg)) / (bn - bs) * b->gh;
+                float m;
+                if (!gc_row_sample(b->row, b->cov, b->self->chunks_x, b->cy, u, v, &m)) continue;
+                float hh = m >= 0.f ? minf(m / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE
+                                    : -sqrtf(minf(-m / GC_DEPTH_MAX_M, 1.f)) * GC_DEPTH_SCALE;
+                votes += hh > 0.03f; got++;
+                if (q == 0) hc = hh;
+            }
+            if (got < 9) continue;                           // a hole under part of the cell
+            int was_land = b->lm[i] != 0, keep = b->protect && b->protect[i];
+            if (b->allow_flips && !was_land && votes >= 6 && !keep) {
+                b->lm[i] = 1; b->hm[i] = maxf(hc, 0.45f); b->tally[k][1]++; b->tally[k][0]++;
+            } else if (was_land && hc > 0.f && votes >= 3) {
+                if (hc > b->hm[i]) { b->hm[i] = hc; b->tally[k][0]++; }
+            } else if (!was_land && hc < 0.f && votes <= 1) {
+                b->hm[i] = minf(hc, -0.12f); b->tally[k][0]++;
+            }
+        }
+    }
+}
+
+int GeoChunks::bake(float *hm, unsigned char *lm, int w, int h, float lon0, float lat1,
+                    float cells_per_deg, const unsigned char *protect, int *flips) {
+    if (!present) return 0;
+    int allow_flips = 0;
+    { const char *e = getenv("MARE_TERRAIN_ISLANDS"); if (e && atoi(e)) allow_flips = 1; }
+    double t0 = diag_now();
+    int changed = 0, newland = 0, missing = 0;
+    size_t nsamp = (size_t)GC_SAMPLES * GC_SAMPLES;
+    // (the cell centre plus a ring at a third of a cell - one stray source sample must not
+    // flip a 7 km cell, and a real island always does - lives in bake_rows with the sampling)
+    float **row = (float **)calloc((size_t)chunks_x, sizeof *row);
+    unsigned char **cov = (unsigned char **)calloc((size_t)chunks_x, sizeof *cov);
+    if (!row || !cov) { free(row); free(cov); return 0; }
+    float gw = (float)(chunks_x * GC_CELLS), gh = (float)(chunks_y * GC_CELLS);
+    for (int cy = 0; cy < chunks_y; ++cy) {
+        // does this chunk row touch the base grid at all? skip the whole read if not
+        float rlat1 = bbox_n - (float)cy * (bbox_n - bbox_s) / chunks_y;
+        float rlat0 = bbox_n - (float)(cy + 1) * (bbox_n - bbox_s) / chunks_y;
+        float blat1 = lat1, blat0 = lat1 - h / cells_per_deg;
+        if (rlat0 > blat1 || rlat1 < blat0) continue;
+        for (int cx = 0; cx < chunks_x; ++cx) {
+            char path[448];
+            snprintf(path, sizeof path, "%s/chunks/%d/%d/height.r32", root, cy, cx);
+            FILE *f = fopen(path, "rb");
+            if (!f) { missing++; continue; }
+            float *d = (float *)malloc(nsamp * sizeof(float));
+            if (d && fread(d, sizeof(float), nsamp, f) == nsamp) row[cx] = d; else free(d);
+            fclose(f);
+            if (!row[cx]) continue;
+            snprintf(path, sizeof path, "%s/chunks/%d/%d/coverage.r8", root, cy, cx);
+            f = fopen(path, "rb");
+            if (f) { unsigned char *c = (unsigned char *)malloc(nsamp);
+                     if (c && fread(c, 1, nsamp, f) == nsamp) cov[cx] = c; else free(c);
+                     fclose(f); }
+            if (!cov[cx]) { cov[cx] = (unsigned char *)malloc(nsamp); if (cov[cx]) memset(cov[cx], 1, nsamp); }
+        }
+        // Which base rows fall in this band, computed rather than scanned: the old loop
+        // walked all 2080 rows once per chunk row. The rows are then folded in parallel -
+        // each writes its own cells, so the only shared state is the counters, and those are
+        // per worker slot.
+        float lat_hi = bbox_n - (float)cy * (bbox_n - bbox_s) / chunks_y;
+        float lat_lo = bbox_n - (float)(cy + 1) * (bbox_n - bbox_s) / chunks_y;
+        int y0 = (int)ceilf((lat1 - lat_hi) * cells_per_deg - 0.5f);
+        int y1 = (int)floorf((lat1 - lat_lo) * cells_per_deg - 0.5f);
+        if (y0 < 0) y0 = 0; if (y1 > h - 1) y1 = h - 1;
+        if (y1 >= y0) {
+            bake_band_t bb = { this, row, cov, hm, lm, protect, w, h, cy, y0, lon0, lat1, cells_per_deg, gw, gh, allow_flips, {} };
+            if (jobs_worker_count() > 0) jobs_parallel_for(JOB_LANE_WORKER, bake_rows, &bb, y1 - y0 + 1, 8);
+            else bake_rows(&bb, 0, y1 - y0 + 1, 0);
+            for (int k = 0; k < GC_BAKE_SLOTS; ++k) { changed += bb.tally[k][0]; newland += bb.tally[k][1]; }
+        }
+        for (int cx = 0; cx < chunks_x; ++cx) { free(row[cx]); row[cx] = NULL; free(cov[cx]); cov[cx] = NULL; }
+    }
+    free(row); free(cov);
+    if (flips) *flips = newland;
+    LOG_INFO("terrain", "geography baked from the GEBCO chunks: %d cells written (%d new land), %d chunks absent, %.0f ms",
+             changed, newland, missing, (diag_now() - t0) * 1000);
+    return changed;
+}
+
 int GeoChunks::resident(float lon, float lat) {
     int cx, cy; float fx, fy;
     if (!locate(lon, lat, &cx, &cy, &fx, &fy)) return 0;
@@ -391,4 +535,8 @@ int  geochunks_height(float lon, float lat, float *out) { return mare::game::wor
 int  geochunks_resident(float lon, float lat) { return mare::game::world::geochunks().resident(lon, lat); }
 void geochunks_stats(gc_stats_t *out) { mare::game::world::geochunks().stats(out); }
 unsigned geochunks_generation(void) { return mare::game::world::geochunks().generation(); }
+int  geochunks_bake(float *hm, unsigned char *lm, int w, int h, float lon0, float lat1,
+                    float cells_per_deg, const unsigned char *protect, int *flips) {
+    return mare::game::world::geochunks().bake(hm, lm, w, h, lon0, lat1, cells_per_deg, protect, flips);
+}
 }

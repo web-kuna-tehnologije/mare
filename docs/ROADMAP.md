@@ -1,5 +1,28 @@
 # Development roadmap
 
+## Done: 0.21 — Vulkan draws, DX12 wakes up, the right GPU, an Options panel (worktree `oak`)
+
+The discrete GPU is asked for (3.85x), Vulkan renders a SPIR-V pipeline offscreen and verifies
+it, DX12 brings up a device and queue at feature level 12.2, the player has a graphics Options
+panel that persists, the geography fold reads the export's float32 chunks on the job pool
+(4.1x faster), and the last header-only modules are classes with one definition each.
+
+## Next
+
+- **Port a real pass to Vulkan.** Everything under the passes is proven; the next honest step
+  is one pass end to end - compile the GLSL shader library to SPIR-V as a build step, build a
+  pipeline from `rhi_pipeline_desc_t`, move its uniforms into a descriptor set, and render it
+  offscreen next to the GL frame for comparison. Presenting comes last, because the swapchain
+  has to replace the window's GL context rather than share it.
+- **A genuinely finer DEM for the home seas** - still the highest-value terrain item, and the
+  measurement in DESIGN_TERRAIN.md 3d says why: the renderer already resolves everything the
+  current data holds. EU-DEM + EMODnet for the Adriatic would switch the height atlas on by
+  itself.
+- Finish T9: move callers onto the class APIs and inject `game_t`, which is what lets the
+  C-ABI globals and their shims retire.
+- A beach profile for the islands `raise_small_islands` lifts; they still read as plateaux.
+- UI decision (RmlUi vs the classed-up kit); the mast far-LOD budgets; the bowsprit steeve.
+
 ## Done: 0.20 — the export read as chunks, a measured height atlas, Vulkan's memory path (worktree `oak`)
 
 `assets/data/how_to.txt` is now implemented as written: the GEBCO export is read as 27x14
@@ -10,18 +33,7 @@ there is nothing below the ring's resolution to add, so it stays off until a fin
 Vulkan's memory, command, queue and fence layers are implemented and verified by a checked
 GPU transfer.
 
-## Next
-
-- **A genuinely finer DEM for the home seas** - this is now the single highest-value terrain
-  item, and the measurement in DESIGN_TERRAIN.md 3d says why: the renderer already resolves
-  everything the current data holds. EU-DEM (25 m land) and EMODnet (115 m bathymetry) for
-  the Adriatic, cut into the `height_fine` set, would switch the height atlas on by itself.
-- Vulkan T8 remainder: SPIR-V (needs glslang or a Vulkan SDK on the build machine), the
-  swapchain over the v3 window, pipeline objects from `rhi_pipeline_desc_t`, uniform blocks.
-- A beach profile for the islands `raise_small_islands` lifts: they still read as plateaux.
-- Deepen the conversion (T9): move callers onto the class APIs, inject `game_t`, retire the
-  C shims and the globals that go with them.
-- UI decision (RmlUi vs classed-up kit); the mast far-LOD budgets; the bowsprit steeve.
+(0.20's next items are folded into 0.21's list above.)
 
 ## Done: 0.19 — the authored rig, simulated flags, a shore that follows the Earth, a device behind the RHI (worktree `oak`)
 

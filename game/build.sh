@@ -29,6 +29,8 @@ if [ "$1" = "test" ]; then
 fi
 
 FLAGS="$*"; [ -z "$FLAGS" ] && FLAGS="-O2"
+# the Vulkan backend uses the real headers when they are installed (see game/build.bat)
+[ -n "$VULKAN_SDK" ] && [ -f "$VULKAN_SDK/include/vulkan/vulkan.h" ] && FLAGS="$FLAGS -I$VULKAN_SDK/include"
 set -x
 # every module under game/src compiles as its own C++20 TU (docs/CPP_CONVERSION.md)
 rm -rf ccobj && mkdir -p ccobj

@@ -119,6 +119,13 @@ Status as of the current codebase. Each entry names the module that owns it.
   sail's swung/braced heading; cordage as geometry-stage lines of physical width; verlet flags
   pinned to the main masthead; canvas, water and ground materials (DESIGN_SHIPS.md 3c,
   DESIGN_RENDERER.md 0.19).
+- Three render backends behind one interface (0.21): GL draws; Vulkan brings its device up
+  and passes a transfer and a **render** self test (SPIR-V pipeline, offscreen triangle,
+  verified read-back); DX12 brings up an adapter, device and command queue. `--rhi=` or the
+  Options panel picks one. The executable asks hybrid laptops for the discrete GPU (3.85x).
+- A graphics Options panel (0.21, `ui/options.h`): sliders for shadow distance, anisotropic
+  filtering, model detail, wave height, exposure and bloom; checkboxes for shadows,
+  tessellation and ambient occlusion; renderer choice. Persists to `mare_options.cfg`.
 - The GEBCO export read as delivered (0.20): 27x14 chunks of 513x513 float32 metres with
   their coverage masks, streamed on the job system and preferred over the u16 cut
   (`world/geochunks.h`, `assets/data/how_to.txt`). A GPU height atlas (`gfx/heightatlas.h`)

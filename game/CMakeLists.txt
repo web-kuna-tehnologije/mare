@@ -18,6 +18,13 @@ set(MARE_CORE_CXX src/core/diag.cc src/core/worker_pool.cc)   # what the headles
 # The C11 unity build of the unported modules, plus the C++ units linked alongside.
 add_executable(mare mare.cc src/platform/v3_impl.c ${MARE_CXX})
 target_include_directories(mare PRIVATE "${V3_ROOT}")
+# gfx/rhi_vk.cc compiles against the real Vulkan headers when the SDK is present; it loads the
+# loader at run time, so there is no library to link either way.
+find_path(MARE_VULKAN_INCLUDE vulkan/vulkan.h HINTS "$ENV{VULKAN_SDK}/Include" "$ENV{VULKAN_SDK}/include")
+if(MARE_VULKAN_INCLUDE)
+    target_include_directories(mare PRIVATE "${MARE_VULKAN_INCLUDE}")
+    message(STATUS "Vulkan headers: ${MARE_VULKAN_INCLUDE}")
+endif()
 if(WIN32)
     target_compile_definitions(mare PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
     if(MSVC)
