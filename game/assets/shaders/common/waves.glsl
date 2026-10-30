@@ -68,5 +68,8 @@ float wave_depth_fade(sampler2D hm, vec2 p, vec4 geo, float wk, float scale, flo
     vec2 uv = vec2((lon - geo.x)/(geo.y-geo.x), (geo.w - lat)/(geo.w-geo.z));
     dep = max(-texture(hm, uv).r, 0.0);
   }
-  return smoothstep(0.0, 1.1 * scale, dep);
+  float f = smoothstep(0.05 * scale, 1.6 * scale, dep);
+  return f * f;
+// squared: the real-bathymetry shelves (a few tenths of a unit) stay nearly calm, full swell
+// needs genuinely deep water
 }

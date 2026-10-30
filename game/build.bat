@@ -48,4 +48,9 @@ for %%d in (core engine game sim world gfx ui assets platform) do (
 cl %COMMON% %LANG_C% /MP %FLAGS% /I. /c /Foccobj\ game\src\platform\v3_impl.c || exit /b 1
 cl %COMMON% %LANG_CXX% /MP %FLAGS% /I. /Igame /c /Foccobj\ game\mare.cc || exit /b 1
 cl /nologo %FLAGS% ccobj\*.obj /Fe:mare.exe || exit /b 1
-echo done: mare.exe  (logs are written to .\logs\ next to the executable)
+rem every successful build is archived under tmp\builds\<root>-<datetime>
+for %%I in ("%cd%") do set BUILDROOT=%%~nxI
+for /f %%t in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd-HHmmss"') do set BUILDSTAMP=%%t
+mkdir tmp\builds\%BUILDROOT%-%BUILDSTAMP% 2>nul
+copy /y mare.exe tmp\builds\%BUILDROOT%-%BUILDSTAMP%\mare.exe >nul
+echo done: mare.exe  (archived to tmp\builds\%BUILDROOT%-%BUILDSTAMP%; logs in .\logs\)

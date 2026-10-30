@@ -13,7 +13,7 @@ extern "C" {
 #include "../assets/asset.h"
 }
 
-enum { TT_HEIGHT = 0, TT_NORMAL, TT_KINDS };
+enum { TT_HEIGHT = 0, TT_HEIGHT_FINE, TT_NORMAL, TT_KINDS };   // FINE: the regional detail cut (height_fine_*)
 typedef struct tt_job_t { tt_set_t *s; tt_tile_t *t; void *data; size_t bytes; double t0, ms; } tt_job_t;
 
 namespace mare::game::world {
@@ -66,7 +66,7 @@ TerrainTiles &terraintiles() { static TerrainTiles t; return t; }
 // deep ~4.8 - the band the shallows gate and the sea-floor darkening were tuned for. The old
 // AI-map cut is kept in terrain/tiles-aimap; MARE_TERRAIN_DIR points at any cut for A/B runs.
 #define TT_SEA           0.500f
-#define TT_HEIGHT_SCALE  28.0f      // world units for the full 9000 m land range
+#define TT_HEIGHT_SCALE  20.0f      // world units for the full 9000 m land range (0.19: lowered from 28 - less vertical exaggeration, same relative detail)
 #define TT_DEPTH_SCALE    9.0f      // world units for the full 12000 m depth range
 
 // ---------------------------------------------------------------------------
@@ -137,6 +137,7 @@ int TerrainTiles::init(const char *dir) {
     const char *e = getenv("MARE_TERRAIN_MB");
     if (e && atoi(e) > 0) tt_budget = (size_t)atoi(e) * 1024 * 1024;
     int ok = tt_set_load(&sets[TT_HEIGHT], dir, "height");
+    tt_set_load(&sets[TT_HEIGHT_FINE], dir, "height_fine");   // the Mediterranean 500 m cut, where present
     tt_set_load(&sets[TT_NORMAL], dir, "normal");
     tt_inited = ok;
     if (!ok) LOG_INFO("terrain", "no streamed terrain under %s: the procedural world stands", dir);
@@ -260,7 +261,10 @@ int TerrainTiles::tt_sample_u16(const tt_set_t *s, float lon, float lat, float *
 
 int TerrainTiles::height(float lon, float lat, float *out) {
     float g;
-    if (!tt_sample_u16(&sets[TT_HEIGHT], lon, lat, &g)) return 0;
+    // the fine regional set first (resident tiles only - tt_sample_u16 refuses the rest),
+    // the global base as the fallback: detail where it exists, the whole world either way
+    if (!tt_sample_u16(&sets[TT_HEIGHT_FINE], lon, lat, &g)
+        && !tt_sample_u16(&sets[TT_HEIGHT], lon, lat, &g)) return 0;
     *out = g >= TT_SEA ? (g - TT_SEA) / (1.f - TT_SEA) * TT_HEIGHT_SCALE
                        : -(TT_SEA - g) / TT_SEA * TT_DEPTH_SCALE;
     return 1;

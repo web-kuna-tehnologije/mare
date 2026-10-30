@@ -411,12 +411,14 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
 // floor rather than levelling off where it used to.
 float Sea::zoom_amp() {
     float d = cam.dist;
-    if (d <= 28.f)  return 1.f;                                           // city / battle: full height
-    if (d <= 90.f)  return lerpf(1.f, 0.46f, (d - 28.f) / 62.f);          // regional: falling away fast
-    if (d <= 260.f) return lerpf(0.46f, 0.26f, (d - 90.f) / 170.f);
-    // Strategic: the open sea keeps a readable swell (the deep-water gate below keeps the
-    // coasts calm); it only fades towards a texture at the continental pull-out.
-    return clampf(lerpf(0.26f, 0.14f, (d - 260.f) / 340.f), 0.14f, 0.26f);
+    if (d <= 40.f)  return 1.f;                                           // city / battle: full height
+    if (d <= 120.f) return lerpf(1.f, 0.42f, (d - 40.f) / 80.f);          // regional: falling away fast
+    if (d <= 300.f) return lerpf(0.42f, 0.18f, (d - 120.f) / 180.f);
+    // Strategic: a swell is only readable in the zoomed-in strategic band, and small - a wave
+    // the eye can measure against a hull must never read tens of metres tall. Past that band
+    // the displacement goes to zero and the ripple textures carry the sea on their own.
+    if (d <= 500.f) return lerpf(0.18f, 0.07f, (d - 300.f) / 200.f);
+    return clampf(lerpf(0.07f, 0.f, (d - 500.f) / 400.f), 0.f, 0.07f);
 }
 
 // how tall the waves may be right now: they flatten as the view turns into a map and with the

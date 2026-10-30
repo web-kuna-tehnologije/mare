@@ -266,11 +266,15 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
     // spars == NULL: the caller stands an authored lantina there (shipyard_push), canvas only
     const int N = 5, M = 6;
     float z = 0.012f;
-    float T[3] = { sx + 0.42f * h, dy + 0.22f * h, z }, P[3] = { sx - 0.30f * h, dy + 1.02f * h, z };   // the yard
-    float F[3] = { sx + 0.40f * h, dy + 0.12f * h, z }, C[3] = { sx - 0.34f * h, dy + 0.14f * h, z };   // the foot
+    // The reference sheet's lantina (assets/fleet_sails.png, galiot/light galley/fusta): a
+    // long spar from LOW at the bow - reaching well forward of the mast - rising past the
+    // masthead to the peak a touch above it; the triangle hangs below with the tack near the
+    // rail and the clew sheeted aft.
+    float T[3] = { sx + 0.55f * h, dy + 0.12f * h, z }, P[3] = { sx - 0.34f * h, dy + 1.06f * h, z };   // the yard
+    float F[3] = { sx + 0.52f * h, dy + 0.05f * h, z }, C[3] = { sx - 0.40f * h, dy + 0.08f * h, z };   // the foot
     float ya[3] = { T[0] + 0.05f * h, T[1] - 0.06f * h, 0 }, yb[3] = { P[0] - 0.04f * h, P[1] + 0.05f * h, 0 };
     if (spars) rig_bar(spars, ya, yb, maxf(RIG_YARD_W, 0.011f * h), spar_col);
-    float hw = 0.36f * h;
+    float hw = 0.40f * h;
     for (int i = 0; i < N; ++i) {
         float w0 = i / (float)N, w1 = (i + 1) / (float)N;
         int l0 = cloth_level(w0), l1 = cloth_level(w1);
@@ -537,7 +541,9 @@ int Shipyard::push(const shipyard_req_t *r) {
                         if (ml2 > len * MAST_OVERHANG) msl = cscale * MAST_TRIM * len * MAST_OVERHANG / ml2; }
             float wang = atan2f(-wdz, wdx);
             float rel = wrap_angle(wang - r->heading);
-            float swing = clampf(rel * 0.35f, -0.55f, 0.55f)
+            // the lantina trims hard: up to ~70 degrees off the centreline toward the wind,
+            // working a little harder the harder it blows
+            float swing = clampf(rel * 0.65f, -1.22f, 1.22f)
                         + (0.03f + 0.05f * wstr) * sinf(RF.time * (0.8f + 0.3f * wstr) + (float)(r->key & 31u) * 0.21f);
             // square yards brace less than a lantina trims: toward the wind, clamped, with the
             // same working oscillation on the ship's own phase

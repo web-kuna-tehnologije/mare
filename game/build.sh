@@ -47,3 +47,6 @@ else
     $CXX ccobj/*.o -o mare $FLAGS -lm -ldl -lpthread -lasound || exit 1
 fi
 rm -rf ccobj
+# every successful build is archived under tmp/builds/<root>-<datetime>
+STAMP="$(basename "$PWD")-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "tmp/builds/$STAMP" && cp mare "tmp/builds/$STAMP/mare" && echo "build archived: tmp/builds/$STAMP/mare"

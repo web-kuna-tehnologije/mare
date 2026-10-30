@@ -47,6 +47,9 @@ private:
     float terrain_hmax = 1e9f;        // highest heightmap value, for the occlusion ray early-out
     chunk_t chunks[CHUNKS_X*CHUNKS_Y];
     rhi_pipeline_t terrain_prg;
+    rhi_pipeline_t terrain_tess_prg;     // GL 4.0 path (init decides); draw() aliases one of the two
+    rhi_geometry_t patch_geo = {};       // one 8x8 lattice of 4-point patches, reused per chunk
+    int tess_on = 0;
     rhi_geometry_t terrain_geo[LODS];
     rhi_texture_t tex_height, tex_territory, tex_ao;
     int tex_atlas = -1;               // textures.c handle of the ground material atlas (NULL until streamed in)
@@ -94,6 +97,30 @@ void TerrainRenderer::init() {
     static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", GLSL_LIGHT_UNIFORMS, 0 };
     const rhi_pipeline_desc_t terrain_desc{ .vs = shader_source("terrain/terrain.vert"), .fs = shader_source("terrain/terrain.frag"), .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 };   // (C compound literal -> named: C++ cannot take &T{...})
     terrain_prg = rhi_pipeline_make(&terrain_desc);
+    // Tessellated terrain (GL 4.0; MARE_TERRAIN_TESS=0 reverts to the grids): one 8x8 lattice
+    // of 4-point patches per chunk, subdivided by distance in the control stage up to 32 per
+    // edge - the near ground resolves the fine tile set and the detail rings beyond the
+    // fallback grid's density, and matched edge levels make it watertight without skirts.
+    // (Deliberately no geometry shader: tessellation already supplies the amplification; a GS
+    // stage serializes primitive output on every driver for no visual gain here.)
+    tess_on = rhi_tessellation_supported();
+    { const char *e = getenv("MARE_TERRAIN_TESS"); if (e && !atoi(e)) { tess_on = 0; LOG_INFO("gpu", "terrain tessellation off (MARE_TERRAIN_TESS=0)"); } }
+    if (tess_on) {
+        enum { TP = 8 };
+        float pv[TP * TP * 4 * 3]; int pk = 0;
+        for (int py = 0; py < TP; ++py) for (int px = 0; px < TP; ++px) {
+            float u0 = px / (float)TP, u1 = (px + 1) / (float)TP, v0 = py / (float)TP, v1 = (py + 1) / (float)TP;
+            const float corner[4][2] = { { u0, v0 }, { u1, v0 }, { u1, v1 }, { u0, v1 } };
+            for (int ci = 0; ci < 4; ++ci) { pv[pk++] = corner[ci][0]; pv[pk++] = corner[ci][1]; pv[pk++] = 0; }
+        }
+        patch_geo = rhi_geometry_make(&layout, pv, TP * TP * 4, 0, 0);
+        static const char *tess_uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_tess", GLSL_LIGHT_UNIFORMS, 0 };
+        const rhi_pipeline_desc_t tess_desc{ .vs = shader_source("terrain/terrain_tess.vert"), .fs = shader_source("terrain/terrain.frag"),
+                                             .tcs = shader_source("terrain/terrain.tesc"), .tes = shader_source("terrain/terrain.tese"), .patch_verts = 4,
+                                             .layout = &layout, .uniforms = tess_uniforms, .depth_test = 1, .depth_write = 1 };
+        terrain_tess_prg = rhi_pipeline_make(&tess_desc);
+        LOG_INFO("gpu", "terrain: tessellated patches (8x8 per chunk, up to 32 per edge)");
+    }
     for (int i = 0; i < LODS; ++i) build_lod(i);
     tex_height = rhi_texture_make(LM_W, LM_H, RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, heightmap);
     {   // Horizon occlusion (DESIGN_VISUAL.md step 9): at half the heightmap's resolution, the
@@ -152,7 +179,15 @@ int TerrainRenderer::aabb_visible(float planes[6][4], float x0, float y0, float 
 }
 
 void TerrainRenderer::draw(float planes[6][4]) {
+    // the local name shadows the member on purpose: every uniform below goes to whichever
+    // pipeline is active, grid or tessellated
+    rhi_pipeline_t &terrain_prg = tess_on ? terrain_tess_prg : this->terrain_prg;
     rhi_pipeline_bind(&terrain_prg);
+    if (tess_on) {
+        // level = (edge world length) * (pixels per unit at distance 1) / target px per quad
+        float px1 = (float)screen_h * 1.2071f;               // 45 degree vertical fov
+        rhi_set_f2(UNI(terrain_prg, "u_tess"), px1 / 14.f, 32.f);
+    }
     rhi_set_mat4(UNI(terrain_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_i1(UNI(terrain_prg,"u_hm"), 0); rhi_set_i1(UNI(terrain_prg,"u_terr"), 1);
     rhi_texture_bind(0, &tex_height);
@@ -200,8 +235,9 @@ void TerrainRenderer::draw(float planes[6][4]) {
         int lod = 0; while (lod < LODS-1 && d > lod_dist[lod]) lod++;
         if (RF.mapness > 0.99f && lod < 2) lod = 2;
         rhi_set_f2(loc_origin, c->x0, c->z0);
-        rhi_draw(&terrain_geo[lod], 0);                 // rhi_draw caches the geometry binding across chunks
-        terrain_chunks_drawn++; terrain_tris_drawn += terrain_geo[lod].nindices/3;
+        if (tess_on) { rhi_draw(&patch_geo, 0); terrain_tris_drawn += patch_geo.nverts/3; }
+        else { rhi_draw(&terrain_geo[lod], 0); terrain_tris_drawn += terrain_geo[lod].nindices/3; }   // rhi_draw caches the geometry binding across chunks
+        terrain_chunks_drawn++;
     }
 }
 

@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.18.0 — full C++20, the real Earth, a living rig, tessellated ground
+
+- **Full C++ conversion**: all 40 game modules are C++20 classes in `mare::` namespaces
+  (docs/CPP_CONVERSION.md); the v3 framework is the one remaining C translation unit behind
+  `src/platform/v3cpp.hh`. The C ABIs survive as shims; sim_test's bit-deterministic run is
+  identical through them. mare.c is retired for mare.cc.
+- **Entity lifecycle + C++ core (earlier sessions)**: `mare::core` diagnostics and worker
+  pool as classes; `mare::engine` Entity with on_load_async/on_load/on_update/on_render/
+  on_unload hooks, weather as the first entity; every GLSL shader extracted to
+  `game/assets/shaders/**` behind `engine::ShaderLibrary`.
+- **The real Earth**: GEBCO bathymetry/elevation cut into the streamed tile set
+  (tools/terrain_from_gebco.py; sea sqrt-compressed so shelves stay in the band the shading
+  expects), plus a second *fine* regional set (`height_fine_*`, Mediterranean at ~520 m from
+  mare-world-terrain) the loader prefers where resident. Overall height scale lowered
+  (TT_HEIGHT_SCALE 28 -> 20) with relative detail kept.
+- **Tessellated terrain** (GL 4.0, `MARE_TERRAIN_TESS=0` reverts): chunks draw as 8x8
+  lattices of 4-point patches, subdivided by distance up to 32 per edge with watertight
+  matched edge levels - near ground resolves the fine tiles and detail rings past the old
+  grids' density. No geometry shaders by choice: tessellation supplies the amplification.
+- **A living rig**: per-type authored mast library (cog/carrack/great-carrack/mizzen/lateen
+  + bowsprit); square yards and the lantina are part of the swinging unit sail meshes -
+  canvas hangs exactly on its spar, both trim to the apparent wind (lantina up to ~70
+  degrees), bellies are fuller downwind, and canvas blown aback clings to its mast and yard.
+  Every ship part is rigid to its hull (`i_anchor`: one swell, one roll, one pitch per ship).
+- **Ship wood & sea**: grain-driven plank albedo and gloss, a wet waterline band; the sea
+  body darkens exponentially past the shelf; shallow shelves damp the swell hard
+  (squared depth fade) and the strategic view only keeps a small readable swell in its
+  zoomed-in band - no more ten-metre map waves.
+- **Builds**: every successful build is archived under `tmp/builds/<root>-<datetime>`.
+
 ## 0.17.0 — a world twice as wide again, 16 cells per degree, ridged relief, textured ground, warm shallows
 
 - **WORLD_SCALE 4** (16 world units per degree): the map is twice as wide as 0.16, so Istria,

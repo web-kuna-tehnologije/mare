@@ -1,5 +1,22 @@
 # Development roadmap
 
+## Done: 0.18 — C++20 end to end, the real Earth, a living rig (worktree `oak`)
+
+The game and engine are C++20 classes behind stable C shims (docs/CPP_CONVERSION.md,
+docs/REWRITE_PLAN.md); the terrain streams real GEBCO bathymetry with a fine Mediterranean
+set and tessellates on GL 4.0; masts/yards/sails are authored parts whose canvas and spars
+answer the wind as one body. Known polish items live in docs/TODO.md "Leftover tasks".
+
+## Next
+
+- rhi::Device abstraction over GlDevice, then the Vulkan backend; DX12 stub (plan T4/T8).
+- Deepen the conversion: move callers onto the class APIs, inject game_t, retire the C shims.
+- Coastline at close zoom: the landmask raster's square cells read as steps at battle
+  distance; vectorize the near coast or supersample the mask (the fine tiles already carry
+  the real relief).
+- UI decision (RmlUi vs classed-up kit) after the port; the mast far-LOD budgets; the
+  bowsprit steeve.
+
 ## Done: world streaming 0.10 (game/docs/DESIGN_STREAMING.md)
 
 The world is now a streamed hierarchy — continent -> region -> coastal tile -> tactical

@@ -1,3 +1,19 @@
+# Session summary (2026-10-30 evening, worktree `oak`)
+
+- **Fine terrain + tessellation**: new `height_fine` Mediterranean set (19x8 tiles, ~520 m,
+  cut from the mare-world-terrain GEBCO export) layered over the global base; terrain chunks
+  tessellate on GL 4.0 (8x8 patch lattices, up to 32/edge, watertight; MARE_TERRAIN_TESS=0
+  reverts); TT_HEIGHT_SCALE 28 -> 20 (lower overall height, detail kept). The blocky coast
+  silhouette at battle zoom is the old landmask raster, not the new data (see Leftover).
+- **Rig to the reference sheet**: lantina re-proportioned to assets/fleet_sails.png (long,
+  low at the bow, peak past the masthead), trims up to ~70 degrees to the apparent wind;
+  bellies 1.5x fuller downwind; canvas blown aback clings to mast and spar and shivers.
+- **Waves**: squared shallow damping (shelves nearly calm), strategic swell only in the
+  zoomed-in band at <= 0.07 amplitude, zero past it.
+- **Builds archived** to tmp/builds/<root>-<datetime> on every successful build.
+- Verified on screen (battle, galleys, Dalmatia close, strategic x2, shallow bay) and all
+  headless suites green.
+
 # TODO (session of 2026-10-30 afternoon, worktree `oak`)
 
 - [x] **Real terrain wired in**: `assets/data/export-global` (GEBCO, 378 chunks of 513x513

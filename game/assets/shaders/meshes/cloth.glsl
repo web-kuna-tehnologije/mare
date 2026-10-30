@@ -33,13 +33,21 @@
 // zero at the yard, fullest two thirds down, held at the foot
       float across = 0.35 + 0.65 * cos(cu * 1.5708);
 // the leeches are held by their bowlines
-      float belly = hw * 0.28 * fn * prof * across;
-      if (dir < 0.0 && abs(cnrm.x) > 0.5) belly *= 0.25 + 0.5 * abs(cu);
-// aback: the mast stops the middle of the sail
+      float belly = hw * 0.42 * fn * prof * across;
+// fuller than the old 0.28: the reference sheet's canvas is round with wind
+      if (dir < 0.0) {
+// Aback - the wind blows straight onto the ship: the canvas is thrown back against its own
+// mast and yard and clings there. A square sail is stopped by the mast down its middle; a
+// lateen flattens onto the lantina and the rig. The head (bent to the spar) stays pinned,
+// only the free foot keeps a little movement.
+        belly *= (abs(cnrm.x) > 0.5 ? 0.22 + 0.45 * abs(cu) : 0.28) * (0.30 + 0.70 * cw);
+      }
       belly *= dir * (1.0 + 0.06 * sin(u_time * 1.3 + ph0));
       float luff = 1.0 - clamp(mag / 0.35, 0.0, 1.0);
       float fph = u_time * (3.0 + 4.0 * wstr) + cu * 6.0 + cw * 4.0 + ph0;
       float flut = hw * (0.012 + 0.06 * luff) * cw * sin(fph);
+      if (dir < 0.0) flut *= 2.2;
+// aback canvas shivers against the rig
       p += cnrm * (belly + flut);
       p.y += hw * 0.01 * cw * sin(fph * 1.31 + 2.2);
       vec3 ct = vec3(-cnrm.z, 0.0, cnrm.x);

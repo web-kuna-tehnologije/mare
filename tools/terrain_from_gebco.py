@@ -34,6 +34,7 @@ TILE = 512                        # samples per game tile (terraintiles.h TT_TIL
 LON0, LON1 = -130.0, 46.0         # the playable window (core/types.h)
 LAT0, LAT1 = -58.0, 72.0
 OUT_PER_DEG = 40                  # the finest clipmap ring reads 25 texels/deg; 40 leaves margin
+KIND = "height"                   # tile-set name; "height_fine" for the regional detail set
 LAND_MAX_M, DEPTH_MAX_M = 9000.0, 12000.0
 
 
@@ -149,13 +150,13 @@ def write_tiles(q, out_dir):
             t[:sy, :sx] = q[ty * TILE:ty * TILE + sy, tx * TILE:tx * TILE + sx]
             t[sy:, :] = t[sy - 1:sy, :]                    # edge-clamp the padding
             t[:, sx:] = t[:, sx - 1:sx]
-            t.tofile(os.path.join(out_dir, "height_%d_%d.bin" % (tx, ty)))
-    json.dump({"kind": "height", "tiles_x": tiles_x, "tiles_y": tiles_y, "tile": TILE,
+            t.tofile(os.path.join(out_dir, "%s_%d_%d.bin" % (KIND, tx, ty)))
+    json.dump({"kind": KIND, "tiles_x": tiles_x, "tiles_y": tiles_y, "tile": TILE,
                "bytes_per_sample": 2, "width": w, "height": h,
                "lon0": LON0, "lat0": LAT0, "lon1": LON1, "lat1": LAT1,
                "source": "GEBCO export-global (real Earth), tools/terrain_from_gebco.py",
                "encoding": {"sea_level": 0.5, "land_max_m": LAND_MAX_M, "depth_max_m": DEPTH_MAX_M}},
-              open(os.path.join(out_dir, "height.json"), "w"), indent=1)
+              open(os.path.join(out_dir, "%s.json" % KIND), "w"), indent=1)
     print("wrote %dx%d tiles (%d) to %s" % (tiles_x, tiles_y, tiles_x * tiles_y, out_dir))
 
 
@@ -163,6 +164,7 @@ def probe(q):
     """Sanity: known places, printed as the metres the game will decode."""
     h, w = q.shape
     def at(lon, lat):
+        if not (LON0 <= lon <= LON1 and LAT0 <= lat <= LAT1): return float("nan")
         x = int((lon - LON0) / (LON1 - LON0) * (w - 1)); y = int((LAT1 - lat) / (LAT1 - LAT0) * (h - 1))
         g = q[y, x] / 65535.0
         return (g - 0.5) * 2 * LAND_MAX_M if g >= 0.5 else -(((0.5 - g) * 2) ** 2) * DEPTH_MAX_M
@@ -177,6 +179,12 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         sys.exit(__doc__)
     argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
+    # optional: <export> <out> [kind lon0 lat0 lon1 lat1 per_deg] - the regional fine set
+    # (e.g. "height_fine -12 28 42 50 180" from a mare-terrain 500 m Mediterranean export)
+    if len(argv) >= 8:
+        KIND = argv[2]
+        LON0, LAT0, LON1, LAT1 = float(argv[3]), float(argv[4]), float(argv[5]), float(argv[6])
+        OUT_PER_DEG = int(argv[7])
     src, origin = load_window(argv[0])
     out = resample(src, origin)
     q = encode_u16(out)
