@@ -55,13 +55,13 @@ obj = bpy.context.view_layer.objects.active
 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 
 if pivot == "foot":
-    # pole centre in x/y (Blender ground plane), feet to z = 0
-    xs = [v.co for v in obj.data.vertices]
+    # pole centre in x/y (Blender ground plane), feet to z = 0. The pole x/y centre comes
+    # from the top quarter of the mesh (pole and topmast live there, yards mostly lower).
+    xs = [v.co.copy() for v in obj.data.vertices]
     minz = min(v.z for v in xs)
-    px = [v for v in obj.data.vertices]      # pole bounds: reuse the whole joined mesh if one part
-    # pole x/y centre from the original pole object's bounds (it was joined; recompute from
-    # the slender column: vertices in the top half are pole/topmast, not yards)
-    top = [v.co for v in obj.data.vertices if v.co.z > minz + 0.75 * (max(c.z for c in xs) - minz)]
+    maxz = max(v.z for v in xs)
+    cut = minz + 0.75 * (maxz - minz)
+    top = [v for v in xs if v.z > cut]
     ref = top if len(top) > 8 else xs
     cx = sum(v.x for v in ref) / len(ref); cy = sum(v.y for v in ref) / len(ref)
     for v in obj.data.vertices:

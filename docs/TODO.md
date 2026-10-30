@@ -1,3 +1,32 @@
+# TODO (session of 2026-10-30 afternoon, worktree `oak`)
+
+- [x] **Real terrain wired in**: `assets/data/export-global` (GEBCO, 378 chunks of 513x513
+      float32 metres - see `assets/data/how_to.txt`) cut by the new
+      `tools/terrain_from_gebco.py` into the streamed tile set (40 samples/deg over the
+      playable window, land linear to 9000 m, sea sqrt-compressed to 12000 m so shelves stay
+      in the band the shallow shading expects). Installed at `assets/elm/terrain/tiles`; the
+      AI-map cut is kept in `tiles-aimap`, `MARE_TERRAIN_DIR` switches cuts for A/B. This
+      closes the "a real DEM" item below; the *coastline* still comes from data/geo_coast.h
+      (GEBCO is ~3 km/sample - too coarse for the Adriatic islands; MARE_TERRAIN_ISLANDS=1
+      remains the experiment).
+- [x] **Sea floor darkens exponentially** past the shelf (sea.frag): basins and trenches now
+      read against the shelf edge instead of saturating at the old `deep` colour.
+- [x] **Ship wood material**: grain-driven plank albedo + strake streaks + gloss on rough
+      brown surfaces, and a wet, darker, glossier band above the waterline on floating
+      instances (meshes.vert/.frag).
+- [x] **New mast library** (assets/ships/new_masts, explanation.txt): per-type assemblies
+      (mast_cog_single/_two, mast_carrack, mast_great_carrack, mast_mizzen, mast_lateen_tall,
+      bowsprit) imported via tools/blender_prepare_part.py (part-segmented GLBs: lateen yards
+      excluded from their masts); classes compose their stations from the library with
+      fallback to the old split parts. The **lantina swings to the wind**: `lateen_yard` is
+      its own asset, instanced with the (shared unit) lateen canvas on the mast pivot,
+      trimmed off the apparent wind with a working oscillation (shipyard.c).
+- [ ] Tune the new masts on screen: yard rake orientation per class, bowsprit steeve (the
+      authored spar is horizontal; consider a baked tilt in blender_prepare_part.py), square
+      canvas heights against the authored yards.
+- [ ] A parallel session imported the same sources whole (carrack_mast, mizzen_mast, ... with
+      .meshy.json markers) into the shared assets/elm; both sets coexist in the manifest.
+
 # TODO (sessions of 2026-10-29, worktree `elm` — branded `oak` in the first session)
 
 Reference art for the rigs: `assets/fleet_sails.png` (the whole fleet, one ship per class) and
