@@ -6,8 +6,9 @@
 #define V3_IMPLEMENTATION
 #include "v3.h"
 
-#include "src/core/jobs.h"   // C ABI over src/core/worker_pool.cc (linked separately)
-#include "src/core/diag.h"   // C ABI over src/core/diag.cc (linked separately)
+#include "src/core/jobs.h"      // C ABI over src/core/worker_pool.cc (linked separately)
+#include "src/core/diag.h"      // C ABI over src/core/diag.cc (linked separately)
+#include "src/engine/entities.h" // C ABI over src/engine/entity_manager.cc: the entity lifecycle
 
 // simulation (framework independent)
 #include "src/core/log.c"
@@ -44,7 +45,7 @@
 #include "src/gfx/lod.c"
 #include "src/gfx/occlusion.c"
 #include "src/gfx/occquery.c"
-#include "src/gfx/weather.c"
+// weather: ported to C++ (src/game/weather.cc), driven through src/engine/entities.h
 #include "src/gfx/sky.c"
 #include "src/gfx/textures.c"
 #include "src/gfx/streamview.c"
@@ -257,6 +258,9 @@ int main(int argc, char **argv) {
     { char manifest[512]; snprintf(manifest, sizeof manifest, "%s/manifest.json", asset_root());   // authored assets (GLB): register, then load in the background
       if (asset_registry_load(manifest)) LOG_INFO("asset", "%d assets requested: parsing and decoding on the job system, GPU upload inside the frame budget", asset_request_all()); }
     { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); rhi_check_errors("render_init"); }
+    // C++ entities (engine/entities.h): async halves load on the pool, GL halves right here
+    { double t0 = diag_now(); entities_startup(); entities_load();
+      LOG_INFO("main", "%d entities loaded in %.1f ms", entities_count(), (diag_now()-t0)*1000); rhi_check_errors("entities_load"); }
     asset_set_upload_hook(scene_asset_upload);   // finished assets reach the GPU through the MAIN lane, one LOD per budgeted job
     if (getenv("MARE_SHIPS")) { shipyard_enabled = atoi(getenv("MARE_SHIPS")) != 0; LOG_INFO("asset", "authored ships %s (MARE_SHIPS)", shipyard_enabled ? "on" : "off"); }
     if (shipyard_enabled) shipyard_request_all();   // the Gen I hulls, rigs and oars, ahead of the first battle
@@ -467,7 +471,7 @@ int main(int argc, char **argv) {
         render_sun_update(G.day);                         // sun direction, daylight and sky colour (day/night cycle)
         { static int freeze = -1; if (freeze < 0) { const char *e = getenv("MARE_SEA_FREEZE"); freeze = e ? atoi(e) != 0 : 0; if (freeze) LOG_INFO("gpu", "sea clocks frozen (MARE_SEA_FREEZE)"); }
           sea_update_waves(G.day, freeze ? 0.f : dt); }   // the wave set follows the wind at the look-at point
-        weather_update(dt);                               // calm / haze / mist / storm from the wind, the storms and the hour (weather.h)
+        entities_update(ENT_PHASE_FRAME, dt);             // weather (src/game/weather.cc): calm / haze / mist / storm from the wind, the storms and the hour
         sky_update(dt);                                   // cloud cover from the weather, drift with the wind (sky.c)
         RF.sky = lerp3(RF.sky, vec3(0.36f, 0.30f, 0.24f), cam.mapness);   // the map view fades to parchment
         render_light_update();
@@ -525,7 +529,7 @@ int main(int argc, char **argv) {
         }
         rhi_gpu_begin(g_resolve); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer (AO was taken before the water); labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
-        if (!U.in_menu) weather_overlay();                                          // rain over the finished frame
+        if (!U.in_menu) entities_render(ENT_PHASE_OVERLAY, RF.mapness);             // rain over the finished frame (weather entity)
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
           if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot);
             const char *sd = getenv("MARE_SHADOWDUMP"); if (sd) shadow_dump(sd);
@@ -566,5 +570,6 @@ int main(int argc, char **argv) {
         prof_frame_end();
     }
     LOG_INFO("main", "window closed, shutting down");
+    entities_unload();
     return 0;
 }

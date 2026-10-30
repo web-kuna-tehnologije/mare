@@ -9,6 +9,10 @@
 
 #include "gpu.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct render_frame_t {
     mat44 vp;                       // view * projection (v3 row-vector convention)
     vec3  campos, sun, sky;         // camera position, sun direction (unit), sky/fog colour (sRGB)
@@ -146,5 +150,9 @@ typedef struct icon_t { float x, y, z, heading; float size_px, shape, alpha, out
 icon_t *icon_push(void);                  // append for this frame (cleared by icons_begin)
 void    icons_begin(void);
 void    icons_draw(void);                 // depth test off, alpha blended
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

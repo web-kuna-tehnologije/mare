@@ -29,6 +29,8 @@ if "%1"=="test" (
     if errorlevel 1 exit /b 1
     cl %COMMON% %LANG_C% /O2 /MT game\tests\asset_test.c diag_t.obj /Fe:asset_test.exe || exit /b 1
     asset_test.exe || exit /b 1
+    cl %COMMON% %LANG_CXX% /O2 /MT game\tests\entity_test.cpp game\src\engine\entity_manager.cc diag_t.obj jobs_t.obj /Fe:entity_test.exe || exit /b 1
+    entity_test.exe || exit /b 1
     del sim_test.obj asset_test.obj diag_test.obj diag_t.obj jobs_t.obj >nul 2>nul
     exit /b 0
 )
@@ -36,6 +38,9 @@ set FLAGS=/O2 /DNDEBUG=1 /MT
 if "%1"=="debug" set FLAGS=/Zi /Od /MTd
 cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\core\diag.cc /Fo:diag.obj || exit /b 1
 cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\core\worker_pool.cc /Fo:jobs.obj || exit /b 1
-cl %COMMON% %LANG_C% /MP %FLAGS% /I. game\mare.c diag.obj jobs.obj /Fe:mare.exe || exit /b 1
-del mare.obj diag.obj jobs.obj >nul 2>nul
+cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\engine\entity_manager.cc /Fo:entities.obj || exit /b 1
+cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\game\weather.cc /Fo:weather.obj || exit /b 1
+cl %COMMON% %LANG_CXX% %FLAGS% /c game\src\game\game_entities.cc /Fo:gament.obj || exit /b 1
+cl %COMMON% %LANG_C% /MP %FLAGS% /I. game\mare.c diag.obj jobs.obj entities.obj weather.obj gament.obj /Fe:mare.exe || exit /b 1
+del mare.obj diag.obj jobs.obj entities.obj weather.obj gament.obj >nul 2>nul
 echo done: mare.exe  (logs are written to .\logs\ next to the executable)

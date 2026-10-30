@@ -8,6 +8,10 @@
 
 #include "types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef void (*log_listener_fn)(const logline_t *line);
 
 void log_set_listener(log_listener_fn fn);      // called for every new line (NULL to unsubscribe)
@@ -19,5 +23,9 @@ void log_event(int type, int nation, int important, const char *fmt, ...);
 void log_event_at(int type, int nation, int important, float x, float z, const char *fmt, ...);   // with a map position (clickable)
 
 int log_player_involved(int nation_a, int nation_b); // is either nation the player's?
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

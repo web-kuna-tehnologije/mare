@@ -23,7 +23,8 @@ if [ "$1" = "test" ]; then
     $CC  -c game/tests/stream_test.c -o stream_t.o -O2 -Wall
     $CXX stream_t.o diag_t.o jobs_t.o -o stream_test -lm -pthread && ./stream_test
     $CC  -c game/tests/sim_test.c -o sim_t.o -O2 -Wall
-    $CXX sim_t.o diag_t.o jobs_t.o -o sim_test -lm -pthread && rm -f sim_t.o stream_t.o jobs_t.o diag_t.o diag_test.o && ./sim_test ${2:-3}
+    $CXX sim_t.o diag_t.o jobs_t.o -o sim_test -lm -pthread && ./sim_test ${2:-3}
+    $CXX -std=c++20 -pthread game/tests/entity_test.cpp game/src/engine/entity_manager.cc diag_t.o jobs_t.o -o entity_test -O2 -Wall && rm -f sim_t.o stream_t.o jobs_t.o diag_t.o diag_test.o && ./entity_test
     exit $?
 fi
 
@@ -31,13 +32,16 @@ FLAGS="$*"; [ -z "$FLAGS" ] && FLAGS="-O2"
 set -x
 $CXX -std=c++20 -c game/src/core/diag.cc -o mare_diag.o $FLAGS || exit 1
 $CXX -std=c++20 -pthread -c game/src/core/worker_pool.cc -o mare_jobs.o $FLAGS || exit 1
+$CXX -std=c++20 -c game/src/engine/entity_manager.cc -o mare_entities.o $FLAGS || exit 1
+$CXX -std=c++20 -c game/src/game/weather.cc -o mare_weather.o $FLAGS || exit 1
+$CXX -std=c++20 -c game/src/game/game_entities.cc -o mare_gament.o $FLAGS || exit 1
 if [ "$(uname)" = "Darwin" ]; then
     export SDKROOT=$(xcrun --show-sdk-path)
     $CC -ObjC -c game/mare.c -o mare_main.o -I. $FLAGS || exit 1
-    $CXX mare_main.o mare_diag.o mare_jobs.o -o mare $FLAGS -framework cocoa -framework iokit -framework audiotoolbox || exit 1
+    $CXX mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_weather.o mare_gament.o -o mare $FLAGS -framework cocoa -framework iokit -framework audiotoolbox || exit 1
 else
     # dev packages (Debian/Ubuntu): gcc g++ libx11-dev libgl1-mesa-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libasound2-dev
     $CC -c game/mare.c -o mare_main.o -I. $FLAGS || exit 1
-    $CXX mare_main.o mare_diag.o mare_jobs.o -o mare $FLAGS -lm -ldl -lpthread -lasound || exit 1
+    $CXX mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_weather.o mare_gament.o -o mare $FLAGS -lm -ldl -lpthread -lasound || exit 1
 fi
-rm -f mare_main.o mare_diag.o mare_jobs.o
+rm -f mare_main.o mare_diag.o mare_jobs.o mare_entities.o mare_weather.o mare_gament.o

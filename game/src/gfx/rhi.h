@@ -15,6 +15,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum rhi_format_t {               // texture formats (grows with HDR/sRGB work)
     RHI_FMT_R32F, RHI_FMT_RGB8, RHI_FMT_RGBA8, RHI_FMT_SRGB8, RHI_FMT_SRGB8_A8,
     RHI_FMT_RGBA16F, RHI_FMT_DEPTH24,
@@ -151,5 +155,9 @@ void  rhi_set_anisotropy(float level);         // also re-applies to the mipmapp
 
 typedef struct rhi_mem_t { size_t textures, targets, buffers; int ntextures, nbuffers; } rhi_mem_t;
 rhi_mem_t rhi_memory(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

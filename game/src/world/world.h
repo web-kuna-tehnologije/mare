@@ -11,6 +11,10 @@
 
 #include "../core/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern unsigned char *landmask;   // LM_W*LM_H, 1 = land (row 0 = north)
 extern short         *coastdist;  // cells to the nearest coast: +land, -water
 extern float         *heightmap;  // LM_W*LM_H world units, sea level 0
@@ -30,5 +34,9 @@ void  world_compute_territory(void);         // nation of the nearest settled po
 // value noise / fbm shared with procedural placement (deterministic for a seed)
 float world_fbm(float x, float y, int octaves, unsigned seed);
 float world_vnoise(float x, float y, unsigned seed);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

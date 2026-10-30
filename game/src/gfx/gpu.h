@@ -11,6 +11,10 @@
 
 #include "rhi.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define UNI(p, name) rhi_uniform(&(p), name)
 
 // mesh builder. Double-sided surfaces (mb_quad2) emit a single quad: the mesh shader flips the
@@ -74,5 +78,9 @@ void   mesh_draw(mesh_t *m);                          // draws the instances set
 typedef struct instlist_t { inst_t *v; int n, cap; } instlist_t;
 inst_t *instlist_push(instlist_t *l);
 static inline void instlist_clear(instlist_t *l) { l->n = 0; }
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

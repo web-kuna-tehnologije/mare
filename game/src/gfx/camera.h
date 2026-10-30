@@ -5,6 +5,10 @@
 #ifndef MARE_CAMERA_H
 #define MARE_CAMERA_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct rts_cam_t {
     float tx, tz, dist, yaw;                    // current ground target, distance, yaw (0 = north up)
     float want_tx, want_tz, want_dist, want_yaw;// targets (smoothed towards by cam_update)
@@ -34,5 +38,9 @@ int  cam_project(float wx, float wy, float wz, float *sx, float *sy);      // wo
 mat44 cam_proj_to_gl(mat44 proj);                 // remap clip z from [0,1] (vecmath's D3D style) to GL's [-1,1]: uses the whole depth buffer instead of half, visibly reducing z-fighting
 void cam_frustum(float planes[6][4]);             // clip planes (ax+by+cz+d >= 0 inside) for culling
 int  cam_sphere_visible(const float planes[6][4], float x, float y, float z, float r);   // shared culling helper (terrain uses its AABB variant)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

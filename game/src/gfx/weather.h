@@ -16,11 +16,20 @@
 #ifndef MARE_WEATHER_H
 #define MARE_WEATHER_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Ported to C++ (src/game/weather.cc, a mare::engine::Entity): the update runs in the
+// FrameSetup phase, the rain overlay in the Overlay phase, both driven by the entity
+// manager (engine/entities.h). Only the shared state remains a C symbol, for the readers
+// that are not ported yet (sky.c, ui/dashboard.c).
 typedef struct weather_t { float calm, haze, mist, overcast, rain, storm; } weather_t;
 extern weather_t WX;                 // the smoothed state this frame
 extern int weather_enabled;
 
-void weather_update(float dt);       // once per frame, after sea_update_waves and before render_light_update: writes RF.fog_*, tints RF.sky
-void weather_overlay(void);          // rain, after the tonemap (full-screen, alpha)
+#ifdef __cplusplus
+}
+#endif
 
 #endif

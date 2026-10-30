@@ -15,6 +15,10 @@
 
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // --------------------------------------------------------------------------
 // world extents. widen these when adding continents (LM_W/LM_H are asserted at startup)
 
@@ -294,5 +298,9 @@ typedef struct game_t {
 } game_t;
 
 extern game_t G;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
