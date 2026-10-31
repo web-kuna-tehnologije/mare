@@ -29,17 +29,15 @@ Items 1-3 are done in this session; the rest is the order to take them in.
 4. [x] **Map view modes**: depth, religion, political, port/settlement influence, production
        (HUD "View" button, `common/mapmode.glsl`, the territory texture's influence channel, a
        region-info texture). Religion is a per-nation table, not simulated yet.
-5. [~] **Rivers** (`world/rivers.h/.cc`) - *generated network kept, carving off since 0.22.3;
-       waiting for the authored river data*: a priority flood over the folded heightfield gives
+5. [~] **Rivers** (`world/rivers.h/.cc`) - *generated network kept; carving and navigation
+       disabled since 0.22.3, waiting for authored river data*: a priority flood over the folded
+       heightfield gives
        every land cell its downstream neighbour, drainage is accumulated down those directions,
        cells draining over 45 land cells are river; polylines are Chaikin-smoothed with a small
-       meander and a half-width from the catchment. The rings carve the channel (flat bed, sloped
-       banks) and write a river texture the terrain shader paints with flowing water; the lower
-       reaches of the great rivers are nav-grid water by class (`navriver`), and a fleet may enter
-       as deep as its largest hull allows (`nav_river_limit`: sloops and fluyts the upper
-       reaches, merchantmen and frigates the estuaries, galleons never). No geometry-stage ribbon:
-       painting the carved bed through the ring texture needs no extra pass and follows the
-       tessellated ground exactly. Left: rain weighting by biome, deltas, lakes as basins.
+       meander and a half-width from the catchment. The generated rivers are currently painted
+       only; authored data is needed before channel carving and river navigation are enabled.
+       No geometry-stage ribbon is needed: the river texture follows the tessellated ground.
+       Left: rain weighting by biome, deltas, lakes as basins.
 6. [x] **Roads** (`world/roads.h/.cc`): every inland settlement is routed to the hub port of
        most influence in its region, and a region's hubs are chained, by an A* over the land
        mask whose cost grows with the slope crossed and halves along cells already carrying a
