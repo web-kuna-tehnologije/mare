@@ -29,6 +29,18 @@ int  detailview_submit_shadow(void);           // the same scene for a shadow ca
 int  detailview_submit_smoke(void);            // gunsmoke, after the translucent bind
 void detailview_sea(void);                     // the staged scene's water (same shader and waves as the map)
 void detailview_clouds(void);                  // cloud overlay, after hdr_resolve (no-op when clear)
+// The battle clock, the wind and the coast (0.22.7, issue4). The battle runs on its own clock:
+// Space stops it, 1-4 set it, -/+ halve and double it; the strategic clock is untouched.
+float detailview_timescale(void);              // the battle clock, 1 = real time, 0 = stopped
+void  detailview_set_timescale(float s);
+float detailview_clock_scale(void);            // what the scene clock (RF.anim_time) and the wave clocks advance by: the battle's timescale in the battle, else 1
+void  detailview_wind(float *dx, float *dz, float *str);   // the wind at the battle (world direction it blows towards, strength ~0.3..1.4)
+int   detailview_show_wind(void);              // wind arrows on?
+void  detailview_toggle_wind(void);
+const char *detailview_coast_desc(void);       // "wooded hills to the NE, 12 km" / "open sea ..."
+void  detailview_overlays(void);               // wind arrows (dd lines; the caller flushes)
+void  detailview_weather(void);                // after the weather: haze for the open sea, a little for a coast
+float detailview_eye_floor(void);              // the lowest the eye may sit in a staged scene (local units)
 
 #ifdef __cplusplus
 }

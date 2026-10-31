@@ -77,9 +77,18 @@ uniform sampler2D u_terr; uniform vec2 u_terr_texel;
 float shash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 float snoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(shash(i),shash(i+vec2(1,0)),f.x), mix(shash(i+vec2(0,1)),shash(i+vec2(1,1)),f.x), f.y); }
+// the staged shore profile, the same function the vertex stages use (sea/vs_common.glsl, 0.22.7)
+uniform vec4 u_shore_a; uniform vec4 u_shore_b;
+float local_depth_at(vec2 p) {
+  if (u_shore_b.w < 0.5) return u_local_depth;
+  vec2 d = p - u_shore_a.xy;
+  float v = dot(d, u_shore_a.zw), u = dot(d, vec2(-u_shore_a.w, u_shore_a.z));
+  float w = u_shore_b.x * (sin(u * u_shore_b.y) + 0.5 * sin(u * u_shore_b.y * 2.3 + 1.7) + 0.25 * sin(u * u_shore_b.y * 5.1 + 0.4));
+  return clamp(-(v - w) * u_shore_b.z, -2.0, u_local_depth);
+}
 float depth_at(vec2 pp) {
-// water depth from the heightmap plus the streamed detail rings (staged scenes: constant)
-  if (u_local_depth > 0.0) return u_local_depth;
+// water depth from the heightmap plus the streamed detail rings (staged scenes: the shore profile above)
+  if (u_local_depth > 0.0) return max(local_depth_at(pp), 0.0);
   float lon = pp.x / u_k, lat = -pp.y / u_k;
   vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));
   float h = texture(u_hm, uv).r + det_at(pp) * (1.0 - u_mapness);
@@ -91,8 +100,8 @@ void main(){
     if (u_hole.w > 1.5) { if (distance(v_wpos.xz, u_hole.xy) < u_hole.z) discard; }
     else if (abs(v_wpos.x - u_hole.x) < u_hole.z && abs(v_wpos.z - u_hole.y) < u_hole.z) discard;
   }
-  if (u_local_depth <= 0.0 && v_h > 0.35) discard;
-// land (the same threshold the sea has always used)
+  if (v_h > 0.35) discard;
+// land (the same threshold the sea has always used; a staged shore profile puts land above 0 too)
   if (u_clip.y > 0.5 && v_wpos.z > u_clip.x) discard;
 // staged scenes have no heightmap: the shore is a line
   float lon = v_wpos.x / u_k, lat = -v_wpos.z / u_k;

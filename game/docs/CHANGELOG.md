@@ -1,5 +1,78 @@
 # Changelog
 
+## 0.22.7 — the fourth issues folder: the battle's own clock, the coast from the world, a particle system
+
+From `assets/issues/issue4` (`issues.txt`, four screenshots). The whole list, with priorities,
+is `docs/todo_list.md`; this round is its P0 rows: the staged battle.
+
+### The battle clock, the wind
+- **A separate battle time** (`staged_scene.cc dv.timescale`, `RF.anim_time`). The staged
+  battle runs on its own clock now: Space stops and restarts it, 1-4 set quarter, half, real
+  and double time, -/+ halve and double it; the strategic clock keeps whatever speed it had.
+  Everything that moves in the scene follows it - the ships, the waves (`sea_update_waves`
+  takes the scaled step), the cloth, the flags, the oars and the smoke - because the shaders'
+  `u_time` and the shipyard's animation phases read the new scene clock `RF.anim_time`
+  instead of the wall clock. The wall clock (`RF.time`) still drives the UI, the eviction
+  timers and the cloud transition.
+- **Wind arrows in battle mode** (`DetailView::overlays`): a lattice over the water, each
+  arrow sliding downwind on the battle clock, none over the stage land; N toggles them.
+- **Wind speed at sea battles.** The wind at the battle's position is read once on entry
+  (`wind_at`), shown in the battle HUD as knots and a compass point ("wind NW 14 kn, moderate
+  breeze") and used by the scene: each side's line sails at the pace the point-of-sail curve
+  gives its leader's heading (`wind_factor`, blended 70%), unless the side is mostly under
+  oars; the smoke drifts in it.
+- **A battle HUD** (`hud_battle`): the clock, the wind, what coast the probe found, the keys.
+
+### The coast, from the world
+- **The stage coast is read from the map** (`probe_coast`). Rings out to ~56 km around the
+  battle's position find the nearest land, its bearing and distance; a handful of samples
+  behind the shore ask the terrain package (`geochunks_sample`) for the land cover and the
+  relief - green, wooded, scrub, desert, marsh or snow; lowland, hills or mountains. If the
+  chunks were not resident yet the probe retries for a few seconds and rebuilds the stage when
+  the package answers. The coast then stands at its real bearing, 140-210 local units off,
+  and the camera opens facing it.
+- **A heightfield coast** replaces the three quads and nine faceted mounds: a beach profile
+  under the water, a beach (sand, shingle on a mountain coast, mud on a marsh), a berm or dune
+  line behind it, relief from a noise whose amplitude and slope follow the data (3-6 units on
+  a lowland, 34 on hills, 75 with ridges and a snowline on mountains), coloured by the land
+  cover with fields on the green, rock on the steep and snow on the high ground, and trees -
+  pines north of 46 degrees and on the uplands, broadleaves elsewhere, palms on a southern
+  desert shore - dense in the woods, in clumps on the green.
+- **Foam and waves crushing on the coast in battle mode.** The staged sea's depth is no longer
+  a constant: `sea_local_shore_a/b` carry the shoreline point, its inland normal, the wiggle
+  and the seabed slope to the sea shaders (`local_depth_at` in `sea/vs_common.glsl` and
+  `sea.frag`), so the swell shoals, the breaker line marches in, the surf sheet and the swash
+  run up the sand with the existing code, and the water discards itself over the land. The
+  city's harbour gets the same profile along its straight beach.
+- **Open sea**: no land within the probe = no stage coast, and the air is thicker
+  (`DetailView::weather`: fog density x2.3 from 60 units) so the water fades into the sky past
+  the fleets - the "fog of war in the distance". A coast gets a light haze (x1.1 from 160).
+- **The camera moves freely up and down.** The look-at point has a height now
+  (`cam.ty`, R/F in the battle), so the eye can climb over the fleet and look down the lines
+  or sit at deck height and look along the sea; middle-drag / PageUp / PageDown tilt as before.
+  The eye is held a wave above the staged water (`detailview_eye_floor`).
+
+### Particles
+- **A particle system** (`gfx/particles.cc`, `fx/puff.vert`, `fx/puff.frag`): a pool of
+  camera-facing billboards through the mesh instance path with their own translucent pipeline,
+  sorted back to front, with wind drag, buoyancy that fades as the gas cools, gravity for the
+  embers, size and alpha over life, and soft edges where a disc cuts a hull (the opaque depth
+  the water already captures).
+- **Gunsmoke that flows with the wind, muzzle flash, embers - no projectile.** Every gun on
+  the engaged side (half the class's guns, 1-18) gives a flash, a dense core puff that races
+  out with the shot, a looser plume behind it and a few embers. The puff size grows with the
+  hull length and the count with the guns, so a sloop coughs and a ship of the line
+  disappears behind her own broadside. The smoke is shaded as a volume the cheap way: a 3D
+  value noise eroded with age, a sphere normal lit sun-side-bright and lee-side-ambient, a
+  back-lit rim where the sun shines through the edge, the noise's pockets as self-shadow.
+- The map's gunsmoke (`scene.cc`, the sphere puffs) is unchanged; the staged scene no longer
+  uses `mesh_puff`.
+
+### Elsewhere
+- `docs/todo_list.md`: every line of issue4 and the P1.3 physics checklist, with priorities.
+- The session mirror follows the `mare_<worktree>_<stamp>` rule; the older oak folders are
+  gone.
+
 ## 0.22.6 — the third issues folder: a data-driven fleet, a wake, reflections, a worked hinterland
 
 From `assets/issues/issue3`. The ocean checklist in `next feature.txt` was answered in 0.22.5;

@@ -269,7 +269,7 @@ void Meshes::bind() {
     rhi_set_i1(UNI(meshes_prg,"u_grain"), 2); rhi_texture_bind(2, detail_grain());
     bind_sails(&meshes_prg);
     rhi_set_mat4(UNI(meshes_prg,"u_vp"), &RF.vp.x.x);
-    rhi_set_f1(UNI(meshes_prg,"u_time"), RF.time);
+    rhi_set_f1(UNI(meshes_prg,"u_time"), RF.anim_time);
     rhi_set_f3(UNI(meshes_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
     rhi_set_f3(UNI(meshes_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
     rhi_set_f1(UNI(meshes_prg,"u_mapness"), RF.mapness);
@@ -284,7 +284,7 @@ void Meshes::bind_rope() {
     meshes_bind_waves(&rope_prg);
     rhi_set_i1(UNI(rope_prg,"u_grain"), 2); rhi_texture_bind(2, detail_grain());
     rhi_set_mat4(UNI(rope_prg,"u_vp"), &RF.vp.x.x);
-    rhi_set_f1(UNI(rope_prg,"u_time"), RF.time);
+    rhi_set_f1(UNI(rope_prg,"u_time"), RF.anim_time);
     rhi_set_f3(UNI(rope_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
     rhi_set_f3(UNI(rope_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
     rhi_set_f1(UNI(rope_prg,"u_mapness"), RF.mapness);
@@ -298,7 +298,7 @@ void Meshes::bind_smoke() {
     rhi_pipeline_bind(&smoke_prg);
     meshes_bind_waves(&smoke_prg);
     rhi_set_mat4(UNI(smoke_prg,"u_vp"), &RF.vp.x.x);
-    rhi_set_f1(UNI(smoke_prg,"u_time"), RF.time);
+    rhi_set_f1(UNI(smoke_prg,"u_time"), RF.anim_time);
     rhi_set_f3(UNI(smoke_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
     rhi_set_f3(UNI(smoke_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
     rhi_set_f1(UNI(smoke_prg,"u_mapness"), RF.mapness);
@@ -309,7 +309,7 @@ void Meshes::bind_depth(const mat44 *lightvp) {
     rhi_pipeline_bind(&depth_prg);
     meshes_bind_waves(&depth_prg);
     rhi_set_mat4(UNI(depth_prg,"u_vp"), &lightvp->x.x);
-    rhi_set_f1(UNI(depth_prg,"u_time"), RF.time);
+    rhi_set_f1(UNI(depth_prg,"u_time"), RF.anim_time);
 }
 
 } // namespace mare::engine::render

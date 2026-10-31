@@ -27,6 +27,10 @@ extern "C" {
 #include "../sim/settlement.h"
 #include "lod.h"
 #include "shipyard.h"
+#include "particles.h"
+#include "../world/wind.h"
+#include "../world/world.h"
+#include "../world/terrain_chunks.h"
 #include "../engine/shaders.h"
 }
 
@@ -54,6 +58,8 @@ typedef struct dv_ship_t {
     float turn;                      // rate of turn, radians per second (class stats)
     float len;                       // hull length, local units (foam and bow wave)
     int   slot;                      // place in her side's line (0 = leads)
+    int   guns;                      // the class's guns (the broadside's particles, 0.22.7)
+    int   oared;                     // under oars: the wind does not set her pace
 } dv_ship_t;
 
 // Metres per local unit: the authored hulls are fitted at SHIP_M_PER_UNIT (0.045 world units
@@ -61,7 +67,18 @@ typedef struct dv_ship_t {
 #define DV_M_PER_UNIT  (1.f / (0.045f * DV_SHIP_SCALE))
 #define DV_KNOT        (0.5144f / DV_M_PER_UNIT)   // one knot, local units per second
 
-typedef struct dv_puff_t { float x, y, z, age, scale; } dv_puff_t;
+// The staged shore (0.22.7, issue4): the battle's coast is read from the world at the battle's
+// position - its bearing, how far off it lies, the land cover and the relief behind it - and
+// built as a heightfield with a beach profile the sea shader shares (sea_local_shore_*), so the
+// breakers run up it. No land within DV_COAST_PROBE world units = a battle in the open sea.
+#define DV_COAST_PROBE   8.f     // world units (~56 km) searched for land
+#define DV_SHORE_AMP    14.f     // shoreline wiggle amplitude, local units
+#define DV_SHORE_FREQ  0.011f    // its base frequency
+#define DV_SHORE_SLOPE  0.15f    // seabed slope: depth per local unit seaward (surf band 7..33 units off the sand)
+#define DV_LOCAL_M      2.47f    // metres per local unit (DV_M_PER_UNIT below, spelled out for the landscape)
+#define DV_WIND_KN     14.f      // knots per unit of wind strength (wind_at gives ~0.3..1.4)
+enum { DV_RELIEF_LOW = 0, DV_RELIEF_HILLS, DV_RELIEF_MOUNTAINS };
+enum { DV_LAND_GREEN = 0, DV_LAND_FOREST, DV_LAND_SCRUB, DV_LAND_DESERT, DV_LAND_MARSH, DV_LAND_SNOW };
 
 // C++ has no (float[]){...}: v3f_t{a, b, c}.v is the temporary array the mesh builder takes.
 struct v3f_t { float v[3]; };
@@ -83,6 +100,17 @@ public:
     int  submit_smoke(void);
     void sea(void);
     void clouds(void);
+    // the battle clock, the wind and the coast (0.22.7)
+    float timescale(void) { return dv.timescale; }
+    void  set_timescale(float s) { dv.timescale = clampf(s, 0.f, 8.f); }
+    float clock_scale(void) { return mode() == DV_BATTLE ? dv.timescale : 1.f; }
+    void  wind(float *dx, float *dz, float *str) { *dx = dv.wdx; *dz = dv.wdz; *str = dv.wstr; }
+    int   show_wind(void) { return dv.show_wind; }
+    void  toggle_wind(void) { dv.show_wind ^= 1; }
+    const char *coast_desc(void) { return dv.coast_desc; }
+    void  overlays(void);
+    void  weather(void);
+    float eye_floor(void);
 
 private:
     void stage_free(void);
@@ -94,6 +122,11 @@ private:
     void battle_form_lines(void);
     void build_battle(int fleet_id);
     void battle_update(float dt);
+    void probe_coast(void);
+    float shore_wiggle(float u) const;
+    float stage_height(float u, float v, float *slope_out) const;
+    void stage_colour(float u, float v, float h, float slope, float *rgb) const;
+    void stage_trees(mb_t *m, unsigned *seed);
     static asset_t *dv_house_asset(float ring, int size, unsigned *seed);
     int  dv_free(float x, float z, float r);
     void dv_take(float x, float z, float r);
@@ -112,12 +145,25 @@ private:
         // battle
         dv_ship_t ship[DV_MAX_SHIPS]; int nships;
         float line_s[2], line_v[2], line_gap[2]; int nside[2];   // per side: line head's arc position, line speed, spacing
-        dv_puff_t puff[96]; int npuffs;
         float time;
+        float timescale;                 // the battle clock (0.22.7): 1 = real time, 0 = stopped; the strategic clock is separate
+        int   show_wind;                 // wind arrows over the water
+        float wdx, wdz, wstr;            // the wind at the battle's position (world direction it blows towards, strength)
+        // the coast read from the world (probe_coast)
+        int   coast_on;                  // 0 = open sea (no stage coast, haze at the horizon)
+        float cnx, cnz;                  // unit normal from the sea towards the land (world xz)
+        float cdist_w;                   // distance to the nearest land, world units
+        float coast_dist;                // where the stage shoreline stands, local units from the scene centre
+        int   land, relief;              // DV_LAND_*, DV_RELIEF_*
+        float relief_m;                  // highest ground sampled behind the coast, metres
+        float lat;                       // the battle's latitude (pines north, palms south)
+        int   coast_from_data;           // the terrain package answered the probe (else world_height stood in and the probe is retried while the chunks page in)
+        float reprobe_t;                 // scene time of the next retry
+        char  coast_desc[64];            // for the HUD
         // stage + instance lists
         mesh_t stage; int stage_built;
         dv_build_t build[DV_MAX_BUILD]; int nbuild;   // authored houses (registry index + local instance)
-        instlist_t ships_il[SHIP_COUNT], houses, roofs, towers, walls, piers, flags, puffs_il;
+        instlist_t ships_il[SHIP_COUNT], houses, roofs, towers, walls, piers, flags;
         // clouds
         rhi_pipeline_t cloud_prg; rhi_geometry_t cloud_geo; int cloud_init;
     } dv;
@@ -137,25 +183,212 @@ int DetailView::busy(void) { return dv.phase == DVP_IN || dv.phase == DVP_OUT_IN
 
 void DetailView::stage_free(void) { dv.stage_built = 0; }   // geometry is leaked per entry (tiny); rebuilt each time
 
+// ---- the coast, read from the world (0.22.7, issue4)
+
+// Nearest land to the scene centre on rings out to DV_COAST_PROBE world units; then the land
+// cover and the relief behind it from the terrain package (world_height as the fallback).
+void DetailView::probe_coast(void) {
+    dv.coast_on = 0; dv.cnx = 0; dv.cnz = -1; dv.cdist_w = 1e9f; dv.land = DV_LAND_GREEN; dv.relief = DV_RELIEF_LOW; dv.relief_m = 0;
+    dv.lat = z2lat(dv.cz);
+    float best = 1e9f, bx = 0, bz = -1;
+    for (float r = 0.5f; r <= DV_COAST_PROBE && best > 1e8f; r += 0.25f)
+        for (int k = 0; k < 48; ++k) {
+            float a = k * 6.2831853f / 48.f, x = dv.cx + cosf(a) * r, z = dv.cz + sinf(a) * r;
+            if (world_is_land(x, z) && r < best) { best = r; bx = cosf(a); bz = sinf(a); }
+        }
+    if (best > 1e8f) { snprintf(dv.coast_desc, sizeof dv.coast_desc, "open sea, no land within %.0f km", DV_COAST_PROBE * 7.f); LOG_INFO("gfx", "battle coast: %s", dv.coast_desc); return; }
+    dv.coast_on = 1; dv.cnx = bx; dv.cnz = bz; dv.cdist_w = best;
+    dv.coast_dist = 140.f + 70.f * clampf(best / 4.f, 0.f, 1.f);
+    // land cover and relief: a few samples inland from the hit, the package first
+    int votes[6] = {0}; float hmax = 0; int nsamp = 0, ndata = 0;
+    static const float steps[5] = { 0.12f, 0.4f, 0.8f, 1.4f, 2.2f };
+    for (int i = 0; i < 5; ++i) for (int j = -1; j <= 1; ++j) {
+        float x = dv.cx + bx * (best + steps[i]) + -bz * j * 0.5f, z = dv.cz + bz * (best + steps[i]) + bx * j * 0.5f;
+        if (!world_is_land(x, z)) continue;
+        gc_sample_t gs; float hm = world_height(x, z) * (9000.f / 16.f); int cls = 0;
+        if (geochunks_sample(x2lon(x), z2lat(z), &gs)) { hm = maxf(gs.height_m, 0.f); if (gs.has_maps) cls = gs.biome; ndata++; }
+        hmax = maxf(hmax, hm); nsamp++;
+        int land = cls == 10 ? DV_LAND_FOREST : cls == 20 ? DV_LAND_SCRUB : cls == 60 ? DV_LAND_DESERT : (cls == 90 || cls == 95) ? DV_LAND_MARSH
+                 : (cls == 70 || cls == 100) ? DV_LAND_SNOW : DV_LAND_GREEN;
+        if (cls == 0) land = (dv.lat < 34.f && x2lon(x) > -10.f) ? DV_LAND_DESERT : DV_LAND_GREEN;   // no maps: the Maghreb and the Levant are dry, the rest green
+        votes[land] += i < 2 ? 2 : 1;   // the near samples count double: the beach is what the camera sees
+    }
+    int bestv = 0; for (int i = 1; i < 6; ++i) if (votes[i] > votes[bestv]) bestv = i;
+    dv.land = bestv; dv.relief_m = hmax; dv.coast_from_data = ndata * 2 >= nsamp;
+    dv.relief = hmax < 80.f ? DV_RELIEF_LOW : hmax < 450.f ? DV_RELIEF_HILLS : DV_RELIEF_MOUNTAINS;
+    static const char *const land_names[6] = { "green", "wooded", "scrub", "desert", "marsh", "snowy" };
+    static const char *const relief_names[3] = { "lowland", "hills", "mountains" };
+    static const char *const compass[16] = { "N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW" };
+    float brg = atan2f(bx, -bz) * 57.2958f; if (brg < 0) brg += 360.f;
+    snprintf(dv.coast_desc, sizeof dv.coast_desc, "%s %s to the %s, %.0f km", land_names[dv.land], relief_names[dv.relief], compass[(int)((brg + 11.25f) / 22.5f) % 16], best * 7.f);
+    LOG_INFO("gfx", "battle coast: %s (%d land samples, %d from the package, highest %.0f m)", dv.coast_desc, nsamp, ndata, hmax);
+}
+
+// the shoreline's wander along the coast: the same three sines the sea shader evaluates
+float DetailView::shore_wiggle(float u) const {
+    return DV_SHORE_AMP * (sinf(u * DV_SHORE_FREQ) + 0.5f * sinf(u * DV_SHORE_FREQ * 2.3f + 1.7f) + 0.25f * sinf(u * DV_SHORE_FREQ * 5.1f + 0.4f));
+}
+
+// Height of the stage at (u along the shore, v inland from the nominal shoreline), local units.
+// Seaward: the beach profile the sea shares. Landward: the beach, then relief from a noise
+// whose amplitude and base slope follow what the data said stands behind this coast.
+float DetailView::stage_height(float u, float v, float *beach_w_out) const {
+    float ve = v - shore_wiggle(u);
+    float beach_w = dv.land == DV_LAND_DESERT ? 26.f : dv.land == DV_LAND_MARSH ? 0.f : dv.relief == DV_RELIEF_MOUNTAINS ? 7.f : 16.f;
+    if (beach_w_out) *beach_w_out = beach_w;
+    if (ve < 0.f) return maxf(ve * DV_SHORE_SLOPE, -DV_SEA_DEPTH);
+    float beach_slope = dv.land == DV_LAND_MARSH ? 0.012f : 0.055f;
+    float hb = minf(ve, beach_w) * beach_slope;
+    float x = maxf(ve - beach_w, 0.f);
+    float ramp = clampf(x / 140.f, 0.f, 1.f); ramp = ramp * ramp * (3.f - 2.f * ramp);
+    float amp, base, fs;
+    switch (dv.relief) {
+        default:
+        case DV_RELIEF_LOW:       amp = 6.f;   base = 0.006f;  fs = 0.0045f; break;
+        case DV_RELIEF_HILLS:     amp = 34.f;  base = 0.030f;  fs = 0.0038f; break;
+        case DV_RELIEF_MOUNTAINS: amp = 75.f;  base = 0.075f;  fs = 0.0026f; break;
+    }
+    if (dv.land == DV_LAND_DESERT && dv.relief == DV_RELIEF_LOW) { amp = 5.f; fs = 0.007f; }    // dunes
+    if (dv.land == DV_LAND_MARSH) { amp = minf(amp, 1.5f); base = minf(base, 0.002f); }
+    float n = world_fbm(u * fs + 3.1f, x * fs + 7.7f, dv.relief == DV_RELIEF_MOUNTAINS ? 5 : 4, 1711);
+    if (dv.relief == DV_RELIEF_MOUNTAINS) n = powf(n, 1.6f) * 1.3f;   // ridges, not rolling
+    // the berm behind the beach - dunes on a sandy shore, a low bank elsewhere - so a flat coast
+    // still draws a line against the sea from the deck
+    float berm = dv.land == DV_LAND_MARSH ? 0.f : (dv.land == DV_LAND_DESERT || dv.relief == DV_RELIEF_LOW ? 2.6f : 1.2f) * (0.7f + 0.6f * world_fbm(u * 0.03f, 1.f, 2, 515));
+    float bermk = x < 30.f ? (x / 30.f) * (1.f - x / 30.f) * 4.f : expf(-(x - 30.f) * 0.04f) * 0.0f;
+    return hb + berm * bermk + ramp * (amp * n + base * x);
+}
+
+void DetailView::stage_colour(float u, float v, float h, float slope, float *rgb) const {
+    float ve = v - shore_wiggle(u), beach_w; stage_height(u, v, &beach_w);
+    float r, g, b;
+    if (ve < 0.f) {   // seabed: pale sand shelving into the dark
+        float d = clampf(-h / DV_SEA_DEPTH, 0.f, 1.f);
+        r = lerpf(0.62f, 0.25f, d); g = lerpf(0.56f, 0.28f, d); b = lerpf(0.42f, 0.26f, d);
+    } else if (ve < beach_w) {
+        if (dv.relief == DV_RELIEF_MOUNTAINS) { r = 0.55f; g = 0.52f; b = 0.47f; }           // shingle
+        else if (dv.land == DV_LAND_MARSH) { r = 0.42f; g = 0.40f; b = 0.30f; }              // mud
+        else { r = 0.80f; g = 0.73f; b = 0.55f; }                                             // sand
+    } else {
+        float x = ve - beach_w;
+        float patch = world_fbm(u * 0.02f + 11.f, x * 0.02f + 5.f, 2, 919);
+        switch (dv.land) {
+            default:
+            case DV_LAND_GREEN:  r = 0.30f; g = 0.46f; b = 0.20f;
+                                 if (dv.relief != DV_RELIEF_MOUNTAINS && x < 520.f && patch > 0.60f) { r = 0.56f; g = 0.50f; b = 0.28f; }   // fields
+                                 break;
+            case DV_LAND_FOREST: r = 0.18f; g = 0.32f; b = 0.14f; break;
+            case DV_LAND_SCRUB:  r = 0.42f; g = 0.46f; b = 0.26f; break;
+            case DV_LAND_DESERT: { float t = clampf(patch * 1.5f - 0.3f, 0.f, 1.f); r = lerpf(0.62f, 0.80f, t); g = lerpf(0.50f, 0.68f, t); b = lerpf(0.34f, 0.46f, t); } break;
+            case DV_LAND_MARSH:  if (patch > 0.6f) { r = 0.30f; g = 0.38f; b = 0.40f; } else { r = 0.34f; g = 0.44f; b = 0.28f; } break;
+            case DV_LAND_SNOW:   r = 0.55f; g = 0.56f; b = 0.50f; break;
+        }
+        // rock on the steep ground, snow on the high
+        float rock = clampf((slope - 0.45f) / 0.25f, 0.f, 1.f);
+        if (dv.land == DV_LAND_DESERT) { r = lerpf(r, 0.60f, rock); g = lerpf(g, 0.48f, rock); b = lerpf(b, 0.36f, rock); }
+        else { r = lerpf(r, 0.46f, rock); g = lerpf(g, 0.43f, rock); b = lerpf(b, 0.40f, rock); }
+        float snowline = dv.relief == DV_RELIEF_MOUNTAINS ? (dv.lat > 55.f ? 45.f : 70.f) : dv.land == DV_LAND_SNOW ? 2.f : 1e9f;
+        float snow = clampf((h - snowline) / 12.f, 0.f, 1.f) * (1.f - 0.6f * rock);
+        r = lerpf(r, 0.92f, snow); g = lerpf(g, 0.93f, snow); b = lerpf(b, 0.95f, snow);
+    }
+    rgb[0] = r; rgb[1] = g; rgb[2] = b;
+}
+
+// Trees as low-poly cones in the stage frame: pines (one tall cone) north of 46 degrees, on the
+// uplands and a third of the time anywhere; broadleaves (two cones base to base) elsewhere.
+// Dense in the wooded biome, in clumps on the green, thin on the scrub, a few on the marsh.
+void DetailView::stage_trees(mb_t *m, unsigned *seed) {
+    int want = dv.land == DV_LAND_FOREST ? 1400 : dv.land == DV_LAND_GREEN ? 520 : dv.land == DV_LAND_SCRUB ? 380 : dv.land == DV_LAND_MARSH ? 120 : 0;
+    if (dv.land == DV_LAND_DESERT && dv.lat < 36.f) want = 90;   // a few palms along the shore
+    float tgx = -dv.cnz, tgz = dv.cnx, D = dv.coast_dist;
+    int placed = 0;
+    for (int tries = 0; tries < want * 4 && placed < want; ++tries) {
+        float u = (rnd_f(seed) - 0.5f) * 1500.f, beach_w;
+        float v = shore_wiggle(u) + 2.f + rnd_f(seed) * (dv.land == DV_LAND_DESERT ? 60.f : 430.f);
+        float h = stage_height(u, v, &beach_w);
+        if (v - shore_wiggle(u) < beach_w + 2.f) continue;
+        float e = 3.f, hx = stage_height(u + e, v, 0), hz = stage_height(u, v + e, 0);
+        float slope = sqrtf((hx - h) * (hx - h) + (hz - h) * (hz - h)) / e;
+        if (slope > 0.6f) continue;
+        if (dv.relief == DV_RELIEF_MOUNTAINS && h > (dv.lat > 55.f ? 40.f : 62.f)) continue;   // above the tree line
+        if (dv.land == DV_LAND_GREEN && world_fbm(u * 0.012f + 1.f, v * 0.012f + 2.f, 2, 313) < 0.56f) continue;   // clumps
+        if (dv.land == DV_LAND_MARSH && world_fbm(u * 0.02f, v * 0.02f, 2, 919) > 0.6f) continue;   // not in the pools
+        int pine = dv.land != DV_LAND_DESERT && (dv.lat > 46.f || h > 20.f || rnd_f(seed) < 0.33f);
+        float sc = 0.8f + rnd_f(seed) * 0.5f;
+        float ht = pine ? 5.5f * sc : 3.6f * sc, rad = pine ? 1.5f * sc : 2.3f * sc;
+        if (dv.land == DV_LAND_SCRUB) { ht *= 0.55f; rad *= 0.7f; }
+        if (dv.land == DV_LAND_DESERT) { ht = 5.f * sc; rad = 2.4f * sc; }   // the palm: a crown on a stick
+        float cr = pine ? 0.12f : 0.20f, cg = pine ? 0.24f : 0.36f, cb = pine ? 0.12f : 0.16f;
+        float var = (rnd_f(seed) - 0.5f) * 0.08f; cr += var; cg += var * 1.3f;
+        if (dv.land == DV_LAND_DESERT) { cr = 0.30f; cg = 0.42f; cb = 0.18f; }
+        // stage frame -> local scene coords
+        float px = tgx * u + dv.cnx * (D + v), pz = tgz * u + dv.cnz * (D + v), base = h - 0.2f;
+        const int N = 6;
+        if (dv.land == DV_LAND_DESERT) {   // trunk + a flat crown of blades
+            mb_box(m, px, base + ht * 0.5f, pz, 0.12f, ht * 0.5f, 0.12f, 0.45f, 0.36f, 0.26f, 0);
+            for (int k = 0; k < N; ++k) { float a0 = k * 6.2832f / N, a1 = (k + 1) * 6.2832f / N;
+                mb_tri(m, px, base + ht, pz, px + cosf(a0) * rad, base + ht - 1.2f, pz + sinf(a0) * rad, px + cosf(a1) * rad, base + ht - 1.2f, pz + sinf(a1) * rad, cr, cg, cb, 0); }
+        } else if (pine) {
+            for (int k = 0; k < N; ++k) { float a0 = k * 6.2832f / N, a1 = (k + 1) * 6.2832f / N;
+                mb_tri(m, px + cosf(a0) * rad, base + ht * 0.12f, pz + sinf(a0) * rad, px + cosf(a1) * rad, base + ht * 0.12f, pz + sinf(a1) * rad, px, base + ht, pz, cr, cg, cb, 0); }
+        } else {
+            float mid = base + ht * 0.45f;
+            for (int k = 0; k < N; ++k) { float a0 = k * 6.2832f / N, a1 = (k + 1) * 6.2832f / N;
+                mb_tri(m, px + cosf(a0) * rad, mid, pz + sinf(a0) * rad, px + cosf(a1) * rad, mid, pz + sinf(a1) * rad, px, base + ht, pz, cr, cg, cb, 0);
+                mb_tri(m, px + cosf(a1) * rad, mid, pz + sinf(a1) * rad, px + cosf(a0) * rad, mid, pz + sinf(a0) * rad, px, base + ht * 0.1f, pz, cr * 0.8f, cg * 0.8f, cb * 0.8f, 0); }
+        }
+        placed++;
+    }
+    LOG_INFO("gfx", "battle stage: %d trees", placed);
+}
+
+// The battle stage (0.22.7): a seabed plane forty units down (what the water refracts), and -
+// when the probe found land - a heightfield coast at the real bearing: beach profile under the
+// water, beach, relief behind, coloured by the land cover, trees on it. The sea pass draws the
+// water itself with the same shore profile (sea_local_shore_*), so the surf runs up this sand.
 void DetailView::stage_battle(void) {
     mb_t m = {0};
-    float S = 1500;
-    // (no sea quad: sea_draw_local draws the real water, with the same waves the map has)
-    // the coast, a kilometre to the north: beach strip, grass rise, a few worn hills
     mb_material(&m, MB_STONE);
-    float zc = -DV_COAST_DIST;
-    mb_quad(&m, v3f_t{-S,0.08f,zc}.v, v3f_t{S,0.08f,zc}.v, v3f_t{S,0.3f,zc-35}.v, v3f_t{-S,0.3f,zc-35}.v, 0.80f,0.74f,0.55f, 0);     // sand
-    mb_quad(&m, v3f_t{-S,0.3f,zc-35}.v, v3f_t{S,0.3f,zc-35}.v, v3f_t{S,6,zc-160}.v, v3f_t{-S,6,zc-160}.v, 0.36f,0.52f,0.28f, 0);     // grass rise
-    mb_quad(&m, v3f_t{-S,6,zc-160}.v, v3f_t{S,6,zc-160}.v, v3f_t{S,8,zc-600}.v, v3f_t{-S,8,zc-600}.v, 0.33f,0.46f,0.27f, 0);
-    unsigned seed = 7;
-    for (int i = 0; i < 9; ++i) {                                   // hills as faceted mounds
-        float hx = -500 + i * 120 + rnd_f(&seed) * 60, hz = zc - 90 - rnd_f(&seed) * 220;
-        float hr = 45 + rnd_f(&seed) * 70, hh = 18 + rnd_f(&seed) * 30;
-        float g = 0.30f + rnd_f(&seed) * 0.12f;
-        for (int k = 0; k < 7; ++k) {
-            float a0 = k * 6.2832f / 7, a1 = (k+1) * 6.2832f / 7;
-            mb_tri(&m, hx + cosf(a0)*hr, 1, hz + sinf(a0)*hr, hx + cosf(a1)*hr, 1, hz + sinf(a1)*hr, hx, hh, hz, g*1.2f, g*1.35f, g*0.8f, 0);
+    probe_coast();
+    const float S = 1700.f, yb = -DV_SEA_DEPTH;
+    mb_set_normal(&m, 0, 1, 0, 1.f);
+    mb_quad(&m, v3f_t{-S,yb,S}.v, v3f_t{S,yb,S}.v, v3f_t{S,yb,-S}.v, v3f_t{-S,yb,-S}.v, 0.25f, 0.28f, 0.26f, 0);   // the seabed
+    if (dv.coast_on) {
+        // row spacing: coarse out at sea, fine through the surf and the beach, coarse inland
+        static float vs[96]; int nv = 0;
+        for (float v = -320.f; v < -60.f; v += 40.f) vs[nv++] = v;
+        for (float v = -60.f; v < 60.f; v += 6.f) vs[nv++] = v;
+        for (float v = 60.f; v <= 1000.f + 1e-3f; v += 20.f) vs[nv++] = v;
+        const int NU = 129; const float u0 = -1600.f, du = 3200.f / (NU - 1);
+        static float H[96][NU]; static float C[96][NU][3];
+        float tgx = -dv.cnz, tgz = dv.cnx, D = dv.coast_dist;
+        for (int j = 0; j < nv; ++j) for (int i = 0; i < NU; ++i) H[j][i] = stage_height(u0 + i * du, vs[j], 0);
+        for (int j = 0; j < nv; ++j) for (int i = 0; i < NU; ++i) {
+            int i0 = i > 0 ? i - 1 : i, i1 = i < NU - 1 ? i + 1 : i, j0 = j > 0 ? j - 1 : j, j1 = j < nv - 1 ? j + 1 : j;
+            float su = (H[j][i1] - H[j][i0]) / ((i1 - i0) * du), sv = (H[j1][i] - H[j0][i]) / maxf(vs[j1] - vs[j0], 1e-3f);
+            stage_colour(u0 + i * du, vs[j], H[j][i], sqrtf(su * su + sv * sv), C[j][i]);
         }
+        for (int j = 0; j + 1 < nv; ++j) for (int i = 0; i + 1 < NU; ++i) {
+            float P[4][3]; float col[3] = {0,0,0}; float nx = 0, ny = 0, nz = 0;
+            const int ii[4] = { i, i+1, i+1, i }, jj[4] = { j, j, j+1, j+1 };
+            for (int k = 0; k < 4; ++k) {
+                float u = u0 + ii[k] * du, v = vs[jj[k]], h = H[jj[k]][ii[k]];
+                P[k][0] = tgx * u + dv.cnx * (D + v); P[k][1] = h; P[k][2] = tgz * u + dv.cnz * (D + v);
+                col[0] += C[jj[k]][ii[k]][0] * 0.25f; col[1] += C[jj[k]][ii[k]][1] * 0.25f; col[2] += C[jj[k]][ii[k]][2] * 0.25f;
+                // smooth normal from the central differences at this corner, rotated into the scene
+                int a0 = ii[k] > 0 ? ii[k]-1 : ii[k], a1 = ii[k] < NU-1 ? ii[k]+1 : ii[k], b0 = jj[k] > 0 ? jj[k]-1 : jj[k], b1 = jj[k] < nv-1 ? jj[k]+1 : jj[k];
+                float su = (H[jj[k]][a1] - H[jj[k]][a0]) / ((a1 - a0) * du), sv = (H[b1][ii[k]] - H[b0][ii[k]]) / maxf(vs[b1] - vs[b0], 1e-3f);
+                nx += -(su * tgx + sv * dv.cnx); ny += 1.f; nz += -(su * tgz + sv * dv.cnz);
+            }
+            float nl = sqrtf(nx*nx + ny*ny + nz*nz); mb_set_normal(&m, nx / nl, ny / nl, nz / nl, 1.f);
+            // winding: the quad must face up whichever way the coast frame is handed
+            float ex = P[1][0] - P[0][0], ez = P[1][2] - P[0][2], fx = P[3][0] - P[0][0], fz = P[3][2] - P[0][2];
+            if (ex * fz - ez * fx < 0) mb_quad(&m, P[0], P[1], P[2], P[3], col[0], col[1], col[2], 0);
+            else mb_quad(&m, P[0], P[3], P[2], P[1], col[0], col[1], col[2], 0);
+        }
+        mb_auto_normal(&m);
+        unsigned seed = 7 + (unsigned)dv.land * 31u;
+        stage_trees(&m, &seed);
     }
     dv.stage = mesh_upload(&m);
     dv.stage_built = 1;
@@ -189,7 +422,8 @@ void DetailView::battle_add_ship(int type, int side, float x, float z, float hea
     (void)rnd_f(seed);                       // keep the stream so the rest of the scene is unchanged
     *s = dv_ship_t{ type, side, x, z, heading, speed, rnd_f(seed) * 6.28f,
                       col_r(col), col_g(col), col_b(col), 3.f + rnd_f(seed) * 6.f, nation,
-                      heading, st.turn_dps * 0.0174533f, st.length_m / DV_M_PER_UNIT };
+                      heading, st.turn_dps * 0.0174533f, st.length_m / DV_M_PER_UNIT, 0,
+                      st.guns, st.oar_knots > 0.5f * st.knots };
 }
 
 // The battle line (fleet_sails battles are fought in formation, not as a swarm): each side
@@ -250,7 +484,8 @@ void DetailView::battle_form_lines(void) {
 }
 
 void DetailView::build_battle(int fleet_id) {
-    dv.nships = 0; dv.npuffs = 0; dv.time = 0;
+    dv.nships = 0; dv.time = 0;
+    particles_reset();
     unsigned seed = 1234;
     // find the battle: the chosen fleet, else the freshest firing fleet
     const fleet_t *hot = fleet_by_id(fleet_id);
@@ -289,7 +524,18 @@ void DetailView::build_battle(int fleet_id) {
 void DetailView::battle_update(float dt) {
     dv.time += dt;
     unsigned seed = (unsigned)(dv.time * 977) + 13;
-    for (int k = 0; k < 2; ++k) dv.line_s[k] += dv.line_v[k] * dt;   // the lines sail on
+    // The lines sail on - at the pace the wind gives the leader's heading (0.22.7, "wind speed
+    // at sea battles"): a line beating up to windward crawls, one running down comes on fast.
+    // A side mostly under oars ignores it.
+    for (int k = 0; k < 2; ++k) {
+        float wf = 1.f;
+        if (dv.mode == DV_BATTLE && dv.nside[k] > 0) {
+            int oars = 0; for (int i = 0; i < dv.nships; ++i) if (dv.ship[i].side == k && dv.ship[i].oared) oars++;
+            if (oars * 2 < dv.nside[k]) { float lx, lz, lh; dv_line_point(k, dv.line_s[k], &lx, &lz, &lh);
+                wf = lerpf(1.f, wind_factor(cosf(lh), -sinf(lh), dv.wdx, dv.wdz, dv.wstr), 0.7f); }
+        }
+        dv.line_s[k] += dv.line_v[k] * wf * dt;
+    }
     for (int i = 0; i < dv.nships; ++i) {
         dv_ship_t *s = &dv.ship[i];
         if (dv.mode == DV_BATTLE) {
@@ -322,21 +568,16 @@ void DetailView::battle_update(float dt) {
             for (int j = 0; j < dv.nships; ++j) {
                 if (dv.ship[j].side == s->side) continue;
                 if (dist2d(s->x, s->z, dv.ship[j].x, dv.ship[j].z) > 55.f) continue;
-                for (int k = 0; k < 3 && dv.npuffs < 96; ++k) {
-                    float side = (j % 2) ? 1.f : -1.f;
-                    dv_puff_t *p = &dv.puff[dv.npuffs++];
-                    *p = dv_puff_t{ s->x - sinf(s->heading) * side * (2.5f + k * 1.3f), 2.4f + k * 0.6f,
-                                      s->z - cosf(s->heading) * side * (2.5f + k * 1.3f), 0, 2.2f + k };
-                }
+                // the broadside facing the target: flashes, smoke and embers from every gun on
+                // that side, sized by the class (particles.h); the smoke drifts off on the wind
+                float fx = cosf(s->heading), fz = -sinf(s->heading), tx = dv.ship[j].x - s->x, tz = dv.ship[j].z - s->z;
+                float side = (-fz * tx + fx * tz) >= 0.f ? 1.f : -1.f;
+                particles_broadside(dv.cx + s->x, 0.f, dv.cz + s->z, s->heading, side, s->len, maxi(s->guns, 2));
                 break;
             }
         }
     }
-    for (int i = 0; i < dv.npuffs; ) {
-        dv.puff[i].age += dt;
-        dv.puff[i].y += dt * 1.1f;
-        if (dv.puff[i].age > 3.2f) dv.puff[i] = dv.puff[--dv.npuffs]; else ++i;
-    }
+    particles_update(dt);
 }
 
 // ---------------------------------------------------------------------------
@@ -360,7 +601,7 @@ int DetailView::dv_free(float x, float z, float r) {
 void DetailView::dv_take(float x, float z, float r) { if (dv_nfp < 220) { dv_fp[dv_nfp][0]=x; dv_fp[dv_nfp][1]=z; dv_fp[dv_nfp][2]=r; dv_nfp++; } }
 
 void DetailView::build_city(int port) {
-    dv.nships = 0; dv.npuffs = 0; dv_nfp = 0;
+    dv.nships = 0; dv_nfp = 0; particles_reset();
     const port_t *p = port >= 0 ? &G.ports[port] : 0;
     int size = p ? p->size : 2;
     float pop = p ? p->pop : 20;
@@ -483,6 +724,18 @@ void DetailView::dv_sea_params(void) {
     sea_wave_scale = on ? DV_SHIP_SCALE : 1.f;
     sea_local_amp  = on ? DV_SEA_AMP : 1.f;   // a staged sea is stretched: cut the wave height to match
     sea_local_depth = on ? DV_SEA_DEPTH : 0.f;
+    // the shore profile the water shares with the stage (0.22.7): the battle's probed coast,
+    // the city's straight beach; off when the probe found open sea
+    float shore_on = 0.f;
+    if (on && dv.mode == DV_BATTLE && dv.coast_on) {
+        sea_local_shore_a[0] = dv.cx + dv.cnx * dv.coast_dist; sea_local_shore_a[1] = dv.cz + dv.cnz * dv.coast_dist;
+        sea_local_shore_a[2] = dv.cnx; sea_local_shore_a[3] = dv.cnz;
+        sea_local_shore_b[0] = DV_SHORE_AMP; sea_local_shore_b[1] = DV_SHORE_FREQ; sea_local_shore_b[2] = DV_SHORE_SLOPE; shore_on = 1.f;
+    } else if (on && dv.mode == DV_CITY) {
+        sea_local_shore_a[0] = dv.cx; sea_local_shore_a[1] = dv.cz - 158.f; sea_local_shore_a[2] = 0.f; sea_local_shore_a[3] = 1.f;
+        sea_local_shore_b[0] = 0.f; sea_local_shore_b[1] = 0.01f; sea_local_shore_b[2] = 0.12f; shore_on = 1.f;
+    }
+    sea_local_shore_b[3] = shore_on;
 }
 void DetailView::sea(void) {
     // The battle is open ocean; the city's water stops at its beach (stage_city lays the sand
@@ -499,15 +752,23 @@ void DetailView::frame(float dt) {
     dv.t += dt;
     if (dv.phase == DVP_IN && dv.t >= DV_CLOUD_IN) {          // fully covered: swap to the staged scene
         dv.mode = dv.want_mode;
-        if (dv.mode == DV_BATTLE) build_battle(dv.want_fleet); else build_city(dv.want_port);
         // local space, kept far enough inside the world box that the camera clamp never bites
         // (the z span of the world is only ~520 units, so the margin must stay well under half)
         dv.cx = clampf(cam.want_tx, lon2x(LON0) + 140, lon2x(LON1) - 140);
         dv.cz = clampf(cam.want_tz, lat2z(LAT1) + 140, lat2z(LAT0) - 140);
         LOG_INFO("gfx", "detail view: scene centred at %.0f %.0f (cam was %.0f %.0f)", dv.cx, dv.cz, cam.want_tx, cam.want_tz);
+        // the wind at the battle's position: the sea's wave set already follows it; now the
+        // ships' pace, the smoke and the arrows do too (0.22.7)
+        wind_at(dv.cx, dv.cz, G.day, &dv.wdx, &dv.wdz, &dv.wstr);
+        dv.timescale = 1.f; dv.show_wind = 1; dv.reprobe_t = 0.f;
+        particles_set_wind(dv.wdx * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M, dv.wdz * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M);
+        if (dv.mode == DV_BATTLE) build_battle(dv.want_fleet); else build_city(dv.want_port);
         cam.tx = cam.want_tx = dv.cx; cam.tz = cam.want_tz = dv.cz + (dv.mode == DV_BATTLE ? -25 : -30);
+        cam.ty = cam.want_ty = 0.f;
         cam.dist = 380; cam.want_dist = dv.mode == DV_BATTLE ? 32 : 110;      // the dive through the clouds
-        cam.yaw = cam.want_yaw = dv.mode == DV_BATTLE ? 0.12f : 0.25f;        // battle: facing the coast a kilometre off
+        // battle: facing the coast (at its real bearing now), or north over the open sea
+        cam.yaw = cam.want_yaw = dv.mode == DV_BATTLE ? (dv.coast_on ? atan2f(dv.cnx, -dv.cnz) : 0.f) + 0.12f : 0.25f;
+        if (dv.mode == DV_BATTLE) { cam.tx = cam.want_tx = dv.cx - dv.cnx * 25.f; cam.tz = cam.want_tz = dv.cz - dv.cnz * 25.f; }
         cam_pitch_scale = 0.72f;                                               // towards the horizon, like the concept frames
         // MARE_DV_CAM="dist,yaw_deg[,x,z[,pitch]]" pins the staged camera for screenshots: local
         // offsets from the scene centre, so a run can frame one ship at a given distance
@@ -520,6 +781,7 @@ void DetailView::frame(float dt) {
     }
     if (dv.phase == DVP_OUT_IN && dv.t >= DV_CLOUD_IN) {      // covered again: restore the map camera
         cam_pitch_scale = 1.f;
+        cam.ty = cam.want_ty = 0.f;
         cam.tx = cam.want_tx = dv.saved_tx; cam.tz = cam.want_tz = dv.saved_tz;
         cam.dist = cam.want_dist = dv.saved_dist; cam.yaw = cam.want_yaw = dv.saved_yaw;
         dv.phase = DVP_OUT; dv.t = 0;
@@ -530,13 +792,22 @@ void DetailView::frame(float dt) {
     cam.want_dist = clampf(cam.want_dist, 6, 260);            // stay under the map morph in local space
     cam.want_tx = clampf(cam.want_tx, dv.cx - 120, dv.cx + 120);
     cam.want_tz = clampf(cam.want_tz, dv.cz - 120, dv.cz + 120);
+    cam.want_ty = dv.mode == DV_BATTLE ? clampf(cam.want_ty, 0.f, 140.f) : 0.f;   // the look-at point may rise over the battle (R/F)
 
-    if (dv.mode == DV_BATTLE) battle_update(dt);
+    if (dv.mode == DV_BATTLE) battle_update(dt * dv.timescale);   // the battle clock (0.22.7): slowed or stopped by the player
     else battle_update(dt * 0.35f);                            // moored ships barely stir
+    // The coast probe ran the moment the clouds closed; if the terrain chunks were not resident
+    // yet it classified the land from the base heightmap. Ask again while they page in (first
+    // few seconds), and rebuild the stage if the answer changed.
+    if (dv.mode == DV_BATTLE && dv.coast_on && !dv.coast_from_data && dv.t < 6.f && dv.t >= dv.reprobe_t) {
+        dv.reprobe_t = dv.t + 0.75f;
+        int land = dv.land, relief = dv.relief;
+        probe_coast();
+        if (dv.coast_from_data && (land != dv.land || relief != dv.relief)) { LOG_INFO("gfx", "battle coast re-read from the package: rebuilding the stage"); stage_free(); stage_battle(); }
+    }
 
     // instances (local coords offset to the scene centre)
     for (int t = 0; t < SHIP_COUNT; ++t) instlist_clear(&dv.ships_il[t]);
-    instlist_clear(&dv.puffs_il);
     scene_assets_begin();                                  // one bracket: staged ships and buildings share it
     shipyard_frame_begin();
     for (int i = 0; i < dv.nships; ++i) { const dv_ship_t *s = &dv.ship[i];
@@ -551,12 +822,7 @@ void DetailView::frame(float dt) {
         *instlist_push(&dv.ships_il[s->type]) = inst_t{ wx, 0, wz, s->heading,
             ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }
     shipyard_upload();
-    for (int i = 0; i < dv.npuffs; ++i) { const dv_puff_t *p = &dv.puff[i];
-        float t01 = p->age / 3.2f, env = sinf(3.14159f * minf(t01, 1.f));
-        *instlist_push(&dv.puffs_il) = inst_t{ dv.cx + p->x, p->y, dv.cz + p->z, 0,
-            (p->scale + t01 * 6.f) * env * 0.55f, 0.88f, 0.87f, 0.86f, 0, 0, 0, 0 }; }
     for (int t = 0; t < SHIP_COUNT; ++t) mesh_set_instances(&ship_mesh[t][0], dv.ships_il[t].v, dv.ships_il[t].n);
-    mesh_set_instances(&mesh_puff, dv.puffs_il.v, dv.puffs_il.n);
     { float fv[24 * 4], fl[24]; int n = 0;                 // the staged ships foam too (sea_set_ships)
       for (int i = 0; i < dv.nships && n < 24; ++i) { const dv_ship_t *s = &dv.ship[i];
           fv[n*4] = dv.cx + s->x; fv[n*4+1] = dv.cz + s->z; fv[n*4+2] = s->heading; fv[n*4+3] = s->speed / s->len; fl[n] = s->len; n++; }   // speed in hull lengths/s
@@ -624,7 +890,42 @@ int DetailView::submit_shadow(void) {
     return n;
 }
 
-int DetailView::submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.ninst; }
+// the gunsmoke: the particle system's own pipeline (particles.h), after the water
+int DetailView::submit_smoke(void) { return particles_draw(); }
+
+// Wind arrows over the water (0.22.7, issue4 "wind arrows in battle mode"): a lattice around
+// the look-at point, each arrow sliding downwind on the battle clock, none over the stage land.
+void DetailView::overlays(void) {
+    if (mode() != DV_BATTLE || !dv.show_wind) return;
+    float step = maxf(9.f, cam.dist * 0.34f + 5.f);
+    float x0 = floorf((cam.tx - step * 4) / step) * step, z0 = floorf((cam.tz - step * 3) / step) * step;
+    float l = step * 0.30f * clampf(0.45f + 0.55f * dv.wstr, 0.4f, 1.2f);
+    unsigned col = rgb_linear(rgb(236, 240, 246));
+    for (int j = 0; j < 7; ++j) for (int i = 0; i < 9; ++i) {
+        float x = x0 + i * step, z = z0 + j * step;
+        if (dv.coast_on) {   // over the land? the same profile the water uses
+            float dx = x - (dv.cx + dv.cnx * dv.coast_dist), dz = z - (dv.cz + dv.cnz * dv.coast_dist);
+            float v = dx * dv.cnx + dz * dv.cnz, u = dx * -dv.cnz + dz * dv.cnx;
+            if (v - shore_wiggle(u) > -4.f) continue;
+        }
+        float ph = fmodf(RF.anim_time * 0.45f + i * 0.37f + j * 0.61f, 1.f);
+        vec3 a = vec3(x + dv.wdx * l * (ph - 0.5f), 1.4f, z + dv.wdz * l * (ph - 0.5f)), b = vec3(a.x + dv.wdx * l * 0.5f, 1.4f, a.z + dv.wdz * l * 0.5f);
+        dd_arrow(a, b, dd_opts().with_color(col));
+    }
+}
+
+// The open sea has no horizon to speak of (issue4 "fog of war in the distance"): past the
+// fleets the haze takes the water into the sky, and with a coast the air is a little thicker
+// than the map's so the hills recede. Called after the weather wrote RF.fog_* each frame.
+void DetailView::weather(void) {
+    if (mode() != DV_BATTLE) return;
+    float d = RF.fog_density > 0 ? RF.fog_density : 1.f, st = RF.fog_start > 0 ? RF.fog_start : 250.f;
+    if (!dv.coast_on) { RF.fog_density = d * 2.3f; RF.fog_start = minf(st, 60.f); RF.vfog_density += 0.0012f; }
+    else { RF.fog_density = d * 1.1f; RF.fog_start = minf(st, 160.f); }
+}
+
+// the eye never dips into the staged water: a wave and a bit above the mean surface
+float DetailView::eye_floor(void) { return 1.2f; }
 
 // ---------------------------------------------------------------------------
 // cloud overlay: procedural fbm clouds over the finished frame (after the tonemap)
@@ -665,4 +966,14 @@ int  detailview_submit_shadow(void) { return mare::game::view::detail_view().sub
 int  detailview_submit_smoke(void) { return mare::game::view::detail_view().submit_smoke(); }
 void detailview_sea(void) { mare::game::view::detail_view().sea(); }
 void detailview_clouds(void) { mare::game::view::detail_view().clouds(); }
+float detailview_timescale(void) { return mare::game::view::detail_view().timescale(); }
+void  detailview_set_timescale(float s) { mare::game::view::detail_view().set_timescale(s); }
+float detailview_clock_scale(void) { return mare::game::view::detail_view().clock_scale(); }
+void  detailview_wind(float *dx, float *dz, float *str) { mare::game::view::detail_view().wind(dx, dz, str); }
+int   detailview_show_wind(void) { return mare::game::view::detail_view().show_wind(); }
+void  detailview_toggle_wind(void) { mare::game::view::detail_view().toggle_wind(); }
+const char *detailview_coast_desc(void) { return mare::game::view::detail_view().coast_desc(); }
+void  detailview_overlays(void) { mare::game::view::detail_view().overlays(); }
+void  detailview_weather(void) { mare::game::view::detail_view().weather(); }
+float detailview_eye_floor(void) { return mare::game::view::detail_view().eye_floor(); }
 }

@@ -47,6 +47,7 @@ float Camera::pitch_for(float dist) {
 
 void Camera::reset(float tx, float tz, float dist) {
     cam.tx = cam.want_tx = tx; cam.tz = cam.want_tz = tz; cam.dist = cam.want_dist = dist; cam.yaw = cam.want_yaw = 0; cam.follow_fleet_id = 0;
+    cam.ty = cam.want_ty = 0;
     update(1);
 }
 void Camera::go_to(float x, float z) { cam.want_tx = x; cam.want_tz = z; if (cam.want_dist > 120) cam.want_dist = 60; cam.follow_fleet_id = 0; }
@@ -70,12 +71,13 @@ void Camera::update(float dt) {
     float k = 1 - expf(-dt * 10.f);
     cam.tx += (cam.want_tx - cam.tx) * k; cam.tz += (cam.want_tz - cam.tz) * k;
     cam.dist += (cam.want_dist - cam.dist) * k; cam.yaw += (cam.want_yaw - cam.yaw) * k;
+    cam.ty += (cam.want_ty - cam.ty) * k;
     cam.pitch = pitch_for(cam.dist);
     float m = clampf((cam.dist - CAM_MAP_START) / (CAM_MAP_FULL - CAM_MAP_START), 0, 1);
     cam.mapness = m * m * (3 - 2*m);
     float gx = sinf(cam.yaw), gz = -cosf(cam.yaw), cp = cosf(cam.pitch), sp = sinf(cam.pitch);
-    vec3 target = vec3(cam.tx, 0, cam.tz);
-    cam.pos = vec3(cam.tx - gx*cam.dist*cp, cam.dist*sp, cam.tz - gz*cam.dist*cp);
+    vec3 target = vec3(cam.tx, cam.ty, cam.tz);
+    cam.pos = vec3(cam.tx - gx*cam.dist*cp, cam.ty + cam.dist*sp, cam.tz - gz*cam.dist*cp);
     // Down at water level a crest would put the eye under the surface: lift it (the look-at
     // point stays, so the view tilts down a little) rather than let the sea swallow the view.
     if (cam.pos.y < cam_min_eye_y) cam.pos.y = cam_min_eye_y;

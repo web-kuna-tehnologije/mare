@@ -88,6 +88,21 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## issue4 (assets/issues/issue4, 0.22.7) - see docs/todo_list.md for every line with a priority
+
+Done this round (P0): the battle's own clock (Space / 1-4 / -/+, strategic clock untouched),
+wind arrows and wind speed in the battle, the stage coast read from the world at its real
+bearing with a shore the surf breaks on (open sea = haze, desert = sand and palms), the
+camera's look-at height (R/F), and `gfx/particles.cc` with wind-blown volumetric smoke, muzzle
+flash and embers sized by the class's guns and length. The session mirror is
+`C:\projects\mare_oak_20261031_171857`; `cine.bat dist yaw ox oz pitch file [lon lat]` places
+the battle anywhere so the coast probe can be checked against the map.
+
+Open from the folder, in order: lowland coasts and coastal height from the data on the map
+(the Venice screenshot), mast proportions and the dark lateens, strategic zoom floor over
+land / denser pines / sheep, then the P1.3 physics checklist (fixed step, buoyancy sampling,
+collision, damage) which fire, impacts, debris, sail damage and sinking ride on.
+
 ## issue3, item by item (assets/issues/issue3/issue.txt, 0.22.6)
 
 | Item | Status |

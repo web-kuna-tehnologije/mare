@@ -17,7 +17,8 @@ extern "C" {
 typedef struct render_frame_t {
     mat44 vp;                       // view * projection (v3 row-vector convention)
     vec3  campos, sun, sky;         // camera position, sun direction (unit), sky/fog colour (sRGB)
-    float time;                     // seconds, for animation
+    float time;                     // seconds, wall clock (UI, eviction timers, the cloud transition)
+    float anim_time;                // seconds, the scene clock: the wall clock on the map, the battle clock in the staged battle (0.22.7: pauses and slows with it - waves, cloth, flags, oars)
     float mapness;                  // 0 = 3D view, 1 = parchment map view (camera.h)
     float flatten;                  // 0..1 flattens terrain heights (map view)
     float daylight;                 // global light multiplier (1 = day)
@@ -142,6 +143,11 @@ float sea_amp_now(void);                 // the full amplitude this frame (knob 
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene
 extern float sea_local_depth;            // >0 makes every wave lookup use this depth (staged scenes have no heightmap)
 extern float sea_clip_z; extern int sea_clip_on;   // staged scenes: the shoreline, as a world-z plane
+// Staged shore profile (0.22.7, staged_scene.cc): the staged sea's depth is no longer constant
+// but a beach profile off a wiggling shoreline, so the breaker/surf/swash code runs on it.
+// a = shoreline point xz + unit normal pointing inland (world); b = wiggle amplitude, wiggle
+// frequency, seabed slope (depth per unit seaward), on/off. Zero = constant depth as before.
+extern float sea_local_shore_a[4], sea_local_shore_b[4];
 void meshes_bind(void);             // bind the instanced-mesh program (call before mesh_draw / scene_draw_*)
 void meshes_bind_depth(const mat44 *lightvp);   // depth-only instanced pipeline for the shadow pass
 void meshes_bind_smoke(void);       // translucent instanced pipeline for gunsmoke (after sea_draw)

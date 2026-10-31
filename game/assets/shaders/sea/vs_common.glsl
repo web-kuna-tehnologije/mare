@@ -60,8 +60,20 @@ float shoal_boost(float dep, float scale) { float x = (dep - 0.95 * scale) / (0.
 // The streamed detail rings (terrain/rings.glsl) are added exactly as the terrain adds
 // them, so the water's edge follows the *detailed* shore - the authored coastline near the
 // camera - and not the base raster's cell steps (0.19 coast polish).
+// Staged shore profile (0.22.7, staged_scene.cc): a = shoreline point + unit normal pointing
+// inland, b = wiggle amplitude, wiggle frequency, seabed slope, on. The staged scenes used to
+// be a constant depth with no shore at all; now the depth runs down a beach profile off a
+// wiggling line, negative (= land) inland, so the surf code and the sea's own discard apply.
+uniform vec4 u_shore_a; uniform vec4 u_shore_b;
+float local_depth_at(vec2 p) {
+  if (u_shore_b.w < 0.5) return u_local_depth;
+  vec2 d = p - u_shore_a.xy;
+  float v = dot(d, u_shore_a.zw), u = dot(d, vec2(-u_shore_a.w, u_shore_a.z));
+  float w = u_shore_b.x * (sin(u * u_shore_b.y) + 0.5 * sin(u * u_shore_b.y * 2.3 + 1.7) + 0.25 * sin(u * u_shore_b.y * 5.1 + 0.4));
+  return clamp(-(v - w) * u_shore_b.z, -2.0, u_local_depth);
+}
 float height_at(vec2 p) {
-  if (u_local_depth > 0.0) return -u_local_depth;
+  if (u_local_depth > 0.0) return -local_depth_at(p);
   float lon = p.x / u_k, lat = -p.y / u_k;
   vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));
   float h = texture(u_hm, uv).r + det_at(p) * (1.0 - u_mapness_vs);

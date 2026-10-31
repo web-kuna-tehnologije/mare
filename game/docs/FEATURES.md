@@ -119,6 +119,10 @@ Status as of the current codebase. Each entry names the module that owns it.
   split square yards instanced on every station on the sail's swung/braced heading; cordage as
   geometry-stage lines of physical width; verlet flags pinned to the main masthead; canvas,
   water and ground materials (DESIGN_SHIPS.md 3c, DESIGN_RENDERER.md 0.19).
+- The staged battle (0.22.7): its own clock (stop, quarter to double time), the wind at the
+  battle shown and used (line pace, smoke drift, arrows), the coast read from the world at the
+  battle's bearing with a heightfield shore the surf breaks on (open sea = haze, desert = sand),
+  a free camera height, and a particle system for the broadsides (`gfx/particles.cc`).
 - Data-driven ship classes (0.22.6): `assets/ships/ship_classes.json` overrides the built-in
   Gen I table by name; two suits of sails and two conditions of cordage per ship.
 - Trailing Kelvin wake and screen-space reflections on the water (0.22.6); fences, standing

@@ -133,6 +133,7 @@ float sea_wave_amp = 1.f;    // global wave height knob (dashboard / MARE_WAVES;
 float sea_wave_scale = 1.f;  // set per scene; the instanced meshes read it too, so ships ride the same swell
 float sea_local_depth = 0.f;
 float sea_clip_z; int sea_clip_on;   // staged scenes: water only on the seaward side of this world z
+float sea_local_shore_a[4], sea_local_shore_b[4];   // staged shore profile (render.h, 0.22.7); b[3] = 0 keeps the constant depth
 
 // Staged scenes (staged_scene.cc) stretch the sea by DV_SHIP_SCALE, so a wave that looks right on
 // the map towers over a staged ship: detailview sets this to cut the displacement back. Cell
@@ -183,7 +184,7 @@ Sea &sea() { static Sea s; return s; }
 void Sea::init() {
     static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_shipwave", "u_shallow", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
-                                          "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug",
+                                          "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug", "u_shore_a", "u_shore_b",
                                           "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs",
                                           "u_shore", "u_shore_far", "u_detail_far", "u_capzoom", "u_shorescale", "u_zrange", "u_ssr", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
@@ -394,7 +395,7 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
       rhi_set_f1(rhi_uniform(p,"u_has_disp"), dsp ? 1.f : 0.f); }
     rhi_set_f4(rhi_uniform(p,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(rhi_uniform(p,"u_k"), WORLD_K);
-    rhi_set_f1(rhi_uniform(p,"u_time"), RF.time);
+    rhi_set_f1(rhi_uniform(p,"u_time"), RF.anim_time);   // the scene clock (0.22.7): the staged battle slows and stops it
     rhi_set_f3(rhi_uniform(p,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
     rhi_set_f3(rhi_uniform(p,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
     rhi_set_f1(rhi_uniform(p,"u_mapness"), RF.mapness);
@@ -413,6 +414,8 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     // march reads actually exists (sea_refract captures it).
     rhi_set_f1(rhi_uniform(p,"u_ssr"), (sea_ssr && sea_refract && hdr_scene_copy() && cam.dist < 70.f * maxf(wave_scale, 1.f)) ? 1.f : 0.f);
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
+    rhi_set_f4(rhi_uniform(p,"u_shore_a"), sea_local_shore_a[0], sea_local_shore_a[1], sea_local_shore_a[2], sea_local_shore_a[3]);
+    rhi_set_f4(rhi_uniform(p,"u_shore_b"), sea_local_shore_b[0], sea_local_shore_b[1], sea_local_shore_b[2], local_depth > 0.f ? sea_local_shore_b[3] : 0.f);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
     {   // the streamed detail rings (terrain_rings.cc), bound exactly as the terrain binds them,
         // so the shoreline the water stops at is the shoreline the ground draws (0.19)

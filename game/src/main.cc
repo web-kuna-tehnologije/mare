@@ -47,6 +47,7 @@ extern "C" {
 #include "gfx/occlusion.h"
 #include "gfx/occquery.h"
 #include "gfx/staged_scene.h"
+#include "gfx/particles.h"
 #include "gfx/scatter.h"
 #include "gfx/weather.h"
 #include "ui/ui.h"
@@ -321,7 +322,7 @@ int main(int argc, char **argv) {
         LOG_INFO("asset", "LOD bias pinned to %.2f (MARE_LOD_BIAS)", asset_lod_bias); }
     { char manifest[512]; snprintf(manifest, sizeof manifest, "%s/manifest.json", asset_root());   // authored assets (GLB): register, then load in the background
       if (asset_registry_load(manifest)) LOG_INFO("asset", "%d assets requested: parsing and decoding on the job system, GPU upload inside the frame budget", asset_request_all()); }
-    { double t0 = diag_now(); render_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); rhi_check_errors("render_init"); }
+    { double t0 = diag_now(); render_init(); particles_init(); LOG_INFO("gpu", "renderer initialised in %.1f ms", (diag_now()-t0)*1000); rhi_check_errors("render_init"); }
     // C++ entities (engine/entities.h): async halves load on the pool, GL halves right here
     { double t0 = diag_now(); entities_startup(); entities_load();
       LOG_INFO("main", "%d entities loaded in %.1f ms", entities_count(), (diag_now()-t0)*1000); rhi_check_errors("entities_load"); }
@@ -390,6 +391,7 @@ int main(int argc, char **argv) {
         { app_state_t st = app_state(); screen_w = maxi(1, st.w); screen_h = maxi(1, st.h); glfwGetWindowSize((GLFWwindow *)st.handle, &window_w, &window_h); window_w = maxi(1, window_w); window_h = maxi(1, window_h); }   // once per frame
         double now = time_ss(); float dt = minf((float)(now - last), 0.1f); last = now;
         RF.time += dt; metric_set(m_dt, dt * 1000); metric_set(m_fps, fps());
+        RF.anim_time += dt * detailview_clock_scale();   // the scene clock: the staged battle slows or stops it (0.22.7)
         // Evidence for the stall hunt (DESIGN_JOBS.md step 10): any frame over 25 ms after the
         // first second is logged with where the previous frame's time went, so a hitch in a run
         // log can be attributed (CPU scope, GPU, uploads, a save in flight) instead of guessed.
@@ -425,7 +427,7 @@ int main(int argc, char **argv) {
               float floor_y = world_is_land(cam.pos.x, cam.pos.z) ? world_height(cam.pos.x, cam.pos.z) + stream_delta_at(cam.pos.x, cam.pos.z) + 0.6f
                                                                  : 0.5f * sea_amp_now() * sea_wave_scale + 0.45f;
               if (floor_y > floor_s) floor_s = floor_y; else floor_s += (floor_y - floor_s) * (1.f - expf(-dt * 2.f));
-              cam_min_eye_y = detailview_mode() == DV_OFF ? floor_s : -1e9f; }
+              cam_min_eye_y = detailview_mode() == DV_OFF ? floor_s : detailview_eye_floor(); }   // staged scenes: above their own water (0.22.7)
             prof_begin(p_input); input_frame(dt, ui_blocked); debug_keys(); cam_update(dt); prof_end(p_input);
             prof_begin(p_sim);
             // City view (3rd zoom): with the camera down on a town square the clock crawls to
@@ -549,8 +551,9 @@ int main(int argc, char **argv) {
         RF.sea_center = vec3(cam.tx, 0, cam.tz);          // the sea's wave grid follows the look-at point
         render_sun_update(G.day);                         // sun direction, daylight and sky colour (day/night cycle)
         { static int freeze = -1; if (freeze < 0) { const char *e = getenv("MARE_SEA_FREEZE"); freeze = e ? atoi(e) != 0 : 0; if (freeze) LOG_INFO("gpu", "sea clocks frozen (MARE_SEA_FREEZE)"); }
-          sea_update_waves(G.day, freeze ? 0.f : dt); }   // the wave set follows the wind at the look-at point
+          sea_update_waves(G.day, freeze ? 0.f : dt * detailview_clock_scale()); }   // the wave set follows the wind at the look-at point; the battle clock scales it (0.22.7)
         entities_update(ENT_PHASE_FRAME, dt);             // weather (src/game/weather.cc): calm / haze / mist / storm from the wind, the storms and the hour
+        detailview_weather();                             // the staged battle's own haze: open sea fades into the sky (0.22.7)
         sky_update(dt);                                   // cloud cover from the weather, drift with the wind (sky.c)
         RF.sky = lerp3(RF.sky, vec3(0.36f, 0.30f, 0.24f), cam.mapness);   // the map view fades to parchment
         render_light_update();
@@ -606,7 +609,7 @@ int main(int argc, char **argv) {
         if (!U.in_menu && !dv_on) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); streamview_draw_debug(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
-        }
+        } else if (!U.in_menu && U.pass_overlays) { prof_begin(p_over); detailview_overlays(); dd_flush(cam.proj, cam.view); prof_end(p_over); }   // the battle's wind arrows (0.22.7)
         rhi_gpu_begin(g_resolve); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer (AO was taken before the water); labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
         if (!U.in_menu) entities_render(ENT_PHASE_OVERLAY, RF.mapness);             // rain over the finished frame (weather entity)
@@ -615,6 +618,7 @@ int main(int argc, char **argv) {
             const char *sd = getenv("MARE_SHADOWDUMP"); if (sd) shadow_dump(sd);
             shot_done = 1; } }
         if (!U.in_menu && detailview_mode() == DV_OFF) { prof_begin(p_labels); if (U.pass_labels) hud_labels(); prof_end(p_labels); }
+        else if (!U.in_menu && detailview_mode() == DV_BATTLE) hud_battle();   // the battle clock, the wind, the coast (0.22.7)
         prof_end(p_gfx);
         { rhi_stats_t st = rhi_frame_stats(); metric_set(m_draws, st.draws); metric_set(m_inst, st.instances); metric_set(m_upload, st.upload_bytes / 1024.0); }
         rhi_gpu_collect();

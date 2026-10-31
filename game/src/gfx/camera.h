@@ -12,6 +12,7 @@ extern "C" {
 typedef struct rts_cam_t {
     float tx, tz, dist, yaw;                    // current ground target, distance, yaw (0 = north up)
     float want_tx, want_tz, want_dist, want_yaw;// targets (smoothed towards by cam_update)
+    float ty, want_ty;                          // height of the look-at point (0.22.7): 0 on the map; the staged battle lifts it (R/F) so the eye can rise over the fleet and look down, or sit at deck height and look along the sea
     float pitch, mapness;                       // derived
     vec3 pos, fwd, right, up;
     mat44 view, proj, vp, inv_vp;

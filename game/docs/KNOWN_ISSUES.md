@@ -137,8 +137,16 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 - **L** On software rasterizers (llvmpipe/Xvfb) the shadow pass costs ~2-4 ms/frame and the
   tonemap resolve ~13 ms (a `pow` per pixel for the sRGB encode); use `--no-shadows` or the
   dashboard toggle. Both are negligible on real GPUs - the Perf tab shows the per-pass split.
-- **L** Gunsmoke puffs are alpha blended without sorting between themselves, so overlapping
-  puffs can blend in the wrong order. Not noticeable at the sizes used.
+- **L** The map's gunsmoke puffs (the sphere instances, `scene.cc`) are alpha blended without
+  sorting between themselves, so overlapping puffs can blend in the wrong order. Not noticeable
+  at the sizes used. The staged battle's smoke (0.22.7, `gfx/particles.cc`) is sorted.
+- **L** The staged coast (0.22.7) is a backdrop at the real bearing and land cover, not the
+  real coastline: at 2.5 m per local unit a 12 km distance cannot be drawn, so the shore
+  stands 140-210 units off whatever the probe measured, and the heightfield is a noise shaped
+  by the data's relief class, not the data itself. A lowland coast is a thin line from deck
+  height; the berm and the trees are what make it read.
+- **L** The battle HUD's knots are a convention (14 kn per unit of wind strength); the
+  strategic wind model has no physical speed.
 - **L** Fleet labels are not part of the label collision system: a selected fleet's label can
   overlap a port name.
 - **L** Terrain chunks are one draw call each (~50 visible); fine on GPUs.

@@ -674,7 +674,7 @@ flag_sim_t *Shipyard::flag_slot(unsigned key) {
 
 void Shipyard::flag_step(flag_sim_t *f, float staff_x, float staff_y, float g_local, float wl_x, float wl_z, float dt) {
     const float dx = RIG_FLAG_LEN / (FLAG_W - 1), dy = RIG_FLAG_H / (FLAG_H - 1), diag = sqrtf(dx*dx + dy*dy);
-    float t = RF.time, ph = (float)(f->key & 255u) * 0.07f;
+    float t = RF.anim_time, ph = (float)(f->key & 255u) * 0.07f;   // the scene clock (0.22.7): a paused battle freezes the flags
     float wspd = sqrtf(wl_x*wl_x + wl_z*wl_z);
     for (int j = 0; j < FLAG_H; ++j) for (int i = 1; i < FLAG_W; ++i) {
         float *p = f->p[j][i], *pp = f->pp[j][i];
@@ -743,14 +743,14 @@ void Shipyard::flag_push(const shipyard_req_t *r, const ship_class_t *c, float s
             float *p = f->p[j][i]; p[0] = staff_x + ux * i * dx; p[1] = staff_y + j * dy; p[2] = uz * i * dx;
             memcpy(f->pp[j][i], p, sizeof(float) * 3);
         }
-        f->inited = 1; f->step_t = RF.time;
+        f->inited = 1; f->step_t = RF.anim_time;
     }
     float g_local = 9.81f / maxf(c->length_m, 5.f);    // metres per second squared, in hull fractions
-    float dt = clampf(RF.time - f->step_t, 0.f, 0.05f);
+    float dt = clampf(RF.anim_time - f->step_t, 0.f, 0.05f);
     if (dt > 0.f) {
         float h = dt / FLAG_SUBSTEPS;
         for (int k = 0; k < FLAG_SUBSTEPS; ++k) flag_step(f, staff_x, staff_y, g_local, wl_x, wl_z, h);
-        f->step_t = RF.time;
+        f->step_t = RF.anim_time;
     }
     f->last_seen = RF.time;
     flag_build_mesh(f, r->cr, r->cg, r->cb);
@@ -925,11 +925,11 @@ int Shipyard::push(const shipyard_req_t *r) {
             // the lantina trims hard: up to ~70 degrees off the centreline toward the wind,
             // working a little harder the harder it blows
             float swing = clampf(rel * 0.65f, -1.22f, 1.22f)
-                        + (0.03f + 0.05f * wstr) * sinf(RF.time * (0.8f + 0.3f * wstr) + (float)(r->key & 31u) * 0.21f);
+                        + (0.03f + 0.05f * wstr) * sinf(RF.anim_time * (0.8f + 0.3f * wstr) + (float)(r->key & 31u) * 0.21f);
             // square yards brace less than a lantina trims: toward the wind, clamped, with the
             // same working oscillation on the ship's own phase
             float brace = clampf(rel * 0.30f, -0.50f, 0.50f)
-                        + (0.02f + 0.04f * wstr) * sinf(RF.time * (0.7f + 0.3f * wstr) + (float)(r->key & 31u) * 0.17f);
+                        + (0.02f + 0.04f * wstr) * sinf(RF.anim_time * (0.7f + 0.3f * wstr) + (float)(r->key & 31u) * 0.17f);
             if (!sq_cloth_built) {
                 for (int q = 0; q < SQ_KINDS; ++q) for (int v = 0; v < 2; ++v) {
                     mb_t cl = mb_t{}; mb_material(&cl, 0.92f, 0.f);
@@ -1054,7 +1054,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             // the instance transform has only yaw and height, and height is exactly the part of
             // the cycle that reads from the quarterdeck.
             float rate = 0.9f + 1.3f * pull, reach = 0.07f + 0.20f * pull;
-            float oph = RF.time * rate + (float)(r->key & 63u) * 0.09f;
+            float oph = RF.anim_time * rate + (float)(r->key & 63u) * 0.09f;
             float stroke = reach * sinf(oph);
             float dip = 0.006f * len * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
             const float side_sign = 1.f;

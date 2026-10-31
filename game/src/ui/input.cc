@@ -189,9 +189,23 @@ void Input::frame(float dt, int ui_blocked) {
     if (detailview_mode() != DV_OFF) {
         U.hover_fleet_id = 0; U.hover_port = -1;
         if (KDOWN(GLFW_KEY_ESCAPE) || key_down('m')) detailview_exit();
-        { static const float speeds[4] = SIM_SPEEDS;
-          if (key_down(' ')) G.speed = G.speed == 0 ? SIM_SPEED_DEFAULT : 0;
-          for (int k = 0; k < 4; ++k) if (key_down('1' + k)) G.speed = speeds[k]; }
+        if (detailview_mode() == DV_BATTLE) {
+            // the battle's own clock (0.22.7): Space stops and restarts it, 1-4 set quarter,
+            // half, real and double time, -/+ halve and double it; the strategic clock keeps
+            // whatever speed it had. N toggles the wind arrows, R/F raise and lower the camera.
+            static const float bspeeds[4] = { 0.25f, 0.5f, 1.f, 2.f };
+            float ts = detailview_timescale();
+            if (key_down(' ')) detailview_set_timescale(ts > 0.f ? 0.f : 1.f);
+            for (int k = 0; k < 4; ++k) if (key_down('1' + k)) detailview_set_timescale(bspeeds[k]);
+            if (KDOWN(GLFW_KEY_MINUS) || KDOWN(GLFW_KEY_KP_SUBTRACT)) detailview_set_timescale(ts > 0.f ? maxf(ts * 0.5f, 0.0625f) : 0.0625f);
+            if (KDOWN(GLFW_KEY_EQUAL) || KDOWN(GLFW_KEY_KP_ADD)) detailview_set_timescale(ts > 0.f ? minf(ts * 2.f, 8.f) : 0.25f);
+            if (key_down('n')) detailview_toggle_wind();
+            if (!detailview_busy()) { float lift = cam.want_dist * 0.7f * dt; if (key('r')) cam.want_ty += lift; if (key('f')) cam.want_ty -= lift; }
+        } else {
+            static const float speeds[4] = SIM_SPEEDS;
+            if (key_down(' ')) G.speed = G.speed == 0 ? SIM_SPEED_DEFAULT : 0;
+            for (int k = 0; k < 4; ++k) if (key_down('1' + k)) G.speed = speeds[k];
+        }
         if (!detailview_busy()) camera_input(dt, ui_blocked);
         return;
     }

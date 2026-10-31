@@ -27,6 +27,7 @@ extern "C" {
 #include "../gfx/camera.h"
 #include "../gfx/scene.h"
 #include "../gfx/render.h"    // screen_w / screen_h
+#include "../gfx/staged_scene.h"   // the battle overlay (0.22.7)
 }
 
 // ui.h's ROW builds its width array with C compound literals, which C++ has no equivalent of:
@@ -43,6 +44,7 @@ public:
     void panels(void);                               // top bar, selection, fleets, chronicle, stats, help
     int  menu(void);                                 // main menu; returns chosen nation, -1 load mare_save.bin, -2 load the autosave, 0 nothing
     void labels(void);                               // world labels, toast, ticker (inside the overlay)
+    void battle(void);                               // the staged battle's overlay (0.22.7)
 
 private:
     static mu_Color log_color(int type);
@@ -347,7 +349,8 @@ void Hud::panel_help(void) {
         "Select: left-click a ship or port name. Right-click with a fleet selected: sail to sea, dock at a port, attack a hostile fleet, besiege an enemy port, found a colony at an unsettled site. Shift+right-click: patrol.\n"
         "Trade: dock at a port and use the market in the Selection panel. Prices emerge from supply and demand: colonies pay for cloth, arms and wine; Europe pays for sugar, tobacco, spices, furs and silver. 'Set route' makes a fleet shuttle between ports on its own; 'Auto-trade' lets it roam for profit.\n"
         "Empire: build Docks to launch ships; Forts, Warehouses, Markets, Plantations and Mines improve your ports. Capture enemy ports by siege when at war, or settle unclaimed sites. The Chronicle reports storms, plagues, wars, treasure fleets and pirates.\n"
-        "Keys: Space pause, 1-4 speed, Tab cycle fleets, F5 save, F9 load, Esc deselect.");
+        "Keys: Space pause, 1-4 speed, Tab cycle fleets, F5 save, F9 load, Esc deselect, B battle view, V city view.\n"
+        "Battle view: its own clock - Space stop/run, 1-4 quarter to double time, -/+ slower/faster; N wind arrows, R/F camera up/down, Esc back.");
     if (ui_btn("Close")) U.show_help = 0;
     mu_end_window(ui_ctx);
 }
@@ -427,11 +430,33 @@ void Hud::labels(void) {
     if (G.speed == 0 && !U.in_menu) ui_overlay_text(W/2, 100, "- PAUSED -", mu_color(255,255,255,200), 1, 1);
 }
 
+// The staged battle's overlay (0.22.7, issue4): the battle clock (its own, separate from the
+// strategic one), the wind in knots and by compass point, the coast the probe found, the keys.
+void Hud::battle(void) {
+    int W = screen_w, h = ui_ctx->text_height(NULL);
+    float ts = detailview_timescale(), wdx, wdz, wstr; detailview_wind(&wdx, &wdz, &wstr);
+    static const char *const compass[16] = { "N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW" };
+    float from = atan2f(-wdx, wdz) * 57.2958f; if (from < 0) from += 360.f;   // a wind is named by where it blows from (x east, z south)
+    const char *wname = compass[(int)((from + 11.25f) / 22.5f) % 16];
+    float knots = wstr * 14.f;                                                  // staged_scene.cc DV_WIND_KN
+    const char *force = knots < 4 ? "light air" : knots < 7 ? "light breeze" : knots < 11 ? "gentle breeze" : knots < 16 ? "moderate breeze" : knots < 22 ? "fresh breeze" : "strong breeze";
+    const char *line = va("BATTLE   time x%s   |   wind %s %.0f kn, %s%s   |   %s", ts <= 0.f ? "0" : va("%g", ts), wname, knots, force,
+                          detailview_show_wind() ? "" : " (arrows off)", detailview_coast_desc());
+    int tw = ui_text_w(line);
+    ui_overlay_rect(W/2 - tw/2 - 10, 40, tw + 20, h + 8, mu_color(20, 20, 30, 170));
+    ui_overlay_text(W/2, 40 + h/2 + 4, line, mu_color(235, 228, 205, 255), 1, 0);
+    ui_overlay_text(W/2, 40 + h + 16, "Space stop/run   1-4 battle speed   -/+ slower/faster   N wind arrows   R/F camera up/down   middle-drag tilt   Esc back", mu_color(200, 200, 210, 170), 1, 1);
+    if (ts <= 0.f) ui_overlay_text(W/2, 100, "- BATTLE PAUSED -", mu_color(255,255,255,200), 1, 1);
+    else if (ts < 0.99f) ui_overlay_text(W/2, 100, va("- slow time x%g -", ts), mu_color(255,255,255,170), 1, 1);
+    if (U.toast_timer > 0) { int tw2 = ui_text_w(U.toast); ui_overlay_rect(W/2 - tw2/2 - 10, 120, tw2 + 20, h + 8, mu_color(20,20,30,200)); ui_overlay_text(W/2, 120 + h/2 + 4, U.toast, mu_color(255,240,200,255), 1, 0); }
+}
+
 } // namespace mare::ui
 
 // C ABI (ui.h) for the unported callers
 extern "C" {
 void hud_panels(void) { mare::ui::hud().panels(); }
+void hud_battle(void) { mare::ui::hud().battle(); }
 int  hud_menu(void) { return mare::ui::hud().menu(); }
 void hud_labels(void) { mare::ui::hud().labels(); }
 void hud_on_log(const logline_t *l) { mare::ui::hud().on_log(l); }
