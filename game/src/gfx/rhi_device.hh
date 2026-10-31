@@ -38,6 +38,7 @@ struct Device {
     virtual void         target_clear_depth(const rhi_target_t *t) = 0;
     virtual void         viewport(int x, int y, int w, int h) = 0;
     virtual void         target_snapshot(const rhi_target_t *t, rhi_texture_t *dst) = 0;
+    virtual void         target_snapshot_depth(const rhi_target_t *t, rhi_texture_t *dst) = 0;
     virtual void         target_free(rhi_target_t *t) = 0;
     virtual void         target_begin(const rhi_target_t *t, float r, float g, float b) = 0;
     virtual void         target_resume(const rhi_target_t *t) = 0;
@@ -118,6 +119,7 @@ struct DelegatingDevice : Device {
     void         target_clear_depth(const rhi_target_t *t) override { gl().target_clear_depth(t); }
     void         viewport(int x, int y, int w, int h) override { gl().viewport(x, y, w, h); }
     void         target_snapshot(const rhi_target_t *t, rhi_texture_t *dst) override { gl().target_snapshot(t, dst); }
+    void         target_snapshot_depth(const rhi_target_t *t, rhi_texture_t *dst) override { gl().target_snapshot_depth(t, dst); }
     void         target_free(rhi_target_t *t) override { gl().target_free(t); }
     void         target_begin(const rhi_target_t *t, float r, float g, float b) override { gl().target_begin(t, r, g, b); }
     void         target_resume(const rhi_target_t *t) override { gl().target_resume(t); }

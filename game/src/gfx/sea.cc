@@ -184,7 +184,7 @@ void Sea::init() {
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                           "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug",
                                           "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs",
-                                          "u_shore", "u_shore_far", "u_detail_far", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+                                          "u_shore", "u_shore_far", "u_detail_far", "u_capzoom", "u_shorescale", "u_zrange", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     // (C compound literals -> named descriptors: C++ cannot take &T{...}; the tess one is also
@@ -374,7 +374,7 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     rhi_set_f1(rhi_uniform(p,"u_has_albedo"), alb ? 1.f : 0.f);
     rhi_set_f1(rhi_uniform(p,"u_foam"), sea_foam);
     rhi_set_f1(rhi_uniform(p,"u_calm"), RF.calm);
-    { const rhi_texture_t *sc = hdr_scene_copy(), *dp = hdr_depth();
+    { const rhi_texture_t *sc = hdr_scene_copy(), *dp = hdr_depth_captured();
       int on = sea_refract && sc && dp;
       rhi_set_f1(rhi_uniform(p,"u_refract"), on ? 1.f : 0.f);
       if (on) { rhi_set_i1(rhi_uniform(p,"u_scene"), 6); rhi_texture_bind(6, sc);
@@ -403,6 +403,8 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     // whitecaps and foam streaks only while the camera is close enough for a wave to be a wave
     // on screen (0.22.3): from the regional view they smeared into kilometre-long white diagonals
     { float t = clampf((cam.dist - 9.f) / 9.f, 0.f, 1.f); rhi_set_f1(rhi_uniform(p,"u_capzoom"), local_depth > 0.f ? 1.f : 1.f - t * t * (3.f - 2.f * t)); }
+    rhi_set_f1(rhi_uniform(p,"u_shorescale"), local_depth > 0.f ? 1.f : clampf(cam.dist / 60.f, 0.12f, 1.f));   // the shore bands narrow with the zoom (0.22.4)
+    rhi_set_f2(rhi_uniform(p,"u_zrange"), cam.znear, cam.zfar);   // to linearise the captured depth (refraction thickness)
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
     {   // the streamed detail rings (terrain_rings.cc), bound exactly as the terrain binds them,

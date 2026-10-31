@@ -20,6 +20,13 @@ uniform vec2 u_clip;
 uniform float u_sea_debug;
 uniform float u_detail_far;
 uniform float u_capzoom;
+uniform float u_shorescale;
+uniform vec2 u_zrange;
+// the camera's near and far planes, to linearise the captured depth (refraction thickness, 0.22.4)
+float lin_depth(float zw, vec2 nf) { float ndc = zw * 2.0 - 1.0; return 2.0 * nf.x * nf.y / (nf.y + nf.x - ndc * (nf.y - nf.x)); }
+// the shore bands' width in wave units follows the zoom (sea.cc, 0.22.4): the lapping line, the
+// surf and the cliff burst are a few hundred metres wide from the regional view and a few tens
+// of metres from the battle zoom - fixed world widths made every close shore a sheet of milk
 // 1 at the battle zoom, 0 from the regional view: whitecaps and foam streaks only where a wave is a wave on screen (sea.cc, 0.22.3)
 // how far the ripple detail, glitter and foam keep their strength: scales with the camera (sea.cc)
 // MARE_SEA_DEBUG=1: red = depth/2, green = land reading, blue = refraction on
@@ -100,6 +107,10 @@ void main(){
   vec3 alb1 = texture(u_albedo, p * 0.33 + u_drift1).rgb;
   vec3 alb2 = texture(u_albedo, p * 1.15 + u_drift2 + vec2(0.37, 0.11)).rgb;
   float lum1 = dot(alb1, vec3(0.3, 0.5, 0.2)), lum2 = dot(alb2, vec3(0.3, 0.5, 0.2));
+// 0.22.4: the Meshy foam tile is bright (median 0.29, top decile 0.81 against the old tile's
+// flat 0.2), so its luminance is cubed before the thresholds below: foam stays in the top
+// tenth of the texture instead of covering the sea
+  lum1 = lum1 * lum1 * lum1; lum2 = lum2 * lum2 * lum2;
   vec3 vdir0 = normalize(u_campos - v_wpos);
   vec3 body0 = sun_shade(c, normalize(wn + vec3(slope.x, 0.0, slope.y)), vdir0, v_wpos, 0.9, 0.0, dist);
 // the lit water column: what the refraction fades *into*
@@ -126,7 +137,13 @@ void main(){
 // first quarter unit, is a grey suggestion at half a unit and gone by one, and the red
 // still goes first so the bottom cools with depth instead of staying tan.
     vec3 absorb = vec3(5.0, 3.5, 2.5) / u_wave_scale;
-    vec3 tr = exp(-absorb * depth * 1.05);
+// The column the light actually crosses (0.22.4): the distance from the surface to whatever
+// the refracted sample hit, from the captured depth, so a hull a metre under the waterline
+// shows through while the seabed (or a staged scene's ground, forty units down) is absorbed.
+// The vertical depth stays the ceiling, so the map's shallows keep their calibration.
+    float thick = max(lin_depth(dz, u_zrange) - lin_depth(gl_FragCoord.z, u_zrange), 0.0) * max(abs(vdir0.y), 0.25);
+    float adepth = min(depth, thick * 0.9 + 0.02 * u_wave_scale);
+    vec3 tr = exp(-absorb * adepth * 1.05);
 // Mix towards the *lit* water column, not the raw body colour: the sunlit seabed is twenty
 // times brighter than an unlit blue, and won every shallow pixel however small `tr` was.
 // Caustics (0.22): the surface focuses the sun on the shallow bottom - the two ripple layers
@@ -164,7 +181,7 @@ void main(){
 // still reads at water level, where a real sea is dark glass, not a mirror of the haze.
   vec3 nf = normalize(wn + vec3(slope.x, 0.0, slope.y) * 0.25);
   float fres = 0.02 + 0.98 * pow(1.0 - max(dot(nf, vdir), 0.0), 5.0);
-  fres = min(fres, 0.58 + 0.2 * u_calm);
+  fres = min(fres, 0.58 + 0.2 * u_calm + 0.17 * step(0.01, u_local_depth));   // staged scenes (battle, harbour) reflect more of the sky and the ships' light (0.22.4)
 // Dispersion: the three channels leave the surface at slightly different angles, so a
 // grazing reflection is faintly cool at the edge and warm inside it. A single achromatic
 // lobe is what makes water read as moulded plastic.
@@ -194,13 +211,20 @@ void main(){
 // albedo so caps are patchy, not painted. Only the big waves count (v_jac/v_slope come from
 // the wave sum, before the displacement map), and the amplitude gate keeps a calm sea bare.
   float sc = u_wave_scale;
+  float sb = sc * u_shorescale;   // the shore bands' scale
   float ws = clamp(v_amp, 0.0, 1.4);
-  float fold = smoothstep(0.93 - 0.05 * ws, 0.74 - 0.05 * ws, v_jac);
-  float steep = smoothstep(0.04, 0.10, v_slope) * 0.7;
+  float fold = smoothstep(0.93 - 0.05 * ws, 0.62 - 0.05 * ws, v_jac);
+  float steep = smoothstep(0.04, 0.12, v_slope) * 0.7;
 // 0.22.3: whitecaps only where a wave is a wave on screen. From the regional zoom the strategic
 // swell's folds smeared into kilometre-long white diagonals across every bay; past ~30 units
 // the caps fade and the sea keeps its glitter alone.
-  float caps = max(fold, steep) * smoothstep(0.25, 0.8, ws) * (0.5 + 1.0 * lum2) * detail * u_capzoom;
+// 0.22.4: the caps are *masked by the foam texture*, not merely tinted by it. v_jac and v_slope
+// are per-vertex on an 8 px tessellation cell and the threshold is sharp, so a cap drawn from
+// them alone is a block the size of the cell and a line along every patch border (the staged
+// battle's sea was tiled with them); through the texture's bright tenth it is a patch of foam
+// at texel resolution, and the cells never show.
+  float capmask = smoothstep(0.05, 0.40, lum2);
+  float caps = max(fold, steep) * smoothstep(0.25, 0.8, ws) * capmask * detail * u_capzoom * (u_local_depth > 0.0 ? 0.6 : 1.0);
 // Surf: in the shoaling band the steepened waves break into a foam sheet that runs up the
 // beach. The shore direction is the depth gradient; the sheet's texture scrolls along it.
   vec2 hp = v_wpos.xz; float he = 0.9 * sc;
@@ -209,11 +233,11 @@ void main(){
 // 0.22.3: the breaker zone only. The old band ran out to 1.8 units of depth, which on the
 // Adriatic shelf is the whole sea, so every crest line carried a sheet of surf and the bays
 // were striped white from the regional view.
-  float band = smoothstep(0.42 * sc, 0.12 * sc, depth) * smoothstep(0.0, 0.05 * sc, depth) * max(u_capzoom, 0.35);
+  float band = smoothstep(0.42 * sb, 0.12 * sb, depth) * smoothstep(0.0, 0.05 * sb, depth) * max(u_capzoom, 0.35);
   float surf_tex = smoothstep(0.22, 0.6, dot(texture(u_albedo, p * 0.7 + shoredir * (t * 0.22) + u_drift1 * 0.5).rgb, vec3(0.3, 0.5, 0.2)));
   float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;
 // Shoreline: the thin lapping line at the waterline, as before.
-  float foam = (1.0 - smoothstep(0.0, 0.26 * sc, depth)) * (0.55 + 0.45*sin(depth*30.0/sc - t*2.0 + w1)) * detail;
+  float foam = (1.0 - smoothstep(0.0, 0.26 * sb, depth)) * (0.55 + 0.45*sin(depth*30.0/sb - t*2.0 + w1)) * detail;
 // The coast the waves meet (0.22, the rings' shore mask): R cliff, G beach, B marsh, A exposure.
 // Waves come in *sets* - a forty-second swell of bigger ones, then a lull - and every set's
 // wave breaks differently on each coast: on a cliff it slams the face and bursts into a sheet
@@ -223,7 +247,7 @@ void main(){
   float sets = 0.55 + 0.45 * sin(t * 0.157);
   float wph = t * 0.8 + snoise(hp * 6.0 / sc) * 6.2832;
   float crash = pow(max(sin(wph), 0.0), 3.0) * sets;
-  float cliffband = (1.0 - smoothstep(0.0, 0.9 * sc, depth)) * sh.r * sh.a;
+  float cliffband = (1.0 - smoothstep(0.0, 0.9 * sb, depth)) * sh.r * sh.a;
   float crashf = cliffband * (0.35 + 0.65 * crash) * (0.5 + 0.8 * surf_tex) * detail;
   surf *= 1.0 + 0.6 * sh.g * sets;
   float marshk = 1.0 - 0.85 * sh.b;
@@ -276,6 +300,7 @@ void main(){
 // seabed and deep water goes opaque; the map view stays solid parchment
   if (u_sea_debug > 0.5) { fragColor = vec4(clamp(depth * 0.5, 0.0, 1.0), v_h > 0.35 ? 1.0 : 0.0, refr_on, 1.0); return; }
   float alpha = mix(0.26, 0.92, smoothstep(0.0, 1.6 * u_wave_scale, depth));
+  if (u_local_depth > 0.0) alpha = 0.72;   // the battle and harbour views: the water is clearer, the hull shows through the surface (0.22.4)
 // clearer shallows, seabed reads through a little further out
   alpha = max(alpha, caps_a * 0.9);
 // foam stays visible over the seabed

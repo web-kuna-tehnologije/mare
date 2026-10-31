@@ -45,6 +45,7 @@ public:
     void capture_scene();
     const rhi_texture_t *scene_copy_ptr();     // hdr_scene_copy (the member keeps the C name)
     const rhi_texture_t *depth();
+    const rhi_texture_t *depth_captured();
     void resolve(int w, int h);
 
 private:
@@ -53,7 +54,7 @@ private:
     rhi_geometry_t fs_tri;
     rhi_target_t ao_target; rhi_pipeline_t ao_prg;
     rhi_target_t bloom_a, bloom_b; rhi_pipeline_t bright_prg, blur_prg;
-    rhi_texture_t scene_copy;
+    rhi_texture_t scene_copy, depth_copy;
 };
 
 Hdr &hdr() { static Hdr h; return h; }
@@ -136,9 +137,12 @@ void Hdr::begin(int w, int h, float r, float g, float b) {
 
 // The scene as drawn so far (terrain, buildings, ships), copied for the water to refract
 // (DESIGN_VISUAL.md step 5 follow-up). Called once per frame just before sea_draw.
-void Hdr::capture_scene() { rhi_target_snapshot(&hdr_target, &scene_copy); }
+void Hdr::capture_scene() { rhi_target_snapshot(&hdr_target, &scene_copy); rhi_target_snapshot_depth(&hdr_target, &depth_copy); }
 const rhi_texture_t *Hdr::scene_copy_ptr() { return scene_copy.id ? &scene_copy : NULL; }
 const rhi_texture_t *Hdr::depth() { return hdr_target.depth.id ? &hdr_target.depth : NULL; }
+// the depth *as captured* with the scene copy (0.22.4): what the water refracts against - the
+// live attachment is what the water is writing into
+const rhi_texture_t *Hdr::depth_captured() { return depth_copy.id ? &depth_copy : NULL; }
 
 // tonemap the HDR scene to the backbuffer; UI draws on top afterwards
 void Hdr::resolve(int w, int h) {
@@ -178,5 +182,6 @@ void hdr_begin(int w, int h, float r, float g, float b) { mare::engine::render::
 void hdr_capture_scene(void) { mare::engine::render::hdr().capture_scene(); }
 const rhi_texture_t *hdr_scene_copy(void) { return mare::engine::render::hdr().scene_copy_ptr(); }
 const rhi_texture_t *hdr_depth(void) { return mare::engine::render::hdr().depth(); }
+const rhi_texture_t *hdr_depth_captured(void) { return mare::engine::render::hdr().depth_captured(); }
 void hdr_resolve(int w, int h) { mare::engine::render::hdr().resolve(w, h); }
 }

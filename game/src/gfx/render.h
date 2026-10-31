@@ -78,6 +78,7 @@ extern int   hdr_ssao_enabled;
 void hdr_capture_scene(void);                 // copy the HDR colour so far (before the water) for refraction
 const rhi_texture_t *hdr_scene_copy(void);    // that copy (NULL before the first capture)
 const rhi_texture_t *hdr_depth(void);         // the HDR target's depth attachment
+const rhi_texture_t *hdr_depth_captured(void); // its copy taken with hdr_capture_scene (the water refracts against this, never the live attachment)
 const rhi_texture_t *detail_waves(void);
 const rhi_texture_t *detail_grain(void);
 

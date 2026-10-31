@@ -652,12 +652,17 @@ int Shipyard::push(const shipyard_req_t *r) {
     // The generated poles are chunky for their height - at the battle zoom a cog's mast read as
     // a tree trunk - so they are thinned radially (gpu.h inst_t.slim), which a uniform scale
     // cannot do without losing the height the class table sets.
-    #define MAST_SLIM     0.44f      // 0.22.3: slimmer again (0.58 still read as a trunk from the quarterdeck)
+    #define MAST_SLIM     0.34f      // 0.22.4: slimmer again ("all masts are too thick")
     // ... and stepped *into* the ship rather than stood on `deck`. That fraction is a per-class
     // guess at where the hull model's deck is, and where it guesses high the mast floated a
     // metre over the planking. A mast is stepped on the keelson in any case, so burying the heel
     // is both right and the safe direction to be wrong in: the deck hides it.
-    #define MAST_STEP     0.14f
+    #define MAST_STEP     0.20f      // 0.22.4: deeper (the cog's stood a metre over its deck)
+    // The aft stations of a three- and four-master stand on the sterncastle, which the hull
+    // models carry well above the `deck` fraction: those masts, their lantinas and canvas are
+    // lifted by this share of the hull height so the sail's foot clears the poop (0.22.4).
+    #define CASTLE_LIFT   0.10f
+    auto stn_lift = [&](int k) { return nm >= 3 && c->mast_at[k] <= -0.22f ? CASTLE_LIFT * hh : 0.f; };
     asset_t *mref = NULL;                                   // the mainmast sizes the rig
     if (c->masts) {
         asset_t *mp[SHIP_MAX_MASTS] = { 0 };
@@ -679,7 +684,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                 float dx = c->mast_at[k] * len;
                 inst_t mi = in;
                 mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
-                mi.y = deck_y - MAST_STEP * hh;
+                mi.y = deck_y - MAST_STEP * hh + stn_lift(k);
                 mi.slim = MAST_SLIM;
                 mi.ax = r->x; mi.az = r->z;   // a mast is a fixed part of its ship: same swell, same roll (i_anchor)
                 // Every mast part is fitted to the class's rig height, so the fore/main/mizzen
@@ -794,7 +799,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     asset_t *la = asset_find("lateen_yard") ? asset_get_role(ASSET_SHIP_PART, "lateen_yard") : NULL;
                     int authored = la && lod_px(spar_len * 0.5f, r->camdist) >= YARD_ASSET_MIN_PX;
                     inst_t li = in;
-                    li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2; li.scale = mh;
+                    li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2 + stn_lift(k); li.scale = mh;
                     li.fx1 = 1.f; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
                     li.ax = r->x; li.az = r->z;
                     *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;
@@ -807,7 +812,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                         float cx = 0.5f * (LAT_TACK_X + LAT_PEAK_X) * mh - acx, cy = 0.5f * (LAT_TACK_Y + LAT_PEAK_Y) * mh - acy;
                         inst_t yi = in;
                         yi.heading = sw; yi.scale = s;
-                        yi.x = bx + sfx * cx; yi.z = bz + sfz * cx; yi.y = deck_y2 + cy;
+                        yi.x = bx + sfx * cx; yi.z = bz + sfz * cx; yi.y = deck_y2 + cy + stn_lift(k);
                         yi.ax = r->x; yi.az = r->z;
                         yi.r = 1.f; yi.g = 1.f; yi.b = 1.f;
                         scene_asset_instance(la, yi, r->key ^ (unsigned)(0x71A3u + k * 0x53u), r->camdist);
@@ -822,7 +827,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                 float cb = cosf(bhd), sb = -sinf(bhd);
                 float off = RIG_SAIL_OFF * len;           // canvas just fore of its mast, as before
                 for (int l = 0; l < ly->n; ++l) {
-                    float top_w = deck_y2 + mh * ly->l[l].top;
+                    float top_w = deck_y2 + mh * ly->l[l].top + stn_lift(k);
                     float hw_w  = mh * ly->l[l].hw;
                     float yard_len = 2.f * hw_w * 1.06f;
                     asset_t *ya = yard_asset(c, k, l);

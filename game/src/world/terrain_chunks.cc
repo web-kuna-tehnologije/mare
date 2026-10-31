@@ -218,7 +218,7 @@ void GeoChunks::probe(const char *dir, std::vector<std::string> &roots) {
         else {
             // the newest delivery first (data_new_2: the LOD package and the regional builds),
             // then the previous one; every dataset found in either is registered
-            static const char *names[] = { "data_new_2", "data_new" };
+            static const char *names[] = { "data_chunks_terrain", "data_new_2", "data_new" };   // data_chunks_terrain: the world-game-package delivery (0.22.4)
             char buf[400];
             for (const char *nm : names) {
                 snprintf(buf, sizeof buf, "%s/../%s", asset_root(), nm); cands.push_back(buf);
@@ -370,7 +370,7 @@ int GeoChunks::init(const char *dir) {
     std::vector<std::string> roots;
     probe(dir, roots);
     for (const std::string &r : roots) if ((int)ds.size() < GC_MAX_DATASETS) add_dataset(r.c_str());
-    if (ds.empty()) { LOG_WARN("terrain", "no terrain dataset found (looked beside %s for data_new_2 and data_new): the procedural world stands alone", asset_root()); return 0; }
+    if (ds.empty()) { LOG_WARN("terrain", "no terrain dataset found (looked beside %s for data_chunks_terrain, data_new_2 and data_new): the procedural world stands alone", asset_root()); return 0; }
     // finest first: a regional build answers before the overview wherever both are resident
     std::stable_sort(ds.begin(), ds.end(), [](const gc_ds_t &a, const gc_ds_t &b) { return a.info.step_lat != b.info.step_lat ? a.info.step_lat < b.info.step_lat : a.area < b.area; });
     for (int i = 0; i < (int)ds.size(); ++i) ds[i].info.index = i;
@@ -741,6 +741,7 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
             }
             if (got < 9) continue;                           // a hole under part of the cell
             int was_land = b->lm[i] != 0, keep = b->protect && b->protect[i];
+            float hmax_in = hmax;   // the highest land strictly inside the cell (centre taps + edges)
             if (was_land && hc <= 0.35f) {
                 // the highest land anywhere under the cell (its edges and corners too), and - for a
                 // land cell whose centre the data puts in the sea, i.e. mask land the raster had to
@@ -751,11 +752,17 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
                     float u = (lon + edge[q][0] * reach[rr] / b->cells_per_deg - bw) / (be - bw) * b->gw;
                     float v = (bn - (lat + edge[q][1] * reach[rr] / b->cells_per_deg)) / (bn - bs) * b->gh;
                     float m;
-                    if (gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, I.samples, I.cells, u, v, &m)) hmax = maxf(hmax, gc_world(m));
+                    if (gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, I.samples, I.cells, u, v, &m)) { float hh = gc_world(m); hmax = maxf(hmax, hh); if (rr == 0) hmax_in = maxf(hmax_in, hh); }
                 }
             }
             if (b->allow_flips && !was_land && votes >= 6 && !keep) {
                 b->lm[i] = 1; b->hm[i] = maxf(hc, 0.45f); b->tally[k][1]++; b->tally[k][0]++;
+            } else if (b->allow_flips && was_land && votes <= 1 && hc < -0.02f && hmax_in < 0.03f && !keep) {
+                // the polygon says land, the data says sea under *all* of the cell - the nine
+                // centre taps and the eight at its edges: water (a bay the hand-drawn coast
+                // closed, a channel between islands drawn as one). The edge taps are what keep a
+                // peninsula one sample wide (Peljesac at 2.8 km samples) from being eaten.
+                b->lm[i] = 0; b->hm[i] = minf(hc, -0.12f); b->tally[k][1]++; b->tally[k][0]++;
             } else if (was_land && (votes >= 3 || (hc <= 0.03f && hmax > 0.03f))) {
                 // A land cell whose centre the data puts in the sea or on the strand - a peninsula
                 // or island a cell wide that slips between the cell centres (Peljesac: 5-7 km
@@ -780,8 +787,12 @@ int GeoChunks::bake(float *hm, unsigned char *lm, int w, int h, float lon0, floa
     for (const gc_ds_t &c : ds) if (c.area > D->area) D = &c;
     for (const gc_ds_t &c : ds) if (c.area == D->area && c.info.step_lat < D->info.step_lat) D = &c;   // among the widest, the finest level
     const gc_dataset_t &I = D->info;
-    int allow_flips = 0;
-    { const char *e = getenv("MARE_TERRAIN_ISLANDS"); if (e && atoi(e)) allow_flips = 1; }
+    // The coastline follows the data (0.22.4): a cell the overview puts under water becomes
+    // sea, one it puts on land becomes land - Istria, Peljesac and the island chains come out
+    // of the GEBCO grid instead of hand-drawn polygons. Harbours are protected, the authored
+    // straits are re-cut afterwards. MARE_TERRAIN_ISLANDS=0 keeps the polygons' mask.
+    int allow_flips = 1;
+    { const char *e = getenv("MARE_TERRAIN_ISLANDS"); if (e) allow_flips = atoi(e) != 0; }
     double t0 = diag_now();
     int changed = 0, newland = 0, missing = 0;
     const int C = I.cells;

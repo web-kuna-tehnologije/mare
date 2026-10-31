@@ -171,7 +171,7 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         {
             float cxf = (lon - LON0) * CELLS_PER_DEG - 0.5f, cyf = (LAT1 - lat) * CELLS_PER_DEG - 0.5f;
             int cx0 = (int)floorf(cxf), cy0 = (int)floorf(cyf);
-            if (cx0 >= 2 && cy0 >= 2 && cx0 + 3 < LM_W && cy0 + 3 < LM_H) {
+            if (cx0 >= 3 && cy0 >= 3 && cx0 + 4 < LM_W && cy0 + 4 < LM_H) {
                 float tx = cxf - cx0, ty = cyf - cy0;
                 float d00 = coastdist_f[cy0 * LM_W + cx0],       d10 = coastdist_f[cy0 * LM_W + cx0 + 1];
                 float d01 = coastdist_f[(cy0 + 1) * LM_W + cx0], d11 = coastdist_f[(cy0 + 1) * LM_W + cx0 + 1];
@@ -186,15 +186,38 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                 // coast only ever recedes, by under half a cell, so no water the navigation
                 // grid sails becomes visual land and no harbour moves (they are protected
                 // below anyway). The simulation never sees this: it is the drawn shore.
-                float acc = 0.f;
-                for (int oy = -1; oy <= 1; ++oy) for (int ox = -1; ox <= 1; ++ox) {
-                    float sx = cxf + ox * 1.2f, sy = cyf + oy * 1.2f;
+                // 0.22.4: rounder still. The min-with-a-blur only cut the convex corners, so a
+                // bay kept its square head and an island its flat sides. Now the field itself is
+                // a wider Gaussian blur near the line (5x5 taps, 1.05 cells apart, sigma ~1.3
+                // cells) - a blurred signed distance rounds convex and concave corners alike by
+                // about a cell - cross-faded back to the exact field two cells out, where the
+                // profile has returned the ground to the relief anyway. The coast may now move
+                // up to ~0.4 cell either way, which the nav grid's majority rule tolerates.
+                float acc = 0.f, wsum = 0.f;
+                static const float gk[5] = { 0.13f, 0.60f, 1.00f, 0.60f, 0.13f };
+                for (int oy = -2; oy <= 2; ++oy) for (int ox = -2; ox <= 2; ++ox) {
+                    float sx = cxf + ox * 1.05f, sy = cyf + oy * 1.05f;
                     int ix = (int)floorf(sx), iy = (int)floorf(sy); float fx2 = sx - ix, fy2 = sy - iy;
                     const float *r0 = coastdist_f + (size_t)iy * LM_W + ix, *r1 = r0 + LM_W;
-                    acc += lerpf(lerpf(r0[0], r0[1], fx2), lerpf(r1[0], r1[1], fx2), fy2);
+                    float wgt = gk[ox + 2] * gk[oy + 2];
+                    acc += wgt * lerpf(lerpf(r0[0], r0[1], fx2), lerpf(r1[0], r1[1], fx2), fy2); wsum += wgt;
                 }
-                float blurred = acc / 9.f;
-                if (blurred < dcs) dcs = blurred;
+                float blurred = acc / wsum;
+                dcs = lerpf(blurred, dcs, smoothstep_(1.6f, 3.2f, fabsf(dcs)));
+            }
+        }
+        // The data's waterline (0.22.4). The land mask now follows the overview cell by cell,
+        // but a 7 km cell still cannot say where inside it the water starts; the 3 km sample
+        // can. Within a cell and a half of the raster line, where the data is decisive the
+        // other way (sea under a mask-land texel, land under a mask-sea one), the signed
+        // distance is pushed towards the data's side, so the drawn shore - and the sea pass,
+        // which reads the same rings - follows the sample rather than the cell. Capped at
+        // two thirds of a cell so no harbour and no navigable channel is ever closed.
+        if (fine && portw > 0.001f && fabsf(dcs) < 1.5f) {
+            float dsig = h < -0.05f ? -1.f : h > 0.10f ? 1.f : 0.f;
+            if (dsig != 0.f && dsig * dcs < 0.f) {
+                float wq = (1.f - smoothstep_(0.5f, 1.5f, fabsf(dcs))) * portw * minf(fabsf(h) / 0.20f, 1.f);
+                dcs = lerpf(dcs, dsig * 0.65f, wq);
             }
         }
         float adc = fabsf(dcs);

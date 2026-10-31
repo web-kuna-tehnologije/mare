@@ -250,6 +250,18 @@ river cell only while `nav_river_limit` allows its class, which `fleet.cc` sets 
 fleet's largest hull around each path search (sloops and fluyts 2, merchantmen and frigates 1,
 galleons and liners 0) and the port-distance rows leave at 0, so trade distances are unchanged.
 
+## 3f-bis. The coast from the data (0.22.4)
+
+`geochunks_bake` no longer only raises land and deepens sea inside the polygons' mask: a mask
+cell whose seventeen taps (nine inside, eight on its edges) are all under water in the
+overview becomes sea, and a sea cell with land under six of nine becomes land, ports protected
+5x5 and the authored straits re-cut afterwards (`MARE_TERRAIN_ISLANDS=0` turns it off). The
+rings then round the result - a 5x5 Gaussian blur of the signed coast distance within two
+cells of the line - and move the drawn waterline up to two thirds of a cell towards the 3 km
+sample where it disagrees with the 7 km cell. `mare.exe --mask=lon0,lat1,w,h` prints what came
+out. The limit is the sample spacing: a peninsula one sample wide survives (the edge taps see
+it) but draws low, see KNOWN_ISSUES.
+
 ## 3g. The hinterland painted (0.22.3)
 
 A fourth ring texture, `landuse` (gfx/terrain_rings.cc, read by `terrain/rings.glsl

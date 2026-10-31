@@ -119,6 +119,10 @@ Status as of the current codebase. Each entry names the module that owns it.
   split square yards instanced on every station on the sail's swung/braced heading; cordage as
   geometry-stage lines of physical width; verlet flags pinned to the main masthead; canvas,
   water and ground materials (DESIGN_SHIPS.md 3c, DESIGN_RENDERER.md 0.19).
+- The coastline from the terrain data (0.22.4): the world-game-package's overview decides
+  land and sea cell by cell (ports protected), the rings round the shore and follow the 3 km
+  sample inside the cell; the Meshy sea tiles (normal, displacement, foam albedo) via
+  `tools/sea_tiles.py`; a point-of-sail speed curve (`world/wind.cc`).
 - The hinterland painted (0.22.3): a land-use ring texture (fields, vineyards, orchards and
   olive groves, villages) baked from the terrain-v2 land cover, the regions' goods, the roads
   and the settlements, painted as district-aligned patterns by `terrain.frag`; low-poly

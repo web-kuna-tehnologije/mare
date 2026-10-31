@@ -163,6 +163,17 @@ void target_snapshot(const rhi_target_t *t, rhi_texture_t *dst) {
     glActiveTexture(GL_TEXTURE0 + 7); glBindTexture(GL_TEXTURE_2D, dst->id);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, t->w, t->h);
 }
+// The target's depth, copied the same way (0.22.4). The water used to sample the *live* depth
+// attachment it was writing into - a feedback loop that handed it its own freshly written
+// depth from the patches drawn before, so the refraction thickness read as zero in tiles and
+// along patch borders and the staged battle's sea was ruled into sky-coloured blocks.
+void target_snapshot_depth(const rhi_target_t *t, rhi_texture_t *dst) {
+    if (!t->depth.id) return;
+    if (dst->id && (dst->w != t->w || dst->h != t->h)) { glDeleteTextures(1, &dst->id); rhi_mem.textures -= (size_t)dst->w * dst->h * format_bpp(dst->fmt); rhi_mem.ntextures--; dst->id = 0; }
+    if (!dst->id) *dst = texture_make(t->w, t->h, RHI_FMT_DEPTH24, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+    glActiveTexture(GL_TEXTURE0 + 7); glBindTexture(GL_TEXTURE_2D, dst->id);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, t->w, t->h);
+}
 
 void target_free(rhi_target_t *t) {
     if (t->fbo) glDeleteFramebuffers(1, &t->fbo);

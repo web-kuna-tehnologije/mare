@@ -391,8 +391,16 @@ int main(int argc, char **argv) {
         } else {
             // the eye stays above whatever is under it: the wave crest over water, the ground
             // (base map + streamed detail) over land
-            { float floor_y = world_is_land(cam.pos.x, cam.pos.z) ? world_height(cam.pos.x, cam.pos.z) + stream_delta_at(cam.pos.x, cam.pos.z) + 0.6f : sea_height_at(cam.pos.x, cam.pos.z) + 0.45f;
-              cam_min_eye_y = detailview_mode() == DV_OFF ? floor_y : -1e9f; }
+            // 0.22.4: the floor is *smoothed*. Over water it followed the swell under the eye
+            // frame by frame, and over land the ring recompose stepped it, so a camera resting
+            // on the floor - every close-in view - shook with the waves. The floor now rises at
+            // once (never under the ground) but settles down over half a second, and over water
+            // it stands on the swell's amplitude rather than the instantaneous crest.
+            { static float floor_s = -1e9f;
+              float floor_y = world_is_land(cam.pos.x, cam.pos.z) ? world_height(cam.pos.x, cam.pos.z) + stream_delta_at(cam.pos.x, cam.pos.z) + 0.6f
+                                                                 : 0.5f * sea_amp_now() * sea_wave_scale + 0.45f;
+              if (floor_y > floor_s) floor_s = floor_y; else floor_s += (floor_y - floor_s) * (1.f - expf(-dt * 2.f));
+              cam_min_eye_y = detailview_mode() == DV_OFF ? floor_s : -1e9f; }
             prof_begin(p_input); input_frame(dt, ui_blocked); debug_keys(); cam_update(dt); prof_end(p_input);
             prof_begin(p_sim);
             // City view (3rd zoom): with the camera down on a town square the clock crawls to

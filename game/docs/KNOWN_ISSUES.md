@@ -8,13 +8,15 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 "Framework" marks issues in v3 itself that we work around rather than fix.
 
 ## Rendering
-- **M** Peljesac is a peninsula in the land mask (two cells thick, the Mali Ston bay behind it,
-  the Ston channel in front - `mare.exe --mask=16.9,43.1,16,7` shows it) but *draws* as a low
-  sandy spit: every texel of a two-cell strip is within the rings' shore profile band
-  (`terrain_rings.cc`, reach 6 cells inland), whose beach-coast dome gives land at one cell
-  from the water under half its relief, and the overview's coast class there is sand. The
-  profile needs a "thin land" rule (relief from the strip's own width, rock where the export
-  says the peninsula is rock) or a finer land mask.
+- **M** Peljesac (0.22.4): the data-driven mask keeps it as a chain of one- and two-cell land
+  with the Mali Ston bay behind - the 2.8 km overview is a sample or two wide across it - and
+  the rings' shore profile still gives a strip that thin under half its relief, so it draws as
+  low islets and spits rather than the 900 m ridge it is. A regional dataset at ~0.7 km
+  (`dalmatia-detail-3x`, in the exporter's folder, not in the package) or a finer land mask
+  (CELLS_PER_DEG 32) is the fix; the profile also wants a "thin land" rule.
+- **L** With the coastline following the data (0.22.4) a hand-placed port can stand a cell
+  from its water: ports are protected 5x5 cells, so none is landlocked, but a quay may face a
+  cell the data turned to land on one side. `MARE_TERRAIN_ISLANDS=0` restores the polygons.
 - **M** The southern Dalmatian islands and Peljesac are drawn as strips one or two land-mask
   cells wide (0.22.3, `geo_coast.h`). The navigation grid's majority rule treats a one-cell
   strip as sailable, so a routed fleet can cross the Hvar or Korcula strip visually on the

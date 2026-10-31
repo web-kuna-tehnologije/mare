@@ -41,13 +41,13 @@ void main(){
   if (u_has_disp > 0.5 && amp > 0.0) {
     vec2 q = p / u_wave_scale;
     float fine = smoothstep(2.4 * cell, 5.0 * cell, 1.1 * u_wave_scale);
-    float dm = (texture(u_disp, q * 0.19 + u_drift1 * 0.8).r - 0.5) * 0.7 + (texture(u_disp, q * 0.90 + u_drift2 * 1.6).r - 0.5) * 0.3 * fine;
+    float dm = (texture(u_disp, q * 0.19 + u_drift1 * 0.8).r - 0.5) * 0.55 + (texture(u_disp, q * 0.90 + u_drift2 * 1.6).r - 0.5) * 0.25 * fine;   // 0.22.4: the new tile has more contrast
     float da = 0.16 * amp * u_wave_scale * smoothstep(1.4 * cell, 3.0 * cell, 5.3 * u_wave_scale);
     d.y += dm * da;
     float e = 0.6 * u_wave_scale;
 // finite-difference slope of the displacement, folded into the tangents
-    float dmx = (texture(u_disp, (q + vec2(e, 0.0)) * 0.19 + u_drift1 * 0.8).r - texture(u_disp, (q - vec2(e, 0.0)) * 0.19 + u_drift1 * 0.8).r) * 0.7 * da / (2.0 * e);
-    float dmz = (texture(u_disp, (q + vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r - texture(u_disp, (q - vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r) * 0.7 * da / (2.0 * e);
+    float dmx = (texture(u_disp, (q + vec2(e, 0.0)) * 0.19 + u_drift1 * 0.8).r - texture(u_disp, (q - vec2(e, 0.0)) * 0.19 + u_drift1 * 0.8).r) * 0.55 * da / (2.0 * e);
+    float dmz = (texture(u_disp, (q + vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r - texture(u_disp, (q - vec2(0.0, e)) * 0.19 + u_drift1 * 0.8).r) * 0.55 * da / (2.0 * e);
     tx.y += dmx; tz.y += dmz;
   }
 // the water the ships push aside (GLSL_SEA_VS_COMMON), slope by finite differences

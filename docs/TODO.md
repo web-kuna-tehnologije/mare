@@ -88,6 +88,43 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## Session notes (2026-10-31 midday, 0.22.4)
+
+- **Mirrors.** `/home/.../.cache/claude-hfi/-mnt-c-projects-mare/` is plain WSL storage that a
+  background hook copies to `C:\projects\mare_<name>` with a lag; the alias of this morning's
+  mirror vanished mid-session. Create the mirror *directly* under `/mnt/c/projects/` from now
+  on: this session's is `C:\projects\mare_oak_20261031_120901` with its own copy of
+  `assets\elm` (854 MB), `assets\data_chunks_terrain` (2.1 GB) and the sea sources
+  (`assets\sea_src`), and `shot.bat` / `rig.bat` / `mask.bat` / `modeshot.bat` point
+  `MARE_ASSETS` and `MARE_GEOCHUNK_DIR` at them. Nothing in the shared `C:\projects\mare\assets`
+  is written by this session.
+- The world package registers as four datasets (LOD 0-3). `dalmatia-detail-3x` is not in it;
+  it still sits in `C:\projects\mare-world-terrain\data` if a finer Dalmatia is wanted.
+
+## The issues folder, triaged (assets/issues/issues-1.txt, 2026-10-31 11:53; 0.22.4)
+
+| Item | Status |
+|---|---|
+| cog mast too thick and 1 m above deck | done: `MAST_SLIM` 0.44 -> 0.34, `MAST_STEP` 0.14 -> 0.20 |
+| all masts too thick | done (same) |
+| lantina not equal thickness / "part of mast taken" / floating | the `lateen_yard` asset is a clean 45-degree spar (15k verts, none more than 4% off its axis - checked), slung at its middle on the mast; what reads as unequal ends is the scan's taper. Procedural one is one switch away (`shipyard.cc` lateen branch) |
+| cloth goes through ship / aft sails need raising | done: aft stations of 3-4 masters lifted `CASTLE_LIFT` 0.10 hull heights (mast, lantina, canvas) |
+| add wind into sails | done: canvas belly 0.52 -> 0.62, fuller floor |
+| riggings are wrong | not touched: needs a sentence on what is wrong (shroud count, stays, ratlines?) |
+| round islands in Greece / Caribbean / Peljesac | done: 5x5 Gaussian coast rounding + the data's own waterline inside the band + the mask follows the data (`MARE_TERRAIN_ISLANDS` default on) |
+| proper textures everywhere incl. tessellation | sea: the three Meshy tiles installed (tools/sea_tiles.py). Terrain atlas unchanged |
+| React UI | no - the UI is cimgui in C; a web UI is a different product decision |
+| rivers 3D depth and flowing water for ships | waiting for the river data (user); carving is behind `MARE_RIVER_CARVE=1` |
+| sea more reflective of ships / more transparent in battle view | partly: staged scenes Fresnel cap +0.17, alpha 0.72. A *reflection* of the hulls needs a planar reflection pass (not done) |
+| waves in strategic view larger than islands | not understood - larger *than* islands? see question below |
+| ship moves by wind, backwards head-to-wind | done, without the astern part: point-of-sail curve in `wind.cc` (quarter 1.20, run 0.95, beam 0.89, close-hauled falling to 0.18 in the eye). Going astern would strand AI routes |
+| ship bow waves in 3D | exists since 0.19 (`ship_wave` in the sea vertex stages) |
+| circle ending the view (lighting) | done: every close-range terrain fade gated by `u_camdist` as well as fragment distance |
+| close-by camera shaking | done: the eye floor is smoothed and stands on the swell amplitude, not the crest under the eye |
+| "where are real ship assets" | the authored Meshy fleet is what draws at battle and harbour zoom; from the regional zoom the LOD rules draw the procedural hulls (`MARE_LOD_BIAS`), and `MARE_SHIPS=0` would hide them entirely - check the dashboard LOD tab |
+
+Question back: "waves in strategic view should be larger than islands" - larger wavelength (one swell line across a bay) or bigger foam? Either is a knob (`sea_zoom_amp`, `u_capzoom`).
+
 ## Session notes (2026-10-31 late morning, 0.22.3 - the 0.22.2 regressions undone)
 
 - **What was wrong with 0.22.2 / 0.22.1**, as seen from the screenshots: the river channels

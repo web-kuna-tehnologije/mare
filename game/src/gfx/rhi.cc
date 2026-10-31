@@ -76,6 +76,7 @@ rhi_target_t rhi_target_depth_make(int w, int h) { return active().target_depth_
 void rhi_target_clear_depth(const rhi_target_t *t) { active().target_clear_depth(t); }
 void rhi_viewport(int x, int y, int w, int h) { active().viewport(x, y, w, h); }
 void rhi_target_snapshot(const rhi_target_t *t, rhi_texture_t *dst) { active().target_snapshot(t, dst); }
+void rhi_target_snapshot_depth(const rhi_target_t *t, rhi_texture_t *dst) { active().target_snapshot_depth(t, dst); }
 void rhi_target_free(rhi_target_t *t) { active().target_free(t); }
 void rhi_target_begin(const rhi_target_t *t, float r, float g, float b) { active().target_begin(t, r, g, b); }
 void rhi_target_resume(const rhi_target_t *t) { active().target_resume(t); }

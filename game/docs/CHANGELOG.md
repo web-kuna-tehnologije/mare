@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.22.4 — the world package, coasts from the data, the issues folder, the Meshy sea
+
+- **The world-game-package is the terrain** (`assets/data_chunks_terrain/world-game-package`,
+  `mare-world-package-v1`): found beside the asset root as `data_chunks_terrain` (then
+  `data_new_2`, `data_new`, or `MARE_GEOCHUNK_DIR`), its four LOD levels registered as four
+  datasets, the finest answering first. Nothing else in the reader changed; the package's
+  format was already read since 0.22.
+- **The coastline follows the data** (`terrain_chunks.cc bake_rows`, on by default,
+  `MARE_TERRAIN_ISLANDS=0` for the polygons alone). A mask-land cell the overview puts under
+  water in all seventeen of its taps (nine inside, eight at the edges) becomes sea; a mask-sea
+  cell with land under six of nine becomes land. Harbours are protected, the authored straits
+  re-cut, the coast-distance field rebuilt. The Gulf of Trieste opens, Cres and the Kvarner
+  islands appear, the Cyclades and the Antilles take their real outlines. The edge taps are
+  what keep a peninsula one sample wide - Peljesac at 2.8 km samples - from being eaten.
+- **Rounder coasts** (`terrain_rings.cc`). The rings' coast distance is now a 5x5 Gaussian
+  blur of the field near the line (sigma ~1.3 cells), cross-faded back to the exact field two
+  cells out: a blurred signed distance rounds convex and concave corners alike, so a bay's
+  head and an island's sides are curves, where the old min-with-a-blur only cut the convex
+  corners. And **the data's own waterline**: within a cell and a half of the raster line,
+  where the 3 km sample is decisively on the other side of it, the distance is pushed up to
+  two thirds of a cell towards the sample, so the drawn shore (and the sea pass, which reads
+  the same rings) follows the data inside the 7 km cell.
+- **The issues folder** (`assets/issues`, triage table in docs/TODO.md):
+  - *the circle*: every close-range terrain fade (atlas texture, land use, canopy, cliff
+    spray, micro-relief, sun occlusion) is gated by the camera's zoom (`u_camdist`) as well
+    as the fragment's distance, so from a regional view it switches off everywhere at once
+    instead of inside a disc around the camera;
+  - *close-by camera shaking*: the eye floor followed the swell under the eye frame by frame
+    (and the ring recompose over land); it is smoothed now - rises at once, settles over half
+    a second - and over water stands on the swell's amplitude, not the crest (`main.cc`);
+  - *masts too thick, the cog's a metre over the deck*: `MAST_SLIM` 0.44 -> 0.34, `MAST_STEP`
+    0.14 -> 0.20; *aft sails through the sterncastle*: the aft stations of three- and
+    four-masters, with their lantina and canvas, are lifted `CASTLE_LIFT` (0.10 hull heights);
+  - *wind in the sails*: the canvas bellies fuller (`cloth.glsl`);
+  - *the ship moves as the wind blows*: `wind.cc` has a point of sail - best with the wind on
+    the quarter (1.20), a dead run 0.95, a beam reach 0.89, close-hauled falling to 0.18 in
+    the eye, where she crawls until the wind veers. Not astern: a route must still complete;
+  - *the sea in the battle view*: more of the sky and the ships' light in the surface
+    (Fresnel cap +0.17 in staged scenes), and the refraction now absorbs by the **water
+    thickness in front of the refracted pixel** (the captured depth linearised with
+    `u_zrange`) instead of the column depth, so a hull a metre under the waterline shows
+    through while the seabed - or a staged scene's ground forty units down - stays absorbed;
+  - a **refraction feedback loop** found on the way: the water sampled the HDR target's *live*
+    depth attachment while writing into it, so earlier patches of the same pass handed it
+    their own depth and the staged battle's sea came out ruled into sky-coloured blocks once
+    the column was transparent enough to show it. The depth is now snapshotted with the
+    colour (`rhi_target_snapshot_depth`, `hdr_depth_captured`); the sky keeps the live one;
+  - *whitecaps* were silently off since 0.22.3 (`u_capzoom` was never in the sea's uniform
+    list); on again, they are masked by the foam texture rather than only tinted by it, since
+    the Jacobian they come from is per tessellation cell and drew them as cell-sized blocks;
+  - the sea's lapping, surf and cliff-burst bands narrow with the zoom (`u_shorescale`): at
+    fixed world widths every close shore was a sheet of milk;
+  - the lantina asset was checked (15k vertices, none more than 4% off a straight spar: it is
+    cut right); the rest of the list - rigging, React UI, rivers, ship reflections, "waves
+    larger than islands" - is answered or asked back in the TODO table.
+- **The Meshy sea sheets** (`assets/sea/sea__new`) are the sea's tiles: `tools/sea_tiles.py`
+  (pure Python) crops each sheet's frame, resizes to 1024 and cross-fades its edges seamless,
+  renormalising the normal map; `sea_normal.png` (ripple normal), `sea_displacement.png`
+  (tessellation chop), `sea_albedo.png` (foam, whose luminance drives the whitecaps - cubed
+  in `sea.frag`, since the new tile is four times brighter than the old). The renames are
+  listed in `assets/sea_src/README_renames.txt` beside the copies in the session mirror.
+- `mare.exe --mask=` now shows the data-driven mask; the session's assets live in a per-session
+  copy (`C:\projects\mare_<worktree>_<datetime>\assets`) so two sessions never share a file.
+
 ## 0.22.3 — the 0.22.2 regressions undone, a blue-grey sea, Peljesac, the hinterland painted
 
 - **The world back at its height, and higher where it should be.** 0.22.2's 17 units per

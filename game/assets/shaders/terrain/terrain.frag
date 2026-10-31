@@ -10,6 +10,10 @@ uniform sampler2D u_atlas; uniform float u_has_atlas;
 uniform sampler2D u_grain;
 // the procedural surface-grain normal map (detail.c): micro relief on the close ground
 uniform float u_time;
+uniform float u_camdist;
+// the camera's distance to its look-at point: the close-range detail fades below are gated by it
+// as well as by the fragment's own distance, so from a zoomed-out view they switch off everywhere
+// at once instead of inside a disc around the camera (the "ugly circle", 0.22.4)
 #include "terrain/rings.glsl"
 #include "terrain/chunks.glsl"
 out vec4 fragColor;
@@ -210,7 +214,8 @@ void main(){
 // that survives the regional view), triplanar for the rock so cliff faces are not smeared,
 // faded out with distance so the strategic map keeps its clean biome colours.
   float dist0 = distance(v_wpos, u_campos);
-  float tdet = (1.0 - smoothstep(90.0, 420.0, dist0)) * u_has_atlas * (1.0 - u_mapness);
+  float dref = max(dist0, u_camdist * 1.6);
+  float tdet = (1.0 - smoothstep(90.0, 420.0, dref)) * u_has_atlas * (1.0 - u_mapness);
   if (tdet > 0.01) {
     vec3 tw = pow(abs(n), vec3(6.0)); tw /= (tw.x + tw.y + tw.z);
     vec2 pxz = v_wpos.xz * 1.6, mxz = v_wpos.xz * 0.21;
@@ -259,7 +264,7 @@ void main(){
 // collapses to its average colour. Everything shares one orientation per ~1.5-unit district,
 // so the parcels, rows and lanes of a valley run together the way a cadastre does.
   vec4 lu = landuse_at(v_wpos.xz) * dk * (1.0 - under);
-  float lunear = (1.0 - smoothstep(110.0, 220.0, dist0)) * (1.0 - u_mapness);
+  float lunear = (1.0 - smoothstep(110.0, 220.0, dref)) * (1.0 - u_mapness);
   float luclean = (1.0 - wrock) * (1.0 - wbeach) * (1.0 - wsnow) * (1.0 - wmarsh) * (1.0 - wwater) * (1.0 - wdes);
   if ((lu.r + lu.g + lu.b + lu.a) * lunear * luclean > 0.01) {
     vec2 dc = floor(v_wpos.xz / 1.5);
@@ -333,7 +338,7 @@ void main(){
 // --- the woods as a canopy (0.22.3): the forest colour was one flat dark green; close in, the
 // crowns are drawn as a bumpy noise - brighter on their sun side, dark between - and the
 // normal tilts with them, so a wood reads as a mass of trees rather than paint.
-  float canopy = wforest * (1.0 - smoothstep(22.0, 60.0, dist0)) * (1.0 - u_mapness) * (1.0 - under) * (1.0 - wsnow);
+  float canopy = wforest * (1.0 - smoothstep(22.0, 60.0, dref)) * (1.0 - u_mapness) * (1.0 - under) * (1.0 - wsnow);
   if (canopy > 0.02) {
     vec2 cp = v_wpos.xz * 46.0; float e = 0.35;
     float c0 = noise(cp) * 0.62 + noise(cp * 2.3 + 17.0) * 0.38;
@@ -347,7 +352,7 @@ void main(){
 // The cliff's foot (0.22): each set's wave bursts on the rock and throws spray up the face -
 // a sheet of white that climbs, hangs and drains in streaks - above a band of wet dark rock
 // the sea keeps slick. Only on exposed cliff coasts, only near the camera, never on the map.
-  float nearc = (1.0 - smoothstep(60.0, 160.0, dist0)) * (1.0 - u_mapness);
+  float nearc = (1.0 - smoothstep(60.0, 160.0, dref)) * (1.0 - u_mapness);
   float wph = u_time * 0.8 + noise(v_wpos.xz * 6.0) * 6.2832;
   float crash = pow(max(sin(wph), 0.0), 3.0) * sets;
   float streaks = smoothstep(0.30, 0.70, noise(vec2(v_wpos.x * 18.0 + v_wpos.z * 7.0, v_wpos.y * 9.0 - u_time * 0.5)));
@@ -369,7 +374,7 @@ void main(){
   rough = mix(rough, 0.55, wsnow);
   rough = mix(rough, 0.40, wet * 0.8);
   rough = mix(rough, 0.18, wwater);                                   // still water
-  float micro = (1.0 - smoothstep(12.0, 60.0, dist0)) * (1.0 - u_mapness) * (1.0 - wwater);
+  float micro = (1.0 - smoothstep(12.0, 60.0, dref)) * (1.0 - u_mapness) * (1.0 - wwater);
   if (micro > 0.01) {
     float mstr = mix(0.25, 0.55, wrock) * micro;
     n = nmap_triplanar(u_grain, v_wpos * 1.3, n, 1.0, mstr);
@@ -409,7 +414,7 @@ void main(){
   float ao = u_ao_on > 0.5 ? mix(1.0, texture(u_ao, v_uv).r, 0.85) : 1.0;
 // the ground's own horizon: a valley in the lee of a range is out of the sun (det_sun_occ);
 // faded with distance where the shadow would be a texel wide anyway
-  { float ok = 1.0 - smoothstep(500.0, 900.0, viewdist);
+  { float ok = 1.0 - smoothstep(500.0, 900.0, max(viewdist, u_camdist * 1.6));
     if (ok > 0.01) g_sun_occ = mix(1.0, det_sun_occ(v_wpos + n * 0.08, u_sun, u_hm, u_geo, u_k, u_mapness), ok); }
   vec3 lit = sun_shade_ao(srgb_to_linear(c), n, vdir, v_wpos, rough, 0.0, viewdist, ao);
 // the seabed is lit through the water, not in open air (0.22.3): the sun has already lost

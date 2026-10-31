@@ -86,6 +86,7 @@ void rhi_target_resume(const rhi_target_t *t);                             // bi
 void rhi_backbuffer(int w, int h);                               // bind the window backbuffer, no clear
 void rhi_read_pixels(int x, int y, int w, int h, unsigned char *rgba);    // from the bound target (screenshots, smoke tests)
 void rhi_target_snapshot(const rhi_target_t *t, rhi_texture_t *dst);     // copy the bound target's colour into dst (created/resized to match): the scene behind the water
+void rhi_target_snapshot_depth(const rhi_target_t *t, rhi_texture_t *dst);   // ... and its depth (never sample a target's live depth attachment while drawing into it)
 void rhi_read_depth(const rhi_target_t *t, float *depth);                 // whole depth attachment (shadow-map debugging)
 
 // pipelines & uniforms (setters require the pipeline to be bound)

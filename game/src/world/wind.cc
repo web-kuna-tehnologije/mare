@@ -34,9 +34,20 @@ void Wind::at(float wx, float wz, float day, float *dx, float *dz, float *streng
     *dx = cosf(ang); *dz = -sinf(ang); *strength = str;
 }
 
+// The point of sail (0.22.4). A square rig of the period makes its best speed with the wind
+// on the quarter, runs a little slower dead downwind, holds half its speed on a reach, and
+// can barely claw to windward: inside ~40 degrees of the wind's eye it is all but stopped
+// (the fleet does not go astern - a route must still complete - but at WIND_HEAD_FACTOR it
+// crawls until the wind veers). The strength scales how far the curve departs from the mean.
+#define WIND_HEAD_FACTOR 0.18f
 float Wind::factor(float hx, float hz, float wdx, float wdz, float wstr) {
-    float d = hx*wdx + hz*wdz; // 1 = running downwind, -1 = beating into it
-    return clampf(0.78f + 0.30f * d * wstr, WIND_MIN_FACTOR, WIND_MAX_FACTOR);
+    float d = clampf(hx*wdx + hz*wdz, -1.f, 1.f); // 1 = running downwind, -1 = beating into it
+    float curve = d > 0.5f  ? 1.20f - 0.25f * (d - 0.5f) / 0.5f           // quarter 1.20 .. dead run 0.95
+                : d > -0.3f ? 0.70f + 0.50f * (d + 0.3f) / 0.8f           // beam reach 0.89 .. close reach 0.70
+                : d > -0.77f ? WIND_HEAD_FACTOR + (0.70f - WIND_HEAD_FACTOR) * (d + 0.77f) / 0.47f   // close-hauled, falling off fast
+                :              WIND_HEAD_FACTOR;                           // in the eye
+    float f = lerpf(0.85f, curve, clampf(0.35f + 0.65f * wstr, 0.f, 1.f));
+    return clampf(f, WIND_HEAD_FACTOR, WIND_MAX_FACTOR);
 }
 
 } // namespace mare::game::world
