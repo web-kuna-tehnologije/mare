@@ -23,8 +23,8 @@ extern "C" {
 #include "src/sim/settlement.h"
 #include "src/world/world.h"
 #include "src/world/terrainmap.h"
-#include "src/world/terraintiles.h"
 #include "src/world/geochunks.h"
+#include "src/world/rivers.h"
 #include "src/world/stream.h"
 #include "src/world/nav.h"
 #include "src/sim/game.h"
@@ -257,18 +257,16 @@ int main(int argc, char **argv) {
     world_init(seed);
     terrainmap_load(NULL);          // authored height / normals / ground atlas, if the art is there
     terrainmap_apply_to_world();   // folded in before nav, so routes see the same ground
-    // The real Earth at 45 samples per degree. Two consumers: the clipmap detail rings page
-    // tiles in around the camera for near-field relief (streamview.c), and the one-shot
-    // geography bake below folds the authored coastline into the base world - every Adriatic
-    // and Aegean island the procedural coast polygons never had - before the navigation grid,
-    // the regions and the ports are built against it. MARE_TERRAIN_TILES=0 / MARE_TERRAIN_GEO=0
-    // bring the old world back.
-    terraintiles_init(NULL);
-    // The GEBCO export read as the chunks it is (assets/data/how_to.txt): float32 metres and
-    // the coverage mask, straight from the source rather than through the u16 cut. The
-    // clipmap rings prefer it over that cut wherever a chunk is resident.
+    // The terrain-v2 export read as the chunks it is (assets/data_new/MARE_INTEGRATION.md):
+    // float32 metres, coverage, biome classes, material weights and normals, from every
+    // dataset under data_new (the 3 km overview and any finer regional build). Two consumers:
+    // the clipmap rings and the chunk atlas page it in around the camera (gfx/streamview.cc,
+    // gfx/chunkatlas.cc), and the one-shot geography bake below folds its relief into the base
+    // world before the navigation grid, the regions and the ports are built against it.
+    // MARE_GEOCHUNKS=0 / MARE_TERRAIN_GEO=0 bring the procedural world back.
     geochunks_init(NULL);
     terrainmap_bake_geography(NULL);
+    rivers_generate();             // the drainage of the folded heightfield: channels for the rings, navigable reaches for nav (world/rivers.h)
     nav_init();
     if (getenv("MARE_WAVES")) { sea_wave_amp = clampf((float)atof(getenv("MARE_WAVES")), 0.f, 4.f);
         LOG_INFO("gpu", "wave height pinned to %.2f (MARE_WAVES)", sea_wave_amp); }
@@ -359,7 +357,9 @@ int main(int argc, char **argv) {
         // frame the same thing every run, which is what makes visual regressions comparable.
         // It overrides the camera *after* the normal update, so the simulation still runs.
         static const char *cam_lock; static int cam_lock_read;
-        if (!cam_lock_read) { cam_lock = getenv("MARE_CAM"); cam_lock_read = 1; }
+        if (!cam_lock_read) { cam_lock = getenv("MARE_CAM"); cam_lock_read = 1;
+                              if (getenv("MARE_CAM_TILT")) cam_pitch_user = (float)atof(getenv("MARE_CAM_TILT"));     // pinned tilt for horizon screenshots
+                              if (getenv("MARE_MAP_MODE")) U.map_mode = (int)clampf((float)atoi(getenv("MARE_MAP_MODE")), 0.f, (float)(MAP_MODE_COUNT - 1)); }   // pinned map mode
         if (U.in_menu) {
             cam.want_dist = 800; cam.want_tx = lon2x(-30); cam.want_tz = lat2z(25); cam.want_yaw += dt * 0.02f;
             cam_update(dt);
@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
         occ_frame_begin(&RF.campos.x, terrain_max_height());        // terrain occlusion rays start from this eye (occlusion.h)
         occq_frame_begin();                                         // GPU occlusion answers from the last frames (occquery.h)
         if (!U.in_menu) {
-            SH = scene_hints_t{ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions;
+            SH = scene_hints_t{ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions; terrain_map_mode = U.map_mode;
             detailview_frame(dt);                 // transition clock + staged-scene animation (before the shadow pass)
             int dv_on = detailview_mode() != DV_OFF;
             // One authored-asset bracket around both builds: towns and ships share the instance

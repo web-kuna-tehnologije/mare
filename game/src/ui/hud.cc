@@ -94,8 +94,11 @@ void Hud::panel_topbar(void) {
     mu_layout_set_next(ui_ctx, mu_rect(580, 4, 190, 22), 0); ui_label_col(va("Yesterday: %s%.0f", net >= 0 ? "+" : "", net), net >= 0 ? mu_color(150,240,150,255) : mu_color(240,140,140,255));
     mu_layout_set_next(ui_ctx, mu_rect(770, 4, 170, 22), 0); ui_label_col(va("%s | Ports: %d", nations_info[G.player].name, me->ports), ui_mcol(nations_info[G.player].color, 255));
     struct { const char *name; int *flag; } toggles[] = { {"Fleets", &U.show_fleets}, {"Log", &U.show_log}, {"Lanes", &U.show_lanes}, {"Regions", &U.show_regions}, {"Wind", &U.show_wind}, {"Stats", &U.show_stats}, {"Options", &options_show}, {"Help", &U.show_help} };
-    int x = W - 7*64 - 8;
+    int x = W - 7*64 - 8 - 92;
     for (int i = 0; i < 7; ++i) { mu_layout_set_next(ui_ctx, mu_rect(x + i*64, 4, 60, 24), 0); if (ui_btn(*toggles[i].flag ? va("[%s]", toggles[i].name) : toggles[i].name)) *toggles[i].flag ^= 1; }
+    // the map view mode (0.22): terrain, depth, religion, political, influence, production
+    { mu_layout_set_next(ui_ctx, mu_rect(x + 7*64, 4, 88, 24), 0);
+      if (ui_btn(va("View: %s", map_mode_names[U.map_mode]))) U.map_mode = (U.map_mode + 1) % MAP_MODE_COUNT; }
     int errs = diag_level_count(LOG_ERROR) + diag_level_count(LOG_FATAL);
     if (errs) { mu_layout_set_next(ui_ctx, mu_rect(x - 70, 4, 66, 24), 0); mu_push_id(ui_ctx, "errs", 4); if (mu_button_ex(ui_ctx, va("%d err", errs), 0, MU_OPT_ALIGNCENTER)) { U.show_debug = 1; } mu_pop_id(ui_ctx); }
     mu_end_window(ui_ctx);
@@ -340,7 +343,7 @@ void Hud::panel_help(void) {
     if (!mu_begin_window_ex(ui_ctx, "Help", c->rect, 0)) return;
     ui_text_full(
         "MARE LIBERUM - 17th century naval trade & war\n\n"
-        "Camera: WASD/arrows or right-drag to pan, wheel to zoom (zoom out into the map view), Q/E or middle-drag to rotate, F follow fleet, H home, M toggle map.\n"
+        "Camera: WASD/arrows or right-drag to pan, wheel to zoom (zoom out into the map view), Q/E or middle-drag to rotate, middle-drag up/down or PageUp/PageDown to tilt (Home levels it), F follow fleet, H home, M toggle map.\n"
         "Select: left-click a ship or port name. Right-click with a fleet selected: sail to sea, dock at a port, attack a hostile fleet, besiege an enemy port, found a colony at an unsettled site. Shift+right-click: patrol.\n"
         "Trade: dock at a port and use the market in the Selection panel. Prices emerge from supply and demand: colonies pay for cloth, arms and wine; Europe pays for sugar, tobacco, spices, furs and silver. 'Set route' makes a fleet shuttle between ports on its own; 'Auto-trade' lets it roam for profit.\n"
         "Empire: build Docks to launch ships; Forts, Warehouses, Markets, Plantations and Mines improve your ports. Capture enemy ports by siege when at war, or settle unclaimed sites. The Chronicle reports storms, plagues, wars, treasure fleets and pirates.\n"

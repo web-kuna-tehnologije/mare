@@ -23,6 +23,7 @@ extern float         *coastdist_f; // the same as an exact *Euclidean* distance 
                                   // chessboard isolines are rounded squares, which is what made islands boxes
 extern float         *heightmap;  // LM_W*LM_H world units, sea level 0
 extern unsigned char *territory;  // TERR_W*TERR_H: 0 none, else owning nation + 1
+extern unsigned char *influence;  // TERR_W*TERR_H: how strongly the owning port reaches this cell, 255 at the quay, 0 at the edge of its radius (0.22 map modes)
 extern int            territory_dirty; // 1 = recompute from ports, 2 = recomputed, upload to the GPU
 
 void  world_init(unsigned seed);             // allocate + rasterize + heightfield (~0.5 s); aborts if LM_W/LM_H mismatch the extents

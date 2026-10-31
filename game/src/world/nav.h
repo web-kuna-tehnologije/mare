@@ -19,6 +19,8 @@ extern "C" {
 
 extern unsigned char *navgrid;    // NAV_W*NAV_H, 1 = navigable water
 extern unsigned char *navcoast;   // 1 = water cell touching land (path cost penalty)
+extern unsigned char *navriver;   // 0 sea, 1 a great river's lower reach (merchantman draught), 2 an upper reach (small hulls only) - world/rivers.h fills it before nav_init
+extern int            nav_river_limit;   // the deepest river class the current search may enter: 0 none (the default, and what the port-distance rows use), 1, 2
 
 static inline int   nav_x(float wx)  { return (int)((wx / WORLD_K - LON0) * CELLS_PER_DEG / NAV_DIV); }
 static inline int   nav_y(float wz)  { return (int)((LAT1 + wz / WORLD_K) * CELLS_PER_DEG / NAV_DIV); }

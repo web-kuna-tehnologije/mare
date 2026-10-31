@@ -271,7 +271,10 @@ void Lighting::shadow_render() {
     // Cascades only need to reach as far as the meshes themselves: past PORT_DETAIL_DIST the
     // towns and ships are replaced by icons, so there is nothing left to cast. Beyond this the
     // lookup returns "lit".
-    float zfar = clampf(cam.dist * 2.6f + 70.f, 120.f, 650.f) * clampf(shadow_distance_scale, 0.3f, 3.f);
+    // 0.22: up to 1400 - the sea's swell and the ships on it should still be shadowed from the
+    // regional view, and a tilted camera sees a long way (three cascades at 1024 keep ~1.4 m
+    // texels at the near end, ~2.7 units at the far)
+    float zfar = clampf(cam.dist * 3.0f + 70.f, 120.f, 1400.f) * clampf(shadow_distance_scale, 0.3f, 3.f);
     shadow_radius = zfar;
     float znear = cam.znear;
     for (int i = 0; i < SHADOW_CASCADES; ++i) {

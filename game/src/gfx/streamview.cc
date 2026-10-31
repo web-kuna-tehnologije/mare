@@ -26,9 +26,9 @@ extern "C" {
 #include "../core/jobs.h"
 #include "../world/world.h"
 #include "../world/stream.h"
-#include "../world/terraintiles.h"
 #include "../world/geochunks.h"
-#include "heightatlas.h"
+#include "../world/rivers.h"
+#include "chunkatlas.h"
 #include "../assets/asset.h"
 }
 
@@ -57,6 +57,8 @@ public:
     void push_tiles();
     void draw_debug();
     const rhi_texture_t *detail_tex(int ring);
+    const rhi_texture_t *shore_tex(int ring);
+    const rhi_texture_t *river_tex(int ring);
     void   detail_rect(int ring, float out[4]);
     float  detail_texel(int ring);
     int    rings() { return SV_RINGS; }
@@ -66,7 +68,11 @@ public:
 private:
     typedef struct sv_ring_t {
         rhi_texture_t tex;
+        rhi_texture_t shore_tex;         // the shore mask (0.22): R cliff, G beach, B marsh, A exposure
+        rhi_texture_t river_tex;         // the rivers (0.22): R water, G/B flow direction, A width
         float   *buf;
+        unsigned char *shore;            // RGBA8, same grid
+        unsigned char *river;            // RGBA8, same grid
         int      res;                    // texels per edge
         float    extent;                 // world units covered
         int      max_level;              // finest tile level this ring may sample (Nyquist, above)
@@ -85,9 +91,9 @@ private:
 
     // one row band of a ring; reads tile payloads which only ever appear (never vanish) while the
     // main thread sits in the parallel_for below
-    typedef struct sv_fill_t { float *buf; int res; float x0, z0, step; int max_level;
-                               float port_xz[96][3]; int nports;   // land anchor x, z and the wall radius to keep
-                               int src[SV_MAX_SLOTS][3]; } sv_fill_t;   // which source answered, per worker slot (no atomics: the bands are disjoint)   // the harbours inside the ring (coast polish keeps clear of them)
+    typedef struct sv_fill_t { float *buf; unsigned char *shore; unsigned char *river; const river_grid_t *rg; int res; float x0, z0, step; int max_level;
+                               float port_xz[96][3]; int nports;   // land anchor x, z and the wall radius to keep (the harbours inside the ring: coast polish keeps clear of them)
+                               int src[SV_MAX_SLOTS][3]; } sv_fill_t;   // per worker slot: texels answered by a chunk, by a chunk with maps, cliff texels (no atomics: the bands are disjoint)
     static void sv_fill_rows(void *arg, int begin, int end, int slot);
     double sv_ring_compose(sv_ring_t *r, float cx, float cz);
     void sv_sync_authored();
@@ -116,26 +122,22 @@ static inline float smoothstep_(float e0, float e1, float x) { float t = clampf(
 void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
     sv_fill_t *f = (sv_fill_t *)arg;
     const float cell = WORLD_K / CELLS_PER_DEG;
-    int src_fine = 0, src_chunk = 0, src_cut = 0;   // which source answered, tallied per band
+    int src_chunk = 0, src_maps = 0, src_cliff = 0;   // which source answered, tallied per band
     for (int j = begin; j < end; ++j) for (int i = 0; i < f->res; ++i) {
-        float wx = f->x0 + i * f->step, wz = f->z0 + j * f->step, h;
+        float wx = f->x0 + i * f->step, wz = f->z0 + j * f->step, h = 0.f;
         float lon = x2lon(wx), lat = z2lat(wz);
         float base = world_height(wx, wz);
         float sd = stream_delta_at_level(wx, wz, f->max_level);
-        // The authored Earth where its tile is resident - the delta is what it says the ground
+        // The authored Earth where its chunk is resident - the delta is what it says the ground
         // should be, minus what the base map already draws - and the procedural detail
-        // elsewhere, so a ring is never empty while tiles are still coming in. The authored map
-        // is a loose Earth (its coastline disagrees with the base in places), so the delta is
-        // clamped to the base's side of the waterline: relief and bathymetry, never a landform
-        // rising through the sea or a hole opening in a coast the ports were placed against.
-        // Three authored sources, best first: the fine regional cut (~520 m), then the GEBCO
-        // chunks read exactly as exported (float32 metres, assets/data/how_to.txt), then the
-        // u16 global cut of that same export. All three decode to the same world units, so
-        // which one answers only changes the fidelity, never the calibration.
-        int fine = 0;
-        if      (terraintiles_height_fine(lon, lat, &h)) { fine = 1; src_fine++; }
-        else if (geochunks_height(lon, lat, &h))         { fine = 1; src_chunk++; }
-        else if (terraintiles_height(lon, lat, &h))      { fine = 1; src_cut++; }
+        // elsewhere, so a ring is never empty while chunks are still coming in. The export's
+        // coastline disagrees with the base in places, so the delta is clamped to the base's
+        // side of the waterline: relief and bathymetry, never a landform rising through the
+        // sea or a hole opening in a coast the ports were placed against. geochunks answers
+        // from the finest resident dataset (a regional build before the overview).
+        gc_sample_t gs;
+        int fine = geochunks_sample(lon, lat, &gs);
+        if (fine) { h = gs.height; src_chunk++; if (gs.has_maps) src_maps++; }
         float d;
         if (fine) {
             // the authored map's broad relief carries the synthesized ridges on top (0.17): the
@@ -156,37 +158,65 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         // continuous: +land, -sea, zero exactly on the base map's shoreline. Everything below
         // is a function of this one number, which is what makes the shore smooth - the raster
         // only ever enters as *where* the line is, never as the shape of the ground beside it.
-        float dcs = 1e9f;
+        // Its gradient is the inland direction, which is where the land cover is read from:
+        // the chunk sample under a shoreline texel is as likely to say "ocean" as "sand".
+        float dcs = 1e9f, gxd = 0.f, gzd = 0.f;
         {
             float cxf = (lon - LON0) * CELLS_PER_DEG - 0.5f, cyf = (LAT1 - lat) * CELLS_PER_DEG - 0.5f;
             int cx0 = (int)floorf(cxf), cy0 = (int)floorf(cyf);
-            if (cx0 >= 0 && cy0 >= 0 && cx0 + 1 < LM_W && cy0 + 1 < LM_H) {
+            if (cx0 >= 2 && cy0 >= 2 && cx0 + 3 < LM_W && cy0 + 3 < LM_H) {
                 float tx = cxf - cx0, ty = cyf - cy0;
                 float d00 = coastdist_f[cy0 * LM_W + cx0],       d10 = coastdist_f[cy0 * LM_W + cx0 + 1];
                 float d01 = coastdist_f[(cy0 + 1) * LM_W + cx0], d11 = coastdist_f[(cy0 + 1) * LM_W + cx0 + 1];
                 dcs = lerpf(lerpf(d00, d10, tx), lerpf(d01, d11, tx), ty);
+                gxd = lerpf(d10 - d00, d11 - d01, ty);           // d(dcs)/d(cell x): +x is east, +cell y is south = +world z
+                gzd = lerpf(d01 - d00, d11 - d10, tx);
+                // Rounding the raster's corners (0.22). The zero line of the distance field is
+                // the land mask's cell contour, so a small island is a box with a beach round
+                // it. A box-filtered copy of the field (3 x 3 taps, 1.2 cells apart) is smaller
+                // at a convex land corner and larger in a concave bay; taking the *minimum* of
+                // the two cuts the corners off the land and leaves every bay as it is - the
+                // coast only ever recedes, by under half a cell, so no water the navigation
+                // grid sails becomes visual land and no harbour moves (they are protected
+                // below anyway). The simulation never sees this: it is the drawn shore.
+                float acc = 0.f;
+                for (int oy = -1; oy <= 1; ++oy) for (int ox = -1; ox <= 1; ++ox) {
+                    float sx = cxf + ox * 1.2f, sy = cyf + oy * 1.2f;
+                    int ix = (int)floorf(sx), iy = (int)floorf(sy); float fx2 = sx - ix, fy2 = sy - iy;
+                    const float *r0 = coastdist_f + (size_t)iy * LM_W + ix, *r1 = r0 + LM_W;
+                    acc += lerpf(lerpf(r0[0], r0[1], fx2), lerpf(r1[0], r1[1], fx2), fy2);
+                }
+                float blurred = acc / 9.f;
+                if (blurred < dcs) dcs = blurred;
             }
         }
         float adc = fabsf(dcs);
+        unsigned char shore[4] = { 0, 0, 0, 0 };
         // The coastal fringe (1.5 .. 5 cells inland): the authored relief *replaces* the
-        // procedural cliff field instead of only raising it, so a shore GEBCO says is gentle
+        // procedural cliff field instead of only raising it, so a shore the data says is gentle
         // is not walled by 0.17's cliff noise.
         if (fine && portw > 0.001f && dcs > 0.f && adc < SV_FRINGE_OUT) {
             float u = (adc - SV_FRINGE_IN) / (SV_FRINGE_OUT - SV_FRINGE_IN);
             float wc = (1.f - (u <= 0.f ? 0.f : u >= 1.f ? 1.f : u * u * (3.f - 2.f * u))) * portw;
             if (wc > 0.001f) d = lerpf(d, maxf(h, 0.20f) - base + 0.4f * sd, wc);
         }
-        // The shore itself (0.22): a *profile* of the distance to the coastline.
+        // The shore itself (0.22): a *profile* of the distance to the coastline, shaped by what
+        // the chunk data says the coast is.
         //
         // The base heightfield steps from +0.12 to -0.30 across one cell at the waterline - a
         // seven-kilometre stair the camera reads as a wall - and small islands are lifted to a
         // flat 0.55 so they clear the water. Inside two and a half cells of the line the ground
         // is reshaped instead:
         //   * a beach coast: wadeable water (-0.08 at the line) deepening to the shelf, and sand
-        //     rising gently to ~0.22 two cells inland before the real relief returns;
-        //   * a cliff coast (world.c's cliff field, the same noise the base map used): the face
-        //     rises inside the first cell to a shoulder, then the relief, and the water off it
-        //     drops steeply - Madeira, not Normandy;
+        //     rising gently to ~0.22 before the real relief returns; the strand is wide where
+        //     the export's splat is sandy and the ground gentle, narrow where it is not, and it
+        //     curves because it is a function of the Euclidean coast distance, not the raster;
+        //   * a cliff coast: where the export's normal is steep or its weights are rock at the
+        //     shoreline (the 0.17 cliff noise only where no data answers): the face rises inside
+        //     the first cell to a shoulder, then the relief, and the water off it drops
+        //     steeply - Madeira, not Normandy;
+        //   * a marsh coast (wetland / mangrove classes): nearly flat on both sides, mud under a
+        //     hand of water running far out, no strand and no surf;
         //   * every lifted island gets the beach ring and keeps its plateau behind it.
         // The shoreline position does not move (the profile is zero at dcs = 0, and harbours are
         // protected), so navigation and the ports see exactly the coast they were placed on.
@@ -206,27 +236,60 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             float cliff = world_fbm(lon * 0.7f + 55.f, lat * 0.7f + 5.f, 3, G.seed + 77);   // world.c compute_heightmap's field
             float cl = clampf((cliff - 0.50f) / 0.22f, 0.f, 1.f) * smoothstep_(0.35f, 0.9f, near_land);
             cl = maxf(cl, smoothstep_(1.2f, 2.6f, near_land));
+            float sandy = 0.5f, marsh = 0.f;
+            // the data's say: read one cell inland of the texel (the shoreline sample itself is
+            // often the ocean class), the slope from the export's normal, the weights, the class
+            gc_sample_t gl;
+            float glen = sqrtf(gxd * gxd + gzd * gzd);
+            float ilon = lon, ilat = lat;
+            if (glen > 1e-5f) { ilon += gxd / glen * 1.0f / CELLS_PER_DEG; ilat -= gzd / glen * 1.0f / CELLS_PER_DEG; }
+            if (geochunks_sample(ilon, ilat, &gl) && gl.has_maps) {
+                float sl = sqrtf(gl.normal[0] * gl.normal[0] + gl.normal[2] * gl.normal[2]) / maxf(gl.normal[1], 0.05f);   // rise over run, drawn world
+                float cl_data = clampf(smoothstep_(0.10f, 0.40f, sl) * 0.85f + gl.splat[1] * 0.45f, 0.f, 1.f) * smoothstep_(0.25f, 0.8f, maxf(near_land, gl.height));
+                int b = gl.biome;
+                marsh = (b == GC_BIOME_WETLAND || b == GC_BIOME_MANGROVE) ? 1.f : 0.f;
+                if (b == GC_BIOME_WATER && gl.height < 0.25f) marsh = 0.6f;        // a lagoon or a delta lake behind the line
+                sandy = clampf(gl.splat[2] * 1.2f + (1.f - smoothstep_(0.02f, 0.12f, sl)) * 0.45f, 0.f, 1.f) * (1.f - cl_data);
+                // the world package classifies the coast itself (coast.r8: 1 sand beach, 2 rock
+                // cliff, 3 rocky coast, 4 coastal water); where it has an opinion it decides,
+                // the slope and the weights only shade it. Read at the texel too: the inland
+                // sample may already be "not coast".
+                gc_sample_t gh; int cc = gl.coast;
+                if (!cc && geochunks_sample(lon, lat, &gh)) cc = gh.coast;
+                if (cc == 1)      { sandy = maxf(sandy, 0.85f); cl_data *= 0.25f; }
+                else if (cc == 2) { cl_data = maxf(cl_data, 0.9f); sandy *= 0.1f; }
+                else if (cc == 3) { cl_data = maxf(cl_data, 0.55f); sandy *= 0.3f; }
+                // the noise field keeps a voice only where the data is undecided
+                cl = maxf(cl * (1.f - smoothstep_(0.05f, 0.3f, sandy)) * 0.5f, cl_data);
+                cl *= 1.f - marsh;
+            }
+            if (cl > 0.5f) src_cliff++;
             // the contour wiggle: shortest wavelength four ring texels (finer aliases into a
             // sawtooth); weaker on cliffs, which are straighter than beaches
             float wf = minf(40.f, 1.f / (8.f * f->step / WORLD_K));
-            float wig = (world_fbm(lon * wf + 3.f, lat * wf + 11.f, 2, 0x5A17u) - 0.5f) * 0.12f * (1.f - 0.5f * cl);
+            float wig = (world_fbm(lon * wf + 3.f, lat * wf + 11.f, 2, 0x5A17u) - 0.5f) * 0.12f * (1.f - 0.5f * cl) * (1.f - 0.7f * marsh);
+            // the strand's width: a sandy gentle coast runs its beach 1.6x as far, a steep one half
+            float bw = lerpf(0.55f, 1.6f, sandy);
             float target;
             if (dcs < 0.f) {
                 // the sea floor: wadeable at the line, a gentle sandy shelf, then the drop to
                 // the base's shelf depth by five cells; off a cliff the bottom falls away at once
                 float sn = -dcs;
-                float shelf = (0.06f + 0.24f * cl) + (0.30f + 0.9f * cl) * (1.f - expf(-sn * (0.55f + 1.4f * cl)));
+                float shelf = (0.06f + 0.24f * cl) + (0.30f + 0.9f * cl) * (1.f - expf(-sn * (0.55f + 1.4f * cl) / (0.6f + 0.4f * bw)));
                 float drop  = 1.1f * smoothstep_(2.5f, 5.0f, sn);          // SHELF_DEPTH, where the base takes over
                 target = -(shelf + drop);
                 // where the authored bathymetry is deeper, let it take over away from the line
                 if (fine && h < target) target = lerpf(target, h, smoothstep_(1.0f, 4.5f, sn));
+                // the marsh: mud under a hand of water, out to the shelf edge
+                float mud = -(0.03f + 0.14f * (1.f - expf(-sn * 0.45f)) + drop);
+                target = lerpf(target, mud, marsh);
             } else {
                 float relief = fine ? maxf(h, base) : base;
                 // a beach coast: sand ramping up, then the relief returning as a *dome* - the
                 // ground rises as the square root of the distance to the water, so a lifted
                 // island (a flat 0.55 inside its coast) comes up as a rounded hill, and a
                 // mainland shore has a gentle approach instead of a step
-                float beach  = 0.04f + 0.30f * (1.f - expf(-dcs * 0.75f));
+                float beach  = 0.04f + 0.30f * (1.f - expf(-dcs * 0.75f / bw));
                 float dome   = relief * sqrtf(smoothstep_(0.0f, reach, dcs));
                 float gentle = maxf(beach, dome);
                 // a cliff coast: a steep face in the first cell and a half, rising only as high as
@@ -234,16 +297,52 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                 float face   = 0.05f + minf(2.2f, relief + 0.35f) * smoothstep_(0.05f, 1.4f, dcs);
                 float steep  = lerpf(face, maxf(face, relief), smoothstep_(1.2f, reach, dcs));
                 target = lerpf(gentle, steep, cl);
+                // the marsh: a few metres above the water for a long way inland
+                float flat = 0.03f + 0.10f * (1.f - expf(-dcs * 0.5f)) + relief * smoothstep_(2.5f, reach, dcs);
+                target = lerpf(target, flat, marsh);
             }
             target += wig;
             d = lerpf(d, target - base, w);
+            // the shore mask the shaders read: what kind of coast this is, fading with the
+            // profile's own weight so it is zero wherever the ground is left alone
+            shore[0] = (unsigned char)(255.f * clampf(cl * w, 0.f, 1.f));
+            shore[1] = (unsigned char)(255.f * clampf(sandy * (1.f - cl) * (1.f - marsh) * w, 0.f, 1.f));
+            shore[2] = (unsigned char)(255.f * clampf(marsh * w, 0.f, 1.f));
+            shore[3] = (unsigned char)(255.f * clampf(portw * (1.f - marsh) * w, 0.f, 1.f));
+        }
+        // Rivers (world/rivers.h): the channel is cut into the ring - a flat bed hw wide, banks
+        // sloping back over another 1.5 hw - and the river texture says where the water is and
+        // which way it runs. Deeper for a wider river (0.02 .. 0.06 units: 9 .. 27 m before the
+        // world's vertical exaggeration). Not inside the shore band: the mouth meets the sea's
+        // own profile there, and the river texture carries the water across it.
+        unsigned char river[4] = { 0, 0, 0, 0 };
+        if (f->rg && dcs > -1.5f) {
+            float rd, rhw, rdx, rdz;
+            // a river narrower than the ring's texel would fall between the samples: the drawn
+            // width is at least 0.6 texels (~0.7 km on the near ring), the real width beyond that
+            float rw = maxf(rhw, 0.6f * f->step);
+            if (rivers_grid_query(f->rg, wx, wz, &rd, &rhw, &rdx, &rdz) && (rw = maxf(rhw, 0.6f * f->step), rd < rw * 2.5f)) {
+                float bank = clampf((rd - rw) / (1.5f * rw), 0.f, 1.f);
+                float cut = (0.02f + 0.6f * rhw) * (1.f - bank * bank * (3.f - 2.f * bank));
+                float wk = portw * smoothstep_(0.0f, 1.2f, dcs);                  // fades into the shore profile at the coast
+                d -= cut * wk;
+                float water = 1.f - smoothstep_(0.80f, 1.10f, rd / rw);
+                // a stream drawn at the texel's width on the far ring would read as a river:
+                // the thinner the river is against the texel, the fainter its line
+                water *= clampf(rhw / (0.35f * f->step), 0.22f, 1.f);
+                river[0] = (unsigned char)(255.f * clampf(water * (dcs > -1.0f ? 1.f : 0.f) * portw, 0.f, 1.f));
+                river[1] = (unsigned char)(127.5f + 127.f * rdx); river[2] = (unsigned char)(127.5f + 127.f * rdz);
+                river[3] = (unsigned char)(255.f * clampf(rhw / 0.07f, 0.f, 1.f));
+            }
         }
         f->buf[j * f->res + i] = d;
+        memcpy(f->shore + ((size_t)j * f->res + i) * 4, shore, 4);
+        memcpy(f->river + ((size_t)j * f->res + i) * 4, river, 4);
     }
     // a band's own tally, folded in once (the rows are disjoint, so this is a plain add per
     // worker rather than a contended counter per texel)
     int k = (unsigned)slot < SV_MAX_SLOTS ? slot : 0;
-    f->src[k][0] += src_fine; f->src[k][1] += src_chunk; f->src[k][2] += src_cut;
+    f->src[k][0] += src_chunk; f->src[k][1] += src_maps; f->src[k][2] += src_cliff;
 }
 
 // Rebuild one ring when the residency changed or the camera left its inner half. Returns the
@@ -251,7 +350,7 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
 double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     int moved = !r->on || fabsf(cx - (r->x0 + r->extent * 0.5f)) > r->extent * 0.25f
                        || fabsf(cz - (r->z0 + r->extent * 0.5f)) > r->extent * 0.25f;
-    unsigned resgen = stream_residency_generation() ^ (terraintiles_generation() * 2654435761u) ^ (geochunks_generation() * 2246822519u);
+    unsigned resgen = stream_residency_generation() ^ (geochunks_generation() * 2246822519u);
     int changed = r->seen_residency != resgen;
     if (!(moved || changed) || RF.time - r->last_compose <= SV_MIN_RECOMPOSE_S) return 0;
     r->last_compose = RF.time;
@@ -259,10 +358,12 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     double t0 = diag_now();
     float step = r->extent / (r->res - 1);
     sv_fill_t f;                                 // snapped to the sample grid so detail never swims
-    f.buf = r->buf; f.res = r->res;
+    f.buf = r->buf; f.shore = r->shore; f.river = r->river; f.res = r->res;
     f.x0 = floorf((cx - r->extent * 0.5f) / step) * step;
     f.z0 = floorf((cz - r->extent * 0.5f) / step) * step;
     f.step = step; f.max_level = r->max_level;
+    // the river segments over this ring, binned for the workers (after the origin is known)
+    river_grid_t rg; rivers_grid_build(&rg, f.x0 - 1.f, f.z0 - 1.f, r->extent + 2.f, 1.0f); f.rg = rg.nidx ? &rg : nullptr;
     memset(f.src, 0, sizeof f.src);
     f.nports = 0;   // every harbour the ring touches: the shoreline stays as placed around it
     for (int i = 0; i < G.nports && f.nports < 96; ++i) {
@@ -275,14 +376,19 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     }
     jobs_parallel_for(JOB_LANE_WORKER, sv_fill_rows, &f, r->res, 32);
     {   // what the ring holds: the range of the delta and how much of it the shore work touched
-        float mn = 1e9f, mx = -1e9f; int big = 0;
-        for (int i = 0; i < r->res * r->res; ++i) { float v = r->buf[i]; mn = minf(mn, v); mx = maxf(mx, v); big += v < -0.5f; }
+        float mn = 1e9f, mx = -1e9f; int big = 0, nriver = 0;
+        for (int i = 0; i < r->res * r->res; ++i) { float v = r->buf[i]; mn = minf(mn, v); mx = maxf(mx, v); big += v < -0.5f; nriver += r->river[i * 4] > 64; }
         int sf = 0, sc = 0, su = 0;
         for (int k = 0; k < SV_MAX_SLOTS; ++k) { sf += f.src[k][0]; sc += f.src[k][1]; su += f.src[k][2]; }
-        LOG_DEBUG("stream", "ring %s composed at %.1f,%.1f: delta %.2f..%.2f, %d texels lowered over 0.5, %d harbours; sources: %d fine, %d GEBCO chunk, %d u16 cut",
-                  r->extent < 100.f ? "near" : "far", f.x0, f.z0, mn, mx, big, f.nports, sf, sc, su);
+        LOG_DEBUG("stream", "ring %s composed at %.1f,%.1f: delta %.2f..%.2f, %d texels lowered over 0.5, %d harbours; %d texels from the chunks (%d with maps), %d cliff-shore texels, %d river texels from %d segments",
+                  r->extent < 100.f ? "near" : "far", f.x0, f.z0, mn, mx, big, f.nports, sf, sc, su, nriver, rg.nidx);
     }
+    LOG_DEBUG("stream", "ring %s rivers: %d segments in the grid", r->extent < 100.f ? "near" : "far", rg.nidx);
+    { int nr = 0; for (int i = 0; i < r->res * r->res; ++i) nr += r->river[i * 4] > 64; LOG_DEBUG("stream", "ring %s rivers: %d water texels", r->extent < 100.f ? "near" : "far", nr); }
+    rivers_grid_free(&rg);
     rhi_texture_update(&r->tex, r->buf);
+    rhi_texture_update(&r->shore_tex, r->shore);
+    rhi_texture_update(&r->river_tex, r->river);
     r->x0 = f.x0; r->z0 = f.z0; r->on = 1;
     return (diag_now() - t0) * 1000;
 }
@@ -308,6 +414,10 @@ void StreamView::update() {
             sv_ring[i].res = res[i];
             sv_ring[i].buf = (float *)malloc((size_t)res[i] * res[i] * sizeof(float));
             sv_ring[i].tex = rhi_texture_make(res[i], res[i], RHI_FMT_R32F, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
+            sv_ring[i].shore = (unsigned char *)calloc((size_t)res[i] * res[i] * 4, 1);
+            sv_ring[i].shore_tex = rhi_texture_make(res[i], res[i], RHI_FMT_RGBA8, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, sv_ring[i].shore);
+            sv_ring[i].river = (unsigned char *)calloc((size_t)res[i] * res[i] * 4, 1);
+            sv_ring[i].river_tex = rhi_texture_make(res[i], res[i], RHI_FMT_RGBA8, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, sv_ring[i].river);
             sv_ring[i].extent = extent[i]; sv_ring[i].max_level = lvl[i]; sv_ring[i].last_compose = -1e9;
         }
         const char *e = getenv("MARE_STREAM_TILES"); if (e) stream_show_tiles = atoi(e) != 0;   // overlay on for unattended captures
@@ -319,14 +429,12 @@ void StreamView::update() {
         for (int i = 0; i < SV_RINGS; ++i) { sv_ring[i].on = 0; sv_ring[i].seen_residency = 0; }
     }
     stream_update(cam.tx, cam.tz, cam.dist);
-    // Page the authored terrain around the look-at point. The radius follows the zoom, so a
-    // city view holds a couple of tiles and the strategic map a band across the ocean.
-    terraintiles_update(x2lon(cam.tx), z2lat(cam.tz),
-                        clampf(cam.dist / WORLD_K * 0.9f + 2.f, 2.f, 40.f));
-    // A chunk is 13 degrees across, so one or two cover any view: a small radius is enough and
-    // keeps the 1.3 MB reads rare.
+    // Page the terrain chunks around the look-at point. An overview chunk is 13 degrees
+    // across, so one or two cover any view; the radius follows the zoom so the far ring
+    // (320 units = 20 degrees) always has its chunks, and a regional build under the camera
+    // pages its finer chunks inside the same radius.
     geochunks_update(x2lon(cam.tx), z2lat(cam.tz), clampf(cam.dist / WORLD_K * 0.5f + 1.f, 1.f, 14.f));
-    heightatlas_update();
+    chunkatlas_update();
     if (sv_seen_assets != asset_generation()) { sv_seen_assets = asset_generation(); sv_sync_authored(); }
     sv_tiles_unmodeled = 0;   // wanted land leaves without an authored mesh: the "still to model" list
     for (int i = 0; i < stream_tile_count(); ++i) { const stream_tile_t *t = stream_tile_at_index(i);
@@ -339,18 +447,12 @@ void StreamView::update() {
       if (ms > 0) sv_window_ms = ms; }
 
     // metrics (task 7)
-    static int m_tt_res = -1, m_tt_load, m_tt_mb, m_tt_ev;
-    if (m_tt_res < 0) { m_tt_res = metric_id("terrain.tiles_resident"); m_tt_load = metric_id("terrain.tiles_loading");
-                        m_tt_mb = metric_id("terrain.tiles_mb"); m_tt_ev = metric_id("terrain.tiles_evicted"); }
-    { tt_stats_t ts; terraintiles_stats(&ts);
-      metric_set(m_tt_res, ts.resident); metric_set(m_tt_load, ts.loading);
-      metric_set(m_tt_mb, ts.bytes / (1024.0 * 1024.0)); metric_set(m_tt_ev, ts.evicted); }
-    static int m_gc_res = -1, m_gc_mb, m_gc_load, m_ha_slots;
+    static int m_gc_res = -1, m_gc_mb, m_gc_load, m_gc_ev, m_ca_slots;
     if (m_gc_res < 0) { m_gc_res = metric_id("terrain.chunks_resident"); m_gc_mb = metric_id("terrain.chunks_mb");
-                        m_gc_load = metric_id("terrain.chunks_loading"); m_ha_slots = metric_id("terrain.atlas_slots"); }
+                        m_gc_load = metric_id("terrain.chunks_loading"); m_gc_ev = metric_id("terrain.chunks_evicted"); m_ca_slots = metric_id("terrain.atlas_slots"); }
     { gc_stats_t gs; geochunks_stats(&gs);
       metric_set(m_gc_res, gs.resident); metric_set(m_gc_mb, gs.bytes / (1024.0 * 1024.0));
-      metric_set(m_gc_load, gs.loading); metric_set(m_ha_slots, heightatlas_resident()); }
+      metric_set(m_gc_load, gs.loading); metric_set(m_gc_ev, gs.evicted); metric_set(m_ca_slots, chunkatlas_resident()); }
     static int m_res = -1, m_want, m_load, m_mb, m_evict, m_disk, m_gen, m_win, m_unmod;
     if (m_res < 0) { m_res = metric_id("stream.resident"); m_want = metric_id("stream.wanted"); m_load = metric_id("stream.loading");
                      m_mb = metric_id("stream.mb"); m_evict = metric_id("stream.evicted"); m_disk = metric_id("stream.disk_hits");
@@ -365,6 +467,8 @@ void StreamView::update() {
 // terrain.c binds these per ring: the texture, (x0, z0, 1/extent, 1/extent), and the world
 // size of one texel (the shader differentiates the delta for its normals).
 const rhi_texture_t *StreamView::detail_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].tex : 0; }
+const rhi_texture_t *StreamView::shore_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].shore_tex : 0; }
+const rhi_texture_t *StreamView::river_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].river_tex : 0; }
 void StreamView::detail_rect(int ring, float out[4]) {
     const sv_ring_t *r = &sv_ring[(unsigned)ring < SV_RINGS ? ring : 0];
     out[0] = r->x0; out[1] = r->z0; out[2] = 1.f / r->extent; out[3] = 1.f / r->extent;
@@ -439,6 +543,8 @@ void streamview_update(void) { mare::engine::render::stream_view().update(); }
 void streamview_push_tiles(void) { mare::engine::render::stream_view().push_tiles(); }
 void streamview_draw_debug(void) { mare::engine::render::stream_view().draw_debug(); }
 const rhi_texture_t *streamview_detail_tex(int ring) { return mare::engine::render::stream_view().detail_tex(ring); }
+const rhi_texture_t *streamview_shore_tex(int ring) { return mare::engine::render::stream_view().shore_tex(ring); }
+const rhi_texture_t *streamview_river_tex(int ring) { return mare::engine::render::stream_view().river_tex(ring); }
 void  streamview_detail_rect(int ring, float out[4]) { mare::engine::render::stream_view().detail_rect(ring, out); }
 float streamview_detail_texel(int ring) { return mare::engine::render::stream_view().detail_texel(ring); }
 int   streamview_rings(void) { return mare::engine::render::stream_view().rings(); }

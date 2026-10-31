@@ -43,6 +43,7 @@ public:
 private:
     int   applied_ = 0;
     float last_aniso_ = -1.f;
+    float last_tilt_  = -1e9f;
     // what the file was written with, so save() only runs when something actually moved
     options_t saved_ = {};
 
@@ -52,6 +53,7 @@ private:
         o->shadows = 1; o->shadow_distance = 1.f; o->anisotropy = 0.f;   // 0 = driver maximum
         o->tessellation = 1; o->lod_bias = 1.f; o->wave_height = 1.f;
         o->ssao = 1; o->bloom = 0.55f; o->exposure = 1.f;
+        o->cam_tilt = 0.f;
     }
     int dirty() const { return memcmp(&saved_, &OPT, sizeof OPT) != 0; }
 };
@@ -76,6 +78,7 @@ void Options::load() {
         else if (!strcmp(key, "tessellation"))    OPT.tessellation = atoi(val);
         else if (!strcmp(key, "lod_bias"))        OPT.lod_bias = (float)atof(val);
         else if (!strcmp(key, "wave_height"))     OPT.wave_height = (float)atof(val);
+        else if (!strcmp(key, "cam_tilt"))        OPT.cam_tilt = (float)atof(val);
         else if (!strcmp(key, "ssao"))            OPT.ssao = atoi(val);
         else if (!strcmp(key, "bloom"))           OPT.bloom = (float)atof(val);
         else if (!strcmp(key, "exposure"))        OPT.exposure = (float)atof(val);
@@ -98,6 +101,7 @@ void Options::save() {
     fprintf(f, "tessellation %d\n", OPT.tessellation);
     fprintf(f, "lod_bias %.3f\n", OPT.lod_bias);
     fprintf(f, "wave_height %.3f\n", OPT.wave_height);
+    fprintf(f, "cam_tilt %.1f\n", OPT.cam_tilt);
     fprintf(f, "ssao %d\n", OPT.ssao);
     fprintf(f, "bloom %.3f\n", OPT.bloom);
     fprintf(f, "exposure %.3f\n", OPT.exposure);
@@ -116,6 +120,7 @@ void Options::apply() {
         if (getenv("MARE_LOD_BIAS")) OPT.lod_bias = asset_lod_bias;
         if (getenv("MARE_WAVES"))    OPT.wave_height = sea_wave_amp;
         if (getenv("MARE_ANISO"))    OPT.anisotropy = rhi_anisotropy();
+        if (getenv("MARE_CAM_TILT")) OPT.cam_tilt = cam_pitch_user;      // pinned by mare.cc for horizon screenshots
         if (OPT.anisotropy <= 0.f)   OPT.anisotropy = rhi_anisotropy_max();   // default: the driver maximum
         saved_ = OPT;
     }
@@ -124,6 +129,10 @@ void Options::apply() {
     terrain_tess_enabled  = OPT.tessellation;
     asset_lod_bias        = OPT.lod_bias;
     sea_wave_amp          = OPT.wave_height;
+    // the tilt is live in both directions: the slider sets it, the middle-drag / PageUp keys
+    // move it and the slider follows
+    if (OPT.cam_tilt != last_tilt_) { cam_pitch_user = OPT.cam_tilt; last_tilt_ = OPT.cam_tilt; }
+    else if (cam_pitch_user != OPT.cam_tilt) { OPT.cam_tilt = cam_pitch_user; last_tilt_ = cam_pitch_user; }
     hdr_ssao_enabled      = OPT.ssao;
     hdr_bloom             = OPT.bloom;
     hdr_bloom_enabled     = OPT.bloom > 0.01f;
@@ -178,6 +187,7 @@ void Options::panel() {
 
     mu_label(ui_ctx, "Water and light");
     { ROW(1, -1, 24); mu_slider_ex(ui_ctx, &OPT.wave_height, 0.f, 2.f, 0.05f, "wave height %.2f", MU_OPT_ALIGNCENTER); }
+    { ROW(1, -1, 24); mu_slider_ex(ui_ctx, &OPT.cam_tilt, -60.f, 30.f, 1.f, "camera tilt %+.0f deg (PageUp/PageDown, Home)", MU_OPT_ALIGNCENTER); }
     { ROW(1, -1, 24); mu_slider_ex(ui_ctx, &OPT.exposure, 0.4f, 2.5f, 0.05f, "exposure %.2f", MU_OPT_ALIGNCENTER); }
     { ROW(2, 120, -1, 24);
       mu_checkbox(ui_ctx, "ambient occlusion", &OPT.ssao);

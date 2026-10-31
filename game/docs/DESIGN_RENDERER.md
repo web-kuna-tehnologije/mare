@@ -80,7 +80,11 @@ Environment variables still win, so the A/B scripts are unaffected.
 
 ## 0.20: the height atlas, and why the terrain has no geometry stage
 
-`gfx/heightatlas.h` holds resident authored tiles on the GPU so the terrain's vertex and
+*(0.22: the height atlas and the fine tile set it read were removed with the other terrain
+caches; the chunk atlas `gfx/chunkatlas.h` now holds the terrain-v2 material maps instead -
+DESIGN_TERRAIN.md 3e. The reasoning below about the geometry stage still stands.)*
+
+`gfx/heightatlas.h` held resident authored tiles on the GPU so the terrain's vertex and
 tessellation stages can sample them at their own resolution rather than through the clipmap
 ring's 512 texels, adding only the residual the ring cannot carry (it reconstructs what the
 ring holds and subtracts it, so the two layers sum to the data once). It measures that

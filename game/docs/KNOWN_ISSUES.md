@@ -13,16 +13,43 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   context owns the surface, and a swapchain would have to replace it rather than share it.
   The Options panel says "restart to switch" and the log says which backend is active, but the
   pixels come from GL whichever is selected.
+- **L** A GL debug message "sampler (0) that has depth comparisons disabled, with a texture
+  object with a non-depth format, by a shader that samples it with a shadow sampler" is printed
+  to the console once per run. It predates 0.22 (the 0.21 build prints it too): some pipeline
+  that includes `common/light.glsl` is drawn before `light_bind` has put the shadow atlas on
+  unit 3, so the shadow sampler sees whatever colour texture sits there. Harmless on NVIDIA;
+  worth tracing with `MARE_SHADOW_DEBUG`.
+- **L** Looking at a mountainside from a few units away (camera tilt at the horizon, zoomed to
+  the city tier) shows faint horizontal lines across the rock where terrain chunks meet; the
+  tessellated edges are watertight, so this is the material texturing, not a crack.
+- **L** Rivers on the far ring are drawn at the ring texel's width (0.31 units, ~9 km) and
+  faded by how much narrower they really are; at the regional zoom the network therefore reads
+  as thin pale lines of one width. A line-width that follows the river's own width needs the
+  rivers drawn as ribbons rather than through the ring texture (docs/TODO.md).
+- **M** At ~160 units of camera distance over a running sea (the detail grid's range) the
+  whitecaps appear as a lattice of pale blobs following the sea grid's vertices - the fold
+  term is per vertex there. Related to the tessellated-sea grid issue above.
 - **L** The Vulkan render self test allocates a 64x64 image and a pipeline at start-up
   (~0.4 ms) only when the Vulkan backend is selected; it is not run under GL.
 - **L** The split square yards' far LODs (LOD4/5, 700 and 250 triangles) decimate a thin spar
   to a sliver, which is why the sail's own procedural spar stands in below 44 px of projected
   spar (`YARD_ASSET_MIN_PX`); the loader's "LOD 5 extent differs" warnings for `yard_*` and
   the mast library are that same decimation and are harmless.
-- **M** **Cliff coasts outside the authored tiles still rise as walls.** Where no GEBCO tile is
-  resident the 0.17 cliff field lifts the first inland cells straight out of the sea; inside the
-  tiles the coastal fringe takes the authored relief (0.19). The islands lifted by
-  `raise_small_islands` keep a plateau profile with a lip of grass over rock.
+- **M** **Cliff coasts outside the resident chunks still rise as walls.** Where no terrain-v2
+  chunk is resident the 0.17 cliff field lifts the first inland cells straight out of the sea;
+  inside them the coastal fringe takes the authored relief and the shore mask decides cliff,
+  beach or marsh (0.22). The islands lifted by `raise_small_islands` are rounded now but keep a
+  plateau profile behind the beach ring.
+- **L** The chunk atlas holds the overview only: a finer regional dataset under
+  `assets/data_new` sharpens the rings' heights but its biome / splat / normal maps are not
+  sampled yet (the overview's are, at 3 km). docs/TODO.md.
+- **L** Beyond the far ring's border (320 world units from the look-at point) the coast is the
+  bare 7 km raster again, so at the regional zoom the shallows and the surf band along a
+  distant coast (the Aegean from a camera over the Tyrrhenian) show the raster's steps where
+  the ring fades out.
+- **L** The overview's land cover is heuristic (no WorldCover was supplied to the exporter), so
+  the biome masks follow elevation, latitude and slope; cropland and built-up ground only
+  appear once a build with `--landcover` is dropped in.
 - **L** The GL context is created on the first adapter the driver offers (the Intel iGPU on a
   hybrid laptop) while `--rhi=vulkan` picks the discrete GPU for its report: an
   `NvOptimusEnablement` / `AmdPowerXpressRequestHighPerformance` export would move GL to the dGPU.

@@ -1,5 +1,109 @@
 # Changelog
 
+## 0.22.0 — the terrain-v2 chunks are the world, biome masks, shores the sea breaks on
+
+- **One terrain source, the exporter's.** `assets/data_new/*` (format `mare-terrain-v2`,
+  `MARE_INTEGRATION.md`) is now the only authored terrain the game reads, and it reads all of
+  it: `height.r32` and `coverage.r8` as before, plus `biome.r8`, `biome_source.r8`, `splat.png`
+  and `normal.png` per chunk, every map validated by length or dimensions before use.
+  `world/geochunks` takes **several datasets at once** - the 3 km world overview and any finer
+  regional build dropped beside it - sorted finest first, honouring `longitude_wrap`, with the
+  class table from the manifest; every sampler answers from the finest resident dataset, so a
+  30 m Dalmatian build sharpens that coast and changes nothing else. IO lane reads, DECODE lane
+  unpacks the PNGs, MAIN publishes; 160 MB budget (`MARE_GEOCHUNK_MB`), `MARE_GEOCHUNK_DIR`
+  points at a dataset or a folder of them, `MARE_GEOCHUNKS=0` turns it off.
+- **Every earlier cache of the same data is gone**, on disk and in code: the v1
+  `assets/data/export-global`, the u16 cuts (`assets/terrain/tiles`, `assets/elm/terrain/tiles`,
+  `tiles-aimap`, `tiles-gebco40`, `gebco`, ~1.6 GB), the fine Mediterranean cut the height atlas
+  read, the procedural `.mht` ring caches, `world/terraintiles`, `gfx/heightatlas`,
+  `terrain/atlas.glsl` and `tools/terrain_{from_gebco,tiles,calibrate}.py`. The GEBCO GeoTIFF
+  source cache (`assets/data/cache/gebco`, 7 GB) stays: the exporter needs it to cut a finer
+  regional build. The geography bake reads the overview (3,915,031 cells in ~150-300 ms).
+- **The chunks are drawn** through the existing path - height on the two clipmap rings, the
+  tessellated 8x8 patch lattices per chunk amplifying them - and their material maps through a
+  new **GPU chunk atlas** (`gfx/chunkatlas.h/.cc`, `terrain/chunks.glsl`): 4x4 slots of 513
+  texels in three RGBA8 atlases (class / splat / normal, 48 MB) plus a slot table, paged one
+  chunk a frame, addressed with the spec's vertex-aligned texel rule, class nearest, the rest
+  bilinear, no mipmaps. Metrics `terrain.chunks_*`, `terrain.atlas_slots`; `MARE_CHUNK_ATLAS=0`.
+- **Biome material masks** (`terrain.frag`): the export's splat weights (grass / rock / sand /
+  snow) and its land-cover classes - trees, shrubs, grass, crops, built-up, bare, snow, water,
+  wetland, mangroves, moss - are the ground's masks wherever a chunk is resident, the
+  procedural rules standing in elsewhere. Classes are read at the four surrounding samples and
+  blended, then the edge is broken by noise, so two covers meet along a ragged line rather than
+  a 3 km step: woods where the data has tree cover, strip fields and ploughland on cropland,
+  roof-and-stone mottle on built-up ground, karst from the rock weight, ergs from high dry
+  sand, mud flats and reed on wetland, dark mangrove, a still glossy surface on permanent
+  water. The export's **normal** (east / up / south, true-metre slopes scaled by the world's
+  15.5x vertical exaggeration) lights the ground wherever the rings are coarser than the data,
+  i.e. outside the near ring.
+- **Shores the sea breaks on.** Each ring now also carries a **shore mask** (RGBA8: cliff,
+  beach, marsh, exposure), built in the same compose from the chunk data read one cell inland
+  of the line - the export's slope and rock weight make a cliff, its sand weight and a gentle
+  slope a beach, its wetland and mangrove classes a marsh - and the shore profile follows it:
+  a strand 1.6x wider on sandy coasts and half as wide on steep ones, a rock face with deep
+  water off it, flat mud running far out of a marsh. Convex corners of the land-mask raster are
+  **rounded** (the minimum of the coast-distance field and a 3x3 blur of it, so the coast only
+  ever recedes, by under half a cell, never fills a bay and never moves a harbour), which is
+  what turns the two-cell Adriatic islands from boxes into rounded islets. The water meets each
+  coast its own way: waves come in **sets** (a forty-second swell), the surf sheet runs further
+  up the sand with each set while the terrain's wet band and foam line follow the swash, each
+  set's wave bursts white at the foot of an exposed cliff and the rock throws spray up the face
+  in streaks, and a marsh takes no surf at all.
+- **The world package** (`assets/data_new_2/world-game-package`, format
+  `mare-world-package-v1`, HOW_TO_USE_DATA.md) is read as well: its four LOD levels (513 / 257 /
+  129 / 65 samples per chunk) register as four datasets of one bbox, so a coarse level answers
+  while the fine one streams and the far ring can draw from it, its `coast.r8` classes (sand
+  beach, rock cliff, rocky coast, coastal water) decide the shore mask where they speak, and the
+  reader takes any sample count - the 257-sample regional Dalmatia export the guide describes
+  loads the moment it is dropped beside the package. Both `data_new_2` and `data_new` are
+  probed; every dataset found is registered, finest first.
+- **Smooth ground.** Heights are reconstructed with a Catmull-Rom spline over the 4x4 samples
+  around the point instead of bilinearly: the spline passes through the samples (peaks and the
+  coastline stay where the data puts them) and is C1 between them, so the 3 km grid no longer
+  shows as creases on every slope. The data's author asked for sharp edges to be avoided; the
+  convex-corner rounding of the raster coast and the ragged class edges (above) are the rest of
+  that answer.
+- **Camera tilt.** The pitch is no longer fixed by the zoom: middle-drag up and down,
+  PageUp / PageDown or the Options "camera tilt" slider add up to -60 degrees so the view can go
+  down to the horizon and see the sun; Home levels it. The far plane follows the pitch (out to
+  ~4400 units when level) so the world no longer ends in a hard line when looking out to sea;
+  `MARE_CAM_TILT` pins it for screenshots.
+- **Light over the sea at every distance.** The shadow cascades reach 1400 units (was 650), the
+  sun's glitter and the caustics follow the camera distance instead of fading at a fixed 400
+  units (the ripple normal maps keep their reach - at the regional zoom they alias), and
+  **terrain sun occlusion** (`det_sun_occ`): ten taps marched towards the sun through the
+  heightmap and the rings put valleys and the water at the foot of a range in the mountain's
+  shadow, on the land and on the sea alike - the shadow atlas only ever held meshes. The sea's
+  refraction gained **caustics** on the shallow bottom.
+- **Map view modes** (HUD "View" button, `MARE_MAP_MODE`): terrain, depth (a hypsometric sea
+  with a contour every quarter unit, read per fragment; height tints and contours on land),
+  religion (the owner's faith - a historical table per nation - or the period's map where no
+  one rules), political (nation colours with drawn borders), influence (how far each port's
+  reach carries, as heat in the nation colour; the new `influence` byte beside `territory`) and
+  production (each region's signature good by value-weighted potential, brighter with
+  development, from a 256x1 region-info texture). Borders are read through a half-texel noise
+  jitter so they wander like a drawn frontier instead of stepping along the half-degree grid;
+  the sea dims to a flat grey-blue under the thematic modes.
+- **Rivers** (`world/rivers.h/.cc`). The drainage of the base heightfield: a priority flood from
+  the sea over every land cell (so depressions fill and every cell has a downstream neighbour),
+  one unit of rain per cell accumulated down the flow, river wherever more than 45 cells
+  (~2200 km2) drain, traced from each head to the sea or into the river it joins. The 7 km
+  cell path is Chaikin-smoothed twice and given a small meander so it reads as a river, not a
+  staircase, and the half-width (0.3 .. 1.7 km) follows the catchment. The clipmap rings carve
+  the channel into the ground (a flat bed, banks sloping back over one and a half widths,
+  9 .. 27 m deep before the exaggeration, fading into the shore profile at the mouth) and write
+  a **river texture** (water, flow direction, width) the terrain shader paints: a dark
+  green-blue surface reflecting the sky, ripples drawn along the flow and carried downstream by
+  the clock, a glossy roughness; a blue line in the map modes. **Navigable reaches**: cells
+  draining over 420 land cells are nav-grid water of class 2, over 1400 class 1, and a fleet
+  enters as deep as its biggest hull allows - sloops and fluyts the upper reaches, merchantmen
+  and frigates the estuaries, galleons and liners stay at sea (`nav_river_limit`, set around
+  each fleet's path search and left at 0 for the port-distance rows, so the trade distances are
+  unchanged). Deterministic: a pure function of the heightfield, no rng.
+- Verified on screen: the Dalmatian coast at 60, 12 and 40 units, the Aegean, the western
+  Mediterranean at 320 and 600 units, the horizon from over the Adriatic with a low sun, the
+  depth / political / production modes, the Po valley and the Nile; headless suites green.
+
 ## 0.21.0 — Vulkan draws, DX12 wakes up, the discrete GPU, an Options panel, the last headers become classes
 
 - **The game was running on the wrong GPU.** On a hybrid laptop the driver hands an OpenGL

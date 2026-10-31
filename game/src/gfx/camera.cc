@@ -13,6 +13,7 @@ extern "C" {
 
 rts_cam_t cam;
 float cam_pitch_scale = 1.f;
+float cam_pitch_user = 0.f;
 float cam_min_eye_y = -1e9f;
 
 namespace mare::engine::render {
@@ -40,7 +41,8 @@ Camera &camera() { static Camera c; return c; }
 float Camera::pitch_for(float dist) {
     float t = powf(clampf((dist - CAM_MIN_DIST) / 420.f, 0, 1), 0.55f);
     float base = 28.f - 10.f * clampf((CAM_CITY_DIST - dist) / (CAM_CITY_DIST - CAM_MIN_DIST), 0, 1);
-    return maxf(12.f, (base + 60.f * t) * cam_pitch_scale) * 0.0174533f;
+    float deg = maxf(12.f, (base + 60.f * t) * cam_pitch_scale) + cam_pitch_user;
+    return clampf(deg, CAM_PITCH_MIN, CAM_PITCH_MAX) * 0.0174533f;
 }
 
 void Camera::reset(float tx, float tz, float dist) {
@@ -80,7 +82,11 @@ void Camera::update(float dt) {
     cam.fwd = norm3(sub3(target, cam.pos));
     cam.right = norm3(cross3(cam.fwd, vec3(0,1,0)));
     cam.up = cross3(cam.right, cam.fwd);
-    cam.znear = maxf(0.3f, cam.dist * 0.02f); cam.zfar = cam.dist * 5.f + 1200.f;
+    // The far plane follows the pitch: looking down, five camera distances past the target is
+    // all the ground there is; tilted towards the horizon the view runs out over the sea and
+    // the plane has to go with it (0.22) or the world ends in a hard line.
+    float level = 1.f - clampf((cam.pitch * 57.2958f - CAM_PITCH_MIN) / 22.f, 0.f, 1.f);
+    cam.znear = maxf(0.3f, cam.dist * 0.02f); cam.zfar = cam.dist * 5.f + 1200.f + 3200.f * level;
     float aspect = screen_w / maxf(1.f, (float)screen_h);
     cam.view = lookat44(cam.pos, target, vec3(0,1,0));
     cam.proj = proj_to_gl(perspective44(45.f * 0.0174533f, aspect, cam.znear, cam.zfar));

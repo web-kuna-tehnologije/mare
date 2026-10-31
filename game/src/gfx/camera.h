@@ -21,6 +21,9 @@ typedef struct rts_cam_t {
 
 extern rts_cam_t cam;
 extern float cam_pitch_scale;   // 1 = normal; the detail view lowers it towards the horizon (detailview.c)
+extern float cam_pitch_user;    // degrees added to the zoom's pitch by the player (middle-drag up/down, PageUp/PageDown, the Options "camera tilt"); the result is clamped to CAM_PITCH_MIN..CAM_PITCH_MAX
+#define CAM_PITCH_MIN   3.f     // degrees: nearly level, the sun and the horizon in frame
+#define CAM_PITCH_MAX  86.f
 extern float cam_min_eye_y;     // the eye is never placed below this height (mare.c: the wave crest or the ground under it, plus a margin)
 
 #define CAM_MIN_DIST   (2.5f * WORLD_SCALE)    // close enough to walk a town square (city view)

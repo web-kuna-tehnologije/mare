@@ -10,6 +10,7 @@ uniform sampler2DShadow u_shadowmap; uniform mat4 u_shadowvp0, u_shadowvp1, u_sh
 uniform vec2 u_shadowsplit; uniform float u_shadow_on; uniform vec2 u_shadow_texel;
 uniform vec3 u_shadow_wtexel;   /* world size of one shadow texel, per cascade */
 uniform float u_shadow_debug;   /* 1: shadow factor as grayscale, 2: diagnostics rgb (MARE_SHADOW_DEBUG) */
+float g_sun_occ = 1.0;          /* terrain sun occlusion (terrain/detail.glsl det_sun_occ): the terrain and sea passes set it before shading */
 float shadow_at(vec3 wpos, vec3 N, float NdotL, float viewdist) {
   if (u_shadow_on < 0.5) return 1.0;
   int c = viewdist > u_shadowsplit.y ? 2 : (viewdist > u_shadowsplit.x ? 1 : 0);
@@ -36,7 +37,7 @@ vec3 sun_shade_ao(vec3 albedo, vec3 N, vec3 V, vec3 wpos, float rough, float met
   if (u_shadow_debug > 1.5) return sh < 0.0 ? vec3(1.0, 0.0, u_shadow_on) : vec3(0.0, sh, u_shadow_on);
 // red: out of cascade bounds; green: factor; blue: enabled
   if (u_shadow_debug > 0.5) return vec3(sh * 0.8 + 0.1);
-  sh *= cloud_shadow(wpos, u_sun);
+  sh *= cloud_shadow(wpos, u_sun) * g_sun_occ;
   return pbr_direct(albedo, N, V, u_sun, rough, metal, u_suncol) * sh
        + pbr_ambient(albedo, N, metal, u_ambsky, u_ambgnd) * ao;
 }

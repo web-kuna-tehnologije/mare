@@ -13,11 +13,17 @@
 extern "C" {
 #endif
 
+// Map view modes (0.22): a colouring of the ground and the sea the HUD cycles through with the
+// "View" button. Terrain is the painted world; the rest tint it with one quantity each.
+enum { MAP_MODE_TERRAIN = 0, MAP_MODE_BATHYMETRY, MAP_MODE_RELIGION, MAP_MODE_POLITICAL, MAP_MODE_INFLUENCE, MAP_MODE_PRODUCTION, MAP_MODE_COUNT };
+static const char *const map_mode_names[MAP_MODE_COUNT] = { "Terrain", "Depth", "Religion", "Political", "Influence", "Production" };
+
 typedef struct ui_state_t {
     int sel_fleet_id, hover_fleet_id;   // 0 = none
     int sel_port, hover_port;           // -1 = none
     int route_mode;                     // clicking ports appends them to the selected fleet's route
     int show_fleets, show_log, show_lanes, show_wind, show_regions, show_help, show_stats, show_debug;   // panel toggles (show_debug = dev dashboard)
+    int map_mode;               // MAP_MODE_*: what the ground is coloured by (0.22); 0 = the terrain itself
     int in_menu;                        // main menu (nation choice) is up
     char toast[160]; float toast_timer; // transient notification at the top of the screen
     float saved_dist;                   // zoom level to return to after map view (M key)

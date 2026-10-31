@@ -1,3 +1,85 @@
+# Terrain chunks and the living hinterland (0.22 plan, 2026-10-31, worktree `oak`)
+
+The exporter under `assets/data_new` (`MARE_INTEGRATION.md`, format `mare-terrain-v2`) is now the
+**only** terrain source: height, coverage, biome IDs, material weights and normals per chunk.
+Every earlier cache of the same data was removed on 2026-10-31 - the v1 `assets/data/export-global`,
+the u16 cuts (`assets/terrain/tiles`, `assets/elm/terrain/tiles*`, `gebco`), the fine Mediterranean
+cut the height atlas read, and the procedural `.mht` ring caches - together with the code that
+read them (`world/terraintiles`, `gfx/heightatlas`, `terrain/atlas.glsl`, `tools/terrain_*.py`).
+The GEBCO GeoTIFF source cache (`assets/data/cache/gebco`, 7 GB) stays: it is what the exporter
+needs to cut a finer regional build, and it is not a game cache.
+
+Items 1-3 are done in this session; the rest is the order to take them in.
+
+1. [x] **Terrain-v2 chunks in the world.** `world/geochunks` reads every dataset under
+       `assets/data_new/*` (finest first, `longitude_wrap` honoured, `format` checked), streams
+       all of a chunk's maps on the IO/DECODE lanes, feeds the clipmap rings (height, drawn by
+       the tessellated patches) and a GPU **chunk atlas** (`gfx/chunkatlas`) of biome, splat and
+       normal maps the terrain and sea shaders sample with the vertex-aligned texel rule.
+2. [x] **Biome material masks.** `terrain.frag` takes the export's splat weights
+       (grass/rock/sand/snow) and biome classes (trees, shrubs, grass, crops, built-up, bare,
+       snow, water, wetland, mangrove, moss) as the ground's material masks, blended across the
+       3 km sample so classes meet along organic edges; the export's normals light the ground
+       outside the near ring.
+3. [x] **Natural coasts.** A per-ring **shore mask** (cliff, beach, marsh, exposure) built from
+       the chunk data and the Euclidean coast field: curved sandy beaches where the data is gentle
+       and sandy, rock faces with deep water where it is steep, marsh where it is wetland; the sea
+       breaks on them - wave sets ("tidal" surges every ~40 s), foam and spray on the cliffs, the
+       swash running up and down the sand.
+4. [x] **Map view modes**: depth, religion, political, port/settlement influence, production
+       (HUD "View" button, `common/mapmode.glsl`, the territory texture's influence channel, a
+       region-info texture). Religion is a per-nation table, not simulated yet.
+5. [x] **Rivers** (`world/rivers.h/.cc`): a priority flood over the folded heightfield gives
+       every land cell its downstream neighbour, drainage is accumulated down those directions,
+       cells draining over 45 land cells are river; polylines are Chaikin-smoothed with a small
+       meander and a half-width from the catchment. The rings carve the channel (flat bed, sloped
+       banks) and write a river texture the terrain shader paints with flowing water; the lower
+       reaches of the great rivers are nav-grid water by class (`navriver`), and a fleet may enter
+       as deep as its largest hull allows (`nav_river_limit`: sloops and fluyts the upper
+       reaches, merchantmen and frigates the estuaries, galleons never). No geometry-stage ribbon:
+       painting the carved bed through the ring texture needs no extra pass and follows the
+       tessellated ground exactly. Left: rain weighting by biome, deltas, lakes as basins.
+6. [ ] **Roads**: settlement graph -> least-slope routes -> ribbons; class upgraded by the inland
+       trade volume flowing to the port of most influence (`sim/region`).
+7. [ ] **Hinterland settlements**: procedural villages along the roads, surrounded by what the
+       region produces (vineyards, wheat fields and mills, orchards, pasture, timber).
+8. [ ] **LOD streaming for scatter**: trees, rocks, fields, houses as instanced LOD chains paged
+       per chunk; forests from biome 10, built-up from 50.
+9. [ ] **Procedural micro-detail levels** on the near ground (furrows, stone walls, paths).
+10. [ ] **Props**: export the `assets/buildings/city` Meshy blends (windmill, bakery, well,
+        fences, roads, quay...) through the LOD exporter into `assets/props/` with LOD chains.
+
+## Session notes (2026-10-31, 0.22, second pass)
+
+- **Build mirror** is now `C:\projects\mare-oak-9f81e43c` (written at `/mnt/c/projects/...`
+  directly: the WSL cache path is not visible to Windows). `tools-bat\build.bat [test]`,
+  `shot.bat lon lat dist yaw file secs`, `sunshot.bat lon lat dist yaw file sx sy sz tilt`,
+  `modeshot.bat lon lat dist yaw file mode`.
+- The second delivery (`assets/data_new_2/world-game-package`) is the LOD package; the
+  `dalmatia-detail-3x` set its guide mentions is **not in the folder yet** - the reader
+  accepts 257-sample chunks, so it will load when it lands (check the log for a
+  "terrain-v2 dataset: 3x3 chunks of 257 samples" line).
+- The GL debug warning about a shadow sampler bound to a non-depth texture is pre-existing
+  (the 0.21 archived build prints it too) - recorded in KNOWN_ISSUES.
+
+## Session notes (2026-10-31, 0.22)
+
+- **Build loop.** The shared mirror `C:\projects\mare-oak-s21` was used by another session
+  mid-run (a `mare.exe` with a random seed appeared in its logs; the next runs died after two
+  frames), so this session moved to a private mirror `C:\projects\mare-oak-s22`: rsync
+  `game/ tools/ ext/ v3.*` from the worktree, `cmd.exe /c C:\projects\mare-oak-s22\tools-bat\build.bat`
+  (`test` for the headless suites), `tools-bat\s22.bat <lon> <lat> <dist> <yaw> <shot.ppm> <secs>`
+  for pinned-camera screenshots (cmd splits on commas: the camera goes in as four arguments),
+  `python3 -I tools/ppm2png.py` to look at them. The old memory note about `tools/winbuild.sh`
+  is wrong: no such script ever existed.
+- **Measured.** Overview dataset found beside the assets (27x14 chunks, 2795 m/sample, wraps),
+  bake 3,915,031 cells in 149-297 ms, chunk atlas 48 MB, near ring 262,144 / 262,144 texels
+  from the chunks with maps once resident, far ring 448,756 at the Dalmatian coast. Headless
+  suites (diag, jobs, sim, asset, entity) green on MSVC.
+- **Leftover.** Regional datasets' material maps are not in the atlas yet; the far ring's
+  border shows the raster coast at the regional zoom (KNOWN_ISSUES); a camera pinned over a
+  port drops into the staged city scene, so screenshot cameras should sit off the harbour.
+
 # Session summary (2026-10-30 night, worktree `oak`, 0.21.0)
 
 - **Wrong GPU, found by measuring**: the executable did not ask for the discrete chip, so GL

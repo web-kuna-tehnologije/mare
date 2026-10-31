@@ -32,6 +32,8 @@ typedef struct options_t {
     float lod_bias;           // authored-asset LOD switch distance, 0.4 .. 3
     // water
     float wave_height;        // 0 .. 2
+    // camera
+    float cam_tilt;           // degrees added to the zoom's pitch, -60 .. +30 (0 = the classic RTS pitch)
     // post
     int   ssao;
     float bloom;              // 0 .. 1.5
