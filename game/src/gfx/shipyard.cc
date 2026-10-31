@@ -901,7 +901,7 @@ int Shipyard::push(const shipyard_req_t *r) {
 }
 
 
-// Per frame: the instance lists are rebuilt from scratch (scene.c and detailview.c both call
+// Per frame: the instance lists are rebuilt from scratch (scene.c and staged_scene.cc both call
 // this before pushing ships), then uploaded and drawn with whatever pipeline is bound.
 void Shipyard::frame_begin(void) {
     for (int i = 0; i < NCLASSES; ++i) { instlist_clear(&rig_inst[i]); instlist_clear(&cloth_inst[i]); }

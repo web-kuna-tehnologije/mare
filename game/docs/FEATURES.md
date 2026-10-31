@@ -21,7 +21,7 @@ Status as of the current codebase. Each entry names the module that owns it.
 - `MARE_SHIPS=0` falls back to the procedural fleet; the dashboard LOD tab reports authored
   hulls, oar instances and fallbacks.
 
-## World streaming (`src/world/stream.c`, `src/gfx/streamview.c`)
+## World streaming (`src/world/stream.c`, `src/gfx/terrain_rings.cc`)
 - Tile hierarchy continent -> region -> coastal tile -> tactical chunk: a 4-level quadtree of
   512 tiles over the map (64° -> 8° per side), each a 257×257 delta heightfield against the
   base map, deterministic from the seed, faded out at coasts and over water (the simulation
@@ -129,8 +129,8 @@ Status as of the current codebase. Each entry names the module that owns it.
 - The terrain-v2 export is the terrain (0.20, 0.22): every dataset under `assets/data_new`
   (the 3 km overview and any finer regional build) streamed as 513x513 chunks of float32
   metres, coverage, biome classes, splat weights and normals on the job system
-  (`world/geochunks.h`, `assets/data_new/MARE_INTEGRATION.md`); the heights feed the clipmap
-  rings and the tessellated patches, the material maps a GPU chunk atlas (`gfx/chunkatlas.h`)
+  (`world/terrain_chunks.h`, `assets/data_new/MARE_INTEGRATION.md`); the heights feed the clipmap
+  rings and the tessellated patches, the material maps a GPU chunk atlas (`gfx/terrain_atlas.h`)
   the terrain shader samples per fragment. Biome material masks and a shore mask (cliff /
   beach / marsh / exposure) the sea breaks on come from the same data (DESIGN_TERRAIN.md 3e).
 - Coast polish (0.19): the clipmap rings move the shoreline inside a band around the raster

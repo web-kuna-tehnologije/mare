@@ -5,7 +5,7 @@ uniform float u_shallow;
 // depth (in wave-scale units) the swell needs to reach full height: ~1.1 close in, up to ~3.6 at the strategic zoom, so the open sea runs and the coasts stay calm
 uniform float u_mapness_vs;
 // the map morph, for the detail rings below (the sea's own u_mapness is a fragment uniform)
-#include "terrain/detail.glsl"
+#include "terrain/rings.glsl"
 out vec3 v_wpos; out vec3 v_nrm; out float v_slope; out float v_h; out float v_amp; out float v_edge; out float v_jac; out float v_crest; out float v_shipw;
 // The water a ship pushes aside. Each nearby ship (x, z, heading, speed in hull lengths per 
 // second; hull length) raises a bow wave: a crest heaped at the stem that rings outward 
@@ -40,7 +40,7 @@ float ship_wave(vec2 pp, float t) {
 // nothing breaks through the sand.
 float shoal_boost(float dep, float scale) { float x = (dep - 0.95 * scale) / (0.5 * scale); return 1.0 + 0.7 * exp(-x * x); }
 // raw heightmap value: negative below sea level; > 0.35 is land, which the sea discards.
-// The streamed detail rings (terrain/detail.glsl) are added exactly as the terrain adds
+// The streamed detail rings (terrain/rings.glsl) are added exactly as the terrain adds
 // them, so the water's edge follows the *detailed* shore - the authored coastline near the
 // camera - and not the base raster's cell steps (0.19 coast polish).
 float height_at(vec2 p) {

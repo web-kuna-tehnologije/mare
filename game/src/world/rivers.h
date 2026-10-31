@@ -8,7 +8,7 @@
 // smoothed and given a meander so a river is a curve, not a staircase of 7 km cells, and a
 // half-width from its catchment. Deterministic: a pure function of the heightfield.
 //
-// Two consumers. The clipmap rings (gfx/streamview.cc) carve the channel into the ground and
+// Two consumers. The clipmap rings (gfx/terrain_rings.cc) carve the channel into the ground and
 // write a river texture the terrain shader paints flowing water on. Navigation (world/nav.h)
 // opens the lower reaches of the great rivers to ships: navriver marks the nav cells, by
 // class, and nav_river_limit says how deep a fleet may go (fleet.cc sets it from the hulls).
@@ -38,6 +38,7 @@ typedef struct river_t { int first, count; int cells; int navigable; } river_t; 
 // the polylines: world x, z, half-width (world units), flow direction (unit, world xz) per point
 extern float *river_px, *river_pz, *river_hw, *river_dx, *river_dz;
 extern unsigned char *river_cls;      // per point: 0 a stream (painted on the ground), 1 or 2 a navigable channel
+extern unsigned char *river_mask;     // LM_W*LM_H: 1 where a river wide enough to need a bridge runs (roads.cc reads it)
 extern int    river_npts, river_n;
 extern river_t *rivers;
 

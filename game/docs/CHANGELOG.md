@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.22.2 — the tree tidied, a lower world, canyons, roads
+
+- **Files named for what they are.** The framework's `v3.c/.h` moved from the repository root
+  into `game/src/platform/` (its build script to `tools/v3_framework.sh`), `game/mare.cc`
+  became `game/src/main.cc` and loses its `src/` include prefixes, and the terrain and scene
+  modules whose names described their history rather than their job were renamed:
+  `geochunks` -> `terrain_chunks`, `terrainmap` -> `terrain_overview`, `streamview` ->
+  `terrain_rings`, `chunkatlas` -> `terrain_atlas`, `detailview` -> `staged_scene`,
+  `terrain/detail.glsl` -> `terrain/rings.glsl`. Build scripts, CMake, tests and docs follow.
+  C symbol prefixes are unchanged.
+- **A lower world.** 9000 m now maps to 17 world units instead of 20; the sea calibration is
+  untouched, so every shallow-water gate and shore threshold keeps its meaning.
+- **Canyons.** Where a sizeable river runs through high ground it has cut a gorge: a flat
+  floor with the stream on it, walls rising within a quarter width, deeper the higher the
+  land stands (`terrain_rings.cc`). The walls are written into the shore mask's cliff
+  channel, so they are painted as bare rock with scree at the foot - the sea cliffs' material.
+  Brooks keep their shallow bed.
+- **Roads** (`world/roads.h/.cc`, TODO item 6). Inland settlements are routed to the hub port
+  of most influence in their region, and a region's hubs are chained, by an A* over the land
+  mask whose step cost grows with the slope crossed, forbids water, and halves along cells
+  already carrying a road - so farm tracks run together into one road to town. Class (track,
+  road, highway) follows the region's `traded_today / throughput` and the network is rebuilt
+  every 45 simulated days, so a road upgrades as the inland trade towards the port grows.
+  Painted through the ring texture's A channel (previously an unread width) as packed earth;
+  a dark line in the map modes. Where a route crosses a river a **bridge point** is recorded
+  (`road_bridges`) for the prop pass. Seed 7, day 30: 46 roads, 57 bridges, 81 ms.
+- The hinterland work is broken into small items in docs/TODO.md: scatter framework, trees,
+  rocks, fields, vineyards and orchards, villages, bridges, road upgrade visuals, micro-detail.
+
+
 ## 0.22.1 — the rig seated and slimmed, Istria, round islands, rivers you can sail
 
 - **Masts are poles again, and they stand on the deck.** The generated mast assemblies are
@@ -41,7 +71,7 @@
   on water, which is all the exaggerated relief can honestly support. The **caustics** were
   clamped too: they multiplied the shallow seabed by up to 3.4 and turned every shelf into
   bands of white.
-- **Rivers you can sail** (`world/rivers.*`, `gfx/streamview.cc`). Each river *point* now
+- **Rivers you can sail** (`world/rivers.*`, `gfx/terrain_rings.cc`). Each river *point* now
   carries its own navigable class from the catchment there - the Danube is a channel at
   Belgrade and a stream in the Black Forest - and a navigable reach is cut as a real channel
   whose **bed goes below sea level**, so the sea pass fills it and a hull floats in it. Width
@@ -79,7 +109,7 @@
   regional build. The geography bake reads the overview (3,915,031 cells in ~150-300 ms).
 - **The chunks are drawn** through the existing path - height on the two clipmap rings, the
   tessellated 8x8 patch lattices per chunk amplifying them - and their material maps through a
-  new **GPU chunk atlas** (`gfx/chunkatlas.h/.cc`, `terrain/chunks.glsl`): 4x4 slots of 513
+  new **GPU chunk atlas** (`gfx/terrain_atlas.h/.cc`, `terrain/chunks.glsl`): 4x4 slots of 513
   texels in three RGBA8 atlases (class / splat / normal, 48 MB) plus a slot table, paged one
   chunk a frame, addressed with the spec's vertex-aligned texel rule, class nearest, the rest
   bilinear, no mipmaps. Metrics `terrain.chunks_*`, `terrain.atlas_slots`; `MARE_CHUNK_ATLAS=0`.
@@ -210,7 +240,7 @@
 
 ## 0.20.0 — the export read as chunks, a self-measuring height atlas, Vulkan's memory and command path
 
-- **The GEBCO export is read as the chunks it is** (`world/geochunks.h/.cc`, new
+- **The GEBCO export is read as the chunks it is** (`world/terrain_chunks.h/.cc`, new
   `mare::game::world::GeoChunks`), which is what `assets/data/how_to.txt` asks for and the game
   was not doing. It streams `chunks/{y}/{x}/height.r32` - 513x513 little-endian float32 **metres** -
   with its `coverage.r8` mask, derives each chunk's bounds from the manifest and checks them
@@ -221,7 +251,7 @@
   Decoding uses the identical land/sea calibration the u16 cut decoded to, so every shading
   threshold, wave gate and depth fade keeps its meaning. IO lane reads, MAIN lane publishes,
   96 MB budget, `MARE_GEOCHUNKS=0` / `MARE_GEOCHUNK_DIR` / `MARE_GEOCHUNK_MB`.
-- **Three height sources, best first** (`gfx/streamview.cc`): the fine regional set, then the
+- **Three height sources, best first** (`gfx/terrain_rings.cc`): the fine regional set, then the
   GEBCO chunks, then the u16 cut. Measured on the Adriatic: the near clipmap ring takes all
   262144 of its texels from the fine set, and the far ring mixes 80250 from the chunks with
   the cut where neither reaches. Each compose logs its source split at debug level.
@@ -284,7 +314,7 @@
   fuzz sheen; water with crest scattering (the green-turquoise glow of light through a wave
   seen against the sun); ground with per-material roughness (matte grass, tighter rock, soft
   snow, wet dark-glossy rock in the splash zone) and a close-range micro-relief normal.
-- **Coast polish** (`gfx/streamview.cc`, `sea/vs_common.glsl`): inside a band around the base
+- **Coast polish** (`gfx/terrain_rings.cc`, `sea/vs_common.glsl`): inside a band around the base
   raster's waterline the clipmap rings may now move the shore - where the authored GEBCO map is
   decisive its side of the waterline wins (a sea cell never shallower than -0.30, a land cell
   never under 0.20, so the sea's shallow shading keeps its calibration), elsewhere the raster
@@ -403,7 +433,7 @@
   sessions cutting into the shared folder have already overwritten each other's index once -
   and `tools/terrain_tiles.py` now writes the true sample dims into the meta (the padded dims
   used to squeeze the east and south edges by 2%).
-- **Battle lines** (`gfx/detailview.c`): the staged battle fights in formation. Each side
+- **Battle lines** (`gfx/staged_scene.cc`): the staged battle fights in formation. Each side
   sails a stadium circuit in line ahead - every ship holds the station her slot gives her,
   turning where her next-ahead turned (turning in succession), speed trimmed against the
   station and capped by her class, the line at 0.8x its slowest sail. The two circuits mirror
@@ -610,7 +640,7 @@ Plan and measurements: [DESIGN_SHIPS.md](DESIGN_SHIPS.md),
   oared galiot in the Adriatic. Venice, the Ottomans and the pirates sail the fusta and galiot;
   the northern trading powers favour the hulk over the carrack. The procedural hulls remain the
   fallback, so a class that is still loading or was never imported never leaves a hole.
-- **The staged battle and city views use the authored fleet too** (`gfx/detailview.c`): the
+- **The staged battle and city views use the authored fleet too** (`gfx/staged_scene.cc`): the
   staged ships carry the scene's magnification through `shipyard_req_t.scale`, and the staged
   asset bracket now spans ships as well as buildings - authored hulls were being pushed but
   only submitted in city view, so a staged battle drew nothing at all.
@@ -674,7 +704,7 @@ Plan and the terrain grid listing: [DESIGN_STREAMING.md](DESIGN_STREAMING.md).
   eviction is LRU by last-wanted, never a tile in the wanted set, never a parent whose
   children are resident (the coarser fallback that makes a stream-in hole impossible), a few
   tiles per update, payload only — the disk cache stays.
-- **Terrain detail window** (`gfx/streamview.c`): the finest resident tiles compose into one
+- **Terrain detail window** (`gfx/terrain_rings.cc`): the finest resident tiles compose into one
   512² R32F window around the camera (sub-millisecond, parallel on the WORKER lanes, rebuilt
   on residency change or when the camera leaves the inner half) that the terrain vertex
   shader adds on top of the base heightmap, faded at its border. The camera's ground floor

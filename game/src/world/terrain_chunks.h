@@ -21,7 +21,7 @@
 // builds the exporter cut - and every sampler below answers from the **finest resident** one,
 // so dropping a 30 m Dalmatian build under assets/data_new sharpens that coast and changes
 // nothing else. Independent builds are not stitched (their grids need not align); the rings
-// that consume them cross-fade by distance anyway (gfx/streamview.cc).
+// that consume them cross-fade by distance anyway (gfx/terrain_rings.cc).
 //
 // Streaming follows the house discipline (world/stream.h): the IO lane reads, the DECODE lane
 // unpacks the PNGs, the MAIN lane publishes, so a chunk's state only ever changes on the render
@@ -102,14 +102,14 @@ void geochunks_update(float lon, float lat, float radius_deg);
 int  geochunks_height_m(float lon, float lat, float *out_metres);
 
 // The same, converted to world units with the calibration the rest of the game is tuned for:
-// land linear to 9000 m, sea sqrt-compressed to 12000 m (world/geochunks.cc GC_*).
+// land linear to 9000 m, sea sqrt-compressed to 12000 m (world/terrain_chunks.cc GC_*).
 int  geochunks_height(float lon, float lat, float *out_world);
 
 // Everything at once (height, class, weights, normal). Returns 1 when the height answered;
 // `has_maps` says whether the material maps did too.
 int  geochunks_sample(float lon, float lat, gc_sample_t *out);
 
-// One-shot geography fold straight from the overview dataset (world/terrainmap.h drives it):
+// One-shot geography fold straight from the overview dataset (world/terrain_overview.h drives it):
 // walk the chunk grid one row of chunks at a time - the whole export is never resident - and
 // write the authored Earth into a base grid of `w` x `h` cells. Per cell: authored relief
 // where both agree on land, authored bathymetry where both agree on sea, base land never
@@ -127,7 +127,7 @@ unsigned geochunks_generation(void);      // bumps when residency changes
 int  geochunks_dataset_count(void);
 int  geochunks_dataset(int i, gc_dataset_t *out);
 
-// The decoded maps of a resident chunk, for the GPU chunk atlas (gfx/chunkatlas.h). Each is
+// The decoded maps of a resident chunk, for the GPU chunk atlas (gfx/terrain_atlas.h). Each is
 // samples^2 RGBA8, northern row first:
 //   cls    R = biome id, G = coverage (0/255), B = biome_source, A = coast class (0 none)
 //   splat  the export's weights as shipped

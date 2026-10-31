@@ -3,7 +3,7 @@
 // src/, the framework is the one C unit in src/platform/v3_impl.c, and this file owns main()
 // and the frame loop. See game/build.sh / build.bat for the canonical builds.
 
-#include "src/platform/v3cpp.hh"
+#include "platform/v3cpp.hh"
 
 #include <cstdio>
 #include <cstdlib>
@@ -11,39 +11,39 @@
 #include <ctime>
 
 extern "C" {
-#include "src/core/jobs.h"
-#include "src/core/diag.h"
-#include "src/core/types.h"
-#include "src/core/util.h"
-#include "src/core/balance.h"
-#include "src/core/log.h"
-#include "src/engine/entities.h"
-#include "src/data/tables.h"
-#include "src/data/geo_ports.h"
-#include "src/sim/settlement.h"
-#include "src/world/world.h"
-#include "src/world/terrainmap.h"
-#include "src/world/geochunks.h"
-#include "src/world/rivers.h"
-#include "src/world/stream.h"
-#include "src/world/nav.h"
-#include "src/sim/game.h"
-#include "src/sim/fleet.h"
-#include "src/sim/events.h"
-#include "src/sim/economy.h"
-#include "src/assets/asset.h"
-#include "src/gfx/rhi.h"
-#include "src/gfx/render.h"
-#include "src/gfx/camera.h"
-#include "src/gfx/scene.h"
-#include "src/gfx/shipyard.h"
-#include "src/gfx/lod.h"
-#include "src/gfx/occlusion.h"
-#include "src/gfx/occquery.h"
-#include "src/gfx/detailview.h"
-#include "src/gfx/weather.h"
-#include "src/ui/ui.h"
-#include "src/ui/options.h"
+#include "core/jobs.h"
+#include "core/diag.h"
+#include "core/types.h"
+#include "core/util.h"
+#include "core/balance.h"
+#include "core/log.h"
+#include "engine/entities.h"
+#include "data/tables.h"
+#include "data/geo_ports.h"
+#include "sim/settlement.h"
+#include "world/world.h"
+#include "world/terrain_overview.h"
+#include "world/terrain_chunks.h"
+#include "world/rivers.h"
+#include "world/stream.h"
+#include "world/nav.h"
+#include "sim/game.h"
+#include "sim/fleet.h"
+#include "sim/events.h"
+#include "sim/economy.h"
+#include "assets/asset.h"
+#include "gfx/rhi.h"
+#include "gfx/render.h"
+#include "gfx/camera.h"
+#include "gfx/scene.h"
+#include "gfx/shipyard.h"
+#include "gfx/lod.h"
+#include "gfx/occlusion.h"
+#include "gfx/occquery.h"
+#include "gfx/staged_scene.h"
+#include "gfx/weather.h"
+#include "ui/ui.h"
+#include "ui/options.h"
 }
 
 // Ask a hybrid laptop for the discrete GPU.
@@ -260,8 +260,8 @@ int main(int argc, char **argv) {
     // The terrain-v2 export read as the chunks it is (assets/data_new/MARE_INTEGRATION.md):
     // float32 metres, coverage, biome classes, material weights and normals, from every
     // dataset under data_new (the 3 km overview and any finer regional build). Two consumers:
-    // the clipmap rings and the chunk atlas page it in around the camera (gfx/streamview.cc,
-    // gfx/chunkatlas.cc), and the one-shot geography bake below folds its relief into the base
+    // the clipmap rings and the chunk atlas page it in around the camera (gfx/terrain_rings.cc,
+    // gfx/terrain_atlas.cc), and the one-shot geography bake below folds its relief into the base
     // world before the navigation grid, the regions and the ports are built against it.
     // MARE_GEOCHUNKS=0 / MARE_TERRAIN_GEO=0 bring the procedural world back.
     geochunks_init(NULL);

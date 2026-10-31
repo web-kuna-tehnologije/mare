@@ -10,7 +10,7 @@ uniform sampler2D u_atlas; uniform float u_has_atlas;
 uniform sampler2D u_grain;
 // the procedural surface-grain normal map (detail.c): micro relief on the close ground
 uniform float u_time;
-#include "terrain/detail.glsl"
+#include "terrain/rings.glsl"
 #include "terrain/chunks.glsl"
 out vec4 fragColor;
 // One cell of the atlas, tiled: the uv wraps inside the cell by hand (an atlas cannot use
@@ -56,7 +56,7 @@ void main(){
   vec3 n = normalize(vec3(-gx, 1.0, -gz));
   float h = v_h; float lat = -v_wpos.z / u_k; float lon = v_wpos.x / u_k;
 // --- the chunk data (0.22): the export's land-cover classes, material weights and normal
-// (gfx/chunkatlas.h). Everything below keeps its procedural rule as the fallback and takes the
+// (gfx/terrain_atlas.h). Everything below keeps its procedural rule as the fallback and takes the
 // data's word where a chunk is resident and the sample is covered.
   vec2 cuv, clocal, ccell; bool cdata = ch_uv(lon, lat, cuv, clocal, ccell);
   float ccover = 0.0; vec4 csplat = vec4(0.0);
@@ -72,7 +72,7 @@ void main(){
   }
   float wtrees = wcls(10.0), wshrub = wcls(20.0), wcrops = wcls(40.0), wbuilt = wcls(50.0), wbare = wcls(60.0);
   float wsnowc = wcls(70.0), wlake = wcls(80.0), wmarsh = wcls(90.0), wmangrove = wcls(95.0), wmoss = wcls(100.0);
-// the coast this fragment stands on (streamview.cc's shore mask): cliff, beach, marsh, exposure
+// the coast this fragment stands on (terrain_rings.cc's shore mask): cliff, beach, marsh, exposure
   vec4 sh = shore_at(v_wpos.xz) * dk;
   wmarsh = max(wmarsh, sh.b);
   float slope = 1.0 - n.y;
@@ -304,6 +304,15 @@ void main(){
     vec3 rn = normalize(vec3((rip - 0.5) * 0.25 * rfade * fperp.x, 1.0, (rip - 0.5) * 0.25 * rfade * fperp.y));
     n = normalize(mix(n, rn, rk));
   }
+// Roads (0.22.2, world/roads.h): packed earth and the pale dust of a cart track, following
+// the ground; a little ruttier up close, a plain tan line from the regional view
+  float rdk = rv.a * (1.0 - u_mapness) * (1.0 - under) * (1.0 - rk);
+  if (rdk > 0.01) {
+    float rut = noise(v_wpos.xz * 40.0) * 0.5 + noise(v_wpos.xz * 9.0) * 0.5;
+    vec3 roadc = mix(vec3(0.50, 0.43, 0.33), vec3(0.64, 0.57, 0.45), rut);
+    c = mix(c, roadc, rdk * 0.9);
+    rough = mix(rough, 0.88, rdk);
+  }
   float diff = max(dot(n, u_sun), 0.0);
   vec3 vdir = normalize(u_campos - v_wpos);
   float viewdist = distance(v_wpos, u_campos);
@@ -343,6 +352,7 @@ void main(){
       bord += float(abs(texture(u_terr, juv + vec2(0,u_terr_texel.y)).r - tj.r) > 0.001); }
     mc = mix(mc, vec3(0.08, 0.06, 0.05), min(bord, 1.0) * 0.85);
     mc = mix(mc, vec3(0.25, 0.45, 0.80), rv.r * 0.9);
+    mc = mix(mc, vec3(0.36, 0.26, 0.16), rv.a * 0.85);
     mc *= 0.55 + 0.45 * diff;
     if (u_mapmode == 1) mc = mix(mc, mc * 0.6, 1.0 - smoothstep(0.0, 0.02, abs(fract(h / 0.5 + 0.5) - 0.5) * 0.5));   // contours every half unit
     col = mix(col, srgb_to_linear(mc) * max(u_daylight, 0.6), under > 0.5 ? 0.0 : 0.82);

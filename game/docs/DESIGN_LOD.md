@@ -108,7 +108,7 @@ Each `(asset, lod)` pair is in one of `NOT_RESIDENT / REQUESTED / CPU_READY / GP
 * **There is never a hole.** If the wanted LOD is not resident, the nearest resident coarser LOD
   draws; if none is resident, the icon draws. Streaming latency costs sharpness, never objects.
 * **Cloud cover.** A zoom that crosses two tiers faster than the streamer can follow (or an entry
-  into the detail view) pulls the existing cloud overlay from `detailview.c` - extracted into
+  into the detail view) pulls the existing cloud overlay from `staged_scene.cc` - extracted into
   `gfx/clouds.c` so both callers share it - over the frame until the wanted set is resident or a
   maximum time elapses. Fog of war over unexplored regions uses the same overlay path.
 

@@ -81,7 +81,7 @@ Environment variables still win, so the A/B scripts are unaffected.
 ## 0.20: the height atlas, and why the terrain has no geometry stage
 
 *(0.22: the height atlas and the fine tile set it read were removed with the other terrain
-caches; the chunk atlas `gfx/chunkatlas.h` now holds the terrain-v2 material maps instead -
+caches; the chunk atlas `gfx/terrain_atlas.h` now holds the terrain-v2 material maps instead -
 DESIGN_TERRAIN.md 3e. The reasoning below about the geometry stage still stands.)*
 
 `gfx/heightatlas.h` held resident authored tiles on the GPU so the terrain's vertex and
@@ -100,7 +100,7 @@ Tessellation is the correct amplification for ground at this scale and already d
 expansion, which is what the rig's cordage uses it for (`meshes/rope.geom`, 0.19): a rope has a
 physical width of a few centimetres and must still be visible as a line from a kilometre away,
 and no other stage can turn one primitive into a correctly-sized screen quad. If vegetation is
-wanted it belongs in the staged scenes (`gfx/detailview.cc`), where one unit is about 2.8 m.
+wanted it belongs in the staged scenes (`gfx/staged_scene.cc`), where one unit is about 2.8 m.
 
 ## Step 10: profiling hooks (done)
 

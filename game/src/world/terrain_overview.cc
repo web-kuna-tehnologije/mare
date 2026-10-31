@@ -1,4 +1,4 @@
-// Authored terrain maps (see terrainmap.h, game/docs/DESIGN_TERRAIN.md).
+// Authored terrain maps (see terrain_overview.h, game/docs/DESIGN_TERRAIN.md).
 // Sections: loading · sampling (height, normal) · the ground-material rule · folding the
 // authored height into the base world.
 #include <cstdio>
@@ -7,12 +7,12 @@
 #include <cmath>
 
 extern "C" {
-#include "terrainmap.h"
+#include "terrain_overview.h"
 #include "world.h"
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../assets/asset.h"
-#include "geochunks.h"
+#include "terrain_chunks.h"
 #include "../data/geo_ports.h"   // the protection mask in terrainmap_bake_geography
 }
 
@@ -167,7 +167,7 @@ int TerrainMap::ground(float height, float slope, float lat) {
     return height > 3.5f ? GROUND_TURF : GROUND_GRASS;
 }
 
-// Fold the authored geography in from the streamed tiles (see terrainmap.h). The decisions
+// Fold the authored geography in from the streamed tiles (see terrain_overview.h). The decisions
 // live in geochunks_bake; this driver supplies what it must not touch - a protection mask
 // over every historical harbour basin, so no island can land on a port's water - and repairs
 // what a mask change invalidates: the carved straits are forced open again and the signed
@@ -229,7 +229,7 @@ void TerrainMap::apply_to_world() {
 
 } // namespace mare::game::world
 
-// C ABI (terrainmap.h) for the unported callers
+// C ABI (terrain_overview.h) for the unported callers
 extern "C" {
 void  terrainmap_load(const char *dir) { mare::game::world::terrainmap().load(dir); }
 void  terrainmap_free(void) { mare::game::world::terrainmap().unload(); }

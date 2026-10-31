@@ -39,8 +39,13 @@ Items 1-3 are done in this session; the rest is the order to take them in.
        reaches, merchantmen and frigates the estuaries, galleons never). No geometry-stage ribbon:
        painting the carved bed through the ring texture needs no extra pass and follows the
        tessellated ground exactly. Left: rain weighting by biome, deltas, lakes as basins.
-6. [ ] **Roads**: settlement graph -> least-slope routes -> ribbons; class upgraded by the inland
-       trade volume flowing to the port of most influence (`sim/region`).
+6. [x] **Roads** (`world/roads.h/.cc`): every inland settlement is routed to the hub port of
+       most influence in its region, and a region's hubs are chained, by an A* over the land
+       mask whose cost grows with the slope crossed and halves along cells already carrying a
+       road (farm tracks merge into one road to town). Class (track / road / highway) follows
+       `traded_today / throughput`, rebuilt every 45 simulated days. Painted through the ring
+       texture's A channel as packed earth. Bridge points are recorded where a route crosses
+       a river (57 at seed 7) - the props for them are item 10b below.
 7. [ ] **Hinterland settlements**: procedural villages along the roads, surrounded by what the
        region produces (vineyards, wheat fields and mills, orchards, pasture, timber).
 8. [ ] **LOD streaming for scatter**: trees, rocks, fields, houses as instanced LOD chains paged
@@ -48,6 +53,56 @@ Items 1-3 are done in this session; the rest is the order to take them in.
 9. [ ] **Procedural micro-detail levels** on the near ground (furrows, stone walls, paths).
 10. [ ] **Props**: export the `assets/buildings/city` Meshy blends (windmill, bakery, well,
         fences, roads, quay...) through the LOD exporter into `assets/props/` with LOD chains.
+
+### Small items for the hinterland (requested 2026-10-31; each is an afternoon, in this order)
+
+- [ ] **8a. Scatter framework.** One `gfx/scatter.cc`: per resident ring texel a deterministic
+      hash decides what stands there from the biome class + splat + slope + the road/river
+      textures; instances batched per prop type with 3 LODs (mesh / card / nothing), paged
+      with the ring, frustum-culled per 8x8 texel block. Everything below is a rule in it.
+- [ ] **8b. Trees.** Tree-cover class 10 -> clumps of 3-7 broadleaf/pine cards per texel,
+      density by splat.grass; conifers above 2.5 units, olives in the Mediterranean belt. Far
+      LOD is the forest colour already in `terrain.frag` (no instances past 160 units).
+- [ ] **8c. Rocks.** Canyon rims and sea cliffs (shore mask R > 0.5, slope > 0.3): 1-3 boulder
+      meshes per texel, scaled 0.02-0.08 units, tinted limestone/basalt by latitude as the
+      shader does; scree slopes get pebble cards.
+- [ ] **7a. Fields.** Cropland class 40 within 6 texels of a road or settlement -> strip-field
+      quads (plough / stubble / young corn, the three the shader already paints) aligned to
+      the road, hedged by a 1-texel darker edge. Wheat where the region's dominant good is
+      Grain.
+- [ ] **7b. Vineyards and orchards.** Wine regions (dominant good Wine, slope 0.05-0.25,
+      south-facing): rows of vine cards 0.6 texels apart along the contour. Orchards: tree
+      clumps on a grid near villages in Grain/Sugar regions. Olive groves in the belt.
+- [ ] **7c. Villages.** Each `G.inland` settlement gets a cluster of 4-12 houses from the
+      `small_stone_house` / `small_wooden_house` / `poor_house` assets along its road end, a
+      mill (`Windmill` blend, item 10) where the good is Grain, a well in the middle; pop
+      sets the count. The procedural icon stays past 300 units.
+- [ ] **10b. Bridges.** At each `road_bridges[]` point a stone-arch or timber-beam prop
+      spanning `hw`, aligned to the road direction; the road texture already runs across.
+- [ ] **6b. Road upgrade visuals.** Class 1 roads get a paler, wider surface with a ditch line;
+      class 2 a cobbled texture (atlas cell 15) and milestones every 2 units.
+- [ ] **9a. Micro-detail.** Stone walls along field edges and vineyard rows, footpaths from
+      houses to the road, a rutted centre on tracks - all as ring-texture channels or card
+      scatter, never geometry in the height.
+
+## Session notes (2026-10-31 morning, 0.22.2 - restructure, canyons, roads)
+
+- **Every `C:\projects\mare-oak-*` mirror was deleted externally** mid-session (s21, s22 and
+  this session's 9f81e43c), while `mare-elm-20261031-093630` appeared - another worktree's
+  session is sweeping the shared folder. Builds done against a vanished mirror *still report
+  success* (Windows kept the directory open) on stale sources. The mirror is now
+  `C:\projects\mare_oak_20261031_093655` (datestamped, matching the snapshot) and every
+  build is preceded by a Windows-side `findstr` on the file just edited.
+- **Snapshots** of the committed tree (git history + exported assets, no `tmp/`):
+  `/home/nevenjovi/.cache/claude-hfi/-mnt-c-projects-mare/oak_20261031_093655` (before the rename, commit f04b142) and
+  a second one after this round (see the commit message for its stamp).
+- **Rename map (0.22.2):** `v3.c/.h` -> `game/src/platform/`, `v3.sh` -> `tools/v3_framework.sh`,
+  `game/mare.cc` -> `game/src/main.cc`, `world/geochunks` -> `world/terrain_chunks`,
+  `world/terrainmap` -> `world/terrain_overview`, `gfx/streamview.cc` -> `gfx/terrain_rings.cc`,
+  `gfx/chunkatlas` -> `gfx/terrain_atlas`, `gfx/detailview` -> `gfx/staged_scene`,
+  `terrain/detail.glsl` -> `terrain/rings.glsl`. **Symbol prefixes were kept** (`geochunks_*`,
+  `streamview_*`, `detailview_*`): they are a C ABI used from forty files and renaming them
+  is churn without a reader's benefit; the file name now says what the module is.
 
 ## Session notes (2026-10-31, 0.22.1 — bug round)
 
@@ -132,7 +187,7 @@ before trusting a build result** - `grep` the mirrored file, it costs nothing.
 
 # Session summary (2026-10-30 late, worktree `oak`, 0.20.0)
 
-- **`assets/data/how_to.txt` implemented as written** (`world/geochunks.h/.cc`): the export is
+- **`assets/data/how_to.txt` implemented as written** (`world/terrain_chunks.h/.cc`): the export is
   read as 513x513 float32-metre chunks with `coverage.r8`, bounds from the manifest checked
   against a shipped `tile.json`, streamed IO -> MAIN under a 96 MB budget, and preferred over
   the u16 cut in the clipmap rings. Measured source split on the Adriatic: near ring 262144
@@ -299,7 +354,7 @@ mizzens; ignore the hull distortion). Both live in `C:\projects\mare\assets`.
 - [x] Buoyancy: displacement-derived wave response + roll + deeper waterline per class
       (`shipyard.c`), inherited by masts, rig and oars.
 - [x] Battle formations: line ahead on mirrored stadium circuits, station keeping, turning in
-      succession, inner legs held a cable apart for passing broadsides (`detailview.c`).
+      succession, inner legs held a cable apart for passing broadsides (`staged_scene.cc`).
 - [x] Oars: side offset reduced, sweep-rate stroke, blade dip on the pull, galley stats eased.
 - [x] Strategic waves: bigger in open sea (zoom amp floor 0.14–0.26), damped near every coast
       by a zoom-driven depth gate (`u_shallow`).

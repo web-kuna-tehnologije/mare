@@ -1,10 +1,10 @@
 // mare::engine::render::ChunkAtlas - the terrain-v2 chunks' material maps, on the GPU.
 //
-// The clipmap rings (gfx/streamview.cc) carry a chunk's *height*; its other maps - the biome
+// The clipmap rings (gfx/terrain_rings.cc) carry a chunk's *height*; its other maps - the biome
 // class per sample, the grass/rock/sand/snow weights and the terrain-scale normal - are what
 // the ground is painted with, and they are sampled per fragment, so they live on the GPU as
 // they are: resident chunks are paged into slots of three RGBA8 atlases (class / splat /
-// normal, geochunks.h for the channel layout) and a tiny slot table maps a chunk index to its
+// normal, terrain_chunks.h for the channel layout) and a tiny slot table maps a chunk index to its
 // slot. terrain/chunks.glsl addresses them with the spec's vertex-aligned texel rule
 // ((sample + 0.5) / 513 inside the slot), nearest for the class map, bilinear for the rest,
 // no mipmaps (independent per-chunk mips seam; the base level is what the spec asks for first).

@@ -5,7 +5,7 @@ layout(quads, fractional_odd_spacing, ccw) in;
 in vec2 tc_uv[];
 uniform mat4 u_vp; uniform vec2 u_origin; uniform float u_size; uniform float u_flatten;
 uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_k;
-#include "terrain/detail.glsl"
+#include "terrain/rings.glsl"
 out vec3 v_wpos; out vec2 v_uv; out float v_h;
 void main(){
   float tu = gl_TessCoord.x, tv = gl_TessCoord.y;

@@ -1,4 +1,4 @@
-// The terrain export read as chunks (see geochunks.h and assets/data_new/MARE_INTEGRATION.md).
+// The terrain export read as chunks (see terrain_chunks.h and assets/data_new/MARE_INTEGRATION.md).
 // Sections: datasets and manifests · the load pipeline on the job system · the wanted set and
 // the budget · sampling · the one-shot geography fold · the C ABI.
 #include <cstdio>
@@ -11,7 +11,7 @@
 #include <algorithm>
 
 extern "C" {
-#include "geochunks.h"
+#include "terrain_chunks.h"
 #include "../core/types.h"
 #include "../core/util.h"
 #include "../core/diag.h"
@@ -31,7 +31,7 @@ namespace mare::game::world {
 // shaders assumes these numbers.
 #define GC_LAND_MAX_M   9000.f
 #define GC_DEPTH_MAX_M 12000.f
-#define GC_HEIGHT_SCALE   20.f
+#define GC_HEIGHT_SCALE   17.f      // 0.22.2: was 20 - the exaggeration read as a wall from the coast; 15% lower keeps the ranges legible and the valleys open
 #define GC_DEPTH_SCALE     9.f
 #define GC_M_PER_DEG  111320.f      // metres per degree of latitude: the export's normals use geographic metre spacing
 
@@ -48,7 +48,7 @@ typedef struct gc_chunk_t {
     short         cx, cy;
     float        *height;             // GC_SAMPLES^2 metres when ready
     unsigned char *coverage;          // N^2, 1 = valid sample
-    unsigned char *cls, *splat, *normal;   // N^2 RGBA8 each (geochunks.h), NULL when the files were missing
+    unsigned char *cls, *splat, *normal;   // N^2 RGBA8 each (terrain_chunks.h), NULL when the files were missing
     unsigned      last_want;
     size_t        bytes;
 } gc_chunk_t;
@@ -678,7 +678,7 @@ void GeoChunks::stats(gc_stats_t *out) {
 }
 
 // ---------------------------------------------------------------------------
-// the one-shot geography fold (see geochunks.h)
+// the one-shot geography fold (see terrain_chunks.h)
 
 // Bilinear sample from a loaded row of chunks. `row[cx]` holds that chunk's heights and
 // `cov[cx]` its coverage; both are NULL where the chunk is missing. Returns 0 (and leaves
@@ -801,7 +801,7 @@ int GeoChunks::bake(float *hm, unsigned char *lm, int w, int h, float lon0, floa
 
 } // namespace mare::game::world
 
-// C ABI (geochunks.h) for the unported callers
+// C ABI (terrain_chunks.h) for the unported callers
 extern "C" {
 using mare::game::world::geochunks;
 int  geochunks_init(const char *dir) { return geochunks().init(dir); }

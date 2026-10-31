@@ -54,7 +54,7 @@ for %%d in (core engine game sim world gfx ui assets data platform) do (
     )
 )
 cl %COMMON% %LANG_C% /MP %FLAGS% /I. /c /Foccobj\ game\src\platform\v3_impl.c || exit /b 1
-cl %COMMON% %LANG_CXX% /MP %FLAGS% /I. /Igame /c /Foccobj\ game\mare.cc || exit /b 1
+cl %COMMON% %LANG_CXX% /MP %FLAGS% /I. /Igame /c /Foccobj\ game\src\main.cc || exit /b 1
 cl /nologo %FLAGS% ccobj\*.obj /Fe:mare.exe || exit /b 1
 rem every successful build is archived under tmp\builds\<root>-<datetime>
 for %%I in ("%cd%") do set BUILDROOT=%%~nxI

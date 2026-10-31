@@ -40,12 +40,10 @@ done
 if [ "$(uname)" = "Darwin" ]; then
     export SDKROOT=$(xcrun --show-sdk-path)
     $CC -ObjC -c game/src/platform/v3_impl.c -o ccobj/v3_impl.o -I. $FLAGS || exit 1
-    $CXX -std=c++20 -c game/mare.cc -o ccobj/mare_main.o -I. -Igame $FLAGS || exit 1
     $CXX ccobj/*.o -o mare $FLAGS -framework cocoa -framework iokit -framework audiotoolbox || exit 1
 else
     # dev packages (Debian/Ubuntu): gcc g++ libx11-dev libgl1-mesa-dev libxrandr-dev libxcursor-dev libxi-dev libxinerama-dev libasound2-dev
     $CC -c game/src/platform/v3_impl.c -o ccobj/v3_impl.o -I. $FLAGS || exit 1
-    $CXX -std=c++20 -c game/mare.cc -o ccobj/mare_main.o -I. -Igame $FLAGS || exit 1
     $CXX ccobj/*.o -o mare $FLAGS -lm -ldl -lpthread -lasound || exit 1
 fi
 rm -rf ccobj

@@ -44,7 +44,7 @@ size_t scene_asset_gpu_budget(void);                 // bytes of authored-asset 
 float  scene_asset_idle_s(int asset_index);          // seconds since an instance of this asset was last drawn (-1 never)
 int scene_asset_lod_count(int asset_index, int lod); // of those, instances of one asset at one LOD (dashboard)
 struct asset_t; struct mesh_t;
-struct mesh_t *scene_asset_mesh(struct asset_t *a, int lod);  // GPU mesh of an asset LOD, uploaded on first use (shared with detailview.c)
+struct mesh_t *scene_asset_mesh(struct asset_t *a, int lod);  // GPU mesh of an asset LOD, uploaded on first use (shared with staged_scene.cc)
 void scene_asset_upload(struct asset_t *a, int lod);          // asset.c upload hook (MAIN lane): same as above, budgeted per frame
 // authored-asset instance lists, shared with the detail view: begin, push instances (LOD picked
 // in screen space under `key`, see lod.h), end (uploads instance buffers), submit (draws)

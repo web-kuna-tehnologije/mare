@@ -24,7 +24,7 @@ extern "C" {
 #include "../sim/settlement.h"
 #include "../world/regions.h"
 #include "../assets/asset.h"
-#include "detailview.h"
+#include "staged_scene.h"
 #include "lod.h"
 #include "occlusion.h"
 #include "occquery.h"
@@ -414,7 +414,7 @@ int SceneBuilder::submit_smoke(void) { mesh_draw(&mesh_puff); return mesh_puff.n
 #define ASSET_EVICT_SECS  12.f
 
 // GPU mesh for one asset LOD, uploaded on first use (CPU copy freed after). Shared with the
-// detail view (detailview.c), which draws the same meshes in its own staged scenes.
+// detail view (staged_scene.cc), which draws the same meshes in its own staged scenes.
 mesh_t *SceneBuilder::asset_gpu_mesh(asset_t *a, int lod) {
     int ai = (int)(a - asset_at(0));
     asset_lod_t *L = &a->lod[lod];
@@ -544,7 +544,7 @@ void SceneBuilder::scene_assets_residency(void) {
     if (coldest >= 0) scene_asset_evict(coldest);   // one per frame: eviction is never a stall either
 }
 
-// The per-frame asset instance lists are shared with the detail view (detailview.c), which
+// The per-frame asset instance lists are shared with the detail view (staged_scene.cc), which
 // stages its own buildings through the same three calls.
 void SceneBuilder::assets_begin(void) {
     scene_assets_residency();

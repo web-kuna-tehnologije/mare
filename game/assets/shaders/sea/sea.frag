@@ -27,7 +27,7 @@ out vec4 fragColor;
 #include "common/light.glsl"
 #include "common/nmap.glsl"
 #include "common/fog.glsl"
-#include "terrain/detail.glsl"
+#include "terrain/rings.glsl"
 #include "common/mapmode.glsl"
 uniform sampler2D u_terr; uniform vec2 u_terr_texel;
 float shash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
@@ -62,7 +62,7 @@ void main(){
   float dfar = max(400.0 * u_wave_scale, u_detail_far);
   float detail_lit = (1.0 - smoothstep(0.15 * dfar, dfar, dist)) * v_edge;
 // the sun's shadow on the water from the land: a cliff coast or a mountain range to the
-// south-west puts the bay at its foot in shade (terrain/detail.glsl det_sun_occ)
+// south-west puts the bay at its foot in shade (terrain/rings.glsl det_sun_occ)
   if (u_local_depth <= 0.0) { float ok = 1.0 - smoothstep(500.0, 900.0, dist);
     if (ok > 0.01) g_sun_occ = mix(1.0, max(det_sun_occ(v_wpos, u_sun, u_hm, u_geo, u_k, u_mapness), 0.55), ok); }
   vec2 p = v_wpos.xz / u_wave_scale; float t = u_time;

@@ -16,7 +16,7 @@ file(GLOB_RECURSE MARE_CXX CONFIGURE_DEPENDS src/*.cc)
 set(MARE_CORE_CXX src/core/diag.cc src/core/worker_pool.cc)   # what the headless tests link
 
 # The C11 unity build of the unported modules, plus the C++ units linked alongside.
-add_executable(mare mare.cc src/platform/v3_impl.c ${MARE_CXX})
+add_executable(mare src/platform/v3_impl.c ${MARE_CXX})
 target_include_directories(mare PRIVATE "${V3_ROOT}")
 # gfx/rhi_vk.cc compiles against the real Vulkan headers when the SDK is present; it loads the
 # loader at run time, so there is no library to link either way.

@@ -15,7 +15,7 @@ extern "C" {
 #include "../sim/game.h"
 #include "../sim/settlement.h"
 #include "../gfx/camera.h"
-#include "../gfx/detailview.h"
+#include "../gfx/staged_scene.h"
 #include "../gfx/render.h"
 #include "../gfx/scene.h"
 }

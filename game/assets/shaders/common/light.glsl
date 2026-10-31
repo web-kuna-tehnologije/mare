@@ -10,7 +10,7 @@ uniform sampler2DShadow u_shadowmap; uniform mat4 u_shadowvp0, u_shadowvp1, u_sh
 uniform vec2 u_shadowsplit; uniform float u_shadow_on; uniform vec2 u_shadow_texel;
 uniform vec3 u_shadow_wtexel;   /* world size of one shadow texel, per cascade */
 uniform float u_shadow_debug;   /* 1: shadow factor as grayscale, 2: diagnostics rgb (MARE_SHADOW_DEBUG) */
-float g_sun_occ = 1.0;          /* terrain sun occlusion (terrain/detail.glsl det_sun_occ): the terrain and sea passes set it before shading */
+float g_sun_occ = 1.0;          /* terrain sun occlusion (terrain/rings.glsl det_sun_occ): the terrain and sea passes set it before shading */
 float shadow_at(vec3 wpos, vec3 N, float NdotL, float viewdist) {
   if (u_shadow_on < 0.5) return 1.0;
   int c = viewdist > u_shadowsplit.y ? 2 : (viewdist > u_shadowsplit.x ? 1 : 0);

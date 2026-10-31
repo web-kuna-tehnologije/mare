@@ -26,7 +26,7 @@ panel that persists, the geography fold reads the export's float32 chunks on the
 ## Done: 0.20 — the export read as chunks, a measured height atlas, Vulkan's memory path (worktree `oak`)
 
 `assets/data/how_to.txt` is now implemented as written: the GEBCO export is read as 27x14
-chunks of 513x513 float32 metres with their coverage masks (`world/geochunks.h`), feeding the
+chunks of 513x513 float32 metres with their coverage masks (`world/terrain_chunks.h`), feeding the
 clipmap rings ahead of the u16 cut. A GPU height atlas samples resident fine tiles at their
 own resolution from the tessellation stage - and measures that, on the data shipped today,
 there is nothing below the ring's resolution to add, so it stays off until a finer DEM lands.
@@ -84,7 +84,7 @@ a `tile_l<level>_<x>_<y>` asset.
 Follow-ups:
 1. [ ] Generate the Great Carrack (50-60 m) so the Ship of the Line stops standing in as a
    stretched war carrack, and sails for the bare rigs.
-2. [ ] Wire the authored fleet into the staged battle/city views (`gfx/detailview.c`), which
+2. [ ] Wire the authored fleet into the staged battle/city views (`gfx/staged_scene.cc`), which
    still stage the procedural hulls.
 3. [x] **Free an imported LOD 0's CPU copy** (0.12.0) — `asset_lod0_trim` hands back any level
    that has sat un-uploaded for 45 s and reloads it if something later picks it.

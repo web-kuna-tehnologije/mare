@@ -9,7 +9,7 @@ extern "C" {
 #include "render.h"
 #include "camera.h"
 #include "lod.h"
-#include "detailview.h"
+#include "staged_scene.h"
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../engine/shaders.h"

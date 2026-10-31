@@ -98,7 +98,7 @@ too high, a sail is the wrong kind or an oar bank too far aft.
 
 ## 3b. The staged scenes
 
-`gfx/detailview.c` stages its own battles and city squares at `DV_SHIP_SCALE` (about nine
+`gfx/staged_scene.cc` stages its own battles and city squares at `DV_SHIP_SCALE` (about nine
 times the map's scale), which is where LOD 0 earns its place: a hull fills the screen and shows
 its planking, gunports and railings. The staged ships go through the same `shipyard_push`, with
 `shipyard_req_t.scale` carrying the magnification, and the staged scene's asset bracket spans
@@ -216,7 +216,7 @@ rides as one body.
 
 ### The battle line
 
-The staged battle fights in formation (detailview.c): each side sails a stadium circuit - two
+The staged battle fights in formation (staged_scene.cc): each side sails a stadium circuit - two
 straight legs joined by half-turn caps - in **line ahead**. Every ship chases a pursuit point
 just ahead of the station her slot gives her, never turning faster than her class can
 (`turn_dps`), trimming speed against the station (astern crowds on sail, ahead she luffs up),
@@ -231,7 +231,7 @@ wander.
 
 The sea (`gfx/sea.c`) takes up to 24 nearby ships each frame - position, heading, speed in
 *hull lengths per second*, hull length (`sea_set_ships`; scene.c gives the fleets near the
-look-at point, detailview.c its staged ships). In the vertex stages `ship_wave()` heaps water
+look-at point, staged_scene.cc its staged ships). In the vertex stages `ship_wave()` heaps water
 at every bow: a crest at the stem that rings outward *ahead* of her and round the shoulders,
 decaying within a hull length, plus the pile-up along the forward half of the hull, and
 nothing astern. Its slope is folded into the surface tangents by finite differences, so the

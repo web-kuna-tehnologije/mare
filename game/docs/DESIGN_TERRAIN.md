@@ -65,7 +65,7 @@ ramp alone tops a two-cell island out *under* the sea shader's land threshold, w
 the Azores spent several versions as drowned platforms with a surf ring.
 
 The clipmap rings clamp the authored height delta to the base's side of the waterline
-(`streamview.c`), so the loose map refines relief and bathymetry near the camera but can never
+(`terrain_rings.cc`), so the loose map refines relief and bathymetry near the camera but can never
 raise a landform through the open sea or open a hole in a coast the ports were placed against.
 
 ## 3. Chunks of quads
@@ -114,7 +114,7 @@ at that fidelity - see "what would make it real" below.
 ### 3c. The shoreline band (0.19)
 
 The base heightfield is the coastline polygons rasterized at 16 cells per degree, so at battle
-zoom its waterline reads as 7 km steps. The clipmap rings (`gfx/streamview.cc sv_fill_rows`)
+zoom its waterline reads as 7 km steps. The clipmap rings (`gfx/terrain_rings.cc sv_fill_rows`)
 now treat a band around that waterline - `|base| < 0.62` on land (full under 0.22), `< 0.78`
 on the sea side (full under 0.32): the first land cell and the first two sea cells -
 differently from the rest of the ring: where an authored tile is resident and *decisive* (over
@@ -145,7 +145,7 @@ float32 rather than the 16-bit preview. It also says plainly that the export is 
 sample, "za globalni pregled, ne za detaljan teren".
 
 Until 0.20 the game read none of that directly: `tools/terrain_from_gebco.py` cut the export
-down to a u16 tile set and the renderer read the cut. `world/geochunks.h` now reads the
+down to a u16 tile set and the renderer read the cut. `world/terrain_chunks.h` now reads the
 chunks as published - exact metres, coverage honoured, bounds taken from the manifest and
 checked against a shipped `tile.json`, neighbouring chunks sharing their edge samples so the
 joins stay the 0 m the export verified. The clipmap rings prefer, in order: the fine regional
@@ -204,7 +204,7 @@ bilinear blend sharpened around a noise offset, so classes meet along ragged lin
 (`geochunks_exaggeration`: 20 units per 9000 m against 16 units per 111 km), so its horizontal
 components are scaled by that before normalising.
 
-**The shore** (`gfx/streamview.cc`): the 0.22 shore profile is driven by the data. For every
+**The shore** (`gfx/terrain_rings.cc`): the 0.22 shore profile is driven by the data. For every
 ring texel within reach of the coastline the chunk is sampled *one cell inland* (the shoreline
 sample itself is as likely to be the ocean class): a steep export normal or a rock weight makes
 a cliff, a sand weight and a gentle slope a beach whose strand is up to 1.6x wider, the wetland

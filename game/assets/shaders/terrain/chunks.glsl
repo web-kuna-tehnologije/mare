@@ -1,4 +1,4 @@
-// The terrain-v2 chunks' material maps (gfx/chunkatlas.h): biome class, splat weights and
+// The terrain-v2 chunks' material maps (gfx/terrain_atlas.h): biome class, splat weights and
 // the terrain-scale normal, per sample, for the dataset the atlas holds.
 //
 // Addressing follows assets/data_new/MARE_INTEGRATION.md: every map is *vertex-aligned*, so the

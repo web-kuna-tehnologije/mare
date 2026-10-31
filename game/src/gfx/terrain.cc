@@ -18,7 +18,7 @@ extern "C" {
 #include "../world/world.h"
 #include "../world/regions.h"
 #include "../assets/asset.h"
-#include "chunkatlas.h"
+#include "terrain_atlas.h"
 #include "../engine/shaders.h"
 }
 
@@ -62,7 +62,7 @@ private:
     int tex_atlas = -1;               // textures.c handle of the ground material atlas (NULL until streamed in)
     static constexpr float lod_dist[LODS-1] = { 45, 110, 240, 520 };
 
-    // Streamed detail rings (streamview.c): two clipmap windows of delta height around the camera
+    // Streamed detail rings (terrain_rings.cc): two clipmap windows of delta height around the camera
     // - near (tactical detail) and far (coastal detail, 4x wider). Each fades out at its own
     // border; the near one cross-fades into the far rather than into nothing, so pulling the
     // camera back loses resolution, never relief. Shared by the vertex stage (height) and the
@@ -230,7 +230,7 @@ void TerrainRenderer::draw(float planes[6][4]) {
     rhi_set_i1(UNI(terrain_prg,"u_hm"), 0); rhi_set_i1(UNI(terrain_prg,"u_terr"), 1);
     rhi_texture_bind(0, &tex_height);
     rhi_set_i1(UNI(terrain_prg,"u_ao"), 5); rhi_texture_bind(5, &tex_ao); rhi_set_f1(UNI(terrain_prg,"u_ao_on"), terrain_ao_on ? 1.f : 0.f);
-    {   // streamed detail rings (streamview.c): the resident tiles' delta around the camera,
+    {   // streamed detail rings (terrain_rings.cc): the resident tiles' delta around the camera,
         // near (tactical) on unit 6 and far (coastal) on unit 7
         const rhi_texture_t *dn = streamview_detail_tex(0), *df = streamview_detail_tex(1);
         float rn[4] = { 0, 0, 1, 1 }, rf[4] = { 0, 0, 1, 1 };

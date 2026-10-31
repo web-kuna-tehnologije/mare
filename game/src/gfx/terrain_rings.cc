@@ -26,9 +26,10 @@ extern "C" {
 #include "../core/jobs.h"
 #include "../world/world.h"
 #include "../world/stream.h"
-#include "../world/geochunks.h"
+#include "../world/terrain_chunks.h"
 #include "../world/rivers.h"
-#include "chunkatlas.h"
+#include "../world/roads.h"
+#include "terrain_atlas.h"
 #include "../assets/asset.h"
 }
 
@@ -91,7 +92,7 @@ private:
 
     // one row band of a ring; reads tile payloads which only ever appear (never vanish) while the
     // main thread sits in the parallel_for below
-    typedef struct sv_fill_t { float *buf; unsigned char *shore; unsigned char *river; const river_grid_t *rg; int res; float x0, z0, step; int max_level;
+    typedef struct sv_fill_t { float *buf; unsigned char *shore; unsigned char *river; const river_grid_t *rg; const road_grid_t *rdg; int res; float x0, z0, step; int max_level;
                                float port_xz[96][3]; int nports;   // land anchor x, z and the wall radius to keep (the harbours inside the ring: coast polish keeps clear of them)
                                int src[SV_MAX_SLOTS][3]; } sv_fill_t;   // per worker slot: texels answered by a chunk, by a chunk with maps, cliff texels (no atomics: the bands are disjoint)
     static void sv_fill_rows(void *arg, int begin, int end, int slot);
@@ -336,6 +337,22 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                         float target = lerpf(bed, maxf(base, 0.05f), bank);
                         d = lerpf(d, target - base, wk * lowland);
                     }
+                    // Canyons (0.22.2). Where a sizeable river runs through high ground it has cut a
+                    // gorge: a flat floor with the stream on it, walls that rise steeply within a
+                    // quarter width, deeper the higher the land stands. The walls are written into
+                    // the shore mask's cliff channel, so terrain.frag paints them as bare rock with
+                    // scree at the foot - the same material the sea cliffs use. Small streams keep
+                    // their shallow bed: a brook does not carve a canyon.
+                    float hill  = rcls ? 1.f - lowland : smoothstep_(1.0f, 2.0f, base);
+                    float gorge = hill * smoothstep_(0.04f, 0.22f, rhw) * wk;
+                    if (gorge > 0.01f) {
+                        float depth = 0.28f + 0.42f * clampf(base - 0.9f, 0.f, 2.f);
+                        float wall  = smoothstep_(0.85f * rw, 1.30f * rw, rd);
+                        d -= depth * (1.f - wall) * gorge;
+                        float rock = (1.f - smoothstep_(1.7f * rw, 2.5f * rw, rd)) * smoothstep_(0.35f * rw, 0.9f * rw, rd) * gorge;
+                        unsigned char rc = (unsigned char)(255.f * clampf(rock, 0.f, 1.f));
+                        if (rc > shore[0]) shore[0] = rc;
+                    }
                     if (lowland < 0.99f) {   // the painted stream: a shallow bed with water drawn on it
                         float k = 1.f - lowland;
                         float bankp = clampf((rd - rw) / (1.5f * rw), 0.f, 1.f);
@@ -345,8 +362,18 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                         river[0] = (unsigned char)(255.f * clampf(water * (dcs > -1.0f ? 1.f : 0.f) * portw, 0.f, 1.f));
                     }
                     river[1] = (unsigned char)(127.5f + 127.f * rdx); river[2] = (unsigned char)(127.5f + 127.f * rdz);
-                    river[3] = (unsigned char)(255.f * clampf(rhw / 0.07f, 0.f, 1.f));
                 }
+            }
+        }
+        // Roads (world/roads.h) share the texture: its A channel is how much of a road this
+        // texel is. A track is a hairline, drawn at half a texel so it survives the sampling,
+        // and the class brightens it; nothing is carved - a cart road follows the ground.
+        if (f->rdg && dcs > 0.2f) {
+            float rd, rhw; int rcls;
+            if (roads_grid_query(f->rdg, wx, wz, &rd, &rhw, &rcls)) {
+                float rw = maxf(rhw, 0.6f * f->step);
+                float road = (1.f - smoothstep_(0.7f * rw, 1.2f * rw, rd)) * (0.75f + 0.125f * rcls) * portw;
+                river[3] = (unsigned char)(255.f * clampf(road, 0.f, 1.f));
             }
         }
         f->buf[j * f->res + i] = d;
@@ -378,6 +405,7 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     f.step = step; f.max_level = r->max_level;
     // the river segments over this ring, binned for the workers (after the origin is known)
     river_grid_t rg; rivers_grid_build(&rg, f.x0 - 1.f, f.z0 - 1.f, r->extent + 2.f, 1.0f); f.rg = rg.nidx ? &rg : nullptr;
+    road_grid_t rdg; roads_grid_build(&rdg, f.x0 - 1.f, f.z0 - 1.f, r->extent + 2.f, 1.0f); f.rdg = rdg.nidx ? &rdg : nullptr;
     memset(f.src, 0, sizeof f.src);
     f.nports = 0;   // every harbour the ring touches: the shoreline stays as placed around it
     for (int i = 0; i < G.nports && f.nports < 96; ++i) {
@@ -399,7 +427,7 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     }
     LOG_DEBUG("stream", "ring %s rivers: %d segments in the grid", r->extent < 100.f ? "near" : "far", rg.nidx);
     { int nr = 0; for (int i = 0; i < r->res * r->res; ++i) nr += r->river[i * 4] > 64; LOG_DEBUG("stream", "ring %s rivers: %d water texels", r->extent < 100.f ? "near" : "far", nr); }
-    rivers_grid_free(&rg);
+    rivers_grid_free(&rg); roads_grid_free(&rdg);
     rhi_texture_update(&r->tex, r->buf);
     rhi_texture_update(&r->shore_tex, r->shore);
     rhi_texture_update(&r->river_tex, r->river);
@@ -443,6 +471,13 @@ void StreamView::update() {
         for (int i = 0; i < SV_RINGS; ++i) { sv_ring[i].on = 0; sv_ring[i].seen_residency = 0; }
     }
     stream_update(cam.tx, cam.tz, cam.dist);
+    // The road network needs the ports and the inland settlements, which exist only once the
+    // game is set up, and its classes follow the trade - so it is built here, on the first
+    // frame they are there, and again every ROAD_REBUILD_DAYS (the rings recompose on the
+    // residency generation, so a rebuild bumps it)
+    if (G.nports > 0 && (roads_last_build_day() < -1e8 || G.day - roads_last_build_day() > ROAD_REBUILD_DAYS || roads_last_build_day() > G.day + 1)) {
+        roads_generate(); for (int i = 0; i < SV_RINGS; ++i) sv_ring[i].seen_residency = 0;
+    }
     // Page the terrain chunks around the look-at point. An overview chunk is 13 degrees
     // across, so one or two cover any view; the radius follows the zoom so the far ring
     // (320 units = 20 degrees) always has its chunks, and a regional build under the camera

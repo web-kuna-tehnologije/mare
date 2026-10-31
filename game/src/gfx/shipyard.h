@@ -31,7 +31,7 @@ typedef struct shipyard_req_t {
 
 // What a class *is*, physically. The design sheets give the dimensions; the sailing numbers
 // are period estimates. Every ship of a class shares them; the staged battle moves ships by
-// them (detailview.c) and the buoyancy pass to come reads displacement and draft.
+// them (staged_scene.cc) and the buoyancy pass to come reads displacement and draft.
 typedef struct ship_stats_t {
     float length_m, beam_m, draft_m;    // overall length, beam, loaded draft
     float tonnes;                       // displacement, loaded

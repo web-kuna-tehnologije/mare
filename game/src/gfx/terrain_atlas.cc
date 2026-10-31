@@ -1,4 +1,4 @@
-// mare::engine::render::ChunkAtlas (see chunkatlas.h): the chunks' material maps on the GPU.
+// mare::engine::render::ChunkAtlas (see terrain_atlas.h): the chunks' material maps on the GPU.
 #include "../platform/v3cpp.hh"
 #include <cstdio>
 #include <cstdlib>
@@ -7,11 +7,11 @@
 extern "C" {
 #include "render.h"
 #include "camera.h"
-#include "chunkatlas.h"
+#include "terrain_atlas.h"
 #include "../core/diag.h"
 #include "../core/util.h"
 #include "../core/types.h"
-#include "../world/geochunks.h"
+#include "../world/terrain_chunks.h"
 }
 
 namespace mare::engine::render {

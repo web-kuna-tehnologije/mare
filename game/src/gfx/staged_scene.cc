@@ -1,4 +1,4 @@
-// Detail view (see detailview.h). Everything here is presentation: the scenes are built from
+// Detail view (see staged_scene.h). Everything here is presentation: the scenes are built from
 // the simulation state at entry (engaged fleets, port size/buildings/population) and then live
 // their own gentle life - ships sail, turn and trade broadsides, flags and smoke move - without
 // writing anything back.
@@ -6,7 +6,7 @@
 // Local scale: 1 unit ~ 4 m. Ships reuse the world meshes at DV_SHIP_SCALE, which puts a sloop
 // at ~24 m and a ship of the line at ~52 m; the battle coast sits DV_COAST_DIST (~1 km) away.
 // mare::game::view::DetailView: the staged-scene state machine (`dv`) and its battle/city
-// builders behind detailview.h. The C ABI is a set of shims over the singleton at the bottom.
+// builders behind staged_scene.h. The C ABI is a set of shims over the singleton at the bottom.
 #include "../platform/v3cpp.hh"
 #include <cmath>
 #include <cstdio>
@@ -14,7 +14,7 @@
 #include <cstring>
 
 extern "C" {
-#include "detailview.h"
+#include "staged_scene.h"
 #include "render.h"
 #include "camera.h"
 #include "scene.h"
@@ -652,7 +652,7 @@ void DetailView::clouds(void) {
 
 } // namespace mare::game::view
 
-// C ABI (detailview.h) for the unported callers
+// C ABI (staged_scene.h) for the unported callers
 extern "C" {
 int  detailview_mode(void) { return mare::game::view::detail_view().mode(); }
 int  detailview_busy(void) { return mare::game::view::detail_view().busy(); }

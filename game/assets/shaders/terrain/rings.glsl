@@ -17,7 +17,7 @@ float det_at(vec2 xz){
 float det_step(vec2 xz){
   vec2 nuv = (xz - u_det_rect.xy) * u_det_rect.zw;
   return (u_det_on.x > 0.5 && det_fade(nuv) > 0.0) ? u_det_texel.x : u_det_texel.y; }
-// The rings' shore masks (gfx/streamview.cc, 0.22): R cliff, G beach, B marsh, A exposure -
+// The rings' shore masks (gfx/terrain_rings.cc, 0.22): R cliff, G beach, B marsh, A exposure -
 // what kind of coast a texel is, zero everywhere the shore profile left the ground alone.
 // Read from whichever ring answers, like det_at.
 uniform sampler2D u_shore; uniform sampler2D u_shore_far;
@@ -56,8 +56,8 @@ float det_sun_occ(vec3 wpos, vec3 sun, sampler2D hm, vec4 geo, float k, float ma
   return 1.0 - smoothstep(0.15, 0.85, occ) * 0.45 * (1.0 - mapness);
 }
 
-// The rings' river textures (gfx/streamview.cc, 0.22): R water, G/B flow direction (0.5 = 0),
-// A width - where a river runs and which way. Read like shore_at.
+// The rings' river and road textures (gfx/terrain_rings.cc, 0.22): R river water, G/B flow
+// direction (0.5 = 0), A road - where a river runs and which way, and where a road goes.
 uniform sampler2D u_river; uniform sampler2D u_river_far;
 vec4 river_at(vec2 xz){
   vec2 nuv = (xz - u_det_rect.xy) * u_det_rect.zw;

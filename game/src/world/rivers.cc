@@ -18,6 +18,7 @@ extern "C" {
 
 float *river_px, *river_pz, *river_hw, *river_dx, *river_dz;
 unsigned char *river_cls;
+unsigned char *river_mask;
 int    river_npts, river_n;
 river_t *rivers;
 
@@ -43,7 +44,7 @@ private:
 Rivers &rivers_sys() { static Rivers r; return r; }
 
 void Rivers::shutdown() {
-    free(river_px); free(river_pz); free(river_hw); free(river_dx); free(river_dz); free(river_cls); free(rivers);
+    free(river_px); free(river_pz); free(river_hw); free(river_dx); free(river_dz); free(river_cls); free(rivers); free(river_mask); river_mask = nullptr;
     river_px = river_pz = river_hw = river_dx = river_dz = nullptr; river_cls = nullptr; rivers = nullptr; river_npts = river_n = 0;
 }
 
@@ -83,6 +84,8 @@ void Rivers::generate() {
     // --- heads: river cells with no river flowing in
     std::vector<unsigned char> isriver(N, 0); int ncells = 0;
     for (int i = 0; i < N; ++i) if (landmask[i] && acc[i] >= RIVER_MIN_CELLS) { isriver[i] = 1; ncells++; }
+    river_mask = (unsigned char *)calloc(N, 1);
+    for (int i = 0; i < N; ++i) if (isriver[i] && acc[i] >= RIVER_MIN_CELLS * 3) river_mask[i] = 1;
     std::vector<unsigned char> hasin(N, 0);
     for (int i = 0; i < N; ++i) if (isriver[i] && down[i] >= 0) hasin[down[i]] = 1;
     std::vector<int> owner(N, -1);

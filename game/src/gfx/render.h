@@ -40,7 +40,7 @@ void render_init(void);             // build programs, LOD grids, textures, proc
 void render_territory_upload(void); // push the territory map to the GPU when territory_dirty == 2
 const rhi_texture_t *terrain_territory_texture(void);   // RGBA8 TERR_W x TERR_H: nation+1, development, region+1, influence
 
-// world streaming view (streamview.c, game/docs/DESIGN_STREAMING.md): drives world/stream.h
+// world streaming view (terrain_rings.cc, game/docs/DESIGN_STREAMING.md): drives world/stream.h
 // from the camera, composes the terrain detail window, debug overlay, metrics
 void streamview_update(void);                       // once per frame, before the terrain draws
 void streamview_push_tiles(void);                   // authored tile meshes (inside the scene_assets bracket)
@@ -134,7 +134,7 @@ extern int   sea_tess_now;               // ... and in use this frame (only with
 extern int   sea_tess_level_max;         // finest subdivision per patch edge (dashboard)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)
 float sea_zoom_amp(void);                // zoom factor on the wave height: 1 close in, flattening as the view pulls out
-extern float sea_local_amp;              // staged scenes cut the displacement back (detailview.c)
+extern float sea_local_amp;              // staged scenes cut the displacement back (staged_scene.cc)
 float sea_amp_now(void);                 // the full amplitude this frame (knob x wind x map morph x zoom); meshes ride the same field
 extern float sea_wave_scale;             // world units per wave unit: 1 on the map, DV_SHIP_SCALE in a staged scene
 extern float sea_local_depth;            // >0 makes every wave lookup use this depth (staged scenes have no heightmap)

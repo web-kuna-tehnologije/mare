@@ -133,7 +133,7 @@ float sea_wave_scale = 1.f;  // set per scene; the instanced meshes read it too,
 float sea_local_depth = 0.f;
 float sea_clip_z; int sea_clip_on;   // staged scenes: water only on the seaward side of this world z
 
-// Staged scenes (detailview.c) stretch the sea by DV_SHIP_SCALE, so a wave that looks right on
+// Staged scenes (staged_scene.cc) stretch the sea by DV_SHIP_SCALE, so a wave that looks right on
 // the map towers over a staged ship: detailview sets this to cut the displacement back. Cell
 // density - and so the silhouette of the water - is untouched.
 float sea_local_amp = 1.f;
@@ -357,7 +357,7 @@ void Sea::bind_waves(const rhi_pipeline_t *p) {
 
 // Ships the water should foam and heap around this frame: x, z, heading, speed in *hull lengths
 // per second* (so the map's fleets and the staged battle's ships read alike) and hull length.
-// scene.c gives the fleets near the look-at point, detailview.c its staged ships.
+// scene.c gives the fleets near the look-at point, staged_scene.cc its staged ships.
 void Sea::set_ships(const float *xzhs, const float *len, int n) {
     sea_nships = n > SEA_MAX_SHIPS ? SEA_MAX_SHIPS : n;
     if (sea_nships > 0) { memcpy(sea_ships, xzhs, sea_nships * 4 * sizeof(float)); memcpy(sea_ship_len, len, sea_nships * sizeof(float)); }
@@ -402,7 +402,7 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     rhi_set_f1(rhi_uniform(p,"u_detail_far"), maxf(400.f * wave_scale, cam.dist * 6.f + 300.f));
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
-    {   // the streamed detail rings (streamview.cc), bound exactly as the terrain binds them,
+    {   // the streamed detail rings (terrain_rings.cc), bound exactly as the terrain binds them,
         // so the shoreline the water stops at is the shoreline the ground draws (0.19)
         const rhi_texture_t *dn = local_depth > 0.f ? 0 : streamview_detail_tex(0), *df = local_depth > 0.f ? 0 : streamview_detail_tex(1);
         float rn[4] = { 0, 0, 1, 1 }, rf[4] = { 0, 0, 1, 1 };
@@ -501,7 +501,7 @@ void Sea::draw() {
     rhi_draw(&sea_detail_geo, 0);
 }
 
-// Staged scenes (detailview.c): the detail grid alone, centred on the camera, at a constant
+// Staged scenes (staged_scene.cc): the detail grid alone, centred on the camera, at a constant
 // depth and with no land to discard. `scale` stretches the wave field to the scene's units.
 // `clip_z` (when `clip_on`) is the shoreline: a staged scene has no heightmap, so the water's
 // landward limit is given as a plane rather than discovered from the terrain.
