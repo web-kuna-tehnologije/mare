@@ -285,7 +285,12 @@ void TerrainRenderer::draw(float planes[6][4]) {
     terrain_chunks_drawn = terrain_tris_drawn = 0;
     for (int i = 0; i < CHUNKS_X*CHUNKS_Y; ++i) {
         const chunk_t *c = &chunks[i];
-        if (c->water_only || !aabb_visible(planes, c->x0, minf(c->minh,-3.5f), c->z0, c->x1, maxf(c->maxh + 0.6f, 0.5f), c->z1)) continue;   // +0.6: the streamed detail delta can raise a peak
+        // water-only chunks are skipped except within reach of the look-at point (0.22.5): the
+        // seabed the water refracts must be there under every shallow the camera can see, or
+        // the shelf shows the chunk grid as blocks of drawn and undrawn bottom
+        if (c->water_only) { float ccx = (c->x0 + c->x1) * 0.5f, ccz = (c->z0 + c->z1) * 0.5f;
+            if (fabsf(ccx - RF.sea_center.x) > 90.f || fabsf(ccz - RF.sea_center.z) > 90.f || RF.mapness > 0.5f) continue; }
+        if (!aabb_visible(planes, c->x0, minf(c->minh,-3.5f), c->z0, c->x1, maxf(c->maxh + 0.6f, 0.5f), c->z1)) continue;   // +0.6: the streamed detail delta can raise a peak
         float dx = maxf(maxf(c->x0 - RF.campos.x, 0), RF.campos.x - c->x1), dz = maxf(maxf(c->z0 - RF.campos.z, 0), RF.campos.z - c->z1);
         float d = sqrtf(dx*dx + dz*dz + RF.campos.y*RF.campos.y*0.5f);
         int lod = 0; while (lod < LODS-1 && d > lod_dist[lod]) lod++;

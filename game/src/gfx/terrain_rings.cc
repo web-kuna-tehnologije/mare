@@ -79,6 +79,7 @@ private:
         unsigned char *shore;            // RGBA8, same grid
         unsigned char *river;            // RGBA8, same grid
         unsigned char *landuse;          // RGBA8, same grid
+        unsigned char *forest;           // R8, same grid: wild woodland for the props (0.22.5)
         int      res;                    // texels per edge
         float    extent;                 // world units covered
         int      max_level;              // finest tile level this ring may sample (Nyquist, above)
@@ -97,7 +98,7 @@ private:
 
     // one row band of a ring; reads tile payloads which only ever appear (never vanish) while the
     // main thread sits in the parallel_for below
-    typedef struct sv_fill_t { float *buf; unsigned char *shore; unsigned char *river; unsigned char *landuse; const river_grid_t *rg; const road_grid_t *rdg; int carve; int res; float x0, z0, step; int max_level;
+    typedef struct sv_fill_t { float *buf; unsigned char *shore; unsigned char *river; unsigned char *landuse; unsigned char *forest; const river_grid_t *rg; const road_grid_t *rdg; int carve; int res; float x0, z0, step; int max_level;
                                float port_xz[96][3]; int nports;   // land anchor x, z and the wall radius to keep (the harbours inside the ring: coast polish keeps clear of them)
                                float set_xz[192][4]; int nsets;    // settlements in and around the ring (land use, 0.22.3): x, z, built radius, kind (0 farm village, 1 mine, 2 fur post, 3 port town)
                                int src[SV_MAX_SLOTS][3]; } sv_fill_t;   // per worker slot: texels answered by a chunk, by a chunk with maps, cliff texels (no atomics: the bands are disjoint)
@@ -220,6 +221,12 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                 dcs = lerpf(dcs, dsig * 0.65f, wq);
             }
         }
+        // The sea floor stays under the sea (0.22.5). The procedural ridge noise (0.7 * sd above)
+        // was added to the seabed unclamped, and on a shallow shelf it lifted the bottom just
+        // above the waterline - under the 0.35 the sea pass discards at, so a brown sliver of
+        // bare ground stood in open water, 40 units from the look-at point along the near ring's
+        // edge wherever the shelf was shallow. The shore profile below still shapes the band.
+        if (dcs < -0.6f && base < 0.f && base + d > -0.12f) d = -0.12f - base;
         float adc = fabsf(dcs);
         unsigned char shore[4] = { 0, 0, 0, 0 };
         // The coastal fringe (1.5 .. 5 cells inland): the authored relief *replaces* the
@@ -399,7 +406,7 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         // and olive grids, village roofs. Baked here, on the ring's grid, from the export's land
         // cover and slope, the region's goods, the roads and the settlements; nothing is carved
         // and nothing is an object. Zero on the sea, the beach, steep ground and high ground.
-        unsigned char landuse[4] = { 0, 0, 0, 0 };
+        unsigned char landuse[4] = { 0, 0, 0, 0 }; unsigned char forestb = 0;
         if (dcs > 0.6f && base > 0.03f) {
             gc_sample_t gu; int has = geochunks_sample(lon, lat, &gu) && gu.has_maps;
             float slope, aspect_s;
@@ -444,11 +451,11 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                         * smoothstep_(0.57f, 0.66f, world_fbm(lon * 13.f + 9.f, lat * 13.f + 3.f, 2, 0x7A21u)) * (0.4f + 0.6f * near_set);
             // roadside hamlets: a few of the 0.9-unit cells along a road get a cluster of houses
             float hamlet = 0.f;
-            if (rdd < 0.08f && fields > 0.25f) {
+            if (rdd < 0.10f && fields > 0.12f) {
                 float cxh = floorf(wx / 0.9f), czh = floorf(wz / 0.9f);
                 float hh = world_fbm(cxh * 0.37f + 0.5f, czh * 0.37f + 0.5f, 1, 0x1D5Bu);
                 float dcell = dist2d(wx, wz, (cxh + 0.5f) * 0.9f, (czh + 0.5f) * 0.9f);
-                if (hh > 0.62f) hamlet = (1.f - smoothstep_(0.045f, 0.075f, rdd)) * (1.f - smoothstep_(0.16f, 0.26f, dcell));
+                if (hh > 0.50f) hamlet = (1.f - smoothstep_(0.06f, 0.10f, rdd)) * (1.f - smoothstep_(0.20f, 0.30f, dcell));
             }
             float built = maxf(village, hamlet) * (1.f - smoothstep_(0.5f, 0.8f, slope));
             (void)skind;
@@ -458,11 +465,17 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             landuse[1] = (unsigned char)(255.f * clampf(vine, 0.f, 1.f));
             landuse[2] = (unsigned char)(255.f * clampf(orch, 0.f, 1.f));
             landuse[3] = (unsigned char)(255.f * clampf(built, 0.f, 1.f));
+            // the woods (0.22.5): the export's tree cover, thinned by fields and villages, with
+            // the shrubland as open woodland; gfx/scatter.cc stands the trees on it
+            float wood = biome == GC_BIOME_TREES ? 1.f : biome == GC_BIOME_SHRUBS ? 0.35f : 0.f;
+            wood *= (1.f - built) * (1.f - 0.8f * fields) * (1.f - vine) * (1.f - orch) * (1.f - smoothstep_(0.9f, 1.3f, slope));
+            forestb = (unsigned char)(255.f * clampf(wood, 0.f, 1.f));
         }
         f->buf[j * f->res + i] = d;
         memcpy(f->shore + ((size_t)j * f->res + i) * 4, shore, 4);
         memcpy(f->river + ((size_t)j * f->res + i) * 4, river, 4);
         memcpy(f->landuse + ((size_t)j * f->res + i) * 4, landuse, 4);
+        f->forest[(size_t)j * f->res + i] = forestb;
     }
     // a band's own tally, folded in once (the rows are disjoint, so this is a plain add per
     // worker rather than a contended counter per texel)
@@ -483,7 +496,7 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     double t0 = diag_now();
     float step = r->extent / (r->res - 1);
     sv_fill_t f;                                 // snapped to the sample grid so detail never swims
-    f.buf = r->buf; f.shore = r->shore; f.river = r->river; f.landuse = r->landuse; f.res = r->res; f.carve = rivers_carve_enabled();
+    f.buf = r->buf; f.shore = r->shore; f.river = r->river; f.landuse = r->landuse; f.forest = r->forest; f.res = r->res; f.carve = rivers_carve_enabled();
     f.x0 = floorf((cx - r->extent * 0.5f) / step) * step;
     f.z0 = floorf((cz - r->extent * 0.5f) / step) * step;
     f.step = step; f.max_level = r->max_level;
@@ -504,14 +517,14 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     for (int i = 0; i < G.ninland && f.nsets < 192; ++i) {
         const inland_t *s = &G.inland[i]; if (!s->alive) continue;
         if (s->x < f.x0 - 3.f || s->x > f.x0 + r->extent + 3.f || s->z < f.z0 - 3.f || s->z > f.z0 + r->extent + 3.f) continue;
-        float rad = s->kind == INLAND_FARM ? 0.11f + 0.06f * sqrtf(maxf(s->pop, 0.f)) : s->kind == INLAND_MINE ? 0.08f : 0.06f;
+        float rad = s->kind == INLAND_FARM ? 0.22f + 0.08f * sqrtf(maxf(s->pop, 0.f)) : s->kind == INLAND_MINE ? 0.14f : 0.10f;   // 0.22.5: villages you can see
         f.set_xz[f.nsets][0] = s->x; f.set_xz[f.nsets][1] = s->z; f.set_xz[f.nsets][2] = rad; f.set_xz[f.nsets][3] = (float)s->kind; f.nsets++;
     }
     for (int i = 0; i < G.nports && f.nsets < 192; ++i) {
         const port_t *p = &G.ports[i]; if (p->size <= 0) continue;
         float px = lon2x(p->lon), pz = lat2z(p->lat);
         if (px < f.x0 - 3.f || px > f.x0 + r->extent + 3.f || pz < f.z0 - 3.f || pz > f.z0 + r->extent + 3.f) continue;
-        f.set_xz[f.nsets][0] = px; f.set_xz[f.nsets][1] = pz; f.set_xz[f.nsets][2] = 0.16f + 0.05f * p->size; f.set_xz[f.nsets][3] = 3.f; f.nsets++;
+        f.set_xz[f.nsets][0] = px; f.set_xz[f.nsets][1] = pz; f.set_xz[f.nsets][2] = 0.22f + 0.07f * p->size; f.set_xz[f.nsets][3] = 3.f; f.nsets++;
     }
     jobs_parallel_for(JOB_LANE_WORKER, sv_fill_rows, &f, r->res, 32);
     {   // what the ring holds: the range of the delta and how much of it the shore work touched
@@ -532,7 +545,7 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     rhi_texture_update(&r->river_tex, r->river);
     rhi_texture_update(&r->landuse_tex, r->landuse);
     r->x0 = f.x0; r->z0 = f.z0; r->on = 1;
-    if (r == &sv_ring[SV_NEAR]) scatter_rebuild(r->landuse, r->buf, r->res, f.x0, f.z0, step);   // the props stand on the near ring's land use (0.22.3)
+    if (r == &sv_ring[SV_NEAR]) scatter_rebuild(r->landuse, r->forest, r->buf, r->res, f.x0, f.z0, step);   // the props stand on the near ring's land use (0.22.3)
     return (diag_now() - t0) * 1000;
 }
 
@@ -562,6 +575,7 @@ void StreamView::update() {
             sv_ring[i].river = (unsigned char *)calloc((size_t)res[i] * res[i] * 4, 1);
             sv_ring[i].river_tex = rhi_texture_make(res[i], res[i], RHI_FMT_RGBA8, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, sv_ring[i].river);
             sv_ring[i].landuse = (unsigned char *)calloc((size_t)res[i] * res[i] * 4, 1);
+            sv_ring[i].forest = (unsigned char *)calloc((size_t)res[i] * res[i], 1);
             sv_ring[i].landuse_tex = rhi_texture_make(res[i], res[i], RHI_FMT_RGBA8, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, sv_ring[i].landuse);
             sv_ring[i].extent = extent[i]; sv_ring[i].max_level = lvl[i]; sv_ring[i].last_compose = -1e9;
         }

@@ -88,6 +88,41 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## Session notes (2026-10-31 afternoon, 0.22.5 - issue2)
+
+- Mirror `C:\projects\mare_oak_20261031_120901` (own `assets\elm` + `assets\data_chunks_terrain`
+  copies). Helpers: `build.bat [test]`, `shot.bat lon lat dist yaw file secs [tilt]`,
+  `rig.bat dist yaw file`, `cine.bat dist yaw ox oz pitch file` (staged camera with pitch -
+  the cinematic view), `mask.bat`, `modeshot.bat`.
+- `assets/dev_oak_<stamp>.txt` is dev.txt with the boxes checked against the code; a copy and
+  `summary_oak_<stamp>.md` live in `docs/dev/`.
+- The `assets/example` frames are read in `game/docs/DESIGN_VISUAL_TARGET.md`.
+- `mare-world-terrain` was not touched (read only, and only in 0.22.3 to locate the datasets).
+
+## issue2 / next feature.txt - the ocean checklist against the code (0.22.5)
+
+| Roadmap item | In the engine |
+|---|---|
+| Coarse ocean patch grid | yes: 50x50 quad patches, radius 300, plus an inner lattice near the camera (`sea.cc SEA_PATCH_*`) |
+| Tessellation control shader | yes, `sea/sea.tesc` (per-edge level from screen size, shared edges) |
+| Tessellation evaluation shader | yes, `sea/sea.tese` (Gerstner sum + displacement map + ship waves) |
+| Distance / screen adaptive | yes: level = pixels per unit x patch / distance / 8 px per cell |
+| Factors far 1-2, medium 4, near 8, tactical <= 16 | yes with the 0.22.5 cap of 16 (was 32); the dashboard knob `sea_tess_level_max` raises it after profiling |
+| Gerstner or FFT | Gerstner, 10 waves per set, two sets cross-fading on a wind change (`common/waves.glsl`) |
+| Normal maps | yes, two scrolling samples of the Meshy ripple normal (0.22.4 tile) |
+| Fresnel | yes, with dispersion |
+| Sun glitter | yes, GGX lobe + sparkle term with specular AA |
+| Foam | yes: whitecaps (Jacobian + slope, masked by the foam tile), surf, lapping line, cliff burst, ship foam |
+| Ship wakes | bow wave + hull heap in the vertex stages; no trailing V wake (by design, 0.19) |
+| Reflections | sky and sun only; no planar / SSR of the hulls - **the open item** |
+| Wind / storm / depth influence | yes (wave set from the wind cell, storm amplitude, depth gate + shoaling) |
+| Frustum culling, cap, cracks, morphing | yes / yes / shared edge levels / fractional_odd spacing and the Nyquist fade |
+| Share wave function with physics | the CPU `Sea::height_at` evaluates the same sum (the camera floor uses it); the ships ride it in the mesh shader |
+
+Open from issue2: *riggings are wrong* still needs a sentence on what is wrong; *waves larger
+than islands* still ambiguous; the trailing wake and the hull reflections are the two visible
+sea items left.
+
 ## Session notes (2026-10-31 midday, 0.22.4)
 
 - **Mirrors.** `/home/.../.cache/claude-hfi/-mnt-c-projects-mare/` is plain WSL storage that a

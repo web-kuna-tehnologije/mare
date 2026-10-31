@@ -119,6 +119,9 @@ void mem_reclassify_as_target(size_t bytes, int ntex) {
 }
 
 rhi_target_t target_make(int w, int h, rhi_format_t color_fmt, int with_depth) {
+    // a minimised window reports 0x0 for a frame or two; a 0x0 attachment is an incomplete
+    // framebuffer and was a FATAL (0.22.5) - clamp, the frame is thrown away anyway
+    if (w < 1) w = 1; if (h < 1) h = 1;
     rhi_target_t t = { .w = w, .h = h };
     t.color = texture_make(w, h, color_fmt, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, 0);
     if (with_depth) t.depth = texture_make(w, h, RHI_FMT_DEPTH24, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
@@ -132,6 +135,7 @@ rhi_target_t target_make(int w, int h, rhi_format_t color_fmt, int with_depth) {
     return t;
 }
 rhi_target_t target_depth_make(int w, int h) {
+    if (w < 1) w = 1; if (h < 1) h = 1;
     rhi_target_t t = { .w = w, .h = h };
     // LINEAR + compare mode = hardware PCF: each tap of the shadow lookup is a bilinear-filtered
     // depth comparison (sampler2DShadow), so shadow edges are smooth instead of stair-stepped

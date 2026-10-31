@@ -105,13 +105,13 @@ static const ship_class_t classes[] = {
     { .27f, -.01f, -.30f },       { .80f, 1.f, .62f },       { 0, 1, 2 },    { SAIL_SQUARE1, SAIL_SQUARE2, SAIL_SQUARE1 }, { "mast_cog_two", "mast_cog_two", "mast_cog_single" }, 0, 0, 0.f, .19f,
     { 35.f, 11.0f, 3.5f,  400.f, 4.0f, 0.f, 3.0f,  8,  50 } },
   { "carrack",        "carrack_hull",        "carrack_masts",        NULL,         38.f, .36f, .58f, 1.f,  1, 3,
-    { .28f, -.01f, -.31f },       { .80f, 1.f, .68f },       { 0, 1, 2 },    { SAIL_SQUARE2, SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen" }, 1, 0, 0.f, .16f,
+    { .28f, -.01f, -.31f },       { .80f, 1.f, .78f },       { 0, 1, 2 },    { SAIL_SQUARE2, SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen" }, 1, 0, 0.f, .16f,
     { 38.f, 11.0f, 4.0f,  500.f, 5.0f, 0.f, 3.0f, 20,  90 } },
   { "war_carrack",    "war_carrack_hull",    "war_carrack_masts",    NULL,         47.f, .36f, .58f, 1.f,  1, 4,
-    { .31f, -.03f, -.26f, -.42f },{ .82f, 1.f, .70f, .52f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
+    { .31f, -.03f, -.26f, -.42f },{ .82f, 1.f, .82f, .68f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
     { 47.f, 13.0f, 5.0f, 1000.f, 4.5f, 0.f, 2.2f, 40, 250 } },
   { "great_carrack",  "war_carrack_hull",    "war_carrack_masts",    NULL,         56.f, .36f, .58f, 56.f / 47.f, 1, 4,
-    { .31f, -.03f, -.26f, -.42f },{ .85f, 1.f, .72f, .54f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_great_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
+    { .31f, -.03f, -.26f, -.42f },{ .85f, 1.f, .84f, .70f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_great_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
     { 56.f, 15.0f, 5.5f, 1500.f, 4.0f, 0.f, 1.8f, 74, 500 } },
   { "galiot",         "galiot_hull",         "mediterranean_masts",  "galley_oar", 28.f, .32f, .50f, 1.f,  0, 2,
     { .08f, -.30f },              { 1.f, .62f },             { 0, 0 },       { SAIL_LATEEN, SAIL_LATEEN }, { "mast_lateen_tall", "mast_lateen_tall" },  0, 22, .62f, .11f,
@@ -652,7 +652,7 @@ int Shipyard::push(const shipyard_req_t *r) {
     // The generated poles are chunky for their height - at the battle zoom a cog's mast read as
     // a tree trunk - so they are thinned radially (gpu.h inst_t.slim), which a uniform scale
     // cannot do without losing the height the class table sets.
-    #define MAST_SLIM     0.34f      // 0.22.4: slimmer again ("all masts are too thick")
+    #define MAST_SLIM     0.425f     // 0.22.5: +25% on 0.22.4's 0.34 ("now mast is too thin")
     // ... and stepped *into* the ship rather than stood on `deck`. That fraction is a per-class
     // guess at where the hull model's deck is, and where it guesses high the mast floated a
     // metre over the planking. A mast is stepped on the keelson in any case, so burying the heel
@@ -661,7 +661,7 @@ int Shipyard::push(const shipyard_req_t *r) {
     // The aft stations of a three- and four-master stand on the sterncastle, which the hull
     // models carry well above the `deck` fraction: those masts, their lantinas and canvas are
     // lifted by this share of the hull height so the sail's foot clears the poop (0.22.4).
-    #define CASTLE_LIFT   0.10f
+    #define CASTLE_LIFT   0.14f      // 0.22.5: a little more ("sails too low")
     auto stn_lift = [&](int k) { return nm >= 3 && c->mast_at[k] <= -0.22f ? CASTLE_LIFT * hh : 0.f; };
     asset_t *mref = NULL;                                   // the mainmast sizes the rig
     if (c->masts) {
@@ -910,6 +910,9 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // transform has no other axis - which is the part of a stroke that reads.
                     oi.ax = r->x; oi.az = r->z;   // the bank rides the hull's swell, not its own
                     oi.heading = r->heading - side * (1.5708f + stroke * side_sign);
+                    // the sweep angles *down* into the water (0.22.5): a pitch about the oar's own
+                    // z axis (meshes.vert reads fx2 on rigid instances), steeper on the pull
+                    oi.fx2 = 0.30f + 0.14f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
                     oi.r = 0.62f; oi.g = 0.52f; oi.b = 0.36f;   // oak, not the nation's colours
                     oi.sel = 0.f;
                     scene_asset_instance(oar, oi, r->key ^ (unsigned)(0x9E37u + i * 2 + (side > 0)), r->camdist);

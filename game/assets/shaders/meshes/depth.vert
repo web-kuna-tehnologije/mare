@@ -11,6 +11,9 @@ void main(){
   vec3 p = a_pos * i_scol.x;
   if (i_misc.w > 0.0) { p.x *= i_misc.w; p.z *= i_misc.w; }   // radial slim (gpu.h): thins a mast without shortening it
 #include "meshes/cloth.glsl"
+// rigid instances may carry a pitch about their own z axis in fx2 (0.22.5): the oars dip their
+// blades into the sea with it; cloth instances use fx2/fx3 for the wind and are skipped
+  if (i_fx.y < 0.5 && abs(i_fx.z) > 1e-4) { float cq = cos(i_fx.z), sq = sin(i_fx.z); p = vec3(p.x*cq - p.y*sq, p.x*sq + p.y*cq, p.z); }
 // Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period 
 // never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, 
 // or caught in a storm), so anchored ships barely stir while a storm throws them about.

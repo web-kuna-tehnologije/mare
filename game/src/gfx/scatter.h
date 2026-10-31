@@ -13,7 +13,7 @@ extern "C" {
 // Rebuild the instance lists from the near ring (terrain_rings.cc sv_ring_compose): the ring's
 // RGBA8 land-use texels (fields, vineyards, orchards, villages), its height delta, resolution,
 // origin and texel size. Main thread, GL context current.
-void scatter_rebuild(const unsigned char *landuse, const float *delta, int res, float x0, float z0, float step);
+void scatter_rebuild(const unsigned char *landuse, const unsigned char *forest, const float *delta, int res, float x0, float z0, float step);
 int  scatter_submit(void);           // after meshes_bind(); returns instances drawn
 extern int scatter_enabled;
 extern int scatter_count;            // instances in the current build (dashboard)

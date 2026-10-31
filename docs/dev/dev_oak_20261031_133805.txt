@@ -1,0 +1,536 @@
+MARE LIBERUM - DEVELOPMENT BACKLOG, checked against the code (worktree oak, 20261031_133805, commit 0.22.5)
+Legend: [x] done  [~] partly / a first version exists  [ ] not started  [-] not applicable
+Checked by reading game/src and game/docs/FEATURES.md; "<-" notes say what the partial state is.
+The original list is assets/dev.txt; this copy only changes the boxes and adds the notes.
+
+MARE LIBERUM - DEVELOPMENT BACKLOG
+Source: MARE_Complete_Engine_Physics_Science_Shipbuilding_Roadmap.pdf
+Priority order for implementation, derived from roadmap dependencies.
+
+============================================================
+P0 - FOUNDATION / START HERE
+============================================================
+
+[P0.1] RENDERER FOUNDATION (M1)
+[x] Keep V3 / OpenGL 4.x for current phase
+[x] API-agnostic renderer abstraction
+[x] HDR rendering
+[x] Correct linear/sRGB pipeline
+[x] PBR materials
+[x] Sun/directional lighting
+[x] Shadows
+[x] Normal maps
+[x] Frustum culling
+[x] Instancing
+[x] Profiling hooks: CPU, GPU, VRAM/RAM
+
+[P0.2] ASSET RUNTIME / ASSET MANAGER (M2)
+[x] Standardize production assets on GLB/glTF
+[x] Asset metadata system
+[x] Scale normalization
+[x] Pivot normalization
+[x] Material metadata
+[x] Collision metadata/proxies
+[x] Asset cache
+[x] LOD metadata
+[x] Import validation
+
+[P0.3] LOD MANAGER (M2)
+[x] LOD0: hero/tactical close-up
+[x] LOD1: naval battle / important ports
+[x] LOD2: regional view / simplified ships and city blocks
+[x] LOD3: strategic view / very low-poly aggregated city/port
+[x] Icon/impostor mode for continental view
+[x] Screen-space LOD selection
+[x] LOD hysteresis
+[x] Stable transitions with minimal popping
+[-] Physics LOD policy
+
+[P0.4] MULTITHREADING + ASYNC LOADING (M3)
+[x] Worker pool
+[x] Async disk I/O
+[x] glTF parsing on workers
+[x] Texture decompression on workers
+[x] Mesh processing on workers
+[x] LOD streaming on workers
+[x] Async staging
+[x] Final OpenGL GPU upload through render context where required
+[x] Keep main thread focused on simulation, gameplay, UI and render submission
+[x] Separate physics jobs from asset I/O jobs
+
+[P0.5] WORLD STREAMING (M3)
+[x] World hierarchy: continent -> region -> coastal tile -> tactical chunk
+[x] Tile/chunk streaming
+[x] Quadtree and/or clipmap world structure
+[x] Memory budget
+[x] Resource unloading policy
+[x] Progressive city loading: icon -> LOD3 -> LOD2 -> LOD1
+[x] Streaming debug metrics
+
+[P0.6] WORLD DATA FOUNDATION (M4 prerequisite)
+[x] Elevation/height data
+[x] Biome/material masks
+[x] Coast mask
+[x] Bathymetry
+[x] Region/political IDs
+[x] Port/settlement anchors
+[~] Roads/rivers data   <- roads generated (world/roads), rivers generated but painted only; authored river data pending
+[x] LOD/streaming metadata
+[x] Real geography as base
+[x] Procedural micro-detail layer
+[x] Historical ports/major geographic constraints remain controlled
+
+============================================================
+P1 - VERTICAL-SLICE GRAPHICS / SIMULATION
+============================================================
+
+[P1.1] ADRIATIC TERRAIN (M4)
+[x] Eastern Italy
+[x] Istria
+[~] Dalmatia   <- overview 2.8 km; the 0.7 km dalmatia-detail-3x set is not in the package yet
+[x] Venice
+[x] Ancona
+[~] Dubrovnik   <- port exists; the landmark kit does not
+[x] Real coastline
+[x] Elevation
+[x] Quadtree/clipmap terrain
+[x] Procedural local noise/detail
+[~] Erosion-style microdetail   <- stream rings add ridge noise; no erosion model
+[~] Rocks   <- cliff/scree materials painted; no rock props yet (TODO 8c)
+[~] Vegetation   <- forest canopy paint + forest/orchard/olive/pine props (gfx/scatter); no wild undergrowth
+[x] Fields
+[x] Beaches
+[~] District/prop placement hooks   <- land-use ring texture + scatter; no district system
+
+[P1.2] OCEAN + TESSELLATION (M5)
+[x] Coarse ocean patch grid
+[x] Tessellation control shader
+[x] Tessellation evaluation shader
+[x] Distance/screen adaptive tessellation
+[x] Initial factors: far 1-2, medium 4, near 8
+[x] Tactical factor up to 16 only after profiling
+[x] Gerstner or FFT waves
+[x] Normal maps
+[x] Fresnel
+[x] Sun glitter
+[x] Foam
+[~] Ship wakes   <- bow wave + hull foam (sea/vs_common ship_wave); no trailing V wake by design
+[~] Reflections   <- sky/sun Fresnel only; no planar reflection of hulls
+[x] Wind influence
+[x] Storm influence
+[x] Sea-depth influence
+[x] Frustum culling
+[x] Maximum tessellation cap
+[x] Prevent patch cracks
+[x] Hysteresis/morphing to reduce popping
+[x] Share wave function with physics
+
+[P1.3] PHYSICS FOUNDATION (M5.5)
+[ ] Fixed physics timestep independent of render FPS
+[ ] Tactical naval fixed sub-step
+[ ] Stable rigid-body ship transforms
+[ ] Simplified convex/compound collision hulls
+[ ] Ship-to-ship collision
+[ ] Ship-to-coast collision
+[ ] Wreck collision
+[ ] Multi-point buoyancy sampling
+[~] Pitch / roll / heave   <- visual only, in the mesh shader; no rigid body
+[x] Physics samples same wave function as renderer
+[ ] Broadphase collision
+[ ] Ballistic ray/swept-sphere projectile model
+[ ] Cannonball/projectile hits
+[ ] Component/zone damage model
+[ ] Hull damage
+[ ] Mast damage
+[ ] Sail damage
+[ ] Gun damage
+[ ] Fire
+[ ] Flooding
+[ ] Sinking state
+[ ] Constraints only where gameplay-relevant
+[ ] Mast/debris constraints where needed
+[ ] Towing/boarding constraints if needed
+[ ] Multithreaded physics jobs
+[ ] Tactical results update strategic ship state
+[x] Strategic simulation remains discrete: 1 day = 1 tick
+[~] Strategic state includes hull integrity, crew/morale, guns, sails, flooding, fire, sinking status   <- hull/crew/guns exist; flooding/fire/sinking do not
+
+[P1.4] POST-PROCESSING / VISUAL LAYER (M6)
+[x] SSAO
+[x] Bloom
+[x] Fog
+[x] Tone mapping
+[~] Color grading   <- tone map + exposure; no LUT
+[ ] Anti-aliasing
+[x] Atmosphere
+
+[P1.5] NAVAL VFX (M6)
+[~] Cannon effects   <- gunsmoke puffs and muzzle flash; no projectile VFX
+[x] Smoke
+[ ] Fire
+[~] Water impacts   <- ship bow foam only
+[ ] Debris
+[ ] Sail effects/damage presentation
+[ ] Sinking effects
+[x] Weather effects
+[~] Particle system support   <- instanced puffs only
+
+============================================================
+P1 - CONTENT PIPELINE BEFORE MASS ASSET PRODUCTION
+============================================================
+
+[P1.6] AUTOMATED ASSET PROCESSOR (M7)
+[x] AI generator input workflow
+[x] Automated validation
+[x] Scale/pivot processing
+[~] Optimization   <- LOD decimation in Blender; no mesh optimizer
+[x] Automatic/generated LOD processing
+[x] PBR texture handling
+[x] Collision proxy generation/assignment
+[x] Metadata generation
+[x] Mare asset database registration
+[x] Batch processing
+[x] New GLB can pass automated import and validation
+[x] Do NOT import 300 production assets before renderer/asset/LOD/async/streaming foundation is working
+
+[P1.7] CONTENT BATCH TARGETS (M7)
+[ ] 300 3D models
+[ ] 100 sound effects
+[ ] 10 music tracks
+[ ] Check commercial rights/license conditions for generated content
+
+============================================================
+P2 - PROCEDURAL WORLD CONTENT
+============================================================
+
+[P2.1] PROCEDURAL CITIES + PORTS
+[~] Settlement generator   <- procedural towns from population/seed; no street layout
+[~] Port generator   <- pier/fort/warehouse placement; no quay generator
+[~] Cultural kits: Mediterranean   <- Meshy Mediterranean house set imported; no other kits
+[ ] Cultural kits: Northern European
+[ ] Cultural kits: Atlantic
+[ ] Cultural kits: Ottoman
+[ ] Cultural kits: North African
+[ ] Cultural kits: Middle Eastern
+[ ] Cultural kits: Indian
+[ ] Cultural kits: East Asian
+[x] Generator input: population
+[x] Generator input: prosperity
+[ ] Generator input: culture
+[x] Generator input: port level
+[ ] Generator input: trade volume
+[ ] Generator input: military importance
+[x] Generator input: terrain footprint
+[x] Generate houses
+[ ] Generate warehouses
+[x] Generate docks
+[ ] Generate shipyard
+[ ] Generate public buildings
+[x] Generate walls/fortifications
+[ ] Generate props
+[ ] Hand-controlled landmark elements for Venice
+[ ] Hand-controlled landmark elements for Dubrovnik
+[ ] Hand-controlled landmark elements for Constantinople
+
+============================================================
+P2 - REGIONAL SCIENCE / TECHNOLOGY
+============================================================
+
+[P2.2] REGIONAL DEVELOPMENT + SCIENCE MODEL (M7.5)
+[x] Development attribute per region
+[ ] University level
+[ ] Knowledge
+[ ] Specialization
+[ ] Player influence
+[x] Trade connectivity
+[ ] Institutions
+[ ] University district per region
+[x] Investment increases regional development
+[ ] Development creates knowledge capacity
+[ ] Research priority influence linked to political/trade influence
+[ ] Local institutional autonomy
+[ ] Low influence: fund projects
+[ ] Medium influence: increase branch priority
+[ ] High influence: propose dominant research direction
+[ ] Knowledge diffusion through trade
+[ ] Knowledge diffusion through migration
+[ ] Knowledge diffusion through alliances
+[ ] Knowledge diffusion through espionage
+[ ] Knowledge diffusion through conquest
+
+SCIENCE BRANCHES
+[ ] Navigation
+[ ] Shipbuilding
+[ ] Naval Engineering
+[ ] Artillery & Metallurgy
+[ ] Commerce & Finance
+[ ] Industry & Production
+[ ] Medicine & Public Health
+[ ] Cartography & Geography
+[ ] Natural Philosophy
+[ ] Anthropology & Languages
+[ ] Theology & Law
+
+[P2.3] NAVAL TECHNOLOGY MODEL (M7.6)
+[ ] Hull/platform technology
+[ ] Hull construction capability
+[ ] Sails & rigging technology
+[ ] Artillery technology
+[ ] Navigation equipment technology
+[ ] Workmanship/production quality
+[ ] Regional production quality
+[ ] Arsenal capability
+[ ] Shipyard technology capability
+[ ] Ship stats derived from region + components + workmanship
+[ ] Same ship class may differ by construction region
+[ ] Technology centers affect available fleet composition
+
+============================================================
+P2 - SHIPBUILDING ECONOMY
+============================================================
+
+[P2.4] SHIP CONTRACT SYSTEM (M7.7)
+[ ] Vessel specification
+[ ] Hull family
+[ ] Technology generation
+[ ] Sails/rigging specification
+[ ] Artillery specification
+[ ] Navigation equipment
+[ ] Quality specification
+[ ] Shipyard selection
+[ ] Slip/capacity validation
+[ ] Advance payment
+[ ] Monthly payments
+[ ] Resource schedule
+[ ] Delivery terms
+[ ] Priority contract
+[ ] Penalties
+[ ] Fitting-out terms
+[ ] Sea-trial terms
+[ ] Cancellation/default terms
+[ ] Renegotiation
+
+[P2.5] SHIP COST + MONTHLY PROGRESS
+[ ] Base hull cost
+[ ] Ship size modifier
+[ ] Technology-generation modifier
+[ ] Material-quality modifier
+[ ] Equipment cost
+[ ] Local labor price
+[ ] Regional resource prices
+[ ] Contract priority modifier
+[ ] Base work units by ship class/size
+[ ] Technology complexity
+[ ] Shipyard productivity
+[ ] Regional development effect
+[ ] Workforce availability
+[ ] Funding ratio
+[ ] Resource availability
+[ ] Queue/repair competition
+[ ] Stability modifier
+[ ] Effective monthly progress = base shipyard output x workforce x technology efficiency x funding ratio x resource availability x stability modifier
+
+CONSTRUCTION PHASES
+[ ] Design and procurement
+[ ] Keel and hull
+[ ] Decks and structure
+[ ] Masts and rigging
+[ ] Artillery installation
+[ ] Fitting out
+[ ] Launch and trials
+
+[P2.6] UNDERFUNDING / PAUSE / RECOVERY
+[ ] Fully funded state
+[ ] Partially funded state
+[ ] First missed payment -> Underfunded
+[ ] Repeated missed payment -> Paused
+[ ] Long-pause restart fee
+[ ] Deterioration risk
+[ ] Workforce/expertise loss risk
+[ ] Reputation consequences
+[ ] Cancellation/default settlement
+[ ] Sell unfinished hull
+[ ] Financier takeover possibility
+[ ] Refinancing path
+[ ] Alternative-material purchasing
+[ ] Contract renegotiation
+
+[P2.7] TREASURY FORECAST
+[ ] Total committed capital
+[ ] Monthly obligations
+[ ] Income projection
+[ ] Expense projection
+[ ] Minimum reserve projection
+[ ] Pre-order financial warning
+[ ] Project priorities
+[ ] Repairs priority
+[ ] Warships priority
+[ ] Merchants priority
+[ ] Exploration vessels priority
+[ ] Low-priority backlog
+[ ] Rule-based auto slowdown/pause
+[ ] Manual override
+
+[P2.8] CONSTRUCTION RESOURCES (M7.9)
+[ ] Timber/hardwood
+[ ] Iron/bronze
+[ ] Canvas
+[ ] Hemp/rope
+[ ] Pitch/tar
+[ ] Artillery
+[ ] Navigation instruments
+[ ] Skilled labor
+[ ] Resource requirements tied to logical construction phases
+[ ] Allow hull progress without artillery where appropriate
+[ ] Allow under-armed launch where appropriate
+[ ] Canvas shortage blocks rigging completion
+[ ] Wait for resource option
+[ ] Import expensive resource option
+[ ] Substitute lower-quality component option
+[ ] Partially equipped vessel option
+
+[P2.9] SHIPYARD ECONOMY (M7.8)
+[ ] Building slips
+[ ] Heavy slips / dry docks
+[ ] Monthly work capacity
+[ ] Workforce
+[ ] Expertise
+[ ] Maximum hull generation
+[ ] Artillery integration capability
+[ ] Production quality
+[ ] Backlog
+[ ] Repairs consume same capacity as construction
+[ ] Refit consumes same capacity as construction
+[ ] Shipyard learning from construction
+[ ] Shipyard learning from repairs
+[ ] Specialization: heavy galleys
+[ ] Specialization: ocean-going merchants
+[ ] Specialization: artillery integration
+[ ] Specialization: rapid standardized construction
+[ ] Specialization: cargo optimization
+
+[P2.10] NAVAL FINANCE (M7.10)
+[ ] Direct contract
+[ ] Bank-financed contract
+[ ] Collateral
+[ ] Interest
+[ ] Joint investment
+[ ] Shared ownership/revenue
+[ ] Government-backed contract
+[ ] Chartered-company order
+[ ] Insurance
+[ ] Bonds / capital markets
+[ ] Banking progression
+[ ] Accounting progression
+[ ] Commercial-law progression
+
+[P2.11] COMMISSIONING + OPERATIONAL READINESS
+[ ] Launch
+[ ] Fitting out
+[ ] Crew recruitment
+[ ] Officers/specialists
+[ ] Sea trials
+[ ] Commissioning
+[ ] Rushed commissioning
+[ ] Reliability impact
+[ ] Crew-readiness impact
+
+[P2.12] SHIPBUILDING PORTFOLIO UI
+[ ] Active contracts
+[ ] Committed capital
+[ ] Monthly obligation
+[ ] Available treasury
+[ ] Reserved resources
+[ ] Shipyard utilization
+[ ] Risk level
+[ ] Underfunding warnings
+[ ] Canvas shortage warning
+[ ] Artillery shortage warning
+[ ] Timber shortage warning
+[ ] Overloaded shipyard warning
+[ ] Repair-vs-new-build capacity conflicts
+[ ] Expected delivery month
+[ ] Global priorities
+[ ] Manual override
+
+============================================================
+P3 - ADRIATIC VERTICAL SLICE / INTEGRATION (M8)
+============================================================
+
+[x] Continuous zoom: continental -> regional -> city/port -> tactical naval battle
+[x] Eastern Italy/Istria/Dalmatia scenario coverage
+[x] Venice-Ancona-Dubrovnik area
+[x] Streaming without major blocking stalls
+[x] Memory budget controlled
+[x] Stable LOD transitions
+[x] Ocean with adaptive quality, waves, foam, wake and weather hooks
+[x] Tactical battle with 30-50 ships
+[~] Cannon, smoke, fire, water impact and damage VFX   <- smoke only
+[ ] Physically simulated active tactical battle
+[ ] Venice and Dubrovnik visually/functionally distinct
+[ ] Venice demonstrates high development and shipbuilding/science concentration
+[ ] Dubrovnik demonstrates different trade/diplomatic specialization
+[ ] Regional research directions visibly matter
+[ ] Venice Arsenal contract flow
+[ ] Place ship order
+[ ] Finance ship
+[ ] Handle resource shortage
+[ ] Pause/restart construction
+[ ] Launch
+[ ] Tactical deployment
+[x] Debug overlay: CPU
+[x] Debug overlay: GPU
+[x] Debug overlay: VRAM/RAM
+[x] Debug overlay: streaming metrics
+
+============================================================
+P4 - EXPANSION (M9)
+============================================================
+
+[ ] Expand Europe
+[ ] Expand Africa
+[ ] Expand Asia
+[ ] Extend cultural kits
+[ ] Scale world streaming/content pipeline
+[ ] Scale historical ports and settlement anchors
+
+============================================================
+CORE GAMEPLAY LOOP TO PRESERVE
+============================================================
+
+Trade -> revenue -> regional investment -> university + shipyard + arsenal -> technology -> ship contract -> advance payment -> monthly payments + resources -> construction -> fitting-out + crew -> operational ship -> trade / war / exploration -> new revenue + knowledge
+
+============================================================
+DEFINITION OF DONE - ENGINE / CONTENT PIPELINE
+============================================================
+
+[x] A new 3D model passes automated import
+[x] Correct scale/pivot/materials assigned
+[x] LOD generated/assigned
+[x] Collision generated/assigned
+[x] Asset can be streamed without major hitching
+[x] Asset renders correctly at strategic, regional and tactical zoom
+
+============================================================
+DEFINITION OF DONE - SHIPBUILDING
+============================================================
+
+[ ] Player can order a ship
+[ ] Player can understand total financial/resource risk
+[ ] Player can monitor monthly construction progress
+[ ] Player can react to shortages
+[ ] Player can pause or refinance
+[ ] Player can complete fitting-out
+[ ] Resulting ship characteristics derive from region, shipyard and installed technology
+
+============================================================
+RECOMMENDED FIRST DEVELOPMENT SESSION
+============================================================
+
+1. P0.1 Renderer Foundation
+2. P0.2 Asset Runtime
+3. P0.3 LOD Manager
+4. P0.4 Worker Pool / Async Loader
+5. P0.5 World Streaming
+
+Do not start mass AI asset generation until these foundations and the automated asset path are usable.

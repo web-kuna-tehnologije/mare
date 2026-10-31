@@ -42,7 +42,7 @@ extern "C" {
 }
 
 int sea_tess_on;                 // the tessellated path is in use (GL 4.0 and not MARE_SEA_TESS=0)
-int sea_tess_level_max = 32;     // dashboard knob: finest subdivision of a patch edge (zooming in raises wave *height*, not this)
+int sea_tess_level_max = 16;     // dashboard knob: finest subdivision of a patch edge (zooming in raises wave *height*, not this). 0.22.5: 16, the roadmap's tactical ceiling (was 32)
 
 // Tessellated sea (DESIGN_VISUAL.md step 5). Instead of the exponentially warped grid, a
 // lattice of SEA_PATCH_N x SEA_PATCH_N quad patches, SEA_PATCH_R units in radius around the
@@ -303,7 +303,9 @@ void Sea::update_waves(float day, float dt) {
         for (int i = 0; i < SEA_WAVES; ++i) {
             float kw = 6.2831853f / maxf(set->w[i].len, 1e-4f);
             float spd = sqrtf(9.81f / kw) * 0.42f;
-            set->phase[i] += kw * spd * dt;
+            // the staged scenes run their clock 30% slower (0.22.5): at nine times the map's
+            // scale the swell crossed the battle too fast to read as a sea
+            set->phase[i] += kw * spd * dt * (sea_local_depth > 0.f ? 0.7f : 1.f);
             if (set->phase[i] > 6.2831853f) set->phase[i] -= 6.2831853f * floorf(set->phase[i] / 6.2831853f);
         }
     }
@@ -403,7 +405,7 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     // whitecaps and foam streaks only while the camera is close enough for a wave to be a wave
     // on screen (0.22.3): from the regional view they smeared into kilometre-long white diagonals
     { float t = clampf((cam.dist - 9.f) / 9.f, 0.f, 1.f); rhi_set_f1(rhi_uniform(p,"u_capzoom"), local_depth > 0.f ? 1.f : 1.f - t * t * (3.f - 2.f * t)); }
-    rhi_set_f1(rhi_uniform(p,"u_shorescale"), local_depth > 0.f ? 1.f : clampf(cam.dist / 60.f, 0.12f, 1.f));   // the shore bands narrow with the zoom (0.22.4)
+    rhi_set_f1(rhi_uniform(p,"u_shorescale"), local_depth > 0.f ? 1.f : clampf(cam.dist / 150.f, 0.08f, 0.6f));   // the shore bands narrow with the zoom (0.22.4; 0.22.5: thinner at the regional zoom - a 4 km foam rim is not a shore)
     rhi_set_f2(rhi_uniform(p,"u_zrange"), cam.znear, cam.zfar);   // to linearise the captured depth (refraction thickness)
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
@@ -480,7 +482,13 @@ void Sea::sea_draw_lattice(float cx, float cz, float radius, int n, float scale,
 void Sea::sea_draw_patches(float cx, float cz, float radius, float scale, float local_depth, float amp) {
     float outer_patch = 2.f * radius / SEA_PATCH_N, inner_r = SEA_INNER_R * scale;
     int inner = sea_inner_on && cam.dist < 60.f * scale;      // only when the camera can be close to the water
-    sea_draw_lattice(cx, cz, radius, SEA_PATCH_N, scale, local_depth, amp, 0, outer_patch, inner ? inner_r * 0.985f : 0.f);
+    // The hole the outer lattice cuts for the inner one must stay inside the inner lattice's
+    // *snapped* square: its origin is floored to its own patch grid, so on the far side its edge
+    // falls up to one patch short of cx + inner_r - and a disc of 0.985 inner_r reached past it.
+    // The seabed showed through that crescent as a brown sliver standing in open water, always
+    // 14 units from the look-at point on the camera's side (issue2 "wierd bug", 0.22.5).
+    float inner_patch = 2.f * inner_r / SEA_INNER_N;
+    sea_draw_lattice(cx, cz, radius, SEA_PATCH_N, scale, local_depth, amp, 0, outer_patch, inner ? inner_r * 0.985f - inner_patch : 0.f);
     if (inner) sea_draw_lattice(cx, cz, inner_r, SEA_INNER_N, scale, local_depth, amp, 1, outer_patch, 0.f);
 }
 

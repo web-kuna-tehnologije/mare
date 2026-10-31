@@ -8,6 +8,16 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 "Framework" marks issues in v3 itself that we work around rather than fix.
 
 ## Rendering
+- **M** No reflection of the ships in the water (0.22.5, issue2 / dev.txt "Reflections"): the
+  surface reflects the sky and the sun only. A screen-space reflection against the captured
+  scene copy (the refraction already has the colour and depth snapshots it needs) is the
+  next sea item; a planar pass would be the better one for the staged battle.
+- **L** The village houses and forest trees (`gfx/scatter.cc`) are drawn without shadows and
+  without LODs, within 40 / 28 units of the look-at point; past that the painted masks carry
+  them. At the regional zoom a wood is paint only.
+- **L** The oar pitch (rigid-instance `fx2`) is one angle for the whole oar: the blade dips,
+  the loom does not rise over the gunwale to match. A proper two-pivot stroke needs the
+  instance to carry a second rotation.
 - **M** Peljesac (0.22.4): the data-driven mask keeps it as a chain of one- and two-cell land
   with the Mali Ston bay behind - the 2.8 km overview is a sample or two wide across it - and
   the rings' shore profile still gives a strip that thin under half its relief, so it draws as

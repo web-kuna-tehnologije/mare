@@ -224,15 +224,23 @@ void Lighting::slice_sphere(float dnear, float dfar, vec3 *center, float *radius
 #define SHADOW_DEPTH_MARGIN 24.f
 mat44 Lighting::cascade_matrix(vec3 center, float radius) {
     vec3 sun = norm3(RF.sun);
-    float texels = 2.f * radius / SHADOW_RES;                 // snap the centre to whole texels
-    center = vec3(floorf(center.x / texels) * texels, floorf(center.y / texels) * texels, floorf(center.z / texels) * texels);
+    float texels = 2.f * radius / SHADOW_RES;
+    // Snap the centre to whole texels *in the light's plane* (0.22.5). Snapping the world x/y/z
+    // only aligns the texel grid for a sun along an axis; under the real tilted sun the grid
+    // still slid by a fraction of a texel every frame the camera moved, and every shadow edge
+    // on the close terrain crawled ("terrain close by flickering").
+    vec3 up = fabsf(sun.y) > 0.98f ? vec3(0,0,1) : vec3(0,1,0);
+    vec3 fwd = scale3(sun, -1.f);
+    vec3 rgt = norm3(cross3(fwd, up)), upl = cross3(rgt, fwd);
+    float cr = dot3(center, rgt), cu = dot3(center, upl);
+    float dr = floorf(cr / texels) * texels - cr, du = floorf(cu / texels) * texels - cu;
+    center = add3(center, add3(scale3(rgt, dr), scale3(upl, du)));
     float back = radius + SHADOW_DEPTH_MARGIN;
     // The shadow camera sits on the SUN side of the scene looking along -sun (issue-2: this was
     // sub3, placing the eye under the world looking up - depth sorted away from the sun, so an
     // occluder above a receiver stored a *larger* depth and the compare always said "lit";
     // objects never cast onto the water or the ground, only side-facing acne survived).
     vec3 eye = add3(center, scale3(sun, back));
-    vec3 up = fabsf(sun.y) > 0.98f ? vec3(0,0,1) : vec3(0,1,0);
     mat44 view = lookat44(eye, center, up);
     mat44 proj = cam_proj_to_gl(mat44_ortho_off_center_rh(-radius, radius, -radius, radius, 0.05f, back + radius + SHADOW_DEPTH_MARGIN));
     return mat44_mul_mat44(view, proj);

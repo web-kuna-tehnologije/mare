@@ -106,7 +106,13 @@ void main(){
 // (a hull) fall back to the straight-down sample.
   vec3 alb1 = texture(u_albedo, p * 0.33 + u_drift1).rgb;
   vec3 alb2 = texture(u_albedo, p * 1.15 + u_drift2 + vec2(0.37, 0.11)).rgb;
-  float lum1 = dot(alb1, vec3(0.3, 0.5, 0.2)), lum2 = dot(alb2, vec3(0.3, 0.5, 0.2));
+// 0.22.5: a third sample, rotated 37 degrees at an incommensurate scale, and a slow large
+// patch mask - the foam comes in drifts and never repeats on the tile's period
+  vec2 pr = mat2(0.80, 0.60, -0.60, 0.80) * p;
+  vec3 alb3 = texture(u_albedo, pr * 0.61 + u_drift1 * 0.6 + vec2(0.52, 0.83)).rgb;
+  float fpatch = smoothstep(0.30, 0.72, snoise(p * 0.045 + u_drift1 * 0.3) * 0.6 + snoise(p * 0.13 + u_drift2 * 0.5) * 0.4);
+  float lum1 = dot(alb1, vec3(0.3, 0.5, 0.2)), lum2 = dot(alb2, vec3(0.3, 0.5, 0.2)), lum3 = dot(alb3, vec3(0.3, 0.5, 0.2));
+  lum2 = mix(lum2, max(lum2, lum3), 0.6) * (0.55 + 0.45 * fpatch);
 // 0.22.4: the Meshy foam tile is bright (median 0.29, top decile 0.81 against the old tile's
 // flat 0.2), so its luminance is cubed before the thresholds below: foam stays in the top
 // tenth of the texture instead of covering the sea
@@ -224,7 +230,10 @@ void main(){
 // battle's sea was tiled with them); through the texture's bright tenth it is a patch of foam
 // at texel resolution, and the cells never show.
   float capmask = smoothstep(0.05, 0.40, lum2);
-  float caps = max(fold, steep) * smoothstep(0.25, 0.8, ws) * capmask * detail * u_capzoom * (u_local_depth > 0.0 ? 0.6 : 1.0);
+// the staged scenes want white on every tessellated crest ("white foam on peaks"), the map
+// only where the fold says the wave is breaking
+  float peak = u_local_depth > 0.0 ? smoothstep(0.1, 0.9, lift) * smoothstep(0.015, 0.06, v_slope) * 0.7 : 0.0;
+  float caps = max(max(fold, steep), peak) * smoothstep(0.25, 0.8, ws) * capmask * detail * u_capzoom;
 // Surf: in the shoaling band the steepened waves break into a foam sheet that runs up the
 // beach. The shore direction is the depth gradient; the sheet's texture scrolls along it.
   vec2 hp = v_wpos.xz; float he = 0.9 * sc;
@@ -233,9 +242,12 @@ void main(){
 // 0.22.3: the breaker zone only. The old band ran out to 1.8 units of depth, which on the
 // Adriatic shelf is the whole sea, so every crest line carried a sheet of surf and the bays
 // were striped white from the regional view.
-  float band = smoothstep(0.42 * sb, 0.12 * sb, depth) * smoothstep(0.0, 0.05 * sb, depth) * max(u_capzoom, 0.35);
+  float band = smoothstep(0.55 * sb, 0.12 * sb, depth) * smoothstep(0.0, 0.05 * sb, depth) * max(u_capzoom, 0.35);
   float surf_tex = smoothstep(0.22, 0.6, dot(texture(u_albedo, p * 0.7 + shoredir * (t * 0.22) + u_drift1 * 0.5).rgb, vec3(0.3, 0.5, 0.2)));
-  float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;
+// waves breaking on the coast (0.22.5): each set's wave runs up as a sheet and drains - the
+// breaker's own clock, phase-shifted by the shore direction so the line of white travels in
+  float brk = pow(max(sin(t * 1.1 - depth / (0.18 * sb) * 6.2832 + snoise(hp * 2.0 / sc) * 1.5), 0.0), 2.0);
+  float surf = band * (0.3 + 0.7 * max(max(v_crest, fold), brk)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail * (1.0 + 0.6 * u_capzoom);
 // Shoreline: the thin lapping line at the waterline, as before.
   float foam = (1.0 - smoothstep(0.0, 0.26 * sb, depth)) * (0.55 + 0.45*sin(depth*30.0/sb - t*2.0 + w1)) * detail;
 // The coast the waves meet (0.22, the rings' shore mask): R cliff, G beach, B marsh, A exposure.
@@ -283,7 +295,7 @@ void main(){
   float shipcrest = smoothstep(0.009, 0.015, v_shipw / max(sc, 1e-3)) * smoothstep(0.30, 0.58, lum2) * 0.8;
   shipk *= 1.0 - clamp(shipcrest, 0.0, 0.8);
   float shipf = (1.0 - shipk) * detail;
-  vec3 foamcol = srgb_to_linear(vec3(0.93, 0.96, 0.98)) * (u_ambsky * 1.0 + u_suncol * 0.35);
+  vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * (u_ambsky * 1.15 + u_suncol * 0.55);   // 0.22.5: whiter
   float foamall = clamp((caps * 0.9 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
   col3d = mix(col3d, foamcol, foamall);
   col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);

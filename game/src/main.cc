@@ -8,6 +8,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <unistd.h>
+#endif
 #include <ctime>
 
 extern "C" {
@@ -270,7 +276,24 @@ int main(int argc, char **argv) {
     }
 
     app_create_flags_t acf = {};   // the C macro's designators are out of declaration order for C++20
-    acf.title = "Mare Liberum"; acf.w = 1600; acf.h = 900; acf.scale = 0.92f;
+    // The window title names the worktree the build came from (0.22.5): the run directory is
+    // C:\projects\mare_<worktree>_<stamp> (or mare-<worktree>...), so "Mare Liberum / OAK".
+    static char title[96] = "Mare Liberum";
+    { char cwd[512] = ""; const char *base = cwd;
+#ifdef _WIN32
+      if (_getcwd(cwd, sizeof cwd)) {
+#else
+      if (getcwd(cwd, sizeof cwd)) {
+#endif
+        for (const char *q = cwd; *q; ++q) if (*q == '/' || *q == '\\') base = q + 1;
+        if (!strncmp(base, "mare", 4) && (base[4] == '_' || base[4] == '-')) {
+            char wt[32]; int n = 0;
+            for (const char *q = base + 5; *q && *q != '_' && *q != '-' && *q != '.' && n < 31; ++q) wt[n++] = (char)toupper((unsigned char)*q);
+            wt[n] = 0;
+            if (n && !(n == 8 && isdigit((unsigned char)wt[0]))) snprintf(title, sizeof title, "Mare Liberum / %s", wt);
+        }
+      } }
+    acf.title = title; acf.w = 1600; acf.h = 900; acf.scale = 0.92f;
     acf.resizable = 1; acf.decorated = 1; acf.visible = 1; acf.debug = !V3_RETAIL; acf.silent = V3_RETAIL;
     (app_create)(acf);
     { app_state_t st = app_state(); screen_w = maxi(1, st.w); screen_h = maxi(1, st.h); }

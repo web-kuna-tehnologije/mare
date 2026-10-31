@@ -119,6 +119,8 @@ Status as of the current codebase. Each entry names the module that owns it.
   split square yards instanced on every station on the sail's swung/braced heading; cordage as
   geometry-stage lines of physical width; verlet flags pinned to the main masthead; canvas,
   water and ground materials (DESIGN_SHIPS.md 3c, DESIGN_RENDERER.md 0.19).
+- Forest and village props (0.22.5): trees and pines on the export's tree cover, houses on
+  the village mask (`gfx/scatter.cc`); oars pitch into the water; light-plane shadow snapping.
 - The coastline from the terrain data (0.22.4): the world-game-package's overview decides
   land and sea cell by cell (ports protected), the rings round the shore and follow the 3 km
   sample inside the cell; the Meshy sea tiles (normal, displacement, foam albedo) via

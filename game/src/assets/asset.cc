@@ -119,7 +119,7 @@ private:
     static int asset_build_lod(asset_t *a, int li, gltf_model_t *m, const float *pivot, float scale, texbake_t *tex, int *ntex);
     static void asset_tex_decode_range(void *arg, int begin, int end, int slot);
     static void asset_tex_prepass(asset_t *a, gltf_model_t *models, const int *model_of, texbake_t *tex, int *ntex);
-    static int asset_build_models(asset_t *a, gltf_model_t *models, const int *model_of);
+    static int asset_build_models(asset_t *a, gltf_model_t *models, int *model_of);
     static unsigned char *asset_read_bin(const char *path, size_t *n);
     void asset_stage_upload(void *p);
     void asset_stage_commit(void *p);
@@ -561,7 +561,7 @@ void AssetRegistry::asset_tex_prepass(asset_t *a, gltf_model_t *models, const in
 }
 
 // the CPU build proper, from parsed models. `a` is the private copy; nothing else may look at it.
-int AssetRegistry::asset_build_models(asset_t *a, gltf_model_t *models, const int *model_of) {
+int AssetRegistry::asset_build_models(asset_t *a, gltf_model_t *models, int *model_of) {
     const asset_desc_t *d = &a->desc;
     texbake_t tex[ASSET_MAX_TEXBAKE]; int ntex = 0;
     float pivot[3] = {0,0,0}, scale = d->scale_factor;
@@ -595,10 +595,26 @@ int AssetRegistry::asset_build_models(asset_t *a, gltf_model_t *models, const in
             if (d->pivot == PIVOT_CENTER) for (int c = 0; c < 3; ++c) lpivot[c] = (lbmin[c] + lbmax[c]) * 0.5f;
             if (d->pivot == PIVOT_BASE_CENTER) { lpivot[0] = (lbmin[0] + lbmax[0]) * 0.5f; lpivot[1] = lbmin[1]; lpivot[2] = (lbmin[2] + lbmax[2]) * 0.5f; }
             if (d->pivot == PIVOT_KEEP) { lpivot[0] = lpivot[1] = lpivot[2] = 0; }
+            int bad = 0;
             for (int c = 0; c < 3; ++c) {   // import validation: a LOD much larger/smaller than LOD 0 is a wrong node pick
                 float e0 = (a->bmax[c] - a->bmin[c]) / (scale > 1e-9f ? scale : 1), el = lbmax[c] - lbmin[c];
-                if (e0 > 0.01f && (el > e0 * 1.5f || el < e0 * 0.5f))
+                if (e0 > 0.01f && (el > e0 * 1.5f || el < e0 * 0.5f)) {
                     LOG_WARN("asset", "'%s' LOD %d extent %.2f differs from LOD 0 (%.2f) on axis %d: wrong node?", d->name, i, el, e0, c);
+                    bad = 1;
+                }
+            }
+            // 0.22.5: a wrong-node LOD of a ship part is not drawn - it is what made the
+            // carrack's mizzens stubs at a distance (mast_mizzen's LOD 4 is a third of its
+            // height). The previous LOD stands in at this level's own switch distance.
+            if (bad && i > 0 && d->type == ASSET_SHIP_PART) {   // the rig parts are where the scans have wrong nodes; props keep their authored LODs (asset_test's tiny LOD 1)
+                float px = a->desc.lod[i].px, dist = a->desc.lod[i].dist;
+                a->desc.lod[i] = a->desc.lod[i - 1]; a->desc.lod[i].px = px; a->desc.lod[i].dist = dist;
+                model_of[i] = model_of[i - 1];
+                if (asset_lod_bounds(&models[model_of[i]], &d->lod[i], d->forward, lbmin, lbmax)) {
+                    if (d->pivot == PIVOT_CENTER) for (int c = 0; c < 3; ++c) lpivot[c] = (lbmin[c] + lbmax[c]) * 0.5f;
+                    if (d->pivot == PIVOT_BASE_CENTER) { lpivot[0] = (lbmin[0] + lbmax[0]) * 0.5f; lpivot[1] = lbmin[1]; lpivot[2] = (lbmin[2] + lbmax[2]) * 0.5f; }
+                }
+                LOG_INFO("asset", "'%s' LOD %d replaced by LOD %d", d->name, i, i - 1);
             }
         }
         ok = asset_build_lod(a, i, &models[model_of[i]], lpivot, scale, tex, &ntex);

@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.22.5 — the second issues folder: shadows that hold still, a forest, villages, the battle sea
+
+From `assets/issues/issue2` (`issues.txt`, `next feature.txt`, seven screenshots):
+
+- **Terrain flickering close by.** The shadow cascades snapped their centre to texels in world
+  x/y/z, which only aligns the grid for a sun along an axis; under the real tilted sun the
+  texel grid slid a fraction every frame the camera moved and every shadow edge on the close
+  ground crawled. The snap is now taken in the light's own plane (`lighting.cc cascade_matrix`).
+- **Sea texture borders / blocks in the shallows.** Water-only terrain chunks were never drawn,
+  so under a shelf the refraction saw the bottom in one 64-cell block and the clear colour in
+  the next. Chunks within 90 units of the look-at point are drawn whatever they hold
+  (`terrain.cc`), so the seabed is continuous under every shallow the camera can see.
+- **Tessellation for the close terrain** already exists (8x8 patches per chunk, up to 32 per
+  edge, `terrain.tesc/tese`); nothing new was added. The sea's cap goes 32 -> 16 per edge, the
+  roadmap's tactical ceiling (`sea_tess_level_max`).
+- **Oars** dip their blades: rigid instances may carry a pitch about their own z axis in `fx2`
+  (`meshes.vert`, `depth.vert`), and the oar bank sets 17-25 degrees, steeper on the pull.
+- **Sea foam whiter and less repetitive**: a third foam sample rotated 37 degrees at an
+  incommensurate scale and a slow large-scale patch mask, a whiter foam colour; in the staged
+  scenes white sits on every tessellated crest (`peak`), and their wave clock runs 30% slower.
+  Waves break on the coast with their own clock (`brk`) and the surf band is wider and
+  brighter at the battle zoom; the bow wave is half again as high.
+- **Window title** names the worktree: `Mare Liberum / OAK`, from the run directory's
+  `mare_<worktree>_<stamp>` name (`main.cc`).
+- **Masts** +25% (`MAST_SLIM` 0.34 -> 0.425). **The carrack's aft masts**: the mizzen stations'
+  heights go 0.70/0.52 -> 0.82/0.68 (0.84/0.70 on the great carrack, 0.68 -> 0.78 on the
+  carrack), the sterncastle lift 0.10 -> 0.14 - and the real cause of the "missing" masts: the
+  `mast_mizzen` asset's LOD 4 and 5 are a wrong node a third of the height, and the loader
+  drew them. **A LOD whose extent is off by more than 1.5x is now replaced by the previous
+  LOD** at its own switch distance (`asset.cc`); the warning stays in the log.
+- **Close-by heights** of the map: the rings' procedural ridge amplitude is 40% lower
+  (`stream.cc lvl_amp`).
+- **A forest** (`gfx/scatter.cc`, a new `forest` byte per ring texel from the export's tree
+  cover thinned by fields and villages): a tree on 62% of forest texels within 28 units -
+  broadleaves 0.13 units, pines (three cones) above 1.6 units of height, north of 47 degrees
+  and mixed in on the uplands - and the orchard trees are half again as big.
+- **Villages**: the settlement discs are twice as wide, hamlets twice as likely, and the
+  village mask now stands **house props** (walls and a tiled roof, on the shader's own roof
+  grid so paint and geometry agree) out to 40 units.
+- **3D waves from ships**: the bow wave and hull heap existed since 0.19 and are larger now;
+  the trailing V wake stays off by design (0.19 notes: it read as a scar at every zoom).
+- **The brown sliver in open water** (`wierd bug.png`, and in this session's own shots since
+  0.22.3) was the seabed showing through a gap in the sea: the inner tessellation lattice's
+  origin is snapped to its patch grid, so on the camera's side its edge fell up to one patch
+  short of the disc the outer lattice cuts out for it. The hole is one inner patch smaller
+  (`sea.cc sea_draw_patches`). Found by bisecting with `MARE_PASSES` and `MARE_SEA_INNER=0`.
+  On the way, sea texels outside the shore band are clamped to stay 0.12 under the surface
+  (`terrain_rings.cc`): the rings' ridge noise could lift a shallow shelf through the waterline.
+- The sea's shore bands are thinner from the regional zoom (a 4 km foam rim is not a shore);
+  a minimised window's 0x0 render target no longer ends the run (`rhi_gl.cc`).
+- `next feature.txt` (the ocean checklist) is answered item by item in docs/TODO.md: the
+  patch grid, both tessellation stages, screen-adaptive factors, Gerstner waves, normal maps,
+  Fresnel, glitter, foam and the bow wave all exist; the factor table far 1-2 / medium 4 /
+  near 8 / tactical 16 is what `u_tess` produces with the new cap.
+- `docs/DESIGN_VISUAL_TARGET.md`: the `assets/example` frames read against the renderer -
+  what exists, what is a knob, what is a session (finer DEM first, then terrain self-shadow,
+  erosion on the rings, canopy displacement, sea SSR).
+- `assets/dev_oak_<stamp>.txt` (also `docs/dev/`): dev.txt with every box checked against
+  the code and a note on each partial item.
+
 ## 0.22.4 — the world package, coasts from the data, the issues folder, the Meshy sea
 
 - **The world-game-package is the terrain** (`assets/data_chunks_terrain/world-game-package`,

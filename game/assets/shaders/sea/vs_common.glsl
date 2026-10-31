@@ -28,10 +28,10 @@ float ship_wave(vec2 pp, float t) {
     float side = 1.0 - smoothstep(0.30 * L, 0.70 * L, abs(across));
     float env = exp(-r / (0.35 * L)) * ahead * side * (1.0 - smoothstep(0.9 * L, 1.3 * L, r));
     float ph = 6.28318 / (0.30 * L) * r - t * (2.0 + 4.0 * spd);
-    hgt += 0.013 * L * spd * env * (0.7 * cos(ph) + 0.3);
+    hgt += 0.020 * L * spd * env * (0.7 * cos(ph) + 0.3);   // 0.22.5: a bigger bow wave
     float hull = smoothstep(-0.05 * L, 0.25 * L, along) * (1.0 - smoothstep(0.40 * L, 0.50 * L, along))
                * exp(-abs(abs(across) - 0.19 * L) / (0.08 * L));
-    hgt += 0.008 * L * spd * hull;
+    hgt += 0.012 * L * spd * hull;
   }
   return hgt;
 }
