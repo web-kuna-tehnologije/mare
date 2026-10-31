@@ -225,7 +225,7 @@ void TerrainRenderer::draw(float planes[6][4]) {
     if (tess) {
         // level = (edge world length) * (pixels per unit at distance 1) / target px per quad
         float px1 = (float)screen_h * 1.2071f;               // 45 degree vertical fov
-        rhi_set_f2(UNI(terrain_prg, "u_tess"), px1 / 14.f, 32.f);
+        rhi_set_f2(UNI(terrain_prg, "u_tess"), px1 / 12.f, 40.f);   // 0.22.10: finer cells and a higher ceiling (issue7)
     }
     rhi_set_mat4(UNI(terrain_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_i1(UNI(terrain_prg,"u_hm"), 0); rhi_set_i1(UNI(terrain_prg,"u_terr"), 1);

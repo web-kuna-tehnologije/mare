@@ -29,23 +29,31 @@ void main(){
 // phase- or wave-dependent below reads the anchor, so every part of one ship samples the
 // same swell, the same roll and the same pitch. dl is the part's offset in the hull frame:
 // a pitching bow drops its foremast with it (first-order rigid translation).
-  vec2 ap = i_pos.xz; vec2 dl = vec2(0.0);
-  if (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6) {
-    ap = i_anchor;
-    vec2 d = i_pos.xz - ap;
-    dl = vec2(d.x*c - d.y*s, d.x*s + d.y*c);
-  }
+  vec2 ap = i_pos.xz;
+  if (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6) ap = i_anchor;
   float ph = ap.x*3.0 + ap.y*2.0;
   float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.045;
   float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.022;
   float cr = cos(roll), sr = sin(roll), cp = cos(pitch), sp = sin(pitch);
-  p = vec3(p.x, p.y*cr - p.z*sr, p.y*sr + p.z*cr);
-  p = vec3(p.x*cp - p.y*sp, p.x*sp + p.y*cp, p.z);
-  vec3 n = vec3(cnrm.x, cnrm.y*cr - cnrm.z*sr, cnrm.y*sr + cnrm.z*cr);
-  n = vec3(n.x*cp - n.y*sp, n.x*sp + n.y*cp, n.z);
+// 0.22.10 (issue7 "the lantina and the sail should act with the ship as if tied to it, which
+// they are"). The roll and the pitch are applied to the whole ship as ONE rigid body, about
+// one pivot - the hull's anchor at the waterline - instead of to each part about its own
+// origin. Before, a sail ten metres over the deck rolled about its own foot while the rail
+// under it swung sideways, and the two slid against each other every swell.
+  vec3 fwd = vec3(c, 0.0, -s), stb = vec3(s, 0.0, c);
+  vec3 piv = vec3(ap.x, 0.0, ap.y);
   vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;
+  { vec3 d = wp - piv; float lx = dot(d, fwd), ly = d.y, lz = dot(d, stb);
+    float ly1 = ly*cr - lz*sr, lz1 = ly*sr + lz*cr;
+    float lx2 = lx*cp - ly1*sp, ly2 = lx*sp + ly1*cp;
+    wp = piv + fwd*lx2 + vec3(0.0, ly2, 0.0) + stb*lz1; }
+  vec3 n;
+  { vec3 n0 = vec3(cnrm.x*c + cnrm.z*s, cnrm.y, -cnrm.x*s + cnrm.z*c);
+    float nx = dot(n0, fwd), ny = n0.y, nz = dot(n0, stb);
+    float ny1 = ny*cr - nz*sr, nz1 = ny*sr + nz*cr;
+    float nx2 = nx*cp - ny1*sp, ny2 = nx*sp + ny1*cp;
+    n = fwd*nx2 + vec3(0.0, ny2, 0.0) + stb*nz1; }   // in world already
   wp.y += i_misc.z * (sin(u_time*1.10 + ap.x*2.0) * 0.02 + sin(u_time*0.47 + ap.y*1.3) * 0.012);
-  wp.y += i_misc.x * (dl.x * sp - dl.y * sr);
 // Floating instances (i_misc.z, the bob flag) ride the Gerstner swell the sea pass draws:
 // the hull is lifted to the surface at its own position and sheared by the surface slope, so
 // a ship pitches into a trough instead of sailing through it. The shadow pass applies the
@@ -60,7 +68,7 @@ void main(){
 // of the hull's scale above it. Floating instances only - a town's foundations stay dry.
   float wline = (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6 ? 0.0 : i_pos.y) + wdisp.y;
   v_wet = i_misc.z > 0.0 ? clamp(1.0 - (wp.y - wline) / (0.20 * i_scol.x), 0.0, 1.0) : 0.0;
-  v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);
+  v_nrm = n;   // rotated into the world with the rigid motion above
   v_col = mix(a_col, i_scol.yzw, a_mat);
   v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(mix(a_rm.x, 0.9, isc), mix(a_rm.y, 0.0, isc));
 // 0.22.6: the cloth flag doubles as the sail's *quality* - 1 used canvas, 2 new (shipyard.cc

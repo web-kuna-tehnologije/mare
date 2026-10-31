@@ -92,6 +92,7 @@ public:
                 memset(&t, 0, sizeof t);
                 if (!strcmp(force_, "calm"))  { t.calm = 1; t.haze = 0.55f; }
                 if (!strcmp(force_, "mist"))  { t.calm = 1; t.mist = 1; t.haze = 1; }
+                if (!strcmp(force_, "fog"))   { t.calm = 0.5f; t.mist = 0.42f; t.haze = 0.9f; }   // 0.22.10: a sea fog you can still see a battle through (the trailer)
                 if (!strcmp(force_, "storm")) { t.storm = 1; t.overcast = 1; t.rain = 1; t.haze = 0.6f; }
             }
         }

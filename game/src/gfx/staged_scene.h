@@ -41,6 +41,7 @@ const char *detailview_coast_desc(void);       // "wooded hills to the NE, 12 km
 void  detailview_overlays(void);               // wind arrows (dd lines; the caller flushes)
 void  detailview_weather(void);                // after the weather: haze for the open sea, a little for a coast
 float detailview_eye_floor(void);              // the lowest the eye may sit in a staged scene (local units)
+void  detailview_trailer(float t);             // the trailer's keyed camera, at t seconds into the take (main.cc MARE_RECORD; < 0 holds the first mark)
 
 #ifdef __cplusplus
 }

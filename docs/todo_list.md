@@ -1,4 +1,4 @@
-# Todo list - issue folders 4, 5 and 6 (assets/issues/issue4-6; 2026-10-31, worktree oak, 0.22.7-0.22.9)
+# Todo list - issue folders 4 to 7 (assets/issues/issue4-7; 2026-10-31, worktree oak, 0.22.7-0.22.10)
 
 Every line of the `issues.txt` files and every screenshot in the folders, as written, with a priority.
 P0 = this round, in order; P1 = next round; P2 = after the physics foundation exists;
@@ -67,6 +67,19 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 42 | P0 | Cut the textures in `assets/ships/FOAM` to make the ship slicing the sea realistic | [x] 0.22.9 `tools/foam_tiles.py`. Note: those sheets are **sailcloth**, not foam. The tool keeps only their tears - high-pass, de-stripe (the weave and seams were tiling across the sea as quilting), threshold to the brightest quarter, blur - and writes `foam_wake.png` / `foam_streak.png` |
 | 43 | P0 | Make the smoke more grey and dense, more of it, not a perfect shape | [x] 0.22.9: core shade 0.96 -> 0.80, plume 0.80 -> 0.66, four balls a layer instead of three, each off the gun's line, and the silhouette warped by a second coarse noise |
 
+## issue7 (assets/issues/issue7, 0.22.10)
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 44 | P0 | More fire and greyer smoke | [x] 0.22.10: bigger, longer flash, two tongues of flame per gun, twice the embers; core 0.72, plume 0.56, haze 0.52 |
+| 45 | P0 | Cannons fire not all at once but with random timeouts (13, 25, 968 ms ...) | [x] 0.22.10: every gun is queued with its own delay (a fifth at once, the rest squared over up to ~1.7 s) and fires when due |
+| 46 | P0 | The new foam texture in `assets/ships/foam/new` | [x] 0.22.10: both masks cut (the checkerboard they were flattened onto is thresholded away) into `foam_wake` / `foam_streak`, read by the wake and the hull break |
+| 47 | P0 | Foam on top of the collapsing waves, more real | [x] 0.22.10: the foam photograph (`foam_crest`) textures the whitecaps and the crest band at two scales; the band is wider and weighs more |
+| 48 | P0 | A little more tessellation / geometry sharpness, like the picture | [x] 0.22.10: sea 16 -> 24 per edge, terrain 32 -> 40 with finer cells; the stipple in the picture itself was the near-camera dissolve, now tight and staged-scenes-only |
+| 49 | P0 | The FOAM folder's images were corrected | [x] 0.22.10: `tools/foam_tiles.py` rewritten for the real foam: the photograph -> `foam_crest`, the sheet's streak panel -> `foam_lane` |
+| 50 | P0 | The lantina and the sail should act with the ship as if tied with rope | [x] 0.22.10: roll and pitch applied to the whole ship about one pivot in all three vertex stages; parts no longer slide against the hull |
+| 51 | P0 | Build the game and make a 45 s, 60 fps trailer of a battle in foggy weather with 40+ ships, as an MP4 | [x] 0.22.10: `MARE_RECORD`, `MARE_BATTLE_SHIPS`, the keyed trailer camera, `tools-bat\trailer.bat`, Blender encoding; `trailer\mare_battle_trailer.mp4` |
+
 ## P1.3 Physics foundation (M5.5) - the dev.txt checklist
 
 | Pri | Item | Status |
@@ -100,7 +113,7 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | - | Strategic simulation remains discrete: 1 day = 1 tick | [x] |
 | P1 | Strategic state includes hull integrity, crew/morale, guns, sails, flooding, fire, sinking | [~] hull/crew/guns exist; flooding/fire/sinking do not |
 
-## Order of work (updated 0.22.9)
+## Order of work (updated 0.22.10)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -109,7 +122,8 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 5. Items 24-25: strategic zoom floor, denser pines. **Done 0.22.8.** Item 26's far LOD for the fields is open.
 6. issue5 items 28-32. **Done 0.22.8** (31 guarded, not reproduced).
 7. issue6 items 35-43 and P1.3 items 1-6. **Done 0.22.9.**
-8. Next, in this order:
+8. issue7 items 44-51 and the trailer. **Done 0.22.10.**
+9. Next, in this order:
    1. **Multi-point buoyancy** against `Sea::height_at` (P1.3): sample the wave function at the three hull discs so heave, pitch and roll come from the body instead of the mesh shader's canned motion. The rigid body and the fixed step are in place; this is the next brick and the one the rest leans on.
    2. **Ballistics and hits** (P1.3): a swept sphere from each gun against the compound hulls. The broadside already knows which guns fire and where they point.
    3. **The damage model** (P1.3): hull, mast, sail and gun zones; then flooding, fire and the sinking state, with the tactical result written back to the strategic ship.

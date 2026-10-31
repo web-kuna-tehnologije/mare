@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.22.10 — the seventh issues folder: rolling broadsides, real foam, sails that are tied to the ship, and a trailer
+
+From `assets/issues/issue7` (`issue.txt`, one screenshot) and the request for a 45-second
+battle film.
+
+### The broadside
+- **The guns fire in a ripple**, not as one wall (issue7 "not all at once but with a random
+  timeout"). `particles_broadside` queues every gun with its own delay - a fifth of them at
+  once, the rest strung out over up to ~1.7 s for a 36-gun side, squared so the tail is long -
+  and `fire_gun` goes off when each comes due. The ring on the water is laid with the first.
+- **More fire**: the muzzle flash is bigger and lasts longer, two tongues of flame race out
+  ahead of it (one low along the water), and the burning wad thrown with the shot is doubled.
+- **Greyer smoke** again: the core 0.80 -> 0.72, the plume 0.66 -> 0.56, the haze 0.60 -> 0.52.
+
+### Foam
+- **The real foam** (issue7: the FOAM folder was corrected and `foam/new` added).
+  `tools/foam_tiles.py` is rewritten for what is there now: two foam *masks* rendered over a
+  grey checkerboard, a tileable foam photograph, and a labelled sheet of panels. The masks are
+  thresholded above the checker's two greys (found as the two histogram peaks) so the checker
+  goes to zero and the foam stays; the photograph is gently high-passed; the sheet's streak
+  panel is cut out. Four tiles: `foam_wake`, `foam_streak`, `foam_crest`, `foam_lane`.
+- **Foam on the collapsing waves** (issue7): the whitecaps and the crest band are textured by
+  the foam photograph at two scales, the coarser drifting with the swell, the crest band is
+  wider and starts lower on the face, and both weigh more in the final white.
+
+### The rig
+- **Sails, yards and masts move as one body with the hull** (issue7 "the lantina and the
+  sail should act with the ship as if tied with rope, which it is"). The roll and the pitch
+  were applied to each part about its *own* origin, with a first-order vertical fix-up for the
+  offset: a sail standing ten metres over the deck rolled about its own foot while the rail
+  under it swung sideways, and the two slid against each other every swell. All three vertex
+  stages (mesh, depth, cordage) now rotate the whole ship about one pivot - the hull's anchor
+  at the waterline - so every part sweeps the same arc.
+- **The stipple on the hull** (issue7 `wierd texture over ship rolling.png`) was the 0.22.9
+  near-camera dissolve reaching a hull the camera was looking *at*, not inside of. The band
+  is tighter (to 1.2 units over the near plane, was 3) and only exists in the staged scenes.
+- **Sharper tessellation**: the sea's ceiling 16 -> 24 subdivisions per patch edge, the
+  terrain's 32 -> 40 with finer cells.
+
+### The trailer (`tools-bat\trailer.bat`, `tools/blender_encode_mp4.py`)
+- **`MARE_RECORD=dir,fps,seconds[,warmup]`** (main.cc): the frame clock is locked to 1/fps
+  however long a frame takes, so the film runs at true speed, and every frame after the
+  warm-up is written as a BMP before the UI draws. **`MARE_BATTLE_SHIPS=N`** stages an N-ship
+  exercise (the line's straight leg grows so the biggest hull keeps a gap of its own length).
+  **`detailview_trailer`** is a keyed 45-second camera move - wide over the coast, down the
+  line, close on a broadside, up over the fleet, away into the haze - on the recorder's clock.
+- Blender's bundled ffmpeg encodes the sequence to H.264 (`blender_encode_mp4.py`), so no
+  ffmpeg install is needed. The first film: 44 ships in dawn mist off Venice, 45 s at 60 fps.
+
 ## 0.22.9 — the sixth issues folder: a wake that stays behind, blast rings in the water, and the physics foundation
 
 From `assets/issues/issue6` (`issues.txt`, one screenshot) and then dev.txt P1.3 items 1-6.
@@ -76,7 +125,7 @@ battle HUD reads out the rate, the hull count and the contacts resolved.
 
 ### Elsewhere
 - `game/tests/physics_test.cpp`, in `build.bat test` and ctest.
-- Mirror `C:\projects\mare_oak_20261031_192904`.
+- Mirror `C:\projects\mare_oak_20261031_202444`.
 
 ## 0.22.8 — the fifth issues folder: layered gunsmoke and shockwaves, textured cordage, masts in proportion, lowland coasts, 800k hulls
 

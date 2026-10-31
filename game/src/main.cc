@@ -111,6 +111,32 @@ static void screenshot_ppm(const char *path) {
     LOG_INFO("main", "screenshot saved: %s (%dx%d)", path, w, h);
 }
 
+// MARE_RECORD="dir,fps,seconds[,warmup]" (0.22.10, the trailer): the frame clock is locked to
+// 1/fps whatever the real frame rate, so the film runs at true speed however long a frame
+// takes to render, and every frame after the warm-up is written to dir\frame_NNNNN.bmp (the
+// backbuffer before the UI, as the screenshot is). BMP because it is three lines to write and
+// Blender reads it (tools/blender_encode_mp4.py turns the sequence into the MP4). The staged
+// battle's trailer camera (detailview_trailer) runs on the same clock.
+static void frame_bmp(const char *path) {
+    int w = screen_w, h = screen_h, stride = (w * 3 + 3) & ~3;
+    unsigned char *px = (unsigned char *)malloc((size_t)w * h * 4), *row = (unsigned char *)calloc(1, stride);
+    rhi_read_pixels(0, 0, w, h, px);
+    FILE *f = fopen(path, "wb");
+    if (!f) { LOG_ERROR("main", "record: cannot write %s", path); free(px); free(row); return; }
+    unsigned size = 54 + (unsigned)stride * h;
+    unsigned char hdr[54] = { 'B','M', (unsigned char)size, (unsigned char)(size>>8), (unsigned char)(size>>16), (unsigned char)(size>>24), 0,0,0,0, 54,0,0,0,
+                              40,0,0,0, (unsigned char)w, (unsigned char)(w>>8), (unsigned char)(w>>16), (unsigned char)(w>>24),
+                              (unsigned char)h, (unsigned char)(h>>8), (unsigned char)(h>>16), (unsigned char)(h>>24), 1,0, 24,0, 0,0,0,0,
+                              0,0,0,0, 0x13,0x0B,0,0, 0x13,0x0B,0,0, 0,0,0,0, 0,0,0,0 };
+    fwrite(hdr, 1, 54, f);
+    for (int y = 0; y < h; ++y) {                       // GL rows are bottom-up, which is BMP's own order
+        const unsigned char *src = px + (size_t)y * w * 4;
+        for (int x = 0; x < w; ++x) { row[x*3] = src[x*4+2]; row[x*3+1] = src[x*4+1]; row[x*3+2] = src[x*4]; }
+        fwrite(row, 1, stride, f);
+    }
+    fclose(f); free(px); free(row);
+}
+
 static void debug_keys(void) {
     if (!U.show_debug) return;
     if (KDOWN(GLFW_KEY_F6)) { event_t *e = event_add(EV_STORM, 10); e->x = cam.tx; e->z = cam.tz; e->radius = 12; e->vx = 0.5f; e->strength = 1; snprintf(e->text, sizeof e->text, "Debug storm"); toast("debug: storm spawned"); }
@@ -384,12 +410,19 @@ int main(int argc, char **argv) {
     else LOG_INFO("main", "simulation ticks every %.0f s (or %.0f simulated days, whichever comes first)", tick_secs, SIM_TICK_MAX_DAYS);
     double last = time_ss(); float sim_acc = 0, tick_acc = 0;
     double t_run0 = diag_now(); const char *autoquit = getenv("MARE_AUTOQUIT_S");
+    char rec_dir[400] = {0}; float rec_fps = 0, rec_secs = 0, rec_warm = 6.f; int rec_frame = -1; float rec_clock = 0.f;
+    { const char *e = getenv("MARE_RECORD");
+      if (e) { char buf[480]; snprintf(buf, sizeof buf, "%s", e); char *c1 = strchr(buf, ','); 
+               if (c1) { *c1 = 0; sscanf(c1 + 1, "%f,%f,%f", &rec_fps, &rec_secs, &rec_warm); snprintf(rec_dir, sizeof rec_dir, "%s", buf); }
+               if (rec_fps <= 0.f || rec_secs <= 0.f || !rec_dir[0]) { rec_dir[0] = 0; LOG_WARN("main", "MARE_RECORD wants dir,fps,seconds[,warmup]"); }
+               else LOG_INFO("main", "recording %s at %.0f fps for %.1f s after a %.1f s warm-up (MARE_RECORD)", rec_dir, rec_fps, rec_secs, rec_warm); } }
     app_swap_flags_t asf = {}; asf.hz = 1; asf.depth = 1; asf.stencil = 0; asf.color = 0xFF000000;
     while ((app_swap)(asf)) {
         if (autoquit && diag_now() - t_run0 > atof(autoquit)) break;
         prof_begin(p_frame);
         { app_state_t st = app_state(); screen_w = maxi(1, st.w); screen_h = maxi(1, st.h); glfwGetWindowSize((GLFWwindow *)st.handle, &window_w, &window_h); window_w = maxi(1, window_w); window_h = maxi(1, window_h); }   // once per frame
         double now = time_ss(); float dt = minf((float)(now - last), 0.1f); last = now;
+        if (rec_dir[0]) { dt = 1.f / rec_fps; rec_clock += dt; detailview_trailer(rec_clock - rec_warm); }   // frame-locked: the film runs at true speed
         RF.time += dt; metric_set(m_dt, dt * 1000); metric_set(m_fps, fps());
         RF.anim_time += dt * detailview_clock_scale();   // the scene clock: the staged battle slows or stops it (0.22.7)
         // Evidence for the stall hunt (DESIGN_JOBS.md step 10): any frame over 25 ms after the
@@ -620,6 +653,13 @@ int main(int argc, char **argv) {
         rhi_gpu_begin(g_resolve); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer (AO was taken before the water); labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
         if (!U.in_menu) entities_render(ENT_PHASE_OVERLAY, RF.mapness);             // rain over the finished frame (weather entity)
+        if (rec_dir[0] && rec_clock >= rec_warm) {
+            if (rec_frame < 0) { rec_frame = 0; LOG_INFO("main", "recording: first frame"); }
+            char path[520]; snprintf(path, sizeof path, "%s/frame_%05d.bmp", rec_dir, rec_frame);
+            frame_bmp(path); rec_frame++;
+            if (rec_frame % 300 == 0) LOG_INFO("main", "recording: %d frames (%.0f s)", rec_frame, rec_frame / rec_fps);
+            if (rec_frame >= (int)(rec_fps * rec_secs + 0.5f)) { LOG_INFO("main", "recording done: %d frames in %s", rec_frame, rec_dir); break; }
+        }
         { static int shot_done; const char *shot = getenv("MARE_SCREENSHOT");
           if (shot && !shot_done && autoquit && diag_now() - t_run0 > atof(autoquit) - 0.5) { screenshot_ppm(shot);
             const char *sd = getenv("MARE_SHADOWDUMP"); if (sd) shadow_dump(sd);

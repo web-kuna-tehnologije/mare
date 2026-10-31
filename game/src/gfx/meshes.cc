@@ -256,7 +256,11 @@ void Meshes::meshes_bind_waves(const rhi_pipeline_t *p) {
 // filling the frame with one clipped triangle. Tied to znear (which follows the zoom), and
 // capped so the map view never fades a ship the player is looking at.
 void Meshes::bind_nearfade(const rhi_pipeline_t *p) {
-    float lo = maxf(cam.znear * 1.15f, 0.25f), hi = minf(maxf(cam.znear * 5.f, 1.2f), 3.0f);
+    // 0.22.10 (issue7 "weird texture over the ship"): on the map the band reached the hull the
+    // camera was looking *at* and stippled it. The staged scenes are the only place the camera
+    // can get inside a ship, so the dissolve is theirs alone (sea_local_depth > 0 there).
+    float lo = maxf(cam.znear * 1.15f, 0.25f), hi = minf(maxf(cam.znear * 4.f, 1.0f), 2.2f);
+    if (sea_local_depth <= 0.f) hi = lo;
     rhi_set_f3(rhi_uniform(p, "u_campos_v"), RF.campos.x, RF.campos.y, RF.campos.z);
     rhi_set_f2(rhi_uniform(p, "u_nearfade"), lo, maxf(hi, lo + 0.2f));
 }

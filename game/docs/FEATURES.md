@@ -119,6 +119,9 @@ Status as of the current codebase. Each entry names the module that owns it.
   split square yards instanced on every station on the sail's swung/braced heading; cordage as
   geometry-stage lines of physical width; verlet flags pinned to the main masthead; canvas,
   water and ground materials (DESIGN_SHIPS.md 3c, DESIGN_RENDERER.md 0.19).
+- Recording (0.22.10, `MARE_RECORD=dir,fps,seconds`): frame-locked BMP capture before the UI,
+  `MARE_BATTLE_SHIPS` for a bigger exercise, a keyed trailer camera in the staged battle, and
+  `tools/blender_encode_mp4.py` to make the MP4 with Blender's ffmpeg.
 - Tactical physics (0.22.9, `sim/naval_physics.h`): a 120 Hz fixed-step rigid-body world for
   the staged battle - interpolated transforms, compound three-disc hulls, ship-to-ship and
   ship-to-coast collision. `physics_test` proves the step is independent of the frame rate.

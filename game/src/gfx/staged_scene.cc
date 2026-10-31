@@ -115,6 +115,7 @@ public:
     void  overlays(void);
     void  weather(void);
     float eye_floor(void);
+    void  trailer(float t);              // the recorder's clock (seconds into the take; < 0 = holding the first mark)
 
 private:
     void stage_free(void);
@@ -449,7 +450,10 @@ void DetailView::battle_add_ship(int type, int side, float x, float z, float hea
 #define DV_LINE_GAP    26.f   // along-line spacing (the biggest hull is ~19 local units)
 #define DV_LINE_AHEAD   9.f   // the pursuit point sails this far ahead of the station
 
-float DetailView::dv_line_perim(void) { return 2.f * DV_LINE_LEG + 2.f * 3.14159265f * DV_LINE_R; }
+// the straight leg grows with the longer line (0.22.10: 44-ship trailers), so the biggest hull
+// still has a gap of its own length and the lines do not start the fight already rafted up
+static float g_line_leg = DV_LINE_LEG;
+float DetailView::dv_line_perim(void) { return 2.f * g_line_leg + 2.f * 3.14159265f * DV_LINE_R; }
 
 void DetailView::dv_line_point(int side, float sarc, float *x, float *z, float *hdg) {
     float P = dv_line_perim();
@@ -457,18 +461,19 @@ void DetailView::dv_line_point(int side, float sarc, float *x, float *z, float *
     float zc = -(DV_LINE_SEP * 0.5f + DV_LINE_R);            // side 0 circles the southern stadium
     float X, Z, H;
     const float DV_PI = 3.14159265f;
-    if (sarc < DV_LINE_LEG) {                                // inner leg, east
-        X = -DV_LINE_LEG * 0.5f + sarc; Z = zc + DV_LINE_R; H = 0.f;
-    } else if (sarc < DV_LINE_LEG + DV_PI * DV_LINE_R) {        // east cap: port round, heading 0 -> pi
-        float a = (sarc - DV_LINE_LEG) / DV_LINE_R;
-        X = DV_LINE_LEG * 0.5f + DV_LINE_R * sinf(a); Z = zc + DV_LINE_R * cosf(a); H = a;
-    } else if (sarc < 2.f * DV_LINE_LEG + DV_PI * DV_LINE_R) {  // outer leg, west
-        float t = sarc - DV_LINE_LEG - DV_PI * DV_LINE_R;
-        X = DV_LINE_LEG * 0.5f - t; Z = zc - DV_LINE_R; H = DV_PI;
+    const float LEG = g_line_leg;
+    if (sarc < LEG) {                                        // inner leg, east
+        X = -LEG * 0.5f + sarc; Z = zc + DV_LINE_R; H = 0.f;
+    } else if (sarc < LEG + DV_PI * DV_LINE_R) {                // east cap: port round, heading 0 -> pi
+        float a = (sarc - LEG) / DV_LINE_R;
+        X = LEG * 0.5f + DV_LINE_R * sinf(a); Z = zc + DV_LINE_R * cosf(a); H = a;
+    } else if (sarc < 2.f * LEG + DV_PI * DV_LINE_R) {          // outer leg, west
+        float t = sarc - LEG - DV_PI * DV_LINE_R;
+        X = LEG * 0.5f - t; Z = zc - DV_LINE_R; H = DV_PI;
     } else {                                                 // west cap, back onto the inner leg
-        float a = (sarc - 2.f * DV_LINE_LEG - DV_PI * DV_LINE_R) / DV_LINE_R;
+        float a = (sarc - 2.f * LEG - DV_PI * DV_LINE_R) / DV_LINE_R;
         float h2 = DV_PI + a;
-        X = -DV_LINE_LEG * 0.5f + DV_LINE_R * sinf(h2); Z = zc + DV_LINE_R * cosf(h2); H = h2;
+        X = -LEG * 0.5f + DV_LINE_R * sinf(h2); Z = zc + DV_LINE_R * cosf(h2); H = h2;
     }
     if (side) { X = -X; Z = -Z; H += 3.14159265f; }          // side 1: the mirrored northern circuit
     *x = X; *z = Z; *hdg = H;
@@ -479,16 +484,25 @@ void DetailView::dv_line_point(int side, float sarc, float *x, float *z, float *
 void DetailView::battle_form_lines(void) {
     dv.nside[0] = dv.nside[1] = 0; dv.line_s[0] = dv.line_s[1] = 0.f;
     float vmin[2] = { 1e9f, 1e9f };
+    float lmax = 0.f;
     for (int i = 0; i < dv.nships; ++i) { dv_ship_t *sh = &dv.ship[i];
         sh->slot = dv.nside[sh->side]++;
-        vmin[sh->side] = minf(vmin[sh->side], sh->speed); }
+        vmin[sh->side] = minf(vmin[sh->side], sh->speed); lmax = maxf(lmax, sh->len); }
+    {   // the leg a line of this many hulls needs: every ship her own length and a third clear
+        int nmax = maxi(dv.nside[0], dv.nside[1]);
+        float want = ((float)nmax * maxf(DV_LINE_GAP, lmax * 1.35f) + 12.f - 2.f * 3.14159265f * DV_LINE_R) * 0.5f;
+        g_line_leg = maxf(DV_LINE_LEG, want); }
     float P = dv_line_perim();
     for (int k = 0; k < 2; ++k) {
         dv.line_v[k]   = vmin[k] < 1e8f ? vmin[k] * 0.8f : 0.f;
         dv.line_gap[k] = dv.nside[k] > 0 ? minf(DV_LINE_GAP, (P - 12.f) / (float)dv.nside[k]) : DV_LINE_GAP;
     }
+    // 0.22.10: a battle is *joined*, not approaching. The leaders used to start at the far ends
+    // of the inner legs and needed four minutes to meet; they start abreast of the scene centre
+    // now, the two lines already passing each other along the whole inner leg.
+    dv.line_s[0] = dv.line_s[1] = 0.5f * g_line_leg;
     for (int i = 0; i < dv.nships; ++i) { dv_ship_t *sh = &dv.ship[i];
-        dv_line_point(sh->side, -sh->slot * dv.line_gap[sh->side], &sh->x, &sh->z, &sh->heading);
+        dv_line_point(sh->side, dv.line_s[sh->side] - sh->slot * dv.line_gap[sh->side], &sh->x, &sh->z, &sh->heading);
         sh->course = sh->heading;
         if (sh->body >= 0) nphys_teleport(sh->body, sh->x, sh->z, sh->heading); }
 }
@@ -519,12 +533,14 @@ void DetailView::build_battle(int fleet_id) {
     if (!real) {   // no battle under way: stage a sample exercise matching the reference framing
         int na = G.player >= 0 ? G.player : NATION_ENGLAND, nb = NATION_VENICE;   // the exercise shows both fleets: northern rigs against Mediterranean oars
         unsigned ca = nations_info[na].color, cb = rgb(140, 25, 25);
-        for (int i = 0; i < 15; ++i) {
+        int per = 15;   // MARE_BATTLE_SHIPS=N stages N ships (0.22.10, the trailer's 44); DV_MAX_SHIPS caps it
+        { const char *e = getenv("MARE_BATTLE_SHIPS"); if (e && atoi(e) > 0) per = mini(maxi(atoi(e) / 2, 1), DV_MAX_SHIPS / 2); }
+        for (int i = 0; i < per; ++i) {
             int ta = i % SHIP_COUNT, tb = (i * 2 + 1) % SHIP_COUNT;
-            battle_add_ship(ta, 0, -56 + (i % 5) * 22 + rnd_f(&seed) * 8, -22 - (i / 5) * 20 + rnd_f(&seed) * 6, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed, na);
-            battle_add_ship(tb, 1, -48 + (i % 5) * 23 + rnd_f(&seed) * 8,  20 + (i / 5) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed, nb);
+            battle_add_ship(ta, 0, -56 + (i % 6) * 22 + rnd_f(&seed) * 8, -22 - (i / 6) * 20 + rnd_f(&seed) * 6, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed, na);
+            battle_add_ship(tb, 1, -48 + (i % 6) * 23 + rnd_f(&seed) * 8,  20 + (i / 6) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed, nb);
         }
-        LOG_INFO("gfx", "detail view: no battle under way, staged a 30-ship exercise");
+        LOG_INFO("gfx", "detail view: no battle under way, staged a %d-ship exercise", dv.nships);
     } else LOG_INFO("gfx", "detail view: battle with %d ships", dv.nships);
     battle_form_lines();
     LOG_INFO("gfx", "battle lines formed: %d against %d, line speeds %.2f / %.2f u/s, gaps %.0f / %.0f",
@@ -785,7 +801,7 @@ void DetailView::frame(float dt) {
         // the wind at the battle's position: the sea's wave set already follows it; now the
         // ships' pace, the smoke and the arrows do too (0.22.7)
         wind_at(dv.cx, dv.cz, G.day, &dv.wdx, &dv.wdz, &dv.wstr);
-        dv.timescale = 1.f; dv.show_wind = 1; dv.reprobe_t = 0.f;
+        dv.timescale = 1.f; dv.show_wind = getenv("MARE_RECORD") ? 0 : 1; dv.reprobe_t = 0.f;   // a film has no debug arrows in it (0.22.10)
         particles_set_wind(dv.wdx * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M, dv.wdz * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M);
         if (dv.mode == DV_BATTLE) build_battle(dv.want_fleet); else build_city(dv.want_port);
         wake_set_region(dv.cx, dv.cz, 420.f);   // the staged scene never moves, so the map never scrolls
@@ -819,6 +835,7 @@ void DetailView::frame(float dt) {
     cam.want_tx = clampf(cam.want_tx, dv.cx - 120, dv.cx + 120);
     cam.want_tz = clampf(cam.want_tz, dv.cz - 120, dv.cz + 120);
     cam.want_ty = dv.mode == DV_BATTLE ? clampf(cam.want_ty, 0.f, 140.f) : 0.f;   // the look-at point may rise over the battle (R/F)
+    if (dv.mode == DV_BATTLE && getenv("MARE_RECORD")) cam_min_eye_y = -1e9f;        // the trailer's low passes decide their own height
 
     if (dv.mode == DV_BATTLE) battle_update(dt * dv.timescale);   // the battle clock (0.22.7): slowed or stopped by the player
     else battle_update(dt * 0.35f);                            // moored ships barely stir
@@ -958,6 +975,37 @@ void DetailView::weather(void) {
 // the eye never dips into the staged water: a wave and a bit above the mean surface
 float DetailView::eye_floor(void) { return 1.2f; }
 
+// The trailer camera (0.22.10): a 45-second move over the battle, keyed in local terms - the
+// distance, the yaw, the look-at offset from the scene centre, the pitch scale, the look-at
+// height - and eased between marks. Driven by the recorder's clock (main.cc MARE_RECORD) so a
+// take at 60 fps and a take at 24 fps make the same film. Opens wide over the coast, sweeps
+// down the line, closes on a broadside, rises over the fleet and pulls away into the haze.
+void DetailView::trailer(float t) {
+    if (mode() != DV_BATTLE) return;
+    struct key_t { float t, dist, yaw, ox, oz, pitch, ty; };
+    // the lines run along x at z = -14 (side 0) and +14 (side 1), engaged through the centre:
+    // yaw 90 looks along +x down the lanes, 55 and 125 are the three-quarter views of them
+    static const key_t K[] = {
+        {  0.f, 190.f,  55.f,   0.f,   0.f, 0.38f,  0.f },
+        {  9.f, 105.f,  78.f,  10.f,  -4.f, 0.46f,  0.f },
+        { 17.f,  36.f, 102.f,  12.f, -13.f, 0.64f,  0.f },
+        { 25.f,  29.f, 152.f,  -6.f,  11.f, 0.72f,  1.5f },
+        { 33.f,  68.f, 202.f,   0.f,   0.f, 0.56f,  6.f },
+        { 40.f, 140.f, 246.f,   0.f,   0.f, 0.46f, 18.f },
+        { 45.f, 205.f, 276.f,   0.f, -10.f, 0.38f,  0.f },
+    };
+    const int N = (int)(sizeof K / sizeof K[0]);
+    float tt = t < 0.f ? 0.f : t;
+    int i = 0; while (i + 2 < N && tt >= K[i + 1].t) ++i;
+    const key_t &a = K[i], &b = K[i + 1];
+    float u = clampf((tt - a.t) / maxf(b.t - a.t, 1e-3f), 0.f, 1.f); u = u * u * (3.f - 2.f * u);
+    float dist = lerpf(a.dist, b.dist, u), yaw = lerpf(a.yaw, b.yaw, u) * 0.0174533f;
+    float ox = lerpf(a.ox, b.ox, u), oz = lerpf(a.oz, b.oz, u), ps = lerpf(a.pitch, b.pitch, u), ty = lerpf(a.ty, b.ty, u);
+    cam.dist = cam.want_dist = dist; cam.yaw = cam.want_yaw = yaw;
+    cam.tx = cam.want_tx = dv.cx + ox; cam.tz = cam.want_tz = dv.cz + oz; cam.ty = cam.want_ty = ty;
+    cam_pitch_scale = ps;
+}
+
 // ---------------------------------------------------------------------------
 // cloud overlay: procedural fbm clouds over the finished frame (after the tonemap)
 
@@ -1007,4 +1055,5 @@ const char *detailview_coast_desc(void) { return mare::game::view::detail_view()
 void  detailview_overlays(void) { mare::game::view::detail_view().overlays(); }
 void  detailview_weather(void) { mare::game::view::detail_view().weather(); }
 float detailview_eye_floor(void) { return mare::game::view::detail_view().eye_floor(); }
+void  detailview_trailer(float t) { mare::game::view::detail_view().trailer(t); }
 }

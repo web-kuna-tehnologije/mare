@@ -88,6 +88,17 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## issue7 (assets/issues/issue7, 0.22.10) + the trailer - rows 44-51 of docs/todo_list.md
+
+Done: the guns fire in a ripple with random per-gun delays; more fire and greyer smoke; the
+real foam tiles (the masks' checkerboard thresholded away, the photograph on the whitecaps and
+the collapsing crests); the rig moving as one rigid body with the hull (the "tied with rope"
+item) in all three vertex stages; the hull stipple traced to the near-camera dissolve and that
+confined to the staged scenes; sharper sea and terrain tessellation. The trailer: `MARE_RECORD`
+frame-locked BMP capture, `MARE_BATTLE_SHIPS=44`, a keyed 45 s camera, Blender's ffmpeg for
+the MP4 (`tools-bat\trailer.bat`). Mirror `C:\projects\mare_oak_20261031_202444`, path in
+the worktree's `.mirror`; another agent's `mare_oak_20261031_190623` is left alone.
+
 ## issue6 (assets/issues/issue6, 0.22.9) + physics foundation 1-6 - rows 35-43 of docs/todo_list.md
 
 Done: the wake map (a trail of foam painted where the ship was and faded over ~50 s, read by
@@ -99,7 +110,7 @@ that ends the "whole screen invisible" blackout; a Battle panel with a wind-arro
 foam) into a de-striped torn-streak mask. Then dev.txt P1.3 items 1-6 as `sim/naval_physics`:
 a 120 Hz fixed step, interpolated rigid-body transforms, three-disc compound hulls,
 ship-to-ship and ship-to-coast collision, with `game/tests/physics_test.cpp` proving the step
-is frame-rate independent. Mirror `C:\projects\mare_oak_20261031_192904`. Next: multi-point
+is frame-rate independent. Mirror `C:\projects\mare_oak_20261031_202444`. Next: multi-point
 buoyancy, then ballistics and the damage model (see todo_list.md "Order of work").
 
 ## issue5 (assets/issues/issue5, 0.22.8) - rows 28-34 of docs/todo_list.md

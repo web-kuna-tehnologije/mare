@@ -1,11 +1,11 @@
-# Road map after 0.22.9 (worktree oak, 2026-10-31)
+# Road map after 0.22.10 (worktree oak, 2026-10-31)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.9
+## Done to 0.22.10
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -23,7 +23,10 @@ map (a trail painted on the water and left there), blast rings drawn in the sea'
 greyer and rattier smoke, the spritsail re-cut, a near-camera dissolve, a Battle panel - and
 the **physics foundation** (`sim/naval_physics.cc`): a 120 Hz fixed step with interpolated
 rigid-body transforms, compound hulls, ship-to-ship and ship-to-coast collision, under the
-staged battle and covered by `physics_test`.
+staged battle and covered by `physics_test`. 0.22.10 (issue7): rolling broadsides with more
+fire and greyer smoke, the real foam tiles on the wake and the whitecaps, the rig moving as one
+rigid body with the hull, sharper tessellation, and the recording path (`MARE_RECORD`, the
+keyed trailer camera, Blender encoding) that made the first 45-second battle film.
 
 ## Next, in order
 

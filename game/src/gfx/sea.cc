@@ -43,7 +43,7 @@ extern "C" {
 }
 
 int sea_tess_on;                 // the tessellated path is in use (GL 4.0 and not MARE_SEA_TESS=0)
-int sea_tess_level_max = 16;     // dashboard knob: finest subdivision of a patch edge (zooming in raises wave *height*, not this). 0.22.5: 16, the roadmap's tactical ceiling (was 32)
+int sea_tess_level_max = 24;   // 0.22.10: 16 -> 24 (issue7 "a little more tessellation")     // dashboard knob: finest subdivision of a patch edge (zooming in raises wave *height*, not this). 0.22.5: 16, the roadmap's tactical ceiling (was 32)
 
 // Tessellated sea (DESIGN_VISUAL.md step 5). Instead of the exponentially warped grid, a
 // lattice of SEA_PATCH_N x SEA_PATCH_N quad patches, SEA_PATCH_R units in radius around the
@@ -165,7 +165,7 @@ private:
     rhi_pipeline_t sea_prg, sea_detail_prg, sea_tess_prg;
     rhi_geometry_t sea_geo, sea_detail_geo, sea_patch_geo, sea_inner_geo;
     int sea_tex_normal = -1, sea_tex_albedo = -1, sea_tex_disp = -1;   // textures.c handles
-    int sea_tex_foamw = -1;            // foam_wake.png: the torn-streak mask the wake and the cut-water break up with (0.22.9, tools/foam_tiles.py)
+    int sea_tex_foamw = -1, sea_tex_foamc = -1;   // foam_crest.png: the whitecaps' own texture (0.22.10)            // foam_wake.png: the torn-streak mask the wake and the cut-water break up with (0.22.9, tools/foam_tiles.py)
     float sea_blast[SEA_MAX_BLASTS * 4], sea_blastdir[SEA_MAX_BLASTS * 4]; int sea_nblast = 0;
     float sea_shallow_now = 1.1f;   // depth the swell needs for full height, follows the zoom (sea_update_waves)
     sea_set_t sea_set[2];                   // [0] current, [1] the one fading in
@@ -189,7 +189,7 @@ void Sea::init() {
     static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_shipwave", "u_shallow", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                           "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug", "u_shore_a", "u_shore_b",
-                                          "u_wake", "u_wake_rect", "u_has_wake", "u_foamw", "u_has_foamw", "u_blast", "u_blastdir", "u_nblast",
+                                          "u_wake", "u_wake_rect", "u_has_wake", "u_foamw", "u_has_foamw", "u_foamc", "u_has_foamc", "u_blast", "u_blastdir", "u_nblast",
                                           "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs",
                                           "u_shore", "u_shore_far", "u_detail_far", "u_capzoom", "u_shorescale", "u_zrange", "u_ssr", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
@@ -243,6 +243,7 @@ void Sea::init() {
     snprintf(path, sizeof path, "%s/sea/sea_albedo.png", asset_root()); sea_tex_albedo = texture_request(path, RHI_FMT_SRGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
     snprintf(path, sizeof path, "%s/sea/sea_displacement.png", asset_root()); sea_tex_disp = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
     snprintf(path, sizeof path, "%s/sea/foam_wake.png", asset_root()); sea_tex_foamw = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
+    snprintf(path, sizeof path, "%s/sea/foam_crest.png", asset_root()); sea_tex_foamc = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
 }
 
 float Sea::sea_hash01(unsigned h) {
@@ -415,7 +416,10 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
         rhi_set_f1(rhi_uniform(p,"u_has_wake"), wk ? 1.f : 0.f);
         const rhi_texture_t *fw = texture_get(sea_tex_foamw);
         rhi_set_i1(rhi_uniform(p,"u_foamw"), 19); rhi_texture_bind(19, fw ? fw : detail_waves());
-        rhi_set_f1(rhi_uniform(p,"u_has_foamw"), fw ? 1.f : 0.f); }
+        rhi_set_f1(rhi_uniform(p,"u_has_foamw"), fw ? 1.f : 0.f);
+        const rhi_texture_t *fc = texture_get(sea_tex_foamc);
+        rhi_set_i1(rhi_uniform(p,"u_foamc"), 20); rhi_texture_bind(20, fc ? fc : detail_waves());
+        rhi_set_f1(rhi_uniform(p,"u_has_foamc"), fc ? 1.f : 0.f); }
     { const rhi_texture_t *dsp = texture_get(sea_tex_disp);
       rhi_set_i1(rhi_uniform(p,"u_disp"), 5); rhi_texture_bind(5, dsp ? dsp : detail_waves());
       rhi_set_f1(rhi_uniform(p,"u_has_disp"), dsp ? 1.f : 0.f); }

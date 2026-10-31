@@ -46,11 +46,17 @@ typedef struct shock_t { float x, y, z, age, life, r0, r1, strength; } shock_t;
 // One broadside's mark on the water (0.22.9, issue6): a ring running out from the ship on the
 // side she fired, drawn by the sea itself (sea_set_blasts) rather than laid over it.
 typedef struct blast_t { float x, z, dx, dz, age, life, rmax, inner, strength; } blast_t;
+// A gun waiting to fire (0.22.10, issue7 "cannons fire not all at once but with a random
+// timeout"): a broadside is laid *rolling* - each gun has its own delay, a few tens of
+// milliseconds to a second and a half - so the side goes off as a ripple of flashes rather
+// than one wall. The gun's geometry is fixed when it is queued; only the moment is deferred.
+typedef struct gun_t { float gx, gy, gz, sx, sz, fx, fz, gs, deck; float t; int ring; } gun_t;
+#define GUN_MAX 768
 
 class Particles {
 public:
     void init();
-    void reset() { n_ = 0; nshock_ = 0; nblast_ = 0; sea_set_blasts(0, 0, 0); }
+    void reset() { n_ = 0; nshock_ = 0; nblast_ = 0; ngun_ = 0; sea_set_blasts(0, 0, 0); }
     void set_wind(float vx, float vz) { wind_x_ = vx; wind_z_ = vz; }
     void broadside(float x, float y, float z, float heading, float side, float hull_len, int guns);
     void update(float dt);
@@ -62,11 +68,13 @@ private:
     void   shock(float x, float y, float z, float r1, float strength);
     void   blast(float x, float z, float dx, float dz, float L);
     void   push_blasts();
+    void   fire_gun(const gun_t &g);
     static float size_at(const ptc_t *p, float t) { float g = 1.f - (1.f - t) * (1.f - t); return lerpf(p->size0, p->size1, g); }
 
     ptc_t p_[PTC_MAX]; int n_ = 0;
     shock_t sh_[SHOCK_MAX]; int nshock_ = 0;
     blast_t bl_[BLAST_MAX]; int nblast_ = 0;
+    gun_t  gq_[GUN_MAX]; int ngun_ = 0;
     float wind_x_ = 0, wind_z_ = 0;
     unsigned rng_ = 0x9e3779b9u;
     rhi_pipeline_t prg_{}; mesh_t quad_{}; int inited_ = 0;
@@ -122,6 +130,13 @@ void Particles::blast(float x, float z, float dx, float dz, float L) {
 // plume behind it; a thin haze layer that outlives both; a handful of embers. Under a low gun
 // the blast flattens the sea - a ring - and throws spray. One shockwave per few guns. Bigger
 // hulls carry bigger guns: the puff size grows with the length, the count with the guns.
+// A broadside along one side. The guns stand along the middle two thirds of the hull on the
+// gun deck (about a tenth of the length above the waterline on these hulls). Every gun gives
+// a muzzle flash; a dense core that races out with the shot and keeps rolling; a grey plume
+// behind it; a thin haze layer that outlives both; a handful of embers. Under a low gun the
+// blast throws spray. Bigger hulls carry bigger guns: the puff size grows with the length,
+// the count with the guns. 0.22.10: the guns are *queued* with their own delays and go off as
+// a ripple (fire_gun); the ring on the water is laid when the first of them fires.
 void Particles::broadside(float x, float y, float z, float heading, float side, float hull_len, int guns) {
     int nside = (int)clampf((float)guns * 0.5f, 1.f, 18.f);
     float L = maxf(hull_len, 3.f);
@@ -129,13 +144,39 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
     float fx = cosf(heading), fz = -sinf(heading);                    // the heading frame the staged ships use (0 = +x)
     float sx = -fz * side, sz = fx * side;                            // outward, this side
     float half = 0.34f * L, beam = 0.13f * L, deck = 0.10f * L + 0.4f;
+    // the order the guns go off in is not bow to stern: each gets a delay of its own, with a
+    // few landing together so the ripple has stutters in it
+    float spread = 0.6f + 0.06f * nside;                              // a 36-gun side rolls for ~1.7 s
+    int first = -1; float tfirst = 1e9f;
     for (int g = 0; g < nside; ++g) {
+        if (ngun_ >= GUN_MAX) break;
         float along = nside > 1 ? -half + 2.f * half * (float)g / (float)(nside - 1) : 0.f;
-        float gx = x + fx * along + sx * beam, gz = z + fz * along + sz * beam, gy = y + deck + (rnd_f(&rng_) - 0.5f) * 0.1f;
+        gun_t q; q.gx = x + fx * along + sx * beam; q.gz = z + fz * along + sz * beam; q.gy = y + deck + (rnd_f(&rng_) - 0.5f) * 0.1f;
+        q.sx = sx; q.sz = sz; q.fx = fx; q.fz = fz; q.gs = gs; q.deck = deck; q.ring = (g % 2 == 0);
+        float r = rnd_f(&rng_);
+        q.t = r < 0.18f ? 0.f : r * r * spread;                       // some at once, the rest strung out
+        if (q.t < tfirst) { tfirst = q.t; first = ngun_; }
+        gq_[ngun_++] = q;
+    }
+    (void)first;
+    // one ring on the water for the whole broadside, running out from the ship on the side she
+    // fired - the sea draws it (sea_set_blasts), so her own swell still runs through it
+    blast(x, z, sx, sz, L);
+}
+
+// one gun going off
+void Particles::fire_gun(const gun_t &g) {
+    const float gx = g.gx, gy = g.gy, gz = g.gz, sx = g.sx, sz = g.sz, fx = g.fx, fz = g.fz, gs = g.gs, deck = g.deck;
         // flash
         { ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_FLASH; p->x = gx + sx * 0.8f; p->y = gy; p->z = gz + sz * 0.8f;
-          p->vx = sx * 6.f; p->vz = sz * 6.f; p->life = 0.11f + rnd_f(&rng_) * 0.05f;
-          p->size0 = 1.0f * gs; p->size1 = 2.6f * gs; p->alpha = 1.f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; }
+          p->vx = sx * 6.f; p->vz = sz * 6.f; p->life = 0.15f + rnd_f(&rng_) * 0.07f;
+          p->size0 = 1.2f * gs; p->size1 = 3.2f * gs; p->alpha = 1.f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; }
+        // 0.22.10 (issue7 "more fire"): a tongue of flame racing out ahead of the flash, and a
+        // second, lower one licking along the water
+        for (int k = 0; k < 2; ++k) { ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_FLASH;
+          p->x = gx + sx * (1.6f + 0.9f * k); p->y = gy - 0.25f * k; p->z = gz + sz * (1.6f + 0.9f * k);
+          p->vx = sx * (14.f - 4.f * k); p->vz = sz * (14.f - 4.f * k); p->vy = -0.4f * k;
+          p->life = 0.12f + rnd_f(&rng_) * 0.08f; p->size0 = 0.55f * gs; p->size1 = (1.6f + 0.4f * k) * gs; p->alpha = 0.9f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; }
         // layer 1 - the core: four dense cumulus balls, fast, slow to thin, big enough to
         // swallow the gun deck the way the reference frame's do. 0.22.9 (issue6): powder
         // smoke is grey, not white - the shade comes down and the count goes up, and each
@@ -149,7 +190,7 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
             p->vx = sx * spd + fx * jx * 2.4f; p->vz = sz * spd + fz * jz * 2.4f; p->vy = 0.6f + rnd_f(&rng_) * 0.9f;
             p->life = 3.8f + rnd_f(&rng_) * 2.0f + 0.4f * k;
             p->size0 = (0.5f + 0.25f * k) * gs; p->size1 = (4.4f + 0.9f * k + rnd_f(&rng_) * 1.4f) * gs;
-            p->alpha = 0.95f; p->shade = 0.80f - 0.05f * k + 0.06f * rnd_f(&rng_);
+            p->alpha = 0.95f; p->shade = 0.72f - 0.05f * k + 0.06f * rnd_f(&rng_);   // 0.22.10: greyer again
             p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.9f;
         }
         // layer 2 - the plume: four darker grey puffs trailing the core
@@ -161,7 +202,7 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
             p->vx = sx * spd + jx * 1.2f + fx * jx * 1.5f; p->vz = sz * spd + jz * 1.2f + fz * jz * 1.5f; p->vy = 0.4f + rnd_f(&rng_) * 0.8f;
             p->life = 5.f + rnd_f(&rng_) * 3.5f + k * 0.6f;
             p->size0 = (0.35f + 0.15f * k) * gs; p->size1 = (4.4f + 1.4f * k + rnd_f(&rng_) * 1.6f) * gs;
-            p->alpha = 0.78f; p->shade = 0.66f - 0.06f * k + 0.07f * rnd_f(&rng_);
+            p->alpha = 0.80f; p->shade = 0.56f - 0.06f * k + 0.07f * rnd_f(&rng_);
             p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.6f;
         }
         // layer 3 - the haze: one big thin veil that hangs about and drifts off on the wind
@@ -170,9 +211,9 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
           p->vx = sx * 2.5f; p->vz = sz * 2.5f; p->vy = 0.25f;
           p->life = 10.f + rnd_f(&rng_) * 5.f;
           p->size0 = 1.5f * gs; p->size1 = (9.f + rnd_f(&rng_) * 4.f) * gs;
-          p->alpha = 0.44f; p->shade = 0.60f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.2f; }
+          p->alpha = 0.46f; p->shade = 0.52f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.2f; }
         // embers: burning wad thrown with the shot, out in a third of a second
-        int ne = 2 + (int)(gs * 2.f);
+        int ne = 5 + (int)(gs * 4.f);   // 0.22.10: more burning wad
         for (int k = 0; k < ne; ++k) {
             ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_EMBER;
             float spd = 10.f + rnd_f(&rng_) * 9.f, up = (rnd_f(&rng_) - 0.3f) * 3.f, sw = (rnd_f(&rng_) - 0.5f) * 3.f;
@@ -182,7 +223,7 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
         }
         // the water's answer: the blast of a gun a few metres over the sea flattens a ring of it
         // and throws a sheet of spray outboard (the reference frame's splashes along the side)
-        if (deck < 3.2f * gs && g % 2 == 0) {   // every other gun: a spout under each would be a white road along the side
+        if (deck < 3.2f * gs && g.ring) {   // every other gun: a spout under each would be a white road along the side
             float wx = gx + sx * (2.0f + 0.8f * gs), wz = gz + sz * (2.0f + 0.8f * gs);
             int ns = 3 + (int)(gs * 3.f);   // the spout: a column of spray thrown up by the blast
             for (int k = 0; k < ns; ++k) {
@@ -194,14 +235,9 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
                 p->life = 1.0f + rnd_f(&rng_) * 0.5f; p->size0 = 0.3f * gs; p->size1 = 1.3f * gs; p->alpha = 0.8f; p->seed = rnd_f(&rng_);
             }
         }
-        // the air's answer: one shockwave per three guns, from the muzzle
         // the air's answer: one shockwave per six guns, light enough to read as heat shimmer
         // over the sea rather than a lens laid on the frame (0.22.9, "more transparent")
-        if (g % 6 == 0) shock(gx + sx * 1.2f, gy, gz + sz * 1.2f, (4.f + 2.5f * gs), clampf(0.18f + 0.14f * gs, 0.18f, 0.40f));
-    }
-    // one ring on the water for the whole broadside, running out from the ship on the side she
-    // fired - the sea draws it (sea_set_blasts), so her own swell still runs through it
-    blast(x, z, sx, sz, L);
+        if (g.ring && (rnd_f(&rng_) < 0.34f)) shock(gx + sx * 1.2f, gy, gz + sz * 1.2f, (4.f + 2.5f * gs), clampf(0.18f + 0.14f * gs, 0.18f, 0.40f));
 }
 
 // The rings, to the sea (render.h sea_set_blasts): the front runs out and slows, the ring
@@ -249,6 +285,7 @@ void Particles::update(float dt) {
     }
     for (int i = 0; i < nshock_; ) { sh_[i].age += dt; if (sh_[i].age >= sh_[i].life) sh_[i] = sh_[--nshock_]; else ++i; }
     for (int i = 0; i < nblast_; ) { bl_[i].age += dt; if (bl_[i].age >= bl_[i].life) bl_[i] = bl_[--nblast_]; else ++i; }
+    for (int i = 0; i < ngun_; ) { gq_[i].t -= dt; if (gq_[i].t <= 0.f) { gun_t g = gq_[i]; gq_[i] = gq_[--ngun_]; fire_gun(g); } else ++i; }
     push_blasts();
 }
 

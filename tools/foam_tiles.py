@@ -1,58 +1,54 @@
 #!/usr/bin/env python3
-"""Cut the sheets in assets/ships/FOAM into the foam tiles the wake and the cut-water read.
+"""Cut the foam sheets under assets/ships into the foam tiles the sea reads (pure stdlib).
 
-    python3 -I tools/foam_tiles.py <src_dir> <out_dir>
+    python3 -I tools/foam_tiles.py <ships_dir> <out_dir>
 
-What is actually in that folder (0.22.9): two 1024px *sailcloth* sheets - the same woven and
-frayed hessian the sail tiles came from, not photographs of foam. Their colour is useless
-here, but their *structure* is exactly what broken foam needs: long streaks torn across the
-weave, at two scales, with holes. So the colour is thrown away and what is kept is a
-contrast-stretched high-pass of the luminance:
+Reads <ships_dir>/foam/new (the masks) and <ships_dir>/FOAM (the photographs) and writes,
+into <out_dir> (normally <assets>/sea):
 
-    foam_wake.png     the frayed sheet: torn streaks, for the churn astern and the cut-water
-    foam_streak.png   the woven sheet: finer, more regular, for the lapping along the hull
+    foam_wake.png    the churn astern and the cut-water      <- foam/new, first mask
+    foam_streak.png  the finer lapping along the hull         <- foam/new, second mask
+    foam_crest.png   the whitecaps and the collapsing crests  <- FOAM, the tileable photograph
+    foam_lane.png    the streaks drawn out along the track    <- FOAM, the labelled sheet's streak panel
 
-Both are written as greyscale in RGB, seamless, with the mean pulled to ~0.5 so the shader's
-smoothsteps bite in the same place whichever tile is bound. The sea shader multiplies them
-into its own foam masks, so a tile that is too bright only ever makes the foam busier, never
-whiter.
+0.22.10 (issue7). The 0.22.9 cut worked from sailcloth sheets that had been dropped into the
+folder by mistake; these are the real thing. The two masks in foam/new are white foam rendered
+over a grey *checkerboard* (an alpha image flattened onto a checker), so the checker has to
+come out first: its period is found by looking for the lattice whose per-phase means vary
+most, that lattice mean is subtracted, and what is left is the foam. The photograph is only
+high-passed gently and normalised - it already is foam. Every tile is written as greyscale in
+RGB, seamless, with its mean pulled to ~0.5 so the shader's smoothsteps bite in the same place
+whichever tile is bound.
 """
-import os, sys
+import math, os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sea_tiles import read_png, write_png, seamless, seam_error, tiled
 
-# which sheet becomes which tile (by eye; both are in the FOAM folder)
-WANT = {
-    'foam_wake':   'Meshy_AI_image_acbaf26a-b2c3-483e-8168-e79fec350f4c_0.png',
-    'foam_streak': 'Meshy_AI_image_28b6bd5f-bde1-45f9-8052-7fc9f30f4daa_0.png',
-}
-SIZE = 512          # the tile the game ships: 1024 is detail the foam masks throw away anyway
+SIZE = 512
 
 
 def luminance(w, h, px):
     return [(px[i * 3] * 77 + px[i * 3 + 1] * 151 + px[i * 3 + 2] * 28) >> 8 for i in range(w * h)]
 
 
-def downsample(w, lum, size):
-    """box average w x w -> size x size (w is a multiple of size for our sheets)"""
-    n = w // size
-    out = [0] * (size * size)
-    inv = 1.0 / (n * n)
+def resample(w, h, v, size, x0=0, y0=0, cw=None, ch=None):
+    """box-average a (sub)rect of a w x h float field to size x size"""
+    cw = cw or w; ch = ch or h
+    out = [0.0] * (size * size)
     for y in range(size):
-        base = y * n * w
+        ya, yb = y0 + y * ch // size, y0 + max((y + 1) * ch // size, y * ch // size + 1)
         for x in range(size):
-            s = 0
-            off = base + x * n
-            for j in range(n):
-                row = off + j * w
-                for i in range(n):
-                    s += lum[row + i]
-            out[y * size + x] = s * inv
+            xa, xb = x0 + x * cw // size, x0 + max((x + 1) * cw // size, x * cw // size + 1)
+            s = 0.0; n = 0
+            for yy in range(ya, yb):
+                row = yy * w
+                for xx in range(xa, xb):
+                    s += v[row + xx]; n += 1
+            out[y * size + x] = s / n
     return out
 
 
 def box_blur(size, v, r):
-    """separable box blur, wrapping (the tile is periodic)"""
     k = 2 * r + 1
     tmp = [0.0] * (size * size)
     for y in range(size):
@@ -70,88 +66,104 @@ def box_blur(size, v, r):
     return out
 
 
-def emit(src, dst, preview=False):
-    w, h, px = read_png(src)
-    lum = luminance(w, h, px)
-    v = downsample(w, lum, SIZE) if w > SIZE else [float(x) for x in lum]
-    # high pass: what is left after the sheet's own shading is taken out, which is the weave
-    # and the tears - the part that reads as broken water
-    lo = box_blur(SIZE, v, max(2, SIZE // 24))
-    hp = [v[i] - lo[i] for i in range(SIZE * SIZE)]
-    # De-stripe. These sheets are *woven cloth*: a regular grid of vertical seams and a
-    # horizontal weave. Tiled over the sea that grid reads as quilting, which is what the
-    # first cut of this tile did to the water. Subtracting the per-column and per-row means
-    # takes out exactly the structure that is constant along an axis - the seams and the
-    # weave - and leaves the tears, which are what we are after.
-    colm = [0.0] * SIZE
-    rowm = [0.0] * SIZE
-    for y in range(SIZE):
-        row = y * SIZE
-        rs = 0.0
-        for x in range(SIZE):
-            val = hp[row + x]
-            rs += val
-            colm[x] += val
-        rowm[y] = rs / SIZE
-    colm = [c / SIZE for c in colm]
-    for y in range(SIZE):
-        row = y * SIZE
-        ry = rowm[y]
-        for x in range(SIZE):
-            hp[row + x] -= colm[x] + ry
-    # and a one-texel blur, so what is left is torn blobs rather than individual threads
-    hp = box_blur(SIZE, hp, 1)
-    # contrast stretch to the 2nd..98th percentile, so one sheet's flatness does not make a
-    # flat tile; then the mean to ~0.5
-    s = sorted(hp)
-    lo_p, hi_p = s[int(len(s) * 0.02)], s[int(len(s) * 0.98)]
-    rng = max(hi_p - lo_p, 1e-3)
-    g = [min(max((x - lo_p) / rng, 0.0), 1.0) for x in hp]
-    # Keep only the tears. Even de-striped, the sheet is still cloth: a fine regular weave
-    # under the damage. Thresholding to the brightest quarter throws the weave away and keeps
-    # the torn edges, and a two-texel blur turns those edges into the soft blobs a foam mask
-    # wants. What comes out has no grid left in it at all.
-    def sstep(a, b, x):
-        t = min(max((x - a) / (b - a), 0.0), 1.0)
-        return t * t * (3.0 - 2.0 * t)
-    g = [sstep(0.58, 0.93, x) for x in g]
-    g = box_blur(SIZE, g, 2)
-    lo2, hi2 = min(g), max(g)
-    g = [(x - lo2) / max(hi2 - lo2, 1e-6) for x in g]
+def uncheck(w, h, lum):
+    """remove a checkerboard background: find its period, subtract the lattice mean"""
+    best_p, best_var, best_means = 0, 0.0, None
+    for p in (8, 12, 16, 20, 24, 32, 40, 48, 64):
+        sums = [0.0] * (p * p); cnt = [0] * (p * p)
+        for y in range(0, h, 3):
+            row = y * w; py = (y % p) * p
+            for x in range(0, w, 3):
+                k = py + (x % p); sums[k] += lum[row + x]; cnt[k] += 1
+        means = [sums[i] / cnt[i] if cnt[i] else 0.0 for i in range(p * p)]
+        m = sum(means) / len(means)
+        var = sum((a - m) ** 2 for a in means) / len(means)
+        if var > best_var: best_p, best_var, best_means = p, var, means
+    if best_var < 4.0:                      # no checker worth removing
+        return [float(x) for x in lum], 0
+    p = best_p; m = sum(best_means) / len(best_means)
+    out = [0.0] * (w * h)
+    for y in range(h):
+        row = y * w; py = (y % p) * p
+        for x in range(w):
+            out[row + x] = lum[row + x] - best_means[py + (x % p)] + m
+    return out, p
+
+
+def finish(name, dst, g, blur_r=1, preview=False):
+    """contrast-stretch, gamma to a 0.5 mean, seamless, write"""
+    if blur_r > 0: g = box_blur(SIZE, g, blur_r)
+    s = sorted(g)
+    lo, hi = s[int(len(s) * 0.01)], s[int(len(s) * 0.995)]
+    rng = max(hi - lo, 1e-6)
+    g = [min(max((x - lo) / rng, 0.0), 1.0) for x in g]
     mean = sum(g) / len(g)
-    # gamma that lands the mean on 0.5 (foam masks are smoothstepped around the middle)
-    import math
-    gamma = math.log(0.5) / math.log(max(mean, 1e-3))
+    gamma = math.log(0.5) / math.log(max(min(mean, 0.99), 0.01))
     out = bytearray(SIZE * SIZE * 3)
     for i, x in enumerate(g):
         b = int(min(max(x ** gamma, 0.0), 1.0) * 255.0 + 0.5)
         out[i * 3] = out[i * 3 + 1] = out[i * 3 + 2] = b
     before = seam_error(SIZE, out)
-    out = seamless(SIZE, out, 0.25)
+    out = seamless(SIZE, out, 0.18)
     after = seam_error(SIZE, out)
     write_png(dst, SIZE, SIZE, out)
-    if preview:
-        write_png(dst.replace('.png', '_tiled.png'), SIZE * 2, SIZE * 2, tiled(SIZE, out))
-    print('%-22s %dx%d  mean %.2f gamma %.2f  wrap %.1f -> %.1f'
-          % (os.path.basename(dst), SIZE, SIZE, mean, gamma, before, after))
+    if preview: write_png(dst.replace('.png', '_tiled.png'), SIZE * 2, SIZE * 2, tiled(SIZE, out))
+    print('%-16s %dx%d  mean %.2f gamma %.2f  wrap %.1f -> %.1f' % (name, SIZE, SIZE, mean, gamma, before, after))
+
+
+def mask_tile(src, dst, name):
+    """white foam flattened onto a grey checker: the foam is the only thing near white"""
+    w, h, px = read_png(src)
+    lum = luminance(w, h, px)
+    # the checker's two greys are the two tallest histogram peaks under pure white; the
+    # threshold sits a little above the brighter one, so both squares go to zero together
+    hist = [0] * 256
+    for x in lum: hist[x] += 1
+    peaks = sorted(range(236), key=lambda i: -hist[i])[:2]
+    thr = max(peaks) + 10
+    print('%s: checker greys %d/%d, foam above %d' % (os.path.basename(src)[:24], min(peaks), max(peaks), thr))
+    v = [min(max((x - thr) / max(250 - thr, 1), 0.0), 1.0) for x in lum]
+    v = resample(w, h, v, SIZE)
+    finish(name, dst, v, blur_r=1)
+
+
+def photo_tile(src, dst, name, rect=None):
+    w, h, px = read_png(src)
+    lum = [float(x) for x in luminance(w, h, px)]
+    if rect: v = resample(w, h, lum, SIZE, rect[0], rect[1], rect[2], rect[3])
+    else:    v = resample(w, h, lum, SIZE)
+    lo = box_blur(SIZE, v, SIZE // 10)                 # a gentle high-pass: lighting out, foam in
+    v = [v[i] - lo[i] * 0.85 for i in range(SIZE * SIZE)]
+    finish(name, dst, v, blur_r=0)
+
+
+def pngs(d):
+    return sorted(os.path.join(d, f) for f in os.listdir(d) if f.lower().endswith('.png')) if os.path.isdir(d) else []
 
 
 def main(argv):
-    if len(argv) < 3:
-        print(__doc__)
-        return 2
-    src, out = argv[1], argv[2]
+    if len(argv) < 3: print(__doc__); return 2
+    ships, out = argv[1], argv[2]
     os.makedirs(out, exist_ok=True)
-    have = set(os.listdir(src))
-    for name, f in WANT.items():
-        if f not in have:                       # the folder's contents may change: take what is there
-            left = sorted(x for x in have if x.lower().endswith('.png'))
-            if not left:
-                print('no PNG in %s' % src)
-                return 1
-            f = left[0 if name == 'foam_wake' else -1]
-            print('%s: wanted sheet missing, using %s' % (name, f))
-        emit(os.path.join(src, f), os.path.join(out, name + '.png'))
+    new = pngs(os.path.join(ships, 'foam', 'new'))
+    old = pngs(os.path.join(ships, 'FOAM'))
+    if len(new) >= 1: mask_tile(new[0], os.path.join(out, 'foam_wake.png'), 'foam_wake')
+    if len(new) >= 2: mask_tile(new[1], os.path.join(out, 'foam_streak.png'), 'foam_streak')
+    # the photographs: the tileable one is the one with the higher mean (white foam on grey
+    # water); the darker one is the labelled sheet of panels
+    if old:
+        info = []
+        for p in old:
+            w, h, px = read_png(p); n = w * h
+            info.append((sum(px[0::3]) / n, p, w, h))
+        info.sort()
+        sheet, photo = info[0], info[-1]
+        photo_tile(photo[1], os.path.join(out, 'foam_crest.png'), 'foam_crest')
+        if len(info) > 1:
+            # the sheet's lower-left panel is the vertical streaks: the sheet is a 3 x 2 grid with
+            # a label strip over each panel, so take the lower half's left two thirds below the strip
+            w, h = sheet[2], sheet[3]
+            photo_tile(sheet[1], os.path.join(out, 'foam_lane.png'), 'foam_lane', rect=(0, int(h * 0.56), int(w * 0.66), int(h * 0.42)))
     return 0
 
 

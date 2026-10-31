@@ -77,6 +77,7 @@ uniform sampler2D u_terr; uniform vec2 u_terr_texel;
 // the wake map and the torn-streak foam tile (0.22.9, gfx/wake.cc, tools/foam_tiles.py)
 uniform sampler2D u_wake; uniform vec4 u_wake_rect; uniform float u_has_wake;
 uniform sampler2D u_foamw; uniform float u_has_foamw;
+uniform sampler2D u_foamc; uniform float u_has_foamc;   // the whitecaps' own foam (0.22.10)
 uniform vec4 u_blast[12]; uniform vec4 u_blastdir[12]; uniform int u_nblast;
 float shash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 float snoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
@@ -283,13 +284,22 @@ void main(){
 // battle's sea was tiled with them); through the texture's bright tenth it is a patch of foam
 // at texel resolution, and the cells never show.
   float capmask = smoothstep(0.05, 0.40, lum2);
+// 0.22.10 (issue7 "foam on top of the collapsing waves"): the caps and the crests are textured
+// by the real foam photograph now - two scales, the coarser drifting with the swell - so a
+// breaking crest is a ragged sheet of bubbles and not a tint over the cell the fold found
+  float fc = 0.6;
+  if (u_has_foamc > 0.5) {
+    float fc1 = texture(u_foamc, p * 0.42 + u_drift1 * 0.8).r, fc2 = texture(u_foamc, p * 1.35 + u_drift2 + vec2(0.61, 0.17)).r;
+    fc = clamp(fc1 * 0.6 + fc2 * 0.7, 0.0, 1.4);
+    capmask = max(capmask, smoothstep(0.35, 0.95, fc) * 0.9);
+  }
 // The crest of a collapsing wave (0.22.6, issue3 "add foam and crest on top of collapsing
 // wave"). `lift` is how high this fragment stands in its own wave and `v_jac` how hard the
 // Gerstner displacement is folding it over: where a lifted fragment is also folding, the water
 // is spilling down the face, and that is where the white sits. Drawn as a band *at* the crest
 // rather than over the whole wave, so a swell reads as a line of white running along its top.
-  float collapse = smoothstep(0.55, 0.95, lift) * smoothstep(0.90, 0.66, v_jac);
-  float crestfoam = collapse * (0.35 + 0.65 * capmask) * smoothstep(0.15, 0.7, ws) * detail;
+  float collapse = smoothstep(0.45, 0.92, lift) * smoothstep(0.92, 0.66, v_jac);
+  float crestfoam = collapse * (0.30 + 0.90 * capmask) * smoothstep(0.12, 0.65, ws) * detail * (0.7 + 0.6 * smoothstep(0.3, 0.9, fc));
 // the staged scenes want white on every tessellated crest ("white foam on peaks"), the map
 // only where the fold says the wave is breaking
   float peak = u_local_depth > 0.0 ? smoothstep(0.1, 0.9, lift) * smoothstep(0.015, 0.06, v_slope) * 0.7 : 0.0;
@@ -412,7 +422,7 @@ void main(){
   }
   float shipf = (1.0 - shipk) * detail;
   vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * (u_ambsky * 1.15 + u_suncol * 0.55);   // 0.22.5: whiter
-  float foamall = clamp((caps * 0.9 + crestfoam * 0.85 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
+  float foamall = clamp((caps * 0.95 + crestfoam * 1.05 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
   col3d = mix(col3d, foamcol, foamall);
   col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);
   float caps_a = foamall;
