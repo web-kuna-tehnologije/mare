@@ -1,4 +1,4 @@
-in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither; in float v_wet;
+in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither; in float v_wet; in float v_near;
 in vec3 v_cloth;
 uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform sampler2D u_grain;
 uniform sampler2D u_sail_a; uniform sampler2D u_sail_n;    // new canvas: albedo, normal
@@ -14,6 +14,7 @@ out vec4 fragColor;
 #include "common/dither.glsl"
 void main(){
   dither_clip(v_dither);
+  dither_clip_at(v_near, vec2(2.0, 1.0));   // 0.22.9: a part the camera is inside of dissolves away
   vec3 n = normalize(v_nrm);
   vec3 albedo = srgb_to_linear(v_col);
   vec3 vdir = normalize(u_campos - v_wpos);

@@ -5,6 +5,34 @@ uniform float u_shallow;
 // depth (in wave-scale units) the swell needs to reach full height: ~1.1 close in, up to ~3.6 at the strategic zoom, so the open sea runs and the coasts stay calm
 uniform float u_mapness_vs;
 // the map morph, for the detail rings below (the sea's own u_mapness is a fragment uniform)
+// The wake map (gfx/wake.cc, 0.22.9): R foam, G the water a hull has already broken. The
+// vertex stages read G - broken water lies flatter and carries its own short chop, which is
+// what makes a trail read as *sea she has passed through* and not as paint on it.
+uniform sampler2D u_wake; uniform vec4 u_wake_rect; uniform float u_has_wake;
+// Muzzle blasts (0.22.9, issue6 "shock around ship in waves form"): (x, z, radius, strength)
+// and (firing dir x, z, inner hole, ring width). A ring of ripples running out from the ship,
+// heavier on the side she is firing and never directly under the guns.
+uniform vec4 u_blast[12]; uniform vec4 u_blastdir[12]; uniform int u_nblast;
+vec2 wake_at(vec2 p) {
+  if (u_has_wake < 0.5) return vec2(0.0);
+  vec2 uv = (p - u_wake_rect.xy) * u_wake_rect.zw;
+  if (uv.x < 0.001 || uv.x > 0.999 || uv.y < 0.001 || uv.y > 0.999) return vec2(0.0);
+  return textureLod(u_wake, uv, 0.0).rg;
+}
+// how hard the blasts are shaking the water here, and the ring's own ripple
+float blast_lift(vec2 p, float t) {
+  float h = 0.0;
+  for (int i = 0; i < u_nblast; ++i) {
+    vec2 d = p - u_blast[i].xy; float r = length(d); float R = u_blast[i].z;
+    if (r > R * 1.6 + 2.0) continue;
+    float w = max(u_blastdir[i].w, 0.05);
+    float side = 0.35 + 0.65 * clamp(dot(normalize(d + vec2(1e-5)), u_blastdir[i].xy), 0.0, 1.0);
+    float hole = smoothstep(u_blastdir[i].z * 0.6, u_blastdir[i].z, r);   // nothing right under the guns
+    float ring = exp(-pow((r - R) / w, 2.0));
+    h += u_blast[i].w * side * hole * ring * cos((r - R) / w * 2.2) * 0.035;
+  }
+  return h;
+}
 #include "terrain/rings.glsl"
 out vec3 v_wpos; out vec3 v_nrm; out float v_slope; out float v_h; out float v_amp; out float v_edge; out float v_jac; out float v_crest; out float v_shipw;
 // The water a ship pushes aside. Each nearby ship (x, z, heading, speed in hull lengths per 
@@ -50,6 +78,15 @@ float ship_wave(vec2 pp, float t) {
       hgt -= 0.010 * L * lane;                    // the flattened, dragged-down lane astern
     }
   }
+// the trail she has already left (the wake map): the broken water lies a little lower than
+// the swell around it and carries a short, steep chop of its own
+  vec2 wk = wake_at(pp);
+  if (wk.y > 0.002) {
+    float L0 = u_wave_scale;
+    hgt -= 0.010 * L0 * wk.y;
+    hgt += 0.004 * L0 * wk.y * sin(pp.x * (11.0 / L0) + pp.y * (7.0 / L0) - t * 3.1);
+  }
+  hgt += blast_lift(pp, t) * u_wave_scale;
   return hgt;
 }
 // shoaling: a wave entering water shallower than its length steepens before it breaks. The 

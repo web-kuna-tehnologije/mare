@@ -74,6 +74,10 @@ out vec4 fragColor;
 #include "terrain/rings.glsl"
 #include "common/mapmode.glsl"
 uniform sampler2D u_terr; uniform vec2 u_terr_texel;
+// the wake map and the torn-streak foam tile (0.22.9, gfx/wake.cc, tools/foam_tiles.py)
+uniform sampler2D u_wake; uniform vec4 u_wake_rect; uniform float u_has_wake;
+uniform sampler2D u_foamw; uniform float u_has_foamw;
+uniform vec4 u_blast[12]; uniform vec4 u_blastdir[12]; uniform int u_nblast;
 float shash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
 float snoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
   return mix(mix(shash(i),shash(i+vec2(1,0)),f.x), mix(shash(i+vec2(0,1)),shash(i+vec2(1,1)),f.x), f.y); }
@@ -375,6 +379,37 @@ void main(){
   }
   float shipcrest = smoothstep(0.009, 0.015, v_shipw / max(sc, 1e-3)) * smoothstep(0.30, 0.58, lum2) * 0.8;
   shipk *= 1.0 - clamp(shipcrest, 0.0, 0.8);
+// The trail (0.22.9, issue6). Everything above is attached to a hull and turns with her; this
+// is what she *left*: the wake map, written where she actually was and fading over a minute or
+// two. Broken up by the torn-streak tile (tools/foam_tiles.py - the FOAM sheets' structure,
+// which is what makes a wake read as shredded water rather than a painted band), at two
+// scales so the churn close astern is coarse and the old trail is fine.
+  if (u_has_wake > 0.5) {
+    vec2 wuv = (v_wpos.xz - u_wake_rect.xy) * u_wake_rect.zw;
+    if (wuv.x > 0.0 && wuv.x < 1.0 && wuv.y > 0.0 && wuv.y < 1.0) {
+      vec2 wk = texture(u_wake, wuv).rg;
+      float fw1 = u_has_foamw > 0.5 ? texture(u_foamw, p * 0.55 + u_drift1 * 0.35).r : 0.55;
+      float fw2 = u_has_foamw > 0.5 ? texture(u_foamw, p * 1.9 + u_drift2 * 0.6 + vec2(0.31, 0.77)).r : 0.55;
+      float brk = smoothstep(0.34, 0.86, mix(fw1, fw2, 0.45) * (0.75 + 0.5 * fw2));
+      float trail = clamp(wk.x * (0.10 + 0.90 * brk) + wk.y * 0.14 * brk, 0.0, 1.0);
+      shipk *= 1.0 - clamp(trail * 0.55, 0.0, 0.55);
+    }
+  }
+// The blast rings (0.22.9, issue6 "a light transparent white circle, more opaque on the side
+// of firing, not below the cannon"): a ring in the water running out from the ship. The sea's
+// own surface carries it - the vertex stage lifted it, this only whitens it - so the swell,
+// the reflection and the refraction all still read through, which is what "still actual sea
+// mesh" asks for.
+  for (int i = 0; i < u_nblast; ++i) {
+    vec2 d = v_wpos.xz - u_blast[i].xy; float r = length(d); float R = u_blast[i].z;
+    if (r > R * 1.7 + 2.0) continue;
+    float w = max(u_blastdir[i].w, 0.05);
+    float side = 0.08 + 0.92 * clamp(dot(normalize(d + vec2(1e-5)), u_blastdir[i].xy), 0.0, 1.0);
+    float hole = smoothstep(u_blastdir[i].z * 0.6, u_blastdir[i].z, r);
+    float ring = exp(-pow((r - R) / w, 2.0));
+    float tex = u_has_foamw > 0.5 ? smoothstep(0.25, 0.8, texture(u_foamw, p * 1.3 + vec2(0.13, 0.52)).r) : 0.6;
+    shipk *= 1.0 - clamp(u_blast[i].w * side * hole * ring * (0.45 + 0.75 * tex) * 0.30, 0.0, 0.34);
+  }
   float shipf = (1.0 - shipk) * detail;
   vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * (u_ambsky * 1.15 + u_suncol * 0.55);   // 0.22.5: whiter
   float foamall = clamp((caps * 0.9 + crestfoam * 0.85 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);

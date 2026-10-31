@@ -655,7 +655,8 @@ int main(int argc, char **argv) {
             int pick = hud_menu();
             if (pick > 0) { game_new(pick, seed); scene_reset_caches(); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; U.show_help = 1; }
             else if (pick < 0) game_load_async(pick == -2 ? "mare_autosave.bin" : "mare_save.bin");   // applied by the poll above; the menu shows "Loading..." meanwhile
-        } else { if (U.pass_panels) hud_panels(); dashboard_panel(); }
+        } else if (detailview_mode() == DV_BATTLE) { if (U.pass_panels) hud_battle_panel(); dashboard_panel(); }   // the staged battle has its own controls (0.22.9)
+        else { if (U.pass_panels) hud_panels(); dashboard_panel(); }
         prof_end(p_panels);
         prof_end(p_frame);
         prof_frame_end();

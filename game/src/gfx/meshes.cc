@@ -9,6 +9,7 @@
 extern "C" {
 #include "render.h"
 #include "glsl.h"
+#include "camera.h"
 #include "../core/types.h"
 #include "../core/util.h"
 #include "../core/diag.h"
@@ -68,6 +69,7 @@ private:
     void build_puff();
     void meshes_bind_waves(const rhi_pipeline_t *p);
     void bind_sails(const rhi_pipeline_t *p);
+    void bind_nearfade(const rhi_pipeline_t *p);
     int  sail_tex[6] = { -1, -1, -1, -1, -1, -1 };   // 4 canvas tiles + the 2 cordage tiles (0.22.8)
 };
 
@@ -210,7 +212,7 @@ void Meshes::build_puff() {
 void Meshes::init() {
     static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain",
                                       "u_sail_a", "u_sail_n", "u_sail_a2", "u_sail_n2", "u_has_sail", "u_rope_a", "u_rope_a2",
-                                      "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+                                      "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", "u_campos_v", "u_nearfade", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const char *depth_uniforms[] = { "u_vp", "u_time", "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, 0 };
     // (C compound literals -> named descriptors: C++ cannot take &T{...})
     const rhi_pipeline_desc_t meshes_desc{ .vs = shader_source("meshes/meshes.vert"), .fs = shader_source("meshes/meshes.frag"), .layout = &mesh_layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 };
@@ -221,8 +223,8 @@ void Meshes::init() {
     smoke_prg = rhi_pipeline_make(&smoke_desc);
     rope_on = rhi_geometry_shader_supported();
     if (rope_on) {
-        static const char *rope_uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", "u_viewport", "u_rope", "u_rope_a", "u_rope_a2", "u_has_sail",
-                                               "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+        static const char *rope_uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", "u_viewport", "u_rope", "u_rope_a", "u_rope_a2", "u_has_sail", "u_campos_v", "u_nearfade",
+                                               "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", "u_campos_v", "u_nearfade", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
         const rhi_pipeline_desc_t rope_desc{ .vs = shader_source("meshes/rope.vert"), .fs = shader_source("meshes/meshes.frag"), .layout = &mesh_layout, .uniforms = rope_uniforms,
                                              .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_NONE, .gs = shader_source("meshes/rope.geom"), .lines = 1 };
         rope_prg = rhi_pipeline_make(&rope_desc);
@@ -248,6 +250,17 @@ void Meshes::meshes_bind_waves(const rhi_pipeline_t *p) {
 // The authored canvas (0.22.6, issue3): two qualities of sailcloth, each an albedo and a
 // normal map, from assets/ships (tools/ship_textures.py cut them from the Meshy sheets).
 // A sail's own (across, down) coordinates are its UV, so no mesh needed UVs adding.
+// The near-camera dissolve (0.22.9, issue6 "when coming close to rigging ... the whole screen
+// is invisible"). Anything nearer than a shade over the near plane is dropped and the band
+// above it dissolves, so steering the camera into a hull thins the planking out instead of
+// filling the frame with one clipped triangle. Tied to znear (which follows the zoom), and
+// capped so the map view never fades a ship the player is looking at.
+void Meshes::bind_nearfade(const rhi_pipeline_t *p) {
+    float lo = maxf(cam.znear * 1.15f, 0.25f), hi = minf(maxf(cam.znear * 5.f, 1.2f), 3.0f);
+    rhi_set_f3(rhi_uniform(p, "u_campos_v"), RF.campos.x, RF.campos.y, RF.campos.z);
+    rhi_set_f2(rhi_uniform(p, "u_nearfade"), lo, maxf(hi, lo + 0.2f));
+}
+
 void Meshes::bind_sails(const rhi_pipeline_t *p) {
     if (sail_tex[0] < 0) {
         static const char *names[6] = { "sail_premium_albedo", "sail_premium_normal", "sail_used_albedo", "sail_used_normal", "rope_premium", "rope_used" };
@@ -271,6 +284,7 @@ void Meshes::bind() {
     rhi_set_mat4(UNI(meshes_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_f1(UNI(meshes_prg,"u_time"), RF.anim_time);
     rhi_set_f3(UNI(meshes_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    bind_nearfade(&meshes_prg);
     rhi_set_f3(UNI(meshes_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
     rhi_set_f1(UNI(meshes_prg,"u_mapness"), RF.mapness);
     light_bind(&meshes_prg);
@@ -286,6 +300,7 @@ void Meshes::bind_rope() {
     rhi_set_mat4(UNI(rope_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_f1(UNI(rope_prg,"u_time"), RF.anim_time);
     rhi_set_f3(UNI(rope_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    bind_nearfade(&rope_prg);
     rhi_set_f3(UNI(rope_prg,"u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
     rhi_set_f1(UNI(rope_prg,"u_mapness"), RF.mapness);
     rhi_set_f2(UNI(rope_prg,"u_viewport"), (float)screen_w, (float)screen_h);

@@ -28,6 +28,7 @@ extern "C" {
 #include "../gfx/scene.h"
 #include "../gfx/render.h"    // screen_w / screen_h
 #include "../gfx/staged_scene.h"   // the battle overlay (0.22.7)
+#include "../sim/naval_physics.h"   // its physics read-out (0.22.9)
 }
 
 // ui.h's ROW builds its width array with C compound literals, which C++ has no equivalent of:
@@ -45,6 +46,7 @@ public:
     int  menu(void);                                 // main menu; returns chosen nation, -1 load mare_save.bin, -2 load the autosave, 0 nothing
     void labels(void);                               // world labels, toast, ticker (inside the overlay)
     void battle(void);                               // the staged battle's overlay (0.22.7)
+    void battle_panel(void);                         // its clickable controls (0.22.9)
 
 private:
     static mu_Color log_color(int type);
@@ -440,15 +442,41 @@ void Hud::battle(void) {
     const char *wname = compass[(int)((from + 11.25f) / 22.5f) % 16];
     float knots = wstr * 14.f;                                                  // staged_scene.cc DV_WIND_KN
     const char *force = knots < 4 ? "light air" : knots < 7 ? "light breeze" : knots < 11 ? "gentle breeze" : knots < 16 ? "moderate breeze" : knots < 22 ? "fresh breeze" : "strong breeze";
-    const char *line = va("BATTLE   time x%s   |   wind %s %.0f kn, %s%s   |   %s", ts <= 0.f ? "0" : va("%g", ts), wname, knots, force,
-                          detailview_show_wind() ? "" : " (arrows off)", detailview_coast_desc());
+    const char *line = va("BATTLE   time x%s   |   wind %s %.0f kn, %s%s   |   %s   |   physics %d Hz, %d hulls, %d contacts",
+                          ts <= 0.f ? "0" : va("%g", ts), wname, knots, force,
+                          detailview_show_wind() ? "" : " (arrows off)", detailview_coast_desc(),
+                          (int)NPHYS_HZ, nphys_count(), nphys_contacts_last());
     int tw = ui_text_w(line);
     ui_overlay_rect(W/2 - tw/2 - 10, 40, tw + 20, h + 8, mu_color(20, 20, 30, 170));
     ui_overlay_text(W/2, 40 + h/2 + 4, line, mu_color(235, 228, 205, 255), 1, 0);
-    ui_overlay_text(W/2, 40 + h + 16, "Space stop/run   1-4 battle speed   -/+ slower/faster   N wind arrows   R/F camera up/down   middle-drag tilt   Esc back", mu_color(200, 200, 210, 170), 1, 1);
+    ui_overlay_text(W/2, 40 + h + 16, "Space stop/run   1-4 battle speed   -/+ slower/faster   N wind arrows   R/F camera up/down   middle-drag tilt   Esc back   (and the Battle panel)", mu_color(200, 200, 210, 170), 1, 1);
     if (ts <= 0.f) ui_overlay_text(W/2, 100, "- BATTLE PAUSED -", mu_color(255,255,255,200), 1, 1);
     else if (ts < 0.99f) ui_overlay_text(W/2, 100, va("- slow time x%g -", ts), mu_color(255,255,255,170), 1, 1);
     if (U.toast_timer > 0) { int tw2 = ui_text_w(U.toast); ui_overlay_rect(W/2 - tw2/2 - 10, 120, tw2 + 20, h + 8, mu_color(20,20,30,200)); ui_overlay_text(W/2, 120 + h/2 + 4, U.toast, mu_color(255,240,200,255), 1, 0); }
+}
+
+// The battle's controls as a real window (0.22.9, issue6 "add turn off wind arrows button").
+// The keys stay - N, Space, 1-4, -/+ - but a spectator view with no visible controls is a
+// view you have to read the manual for, and the wind arrows in particular are something you
+// want off the moment you have read the wind.
+void Hud::battle_panel(void) {
+    mu_Container *c = mu_get_container(ui_ctx, "Battle");
+    if (c->rect.w == 0) c->rect = mu_rect(12, screen_h - 150, 248, 112);
+    if (!mu_begin_window_ex(ui_ctx, "Battle", c->rect, MU_OPT_NOCLOSE)) return;
+    float ts = detailview_timescale();
+    ROW(5, 54, 34, 34, 34, 34);
+    if (ui_btn(ts <= 0.f ? "Run" : "Stop")) detailview_set_timescale(ts > 0.f ? 0.f : 1.f);
+    { static const float sp[4] = { 0.25f, 0.5f, 1.f, 2.f };
+      for (int i = 0; i < 4; ++i) { mu_push_id(ui_ctx, &i, sizeof i);
+          if (ui_btn(ts == sp[i] ? va("[%g]", sp[i]) : va("%g", sp[i]))) detailview_set_timescale(sp[i]);
+          mu_pop_id(ui_ctx); } }
+    ROW(2, 118, 118);
+    if (ui_btn(detailview_show_wind() ? "[Wind arrows]" : "Wind arrows")) detailview_toggle_wind();
+    if (ui_btn("Leave (Esc)")) detailview_exit();
+    { float wdx, wdz, wstr; detailview_wind(&wdx, &wdz, &wstr);
+      ROW(1, -1, 0);
+      ui_label_col(va("wind %.0f kn   %s", wstr * 14.f, detailview_coast_desc()), mu_color(200, 210, 225, 255)); }
+    mu_end_window(ui_ctx);
 }
 
 } // namespace mare::ui
@@ -456,6 +484,7 @@ void Hud::battle(void) {
 // C ABI (ui.h) for the unported callers
 extern "C" {
 void hud_panels(void) { mare::ui::hud().panels(); }
+void hud_battle_panel(void) { mare::ui::hud().battle_panel(); }
 void hud_battle(void) { mare::ui::hud().battle(); }
 int  hud_menu(void) { return mare::ui::hud().menu(); }
 void hud_labels(void) { mare::ui::hud().labels(); }

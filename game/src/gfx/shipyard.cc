@@ -554,7 +554,13 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
             float a[3] = { bow - 0.04f, dy + 0.05f, 0 }, b[3] = { bow + 0.20f, dy + 0.16f, 0 };
             rig_bar(rope, a, b, RIG_YARD_W, spar_col);
         }
-        if (cloth) rig_sail_square(cloth, asset_find("bowsprit") ? NULL : rope, bow + 0.10f, dy + 0.13f, dy + 0.03f, 0.08f);
+        // The spritsail (0.22.9, issue6 "front lantent issue sail.png"). It was cut as a tall
+        // narrow panel whose head stood *above* the bowsprit and whose foot hung down to the
+        // water: from the beam that is the sliver of canvas trailing in the sea the screenshot
+        // circles. A spritsail is the opposite shape - a shallow square sail, nearly twice as
+        // wide as it is deep, bent to a yard slung *under* the bowsprit (which stands at
+        // dy + 0.10, shipyard_push) with its foot well clear of the sea.
+        if (cloth) rig_sail_square(cloth, asset_find("bowsprit") ? NULL : rope, 0.58f, dy + 0.100f, dy + 0.042f, 0.155f);
     }
     // (the flag is no longer part of this mesh: it is a simulated cloth per ship, flag_push)
 }

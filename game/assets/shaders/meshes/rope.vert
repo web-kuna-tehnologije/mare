@@ -8,7 +8,8 @@ in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx; in vec2 i_anchor;
 uniform mat4 u_vp; uniform float u_time;
 uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;
 uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;
-out vec3 gv_nrm; out vec3 gv_col; out vec3 gv_wpos; out float gv_sel; out vec2 gv_rm; out float gv_dither; out float gv_wet; out float gv_hw; out float gv_q;
+uniform vec3 u_campos_v; uniform vec2 u_nearfade;   // see meshes.vert (0.22.9)
+out vec3 gv_nrm; out vec3 gv_col; out vec3 gv_wpos; out float gv_sel; out vec2 gv_rm; out float gv_dither; out float gv_wet; out float gv_hw; out float gv_q; out float gv_near;
 #include "common/waves.glsl"
 void main(){
   gv_dither = i_fx.x;
@@ -43,5 +44,6 @@ void main(){
   gv_nrm = vec3(0.0, 1.0, 0.0);
   gv_col = mix(a_col, i_scol.yzw, a_mat);
   gv_wpos = wp; gv_sel = i_misc.y; gv_rm = vec2(0.80, 0.0);
+  gv_near = u_nearfade.y > u_nearfade.x ? clamp((u_nearfade.y - distance(wp, u_campos_v)) / (u_nearfade.y - u_nearfade.x), 0.0, 1.0) : 0.0;
   gl_Position = u_vp * vec4(wp, 1.0);
 }

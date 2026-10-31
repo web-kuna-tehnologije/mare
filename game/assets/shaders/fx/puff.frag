@@ -58,7 +58,13 @@ void main(){
   float core = kind > 2.5 && kind < 3.5 ? 1.0 : 0.0, haze = kind > 3.5 ? 1.0 : 0.0;
   vec3 np = vec3(v_uv * (1.7 - 0.5 * core + 0.4 * haze), seed * 11.0 + age * 0.9) + vec3(0.0, age * 0.6, 0.0);
   float n = fbm3(np * 1.35);
-  float disc = smoothstep(1.0, 0.05 + 0.25 * haze, r) * (1.0 - 0.35 * r);
+// 0.22.9 (issue6 "not perfect shape"): a second, coarser noise on its own drift warps the
+// *silhouette* rather than the shading, so no two puffs are the same lump and none of them
+// is a circle. The warp is strongest at the edge, where the shape is read.
+  float warp = vnoise3(vec3(v_uv * 0.9 + vec2(seed * 3.1), seed * 7.0 + age * 0.35)) - 0.5;
+  n = clamp(n + warp * 0.55, 0.0, 1.6);
+  float rr = r * (1.0 + 0.30 * warp);                 // the disc itself is dented in and out
+  float disc = smoothstep(1.0, 0.05 + 0.25 * haze, rr) * (1.0 - 0.35 * rr);
   float thr = (0.30 - 0.12 * core + 0.05 * haze) + (0.45 - 0.2 * core) * age;   // erosion: ragged from birth, dissolving as the puff ages
   float dens = clamp((disc * (0.30 + 0.2 * core + 1.35 * n) - thr) * (2.2 + 1.0 * core - 1.2 * haze), 0.0, 1.0);
   if (dens <= 0.002) discard;

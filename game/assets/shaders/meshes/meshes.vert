@@ -4,7 +4,12 @@ in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx; in vec2 i_anchor;
 uniform mat4 u_vp; uniform float u_time;
 uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;
 uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;
-out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet;
+uniform vec3 u_campos_v; uniform vec2 u_nearfade;
+// 0.22.9 (issue6): x, y = the distances a fragment dissolves between. Sailing the camera into
+// a hull or through the rigging used to fill the screen with one near-plane-clipped triangle
+// and black out the view; everything within u_nearfade.x of the eye is simply not drawn, and
+// the band up to .y dissolves so the part thins out instead of vanishing at a hard line.
+out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet; out float v_near;
 out vec3 v_cloth;   // canvas material (meshes.frag): x = 1 on a cloth instance, y = across the panel -1..1, z = head 0 .. foot 1
 #include "common/waves.glsl"
 void main(){
@@ -61,5 +66,6 @@ void main(){
 // 0.22.6: the cloth flag doubles as the sail's *quality* - 1 used canvas, 2 new (shipyard.cc
 // ship_quality); a flag keeps 0.5 and a rope 0. meshes.frag picks the sailcloth tile with it.
   v_cloth = vec3(isc * (a_mat > 0.5 ? 0.5 : i_fx.y), cu, cw);
+  v_near = u_nearfade.y > u_nearfade.x ? clamp((u_nearfade.y - distance(wp, u_campos_v)) / (u_nearfade.y - u_nearfade.x), 0.0, 1.0) : 0.0;
   gl_Position = u_vp * vec4(wp, 1.0);
 }

@@ -149,6 +149,18 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   reproduced; 0.22.8 refuses to place a yard, lantina or bowsprit whose asset is not loaded
   with real bounds and suppresses any spar longer than the hull and a half, logging the asset
   and its extents. If the log line appears, that is the asset to look at.
+- **L** The wake map is only used by the staged scenes: its region is fixed to the scene
+  centre, so it never has to scroll. On the strategic map the analytic Kelvin wake still does
+  the work, and a ship that turns there still drags it with her.
+- **L** The `assets/ships/FOAM` sheets are sailcloth, not foam (see CHANGELOG 0.22.9). The
+  tool makes a usable breakup mask out of their tears, but a real foam photograph would give
+  a better one for no extra code.
+- **L** The tactical physics is 2D: surge, sway and yaw. Heave, pitch and roll are still the
+  mesh shader's canned motion, now scaled by how hard the body is leaning into its turn. The
+  rest of P1.3 (buoyancy sampling, ballistics, damage) is unbuilt.
+- **L** The near-camera dissolve drops geometry within ~1.2x the near plane. At the battle
+  zoom that is a few tens of centimetres of hull, which is what the camera would be clipping
+  through anyway; it is not a depth-correct fade.
 - **L** The tonemap shockwave is screen-space: a blast behind a hull still bends the hull's
   pixels (there is no depth test on the ring). At the sizes used it reads as heat shimmer.
 - **L** The 800k LOD 0 hulls are ~25 MB each on disk and ~50 MB on the GPU; the LOD 0 trim

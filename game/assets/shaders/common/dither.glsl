@@ -9,6 +9,13 @@ float dither_bayer4(vec2 p) {
   int m = 4 * (2 * ((x ^ y) & 1) + (y & 1)) + (2 * (((x >> 1) ^ (y >> 1)) & 1) + ((y >> 1) & 1));
   return (float(m) + 0.5) / 16.0;
 }
+// the same clip on a shifted grid, so a second dissolve (the near-camera fade, 0.22.9) does
+// not correlate with the LOD cross-fade's pattern and punch holes in the same pixels
+void dither_clip_at(float d, vec2 off) {
+  if (d <= 0.0) return;
+  if (d >= 0.999) discard;
+  if (dither_bayer4(gl_FragCoord.xy + off) < d) discard;
+}
 void dither_clip(float d) {
   if (d == 0.0) return;
   float b = dither_bayer4(gl_FragCoord.xy);

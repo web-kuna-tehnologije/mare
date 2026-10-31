@@ -39,6 +39,8 @@ if "%1"=="test" (
     asset_test.exe || exit /b 1
     cl %COMMON% %LANG_CXX% /O2 /MT game\tests\entity_test.cpp game\src\engine\entity_manager.cc diag_t.obj jobs_t.obj /Fe:entity_test.exe || exit /b 1
     entity_test.exe || exit /b 1
+    cl %COMMON% %LANG_CXX% /O2 /MT game\tests\physics_test.cpp game\src\sim\naval_physics.cc /Fe:physics_test.exe || exit /b 1
+    physics_test.exe || exit /b 1
     del sim_test.obj asset_test.obj diag_test.obj diag_t.obj jobs_t.obj >nul 2>nul
     exit /b 0
 )

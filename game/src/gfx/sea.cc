@@ -38,6 +38,7 @@ extern "C" {
 #include "../world/wind.h"
 #include "camera.h"
 #include "../assets/asset.h"
+#include "wake.h"
 #include "../engine/shaders.h"
 }
 
@@ -151,6 +152,7 @@ public:
     float height_at(float x, float z);
     void  bind_waves(const rhi_pipeline_t *p);
     void  set_ships(const float *xzhs, const float *len, int n);
+    void  set_blasts(const float *xz_r_s, const float *dir_in_w, int n);
     float zoom_amp();
     float amp_now();
     void  draw();
@@ -163,6 +165,8 @@ private:
     rhi_pipeline_t sea_prg, sea_detail_prg, sea_tess_prg;
     rhi_geometry_t sea_geo, sea_detail_geo, sea_patch_geo, sea_inner_geo;
     int sea_tex_normal = -1, sea_tex_albedo = -1, sea_tex_disp = -1;   // textures.c handles
+    int sea_tex_foamw = -1;            // foam_wake.png: the torn-streak mask the wake and the cut-water break up with (0.22.9, tools/foam_tiles.py)
+    float sea_blast[SEA_MAX_BLASTS * 4], sea_blastdir[SEA_MAX_BLASTS * 4]; int sea_nblast = 0;
     float sea_shallow_now = 1.1f;   // depth the swell needs for full height, follows the zoom (sea_update_waves)
     sea_set_t sea_set[2];                   // [0] current, [1] the one fading in
     float sea_blend = 0;                        // 0 = set 0 alone .. 1 = set 1 alone
@@ -185,6 +189,7 @@ void Sea::init() {
     static const char *sea_uniforms[] = { GLSL_WAVE_UNIFORMS, "u_drift1", "u_drift2", "u_origin", "u_patch", "u_tess", "u_disp", "u_has_disp", "u_foam", "u_calm", "u_ships", "u_shiplen", "u_nships", "u_shipwave", "u_shallow", "u_scene", "u_scene_depth", "u_scene_size", "u_refract", "u_cam_right", "u_cam_up", "u_vp", "u_hm", "u_waves", "u_albedo", "u_has_albedo", "u_geo", "u_k", "u_time",
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                           "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug", "u_shore_a", "u_shore_b",
+                                          "u_wake", "u_wake_rect", "u_has_wake", "u_foamw", "u_has_foamw", "u_blast", "u_blastdir", "u_nblast",
                                           "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs",
                                           "u_shore", "u_shore_far", "u_detail_far", "u_capzoom", "u_shorescale", "u_zrange", "u_ssr", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
@@ -237,6 +242,7 @@ void Sea::init() {
     snprintf(path, sizeof path, "%s/sea/sea_normal.png", asset_root()); sea_tex_normal = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
     snprintf(path, sizeof path, "%s/sea/sea_albedo.png", asset_root()); sea_tex_albedo = texture_request(path, RHI_FMT_SRGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
     snprintf(path, sizeof path, "%s/sea/sea_displacement.png", asset_root()); sea_tex_disp = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
+    snprintf(path, sizeof path, "%s/sea/foam_wake.png", asset_root()); sea_tex_foamw = texture_request(path, RHI_FMT_RGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
 }
 
 float Sea::sea_hash01(unsigned h) {
@@ -362,6 +368,15 @@ void Sea::bind_waves(const rhi_pipeline_t *p) {
 // Ships the water should foam and heap around this frame: x, z, heading, speed in *hull lengths
 // per second* (so the map's fleets and the staged battle's ships read alike) and hull length.
 // scene.c gives the fleets near the look-at point, staged_scene.cc its staged ships.
+// The muzzle blasts on the water this frame (0.22.9, issue6): per blast the centre, the ring's
+// radius and strength, and the direction she is firing in with the ring's inner hole and width.
+// The sea draws them itself - a transparent white ring in its own surface, heavier on the
+// firing side - instead of the opaque discs the particle system used to lay on top.
+void Sea::set_blasts(const float *xz_r_s, const float *dir_in_w, int n) {
+    sea_nblast = n < 0 ? 0 : n > SEA_MAX_BLASTS ? SEA_MAX_BLASTS : n;
+    if (sea_nblast > 0) { memcpy(sea_blast, xz_r_s, sea_nblast * 4 * sizeof(float)); memcpy(sea_blastdir, dir_in_w, sea_nblast * 4 * sizeof(float)); }
+}
+
 void Sea::set_ships(const float *xzhs, const float *len, int n) {
     sea_nships = n > SEA_MAX_SHIPS ? SEA_MAX_SHIPS : n;
     if (sea_nships > 0) { memcpy(sea_ships, xzhs, sea_nships * 4 * sizeof(float)); memcpy(sea_ship_len, len, sea_nships * sizeof(float)); }
@@ -390,6 +405,17 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     rhi_set_f1(rhi_uniform(p,"u_shipwave"), sea_ship_waves ? 1.f : 0.f);
     rhi_set_f1(rhi_uniform(p,"u_shallow"), sea_shallow_now);
     if (sea_nships) { rhi_set_f4v(rhi_uniform(p,"u_ships"), sea_ships, sea_nships); rhi_set_f1v(rhi_uniform(p,"u_shiplen"), sea_ship_len, sea_nships); }
+    rhi_set_i1(rhi_uniform(p,"u_nblast"), sea_nblast);
+    if (sea_nblast) { rhi_set_f4v(rhi_uniform(p,"u_blast"), sea_blast, sea_nblast); rhi_set_f4v(rhi_uniform(p,"u_blastdir"), sea_blastdir, sea_nblast); }
+    {   // the wake map (gfx/wake.cc): where the ships have already broken the water
+        const rhi_texture_t *wk = wake_texture(); float wr[4] = { 0, 0, 1, 1 };
+        if (wk) wake_rect(wr);
+        rhi_set_i1(rhi_uniform(p,"u_wake"), 18); rhi_texture_bind(18, wk ? wk : detail_waves());
+        rhi_set_f4(rhi_uniform(p,"u_wake_rect"), wr[0], wr[1], wr[2], wr[3]);
+        rhi_set_f1(rhi_uniform(p,"u_has_wake"), wk ? 1.f : 0.f);
+        const rhi_texture_t *fw = texture_get(sea_tex_foamw);
+        rhi_set_i1(rhi_uniform(p,"u_foamw"), 19); rhi_texture_bind(19, fw ? fw : detail_waves());
+        rhi_set_f1(rhi_uniform(p,"u_has_foamw"), fw ? 1.f : 0.f); }
     { const rhi_texture_t *dsp = texture_get(sea_tex_disp);
       rhi_set_i1(rhi_uniform(p,"u_disp"), 5); rhi_texture_bind(5, dsp ? dsp : detail_waves());
       rhi_set_f1(rhi_uniform(p,"u_has_disp"), dsp ? 1.f : 0.f); }
@@ -547,6 +573,7 @@ void  sea_update_waves(float day, float dt) { mare::engine::render::sea().update
 float sea_height_at(float x, float z) { return mare::engine::render::sea().height_at(x, z); }
 void  sea_bind_waves(const rhi_pipeline_t *p) { mare::engine::render::sea().bind_waves(p); }
 void  sea_set_ships(const float *xzhs, const float *len, int n) { mare::engine::render::sea().set_ships(xzhs, len, n); }
+void  sea_set_blasts(const float *xz_r_s, const float *dir_in_w, int n) { mare::engine::render::sea().set_blasts(xz_r_s, dir_in_w, n); }
 float sea_zoom_amp(void) { return mare::engine::render::sea().zoom_amp(); }
 float sea_amp_now(void) { return mare::engine::render::sea().amp_now(); }
 void  sea_draw(void) { mare::engine::render::sea().draw(); }

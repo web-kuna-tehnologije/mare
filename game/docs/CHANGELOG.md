@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.22.9 — the sixth issues folder: a wake that stays behind, blast rings in the water, and the physics foundation
+
+From `assets/issues/issue6` (`issues.txt`, one screenshot) and then dev.txt P1.3 items 1-6.
+
+### The water a ship leaves (issue6 "trail of foam after ship that fades away")
+- **The wake map** (`gfx/wake.cc`, `fx/wake_*`). The 0.22.6 Kelvin wake is analytic and bolted
+  to the hull, so a ship that wears round drags her whole wake with her and leaves nothing
+  where she actually was. There is now a 1024px map of the sea around the staged battle that
+  every ship paints her churn into each frame - the cut-water, the shoulders, the boil under
+  the counter, the two arm roots - and which fades with a fifty-second time constant. The
+  sea's vertex stages read it as water already broken (a little lower, with its own short
+  chop) and the fragment stage as foam, so the trail is the sea's own surface and not a decal.
+  It curves where she turned, because it was written where she was.
+- **The foam tiles** (`tools/foam_tiles.py`, issue6 "in assets/ships/FOAM are some textures").
+  What is in that folder is two *sailcloth* sheets, not foam - the same woven and frayed
+  hessian the sail tiles came from. Their colour is useless but their tears are exactly the
+  structure broken water wants, so the tool throws the colour away, high-passes the luminance,
+  **de-stripes** it (subtracting the per-column and per-row means removes the seams and the
+  weave, which otherwise tiled across the sea as visible quilting), keeps only the brightest
+  quarter - the torn edges - and blurs that into soft blobs. Out come `foam_wake.png` and
+  `foam_streak.png`, which break up the wake and the blast rings.
+
+### The broadside on the water (issue6 "shock around ship in waves form")
+- **Blast rings are the sea's now** (`sea_set_blasts`, `sea/vs_common.glsl`, `sea.frag`). The
+  0.22.8 flat white discs are gone. One ring per broadside runs out from the ship: the vertex
+  stage lifts it into a ripple and the fragment stage whitens it, so the swell, the
+  reflection and the refraction all still read through it - "still actual sea mesh". It is
+  weighted hard towards the side she fired (8% of the strength to windward of the hull, 100%
+  abeam of the guns), and a hole in the middle keeps it off the water directly under the
+  cannon. Gone in a couple of seconds.
+- **The air shock is much lighter**: one per six guns instead of one per three, at a third of
+  the strength, so it reads as heat shimmer over the sea rather than a lens on the frame.
+- **Greyer, denser, less tidy smoke**: powder smoke is grey, so the core comes down from 0.96
+  to 0.80 and the plume from 0.80 to 0.66; four balls per layer instead of three, each thrown
+  off the gun's own line; and `fx/puff.frag` warps the *silhouette* with a second coarse noise
+  on its own drift, so no puff is a circle and no two are the same lump.
+
+### The rig (issue6)
+- **The spritsail** (`front lantent issue sail.png`). It was cut as a tall narrow panel whose
+  head stood above the bowsprit and whose foot hung to the water - from the beam, the sliver
+  of canvas trailing in the sea the screenshot circles. A spritsail is the opposite shape: it
+  is now nearly twice as wide as it is deep, bent to a yard under the bowsprit, foot clear.
+- **The near-camera blackout** ("when coming close to rigging ... the whole screen is
+  invisible"). Steering the camera into a hull filled the frame with one near-plane-clipped
+  triangle. Everything within a shade over the near plane is now dropped and the band above it
+  dissolves on a Bayer grid of its own (`dither_clip_at`), in the mesh, cloth and cordage
+  pipelines alike, so a part the camera is inside of thins out instead of swallowing the view.
+- **A Battle panel** ("add turn off wind arrows button"): wind arrows, stop/run, the four
+  speeds and Leave, as real buttons. The keys all still work.
+
+### Physics foundation (dev.txt P1.3 items 1-6, `sim/naval_physics.h/.cc`)
+A fixed-step rigid-body world for the tactical scale. The strategic simulation is untouched.
+1. **Fixed timestep independent of render FPS**: 120 Hz, an accumulator, at most 8 steps a
+   frame. `physics_test` drives the same ship for 8 seconds in 1/30 slices and in 1/240
+   slices: 960 sub-steps either way and the same pose to 1e-3.
+2. **Tactical naval fixed sub-step**: drive, drag, integrate, ship contacts, coast - in that
+   order, every step.
+3. **Stable rigid-body transforms**: each body keeps the previous step's pose and `nphys_pose`
+   interpolates by the leftover accumulator, so the hulls are smooth at any frame rate. Drag
+   is longitudinal *and* lateral, which is what makes a hull carve a turn instead of sliding
+   through it; a ship with no way on does not answer her helm; and how hard she leans into a
+   turn drives the renderer's roll.
+4. **Simplified compound collision hulls**: three discs down the keel, radii from the beam.
+5. **Ship-to-ship collision**: broadphase on the bounding circle, then disc pairs, with a
+   positional correction split by inverse mass, a restitution impulse, Coulomb friction and
+   the yaw the lever arm gives - so a ship struck on the bow swings.
+6. **Ship-to-coast collision**: the staged shore profile as a signed distance; a hull disc in
+   water shallower than her draft grounds, is pushed back to seaward, loses her way into the
+   beach and is slewed by the ground holding that end of her.
+
+The staged battle now runs on it: the formation code only asks for a course and a speed
+(`nphys_drive`), and a ship may be shouldered off station or brought up all standing. The
+battle HUD reads out the rate, the hull count and the contacts resolved.
+
+### Elsewhere
+- `game/tests/physics_test.cpp`, in `build.bat test` and ctest.
+- Mirror `C:\projects\mare_oak_20261031_192904`.
+
 ## 0.22.8 — the fifth issues folder: layered gunsmoke and shockwaves, textured cordage, masts in proportion, lowland coasts, 800k hulls
 
 From `assets/issues/issue5` (`issues.txt`, three screenshots, the Meshy "cannon fire shockwave"

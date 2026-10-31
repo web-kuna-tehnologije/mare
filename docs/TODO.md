@@ -88,6 +88,20 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## issue6 (assets/issues/issue6, 0.22.9) + physics foundation 1-6 - rows 35-43 of docs/todo_list.md
+
+Done: the wake map (a trail of foam painted where the ship was and faded over ~50 s, read by
+the sea as water already broken); blast rings in the sea's own surface, weighted to the firing
+side with a hole under the guns; the air shock a third as strong; greyer, denser, rattier
+smoke; the spritsail re-cut (it was a sliver hanging in the sea); the near-camera dissolve
+that ends the "whole screen invisible" blackout; a Battle panel with a wind-arrows button; and
+`tools/foam_tiles.py`, which cuts the `assets/ships/FOAM` sheets (they are sailcloth, not
+foam) into a de-striped torn-streak mask. Then dev.txt P1.3 items 1-6 as `sim/naval_physics`:
+a 120 Hz fixed step, interpolated rigid-body transforms, three-disc compound hulls,
+ship-to-ship and ship-to-coast collision, with `game/tests/physics_test.cpp` proving the step
+is frame-rate independent. Mirror `C:\projects\mare_oak_20261031_192904`. Next: multi-point
+buoyancy, then ballistics and the damage model (see todo_list.md "Order of work").
+
 ## issue5 (assets/issues/issue5, 0.22.8) - rows 28-34 of docs/todo_list.md
 
 Done: three-layer gunsmoke + water rings + spray + tonemap shockwaves (the Meshy reference

@@ -28,6 +28,8 @@ extern "C" {
 #include "lod.h"
 #include "shipyard.h"
 #include "particles.h"
+#include "wake.h"
+#include "../sim/naval_physics.h"
 #include "../world/wind.h"
 #include "../world/world.h"
 #include "../world/terrain_chunks.h"
@@ -60,6 +62,8 @@ typedef struct dv_ship_t {
     int   slot;                      // place in her side's line (0 = leads)
     int   guns;                      // the class's guns (the broadside's particles, 0.22.7)
     int   oared;                     // under oars: the wind does not set her pace
+    int   body;                      // her rigid body in the tactical world (sim/naval_physics.h, 0.22.9); -1 in the harbour
+    float beam, tonnes;              // what that body is built from
 } dv_ship_t;
 
 // Metres per local unit: the authored hulls are fitted at SHIP_M_PER_UNIT (0.045 world units
@@ -423,7 +427,12 @@ void DetailView::battle_add_ship(int type, int side, float x, float z, float hea
     *s = dv_ship_t{ type, side, x, z, heading, speed, rnd_f(seed) * 6.28f,
                       col_r(col), col_g(col), col_b(col), 3.f + rnd_f(seed) * 6.f, nation,
                       heading, st.turn_dps * 0.0174533f, st.length_m / DV_M_PER_UNIT, 0,
-                      st.guns, st.oar_knots > 0.5f * st.knots };
+                      st.guns, st.oar_knots > 0.5f * st.knots, -1,
+                      st.beam_m / DV_M_PER_UNIT, st.tonnes };
+    // Her rigid body (0.22.9, P1.3): the battle is stepped at a fixed rate and the hulls
+    // collide, so from here on the formation code only *asks* for a course and a speed.
+    if (dv.mode == DV_BATTLE || dv.want_mode == DV_BATTLE)
+        s->body = nphys_add(x, z, heading, s->len, s->beam, 0.42f * s->beam, s->tonnes);
 }
 
 // The battle line (fleet_sails battles are fought in formation, not as a swarm): each side
@@ -480,12 +489,14 @@ void DetailView::battle_form_lines(void) {
     }
     for (int i = 0; i < dv.nships; ++i) { dv_ship_t *sh = &dv.ship[i];
         dv_line_point(sh->side, -sh->slot * dv.line_gap[sh->side], &sh->x, &sh->z, &sh->heading);
-        sh->course = sh->heading; }
+        sh->course = sh->heading;
+        if (sh->body >= 0) nphys_teleport(sh->body, sh->x, sh->z, sh->heading); }
 }
 
 void DetailView::build_battle(int fleet_id) {
     dv.nships = 0; dv.time = 0;
     particles_reset();
+    nphys_reset();
     unsigned seed = 1234;
     // find the battle: the chosen fleet, else the freshest firing fleet
     const fleet_t *hot = fleet_by_id(fleet_id);
@@ -546,12 +557,14 @@ void DetailView::battle_update(float dt) {
             float px, pz, ph; dv_line_point(s->side, sarc + DV_LINE_AHEAD, &px, &pz, &ph);
             float want = atan2f(-(pz - s->z), px - s->x);
             float dh = wrap_angle(want - s->heading);
-            s->heading += clampf(dh, -s->turn * dt, s->turn * dt);
             float stx, stz, sth; dv_line_point(s->side, sarc, &stx, &stz, &sth);
             float err = (stx - s->x) * cosf(sth) + (stz - s->z) * -sinf(sth);   // along-track: + = station ahead
             float v = minf(dv.line_v[s->side] * clampf(1.f + err / 22.f, 0.6f, 1.4f), s->speed);
-            s->x += cosf(s->heading) * v * dt;
-            s->z -= sinf(s->heading) * v * dt;                                // heading convention matches inst_t (0 = +x)
+            // 0.22.9 (P1.3): the helm, not the position. The body is integrated below at the
+            // fixed tactical sub-step and may be shouldered off station by a collision or
+            // brought up all standing by the ground; the formation only ever asks.
+            if (s->body >= 0) nphys_drive(s->body, v, want, s->turn);
+            else { s->heading += clampf(dh, -s->turn * dt, s->turn * dt); s->x += cosf(s->heading) * v * dt; s->z -= sinf(s->heading) * v * dt; }
         } else {
             // the city's moored ships keep their gentle wander off the piers
             float want = s->course + 0.22f * sinf(dv.time * 0.09f + s->phase);
@@ -576,6 +589,18 @@ void DetailView::battle_update(float dt) {
                 break;
             }
         }
+    }
+    // One fixed-step advance for the whole tactical world, then the poses the renderer draws
+    // (interpolated by the leftover accumulator, so the hulls are smooth at any frame rate).
+    if (dv.mode == DV_BATTLE) {
+        if (dv.coast_on)
+            nphys_set_coast(dv.cnx * dv.coast_dist, dv.cnz * dv.coast_dist,
+                            dv.cnx, dv.cnz, DV_SHORE_AMP, DV_SHORE_FREQ, DV_SHORE_SLOPE, 1);
+        else nphys_set_coast(0, 0, 0, -1, 0, 0.01f, 0.15f, 0);
+        nphys_advance(dt);
+        for (int i = 0; i < dv.nships; ++i) { dv_ship_t *s = &dv.ship[i];
+            if (s->body < 0) continue;
+            nphys_pose(s->body, &s->x, &s->z, &s->heading); }
     }
     particles_update(dt);
 }
@@ -763,6 +788,7 @@ void DetailView::frame(float dt) {
         dv.timescale = 1.f; dv.show_wind = 1; dv.reprobe_t = 0.f;
         particles_set_wind(dv.wdx * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M, dv.wdz * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M);
         if (dv.mode == DV_BATTLE) build_battle(dv.want_fleet); else build_city(dv.want_port);
+        wake_set_region(dv.cx, dv.cz, 420.f);   // the staged scene never moves, so the map never scrolls
         cam.tx = cam.want_tx = dv.cx; cam.tz = cam.want_tz = dv.cz + (dv.mode == DV_BATTLE ? -25 : -30);
         cam.ty = cam.want_ty = 0.f;
         cam.dist = 380; cam.want_dist = dv.mode == DV_BATTLE ? 32 : 110;      // the dive through the clouds
@@ -786,7 +812,7 @@ void DetailView::frame(float dt) {
         cam.dist = cam.want_dist = dv.saved_dist; cam.yaw = cam.want_yaw = dv.saved_yaw;
         dv.phase = DVP_OUT; dv.t = 0;
     }
-    if (dv.phase == DVP_OUT && dv.t >= DV_CLOUD_OUT) { dv.phase = DVP_IDLE; dv.mode = DV_OFF; stage_free(); return; }
+    if (dv.phase == DVP_OUT && dv.t >= DV_CLOUD_OUT) { dv.phase = DVP_IDLE; dv.mode = DV_OFF; stage_free(); wake_set_region(0, 0, 0); particles_reset(); return; }
     if (dv.phase != DVP_SHOW) return;
 
     cam.want_dist = clampf(cam.want_dist, 6, 260);            // stay under the map morph in local space
@@ -812,6 +838,7 @@ void DetailView::frame(float dt) {
     shipyard_frame_begin();
     for (int i = 0; i < dv.nships; ++i) { const dv_ship_t *s = &dv.ship[i];
         float wx = dv.cx + s->x, wz = dv.cz + s->z, rock = dv.mode == DV_BATTLE ? 0.8f : 0.3f;
+        if (s->body >= 0) rock *= 1.f + 0.9f * nphys_heel(s->body);   // 0.22.9: she leans into her turn
         // Authored hull, rig and oars at the staged scene's magnification; the procedural hull
         // below stands in while a class is still loading (shipyard.h).
         float dx = wx - cam.pos.x, dz = wz - cam.pos.z;
@@ -826,7 +853,11 @@ void DetailView::frame(float dt) {
     { float fv[24 * 4], fl[24]; int n = 0;                 // the staged ships foam too (sea_set_ships)
       for (int i = 0; i < dv.nships && n < 24; ++i) { const dv_ship_t *s = &dv.ship[i];
           fv[n*4] = dv.cx + s->x; fv[n*4+1] = dv.cz + s->z; fv[n*4+2] = s->heading; fv[n*4+3] = s->speed / s->len; fl[n] = s->len; n++; }   // speed in hull lengths/s
-      sea_set_ships(fv, fl, n); }
+      sea_set_ships(fv, fl, n);
+      // the wake map (gfx/wake.cc, 0.22.9): the trail every ship leaves on the water, painted
+      // where she is now and faded over a minute or two. On the battle clock, so a stopped
+      // battle holds its wakes exactly where they are.
+      wake_update(dv.mode == DV_BATTLE ? dt * dv.timescale : dt * 0.35f, fv, fl, n); }
     if (dv.mode == DV_CITY) {
         // offset the prebuilt lists to the centre once per frame (cheap: a few hundred)
         static instlist_t sh[6];

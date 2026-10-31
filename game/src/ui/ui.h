@@ -64,6 +64,7 @@ const char *ui_order(const fleet_t *f);              // human readable current o
 void hud_panels(void);                               // top bar, selection, fleets, chronicle, stats, help
 int  hud_menu(void);                                 // main menu; returns chosen nation, -1 load mare_save.bin, -2 load the autosave, 0 nothing
 void hud_labels(void);                               // world labels, toast, ticker (inside the overlay)
+void hud_battle_panel(void);                         // the staged battle's control panel: wind arrows, battle clock (0.22.9, a real window so the buttons can be clicked)
 void hud_battle(void);                               // the staged battle's overlay: battle clock, wind, coast, keys (0.22.7; inside the overlay, instead of the labels)
 void hud_on_log(const logline_t *l);                 // chronicle listener: toasts for important lines
 void dashboard_panel(void);                          // dev dashboard (dashboard.c), shown when U.show_debug

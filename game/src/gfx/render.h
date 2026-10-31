@@ -133,6 +133,11 @@ extern int   sea_ship_waves;             // bow waves raised by nearby ships (MA
 extern int   sea_inner_on;               // fine inner patch lattice near the look-at point (MARE_SEA_INNER=0)
 float sea_height_at(float x, float z);   // wave surface height at a world point this frame (CPU mirror of the shader sum)
 void sea_set_ships(const float *xzhs, const float *len, int n);   // ships to foam around this frame (x, z, heading, speed; hull length), max 24
+#define SEA_MAX_BLASTS 12
+// Muzzle blasts on the water this frame (0.22.9, gfx/particles.cc): per blast (x, z, ring
+// radius, strength) and (firing direction x, z, inner hole radius, ring width). The sea draws
+// the ring in its own surface - displaced and whitened, strongest on the side she is firing.
+void sea_set_blasts(const float *xz_r_s, const float *dir_in_w, int n);
 extern int   sea_tess_on;                // tessellated patches available (GL 4.0; MARE_SEA_TESS=0 forces the warped grid)
 extern int   sea_ssr;                    // screen-space reflections on the water (MARE_SEA_SSR=0)
 extern int   sea_tess_now;               // ... and in use this frame (only within SEA_TESS_DIST of the water)

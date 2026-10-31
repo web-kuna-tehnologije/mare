@@ -1,11 +1,11 @@
-# Road map after 0.22.8 (worktree oak, 2026-10-31)
+# Road map after 0.22.9 (worktree oak, 2026-10-31)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.8
+## Done to 0.22.9
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -18,7 +18,12 @@ shore the surf breaks on, open-sea haze, a free camera height, and a particle sy
 broadsides (wind-blown smoke, muzzle flash, embers). 0.22.8 (issue5): three-layer gunsmoke
 with water rings, spray and tonemap shockwaves; the cordage textured; masts in proportion;
 lowland coasts and coastal heights from the data; closer map zoom with a ground-riding target;
-dense pines; the eight hulls at 800k triangles for the battle view.
+dense pines; the eight hulls at 800k triangles for the battle view. 0.22.9 (issue6): the wake
+map (a trail painted on the water and left there), blast rings drawn in the sea's own surface,
+greyer and rattier smoke, the spritsail re-cut, a near-camera dissolve, a Battle panel - and
+the **physics foundation** (`sim/naval_physics.cc`): a 120 Hz fixed step with interpolated
+rigid-body transforms, compound hulls, ship-to-ship and ship-to-coast collision, under the
+staged battle and covered by `physics_test`.
 
 ## Next, in order
 
@@ -29,10 +34,11 @@ dense pines; the eight hulls at 800k triangles for the battle view.
 2. **Terrain self-shadow at the regional zoom** (horizon map per ring, 8 directions). This is
    what makes the `assets/example` frames read as relief rather than paint, and it is
    independent of the data resolution.
-3. **Physics foundation (dev.txt P1.3).** Fixed timestep, buoyancy from multi-point sampling of
-   the same wave function the renderer uses, ship-to-ship and ship-to-coast collision, then
-   the damage model. The wave function is already shared; the rest is new. The staged battle
-   now has a clock of its own and a particle system to show the results in.
+3. **The rest of the physics foundation (dev.txt P1.3).** Items 1-6 are done (0.22.9). Next:
+   multi-point buoyancy against `Sea::height_at`, so heave, pitch and roll come from the
+   bodies instead of the mesh shader; then ballistics and hits against the compound hulls;
+   then the component damage model, flooding, fire and sinking, written back to the
+   strategic ship.
 4. **Naval VFX (P1.5).** Flash, layered smoke, shockwaves, water rings and spray exist
    (0.22.8); fire, shot splashes, debris, sail damage and sinking wait on the damage model
    above - the particle system is their vehicle.
