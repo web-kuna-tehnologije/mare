@@ -29,7 +29,8 @@ Items 1-3 are done in this session; the rest is the order to take them in.
 4. [x] **Map view modes**: depth, religion, political, port/settlement influence, production
        (HUD "View" button, `common/mapmode.glsl`, the territory texture's influence channel, a
        region-info texture). Religion is a per-nation table, not simulated yet.
-5. [x] **Rivers** (`world/rivers.h/.cc`): a priority flood over the folded heightfield gives
+5. [~] **Rivers** (`world/rivers.h/.cc`) - *generated network kept, carving off since 0.22.3;
+       waiting for the authored river data*: a priority flood over the folded heightfield gives
        every land cell its downstream neighbour, drainage is accumulated down those directions,
        cells draining over 45 land cells are river; polylines are Chaikin-smoothed with a small
        meander and a half-width from the catchment. The rings carve the channel (flat bed, sloped
@@ -60,23 +61,25 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       hash decides what stands there from the biome class + splat + slope + the road/river
       textures; instances batched per prop type with 3 LODs (mesh / card / nothing), paged
       with the ring, frustum-culled per 8x8 texel block. Everything below is a rule in it.
-- [ ] **8b. Trees.** Tree-cover class 10 -> clumps of 3-7 broadleaf/pine cards per texel,
-      density by splat.grass; conifers above 2.5 units, olives in the Mediterranean belt. Far
-      LOD is the forest colour already in `terrain.frag` (no instances past 160 units).
+- [~] **8b. Trees.** 0.22.3: the woods are a *canopy* in `terrain.frag` (crown noise, tilted
+      normal) and the orchards/olive groves have real trees (`gfx/scatter.cc`); wild woodland
+      still has no instances. Tree-cover class 10 -> clumps of 3-7 broadleaf/pine cards per
+      texel, density by splat.grass; conifers above 2.5 units. Far LOD is the forest colour.
 - [ ] **8c. Rocks.** Canyon rims and sea cliffs (shore mask R > 0.5, slope > 0.3): 1-3 boulder
       meshes per texel, scaled 0.02-0.08 units, tinted limestone/basalt by latitude as the
       shader does; scree slopes get pebble cards.
-- [ ] **7a. Fields.** Cropland class 40 within 6 texels of a road or settlement -> strip-field
-      quads (plough / stubble / young corn, the three the shader already paints) aligned to
-      the road, hedged by a 1-texel darker edge. Wheat where the region's dominant good is
-      Grain.
-- [ ] **7b. Vineyards and orchards.** Wine regions (dominant good Wine, slope 0.05-0.25,
-      south-facing): rows of vine cards 0.6 texels apart along the contour. Orchards: tree
-      clumps on a grid near villages in Grain/Sugar regions. Olive groves in the belt.
-- [ ] **7c. Villages.** Each `G.inland` settlement gets a cluster of 4-12 houses from the
-      `small_stone_house` / `small_wooden_house` / `poor_house` assets along its road end, a
-      mill (`Windmill` blend, item 10) where the good is Grain, a well in the middle; pop
-      sets the count. The procedural icon stays past 300 units.
+- [x] **7a. Fields.** 0.22.3, as a *texture*: the land-use ring's R channel (cropland on
+      gentle low ground, thickest near villages and roads) painted as hedged strip parcels in
+      one orientation per 1.5-unit district, each parcel its own crop, furrows up close.
+      Left: align the district to the local road; wheat by the region's dominant good.
+- [x] **7b. Vineyards and orchards.** 0.22.3: G channel (wine regions and the Mediterranean
+      belt, sunny slopes, in patches) as vine rows along the contour between dry-stone walls;
+      B channel (orchards round villages, olive groves on the belt's slopes) as a jittered
+      crown grid, plus low-poly trees and vine bushes as props (`gfx/scatter.cc`, no shadows).
+- [~] **7c. Villages.** 0.22.3, as a texture: the A channel (each inland settlement's built
+      disc, roadside hamlets) painted as roofs on a loose grid with yards between. The asset
+      houses (`small_stone_house` etc.), a mill where the good is Grain and a well are still
+      to do; the procedural icon stays past 300 units.
 - [ ] **10b. Bridges.** At each `road_bridges[]` point a stone-arch or timber-beam prop
       spanning `hw`, aligned to the road direction; the road texture already runs across.
 - [ ] **6b. Road upgrade visuals.** Class 1 roads get a paler, wider surface with a ditch line;
@@ -84,6 +87,40 @@ Items 1-3 are done in this session; the rest is the order to take them in.
 - [ ] **9a. Micro-detail.** Stone walls along field edges and vineyard rows, footpaths from
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
+
+## Session notes (2026-10-31 late morning, 0.22.3 - the 0.22.2 regressions undone)
+
+- **What was wrong with 0.22.2 / 0.22.1**, as seen from the screenshots: the river channels
+  (ship-scale beds below sea level) and the canyons cut gorges through the Po plain and every
+  range; the world at 17 units flattened the Alps to brown hills; the warm-sea ramp turned
+  every Adriatic shallow turquoise and the surf band (to 1.8 units of depth = the whole shelf)
+  striped the bays white; the lantina had gone procedural. All reverted or rebuilt - see the
+  CHANGELOG. The restructure (file renames) and the roads are kept.
+- **Rivers are frozen** until the authored river data arrives: painted hairlines, no carving,
+  no navigation (`MARE_RIVER_CARVE=1` to compare with the old channels).
+- **Peljesac / Ston** are authored by hand in `geo_coast.h`; `mare.exe --mask=lon0,lat1,w,h`
+  prints the land mask and the folded base height as ASCII, which is how to check a coast
+  edit without a screenshot. Remember the rings round away any one-cell land strip.
+- **The hinterland** is a fourth ring texture (`landuse`) + shader patterns + `gfx/scatter.cc`
+  props. Thresholds are against the *drawn* slopes (the export normal is exaggerated ~15x).
+  Open: the patterns and the props are at different scales (KNOWN_ISSUES), the parcels ignore
+  the road direction, no bridges, no road upgrade visuals, no stone walls (items 10b, 6b, 9a).
+- **The shared `C:\projects\mare\assets\data_new` and `data_new_2` vanished at 11:19** while
+  this session was running (the other session is reorganising the asset tree - `assets/issues`
+  and `assets/sea` changed in the same minutes), so every run after that fell back to the
+  procedural world ("no terrain dataset found", land max 11.67 instead of 18.38). The datasets
+  still exist in the exporter's folder, `C:\projects\mare-world-terrain\data\` (world-overview-v2,
+  export-global, export-med, dalmatia-detail-3x, world-game-package); this session's bats point
+  `MARE_GEOCHUNK_DIR` there. **Check the "terrain-v2 dataset" log line before trusting any
+  terrain screenshot.**
+- **Process.** A previous turn's agent (session aa20aeca, step 4) was still alive in this
+  worktree when this session started, building and screenshotting from
+  `C:\projects\mare_oak_20261031_103355` and writing `.build_mirror` files here; it was
+  interrupted (SIGINT) and its mirror removed. This session's mirror is
+  `C:\projects\mare_oak_20261031_104331` (`tools-bat\build.bat`, `shot.bat lon lat dist yaw
+  file secs [tilt]`, `rig.bat dist yaw file`, `mask.bat lon0,lat1,w,h`). Old oak folders
+  (`/tmp/mare_tools`, `C:\projects\mare\tmp\oak-*`, `*20tools`) are gone; the elm session's
+  (`mare-elm-*`, `/tmp/mare_mirror*`, `/tmp/mare_stamp`) were not touched.
 
 ## Session notes (2026-10-31 morning, 0.22.2 - restructure, canyons, roads)
 

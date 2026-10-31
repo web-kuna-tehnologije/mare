@@ -31,13 +31,24 @@ namespace mare::game::world {
 // shaders assumes these numbers.
 #define GC_LAND_MAX_M   9000.f
 #define GC_DEPTH_MAX_M 12000.f
-#define GC_HEIGHT_SCALE   17.f      // 0.22.2: was 20 - the exaggeration read as a wall from the coast; 15% lower keeps the ranges legible and the valleys open
+#define GC_HEIGHT_SCALE   20.f      // 0.22.3: back to 20 (0.22.2's 17 flattened the Alps into hills)
 #define GC_DEPTH_SCALE     9.f
 #define GC_M_PER_DEG  111320.f      // metres per degree of latitude: the export's normals use geographic metre spacing
+// The high ranges (0.22.3). The linear 9000 m -> 20 units puts the Alps at 7-9 units, which
+// from the Po plain reads as a line of hills; above GC_PEAK_FROM_M the land gains up to
+// GC_PEAK_BOOST more, so the massifs stand over the valleys the way the eye expects while
+// the lowlands and every coast keep their calibration (the boost is zero below 700 m).
+#define GC_PEAK_FROM_M   700.f
+#define GC_PEAK_FULL_M  2600.f
+#define GC_PEAK_BOOST    0.35f
 
 static inline float gc_world(float m) {
-    return m >= 0.f ? minf(m / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE
-                    : -sqrtf(minf(-m / GC_DEPTH_MAX_M, 1.f)) * GC_DEPTH_SCALE;
+    if (m >= 0.f) {
+        float t = (m - GC_PEAK_FROM_M) / (GC_PEAK_FULL_M - GC_PEAK_FROM_M);
+        t = t <= 0.f ? 0.f : t >= 1.f ? 1.f : t * t * (3.f - 2.f * t);
+        return minf(m / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE * (1.f + GC_PEAK_BOOST * t);
+    }
+    return -sqrtf(minf(-m / GC_DEPTH_MAX_M, 1.f)) * GC_DEPTH_SCALE;
 }
 
 enum { GC_EMPTY = 0, GC_QUEUED, GC_READY };
@@ -717,7 +728,7 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
             float lon = b->lon0 + (x + 0.5f) / b->cells_per_deg;
             if (lon < bw || lon > be || lat < bs || lat > bn) continue;
             int i = y * b->w + x, votes = 0, got = 0;
-            float hc = 0;
+            float hc = 0, hmax = -1e9f;
             for (int q = 0; q < 9; ++q) {
                 float u = (lon + off[q][0] / b->cells_per_deg - bw) / (be - bw) * b->gw;
                 float v = (bn - (lat + off[q][1] / b->cells_per_deg)) / (bn - bs) * b->gh;
@@ -726,13 +737,33 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
                 float hh = gc_world(m);
                 votes += hh > 0.03f; got++;
                 if (q == 0) hc = hh;
+                if (hh > hmax) hmax = hh;
             }
             if (got < 9) continue;                           // a hole under part of the cell
             int was_land = b->lm[i] != 0, keep = b->protect && b->protect[i];
+            if (was_land && hc <= 0.35f) {
+                // the highest land anywhere under the cell (its edges and corners too), and - for a
+                // land cell whose centre the data puts in the sea, i.e. mask land the raster had to
+                // place a cell off the real strip - as far as the neighbouring cells' halves
+                static const float edge[8][2] = { {-1,-1}, {0,-1}, {1,-1}, {-1,0}, {1,0}, {-1,1}, {0,1}, {1,1} };
+                const float reach[2] = { 0.48f, 0.85f }; int nreach = hc <= 0.03f ? 2 : 1;
+                for (int rr = 0; rr < nreach; ++rr) for (int q = 0; q < 8; ++q) {
+                    float u = (lon + edge[q][0] * reach[rr] / b->cells_per_deg - bw) / (be - bw) * b->gw;
+                    float v = (bn - (lat + edge[q][1] * reach[rr] / b->cells_per_deg)) / (bn - bs) * b->gh;
+                    float m;
+                    if (gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, I.samples, I.cells, u, v, &m)) hmax = maxf(hmax, gc_world(m));
+                }
+            }
             if (b->allow_flips && !was_land && votes >= 6 && !keep) {
                 b->lm[i] = 1; b->hm[i] = maxf(hc, 0.45f); b->tally[k][1]++; b->tally[k][0]++;
-            } else if (was_land && hc > 0.f && votes >= 3) {
-                if (hc > b->hm[i]) { b->hm[i] = hc; b->tally[k][0]++; }
+            } else if (was_land && (votes >= 3 || (hc <= 0.03f && hmax > 0.03f))) {
+                // A land cell whose centre the data puts in the sea or on the strand - a peninsula
+                // or island a cell wide that slips between the cell centres (Peljesac: 5-7 km
+                // against a 7 km cell) - takes the highest land under any of its nine taps, so a
+                // thin coast keeps its hills instead of folding to a sandbar (0.22.3). A cell the
+                // data already puts on high ground keeps its centre sample as before.
+                float take = hc > 0.35f ? hc : maxf(hc, hmax);
+                if (take > b->hm[i]) { b->hm[i] = take; b->tally[k][0]++; }
             } else if (!was_land && hc < 0.f && votes <= 1) {
                 b->hm[i] = minf(hc, -0.12f); b->tally[k][0]++;
             }

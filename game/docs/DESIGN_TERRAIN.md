@@ -250,6 +250,30 @@ river cell only while `nav_river_limit` allows its class, which `fleet.cc` sets 
 fleet's largest hull around each path search (sloops and fluyts 2, merchantmen and frigates 1,
 galleons and liners 0) and the port-distance rows leave at 0, so trade distances are unchanged.
 
+## 3g. The hinterland painted (0.22.3)
+
+A fourth ring texture, `landuse` (gfx/terrain_rings.cc, read by `terrain/rings.glsl
+landuse_at`), carries four masks on the same grid as the shore and river textures: R fields,
+G vineyards, B orchards and olive groves, A villages. They are baked per texel from the
+export's land-cover class and normal (the slopes are the *drawn* world's, exaggerated), the
+height, the region's goods (`G.regions[].potential[G_WINE]`), the distance to the nearest road
+(`roads_grid_query`) and to the nearest settlement (`G.inland`, the ports), and a few bands of
+`world_fbm` so each use comes in patches. The sea, the beach, steep and high ground are zero.
+
+`terrain.frag` turns the masks into patterns rather than objects: a district frame (one
+rotation per 1.5 units from a hash) in which the fields are hedged 0.15 x 0.065 parcels each
+with its own crop and furrows, the vineyards rows along the contour (the slope's
+perpendicular) 0.011 units apart between dry-stone walls, the orchards a jittered 0.026 grid of
+crowns whose normal is tilted so they are lit from the sun side, the villages roofs on a loose
+grid with yards between. Each collapses to its average colour past ~55 units and is gone by 220.
+Woods get a canopy: crown noise and a tilted normal where `wforest` is high and the camera near.
+
+`gfx/scatter.cc` stands low-poly props on the near ring's masks when it recomposes - a tree per
+0.16 units of the district grid inside a grove, vine bushes along the contour, flocks of sheep
+on thin pasture - drawn in the main pass only within 16 units of the look-at point, never as
+shadow casters. `MARE_SCATTER=0` turns them off. Rivers are painted, not carved, by default
+(`rivers_carve_enabled`, `MARE_RIVER_CARVE=1`).
+
 ## 4. Scale
 
 The world is 16 world units per degree (`WORLD_K` = 4 x `WORLD_SCALE`, 0.17), which makes the

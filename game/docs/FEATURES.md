@@ -115,10 +115,14 @@ Status as of the current codebase. Each entry names the module that owns it.
   abstract `rhi::Device` (`rhi_device.hh`, `rhi.cc`): `GlDevice` draws, `VulkanDevice` brings
   Vulkan up (instance, device, queue, adapter report) and delegates drawing to GL, `Dx12Device`
   is a stub; `--rhi=` / `MARE_RHI` pick one. Modernisation roadmap: docs/DESIGN_RENDERER.md.
-- Authored rig (0.19): the lantina and the split square yards instanced on every station on the
-  sail's swung/braced heading; cordage as geometry-stage lines of physical width; verlet flags
-  pinned to the main masthead; canvas, water and ground materials (DESIGN_SHIPS.md 3c,
-  DESIGN_RENDERER.md 0.19).
+- Authored rig (0.19, 0.22.3): the lantina (`assets/elm/lateen_yard`, as imported) and the
+  split square yards instanced on every station on the sail's swung/braced heading; cordage as
+  geometry-stage lines of physical width; verlet flags pinned to the main masthead; canvas,
+  water and ground materials (DESIGN_SHIPS.md 3c, DESIGN_RENDERER.md 0.19).
+- The hinterland painted (0.22.3): a land-use ring texture (fields, vineyards, orchards and
+  olive groves, villages) baked from the terrain-v2 land cover, the regions' goods, the roads
+  and the settlements, painted as district-aligned patterns by `terrain.frag`; low-poly
+  orchard trees, vines and sheep as static props without shadows (`gfx/scatter.cc`).
 - Three render backends behind one interface (0.21): GL draws; Vulkan brings its device up
   and passes a transfer and a **render** self test (SPIR-V pipeline, offscreen triangle,
   verified read-back); DX12 brings up an adapter, device and command queue. `--rhi=` or the

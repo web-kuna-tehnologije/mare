@@ -19,6 +19,8 @@ uniform vec2 u_clip;
 // x = world z the water stops at, y = 1 when that clip is on (staged city: the shore)
 uniform float u_sea_debug;
 uniform float u_detail_far;
+uniform float u_capzoom;
+// 1 at the battle zoom, 0 from the regional view: whitecaps and foam streaks only where a wave is a wave on screen (sea.cc, 0.22.3)
 // how far the ripple detail, glitter and foam keep their strength: scales with the camera (sea.cc)
 // MARE_SEA_DEBUG=1: red = depth/2, green = land reading, blue = refraction on
 out vec4 fragColor;
@@ -76,21 +78,14 @@ void main(){
   vec3 n = normalize(wn + vec3(slope.x, 0.0, slope.y));
   float w1 = sin(p.x*3.1 + p.y*1.3 + t*1.7);
 // keeps the foam band animated
-// North Atlantic, not a lagoon: a blue-grey body colour. The old pair ran to cyan because
-// the shallow end was a tropical green-blue and the absorption killed red hardest.
-  vec3 deep = vec3(0.035,0.070,0.115), shallow = vec3(0.21,0.285,0.325);
-// Warm seas (0.22, from the aerial references in assets/example): the colour is a *ramp of
-// stops* with depth, not one blend - pale aqua where sand shows through the first few metres,
-// turquoise over the shelf, a saturated mid blue where the shelf drops, cobalt past it. The
-// shelf edge is where the second and third stops meet, which is what draws the reef line the
-// photos all have. North of ~45 degrees the sea keeps its grey-blue body.
-  float warm = 1.0 - smoothstep(43.0, 53.0, abs(lat));   // the whole Mediterranean warm, the Channel and the North Sea grey
-  vec3 st0 = vec3(0.40, 0.75, 0.73), st1 = vec3(0.10, 0.58, 0.66), st2 = vec3(0.03, 0.26, 0.52), st3 = vec3(0.02, 0.10, 0.30);
-  vec3 warmc = depth < 0.22 ? mix(st0, st1, depth / 0.22)
-             : depth < 0.90 ? mix(st1, st2, (depth - 0.22) / 0.68)
-             :                mix(st2, st3, 1.0 - exp(-(depth - 0.90) * 0.9));
-  vec3 coldc = mix(shallow, deep, 1.0 - exp(-depth*0.9));
-  vec3 bodyc = mix(coldc, warmc, warm);
+// The body colour (0.22.3): blue-grey everywhere, the Adriatic included. The 0.22 "warm sea"
+// ramp ran the shallows through aqua and turquoise, which is the colour of a lagoon over
+// white sand, not of the sea along a limestone coast; what makes a shallow read as shallow is
+// the bottom showing *through* it, so the shallows are left transparent (the absorption and
+// alpha below) and the water itself only goes from a pale slate at the strand to a deep
+// blue-grey past the shelf.
+  vec3 deep = vec3(0.030,0.068,0.118), shallow = vec3(0.20,0.27,0.31);
+  vec3 bodyc = mix(shallow, deep, 1.0 - exp(-depth*1.1));
 // Abyssal darkening: the old ramp saturated at `deep` by ~3 units, so a shelf edge and an
 // ocean basin read the same. The real bathymetry (GEBCO tiles) hangs the basins 2.5-4 units
 // down; past the shelf the body keeps losing light exponentially towards an abyssal
@@ -127,7 +122,10 @@ void main(){
 // Absorption (0.17: stronger). The shelf the heightfield now carries is shallow enough that
 // the old coefficients showed the sand through almost unfiltered; at a unit of depth the
 // floor should be a turquoise suggestion, not the ground plane.
-    vec3 absorb = vec3(5.5, 3.6, 2.2) / u_wave_scale;
+// 0.22.3: clearer again. Blue-grey water over a pale bottom: the sand shows plainly in the
+// first quarter unit, is a grey suggestion at half a unit and gone by one, and the red
+// still goes first so the bottom cools with depth instead of staying tan.
+    vec3 absorb = vec3(5.0, 3.5, 2.5) / u_wave_scale;
     vec3 tr = exp(-absorb * depth * 1.05);
 // Mix towards the *lit* water column, not the raw body colour: the sunlit seabed is twenty
 // times brighter than an unlit blue, and won every shallow pixel however small `tr` was.
@@ -145,7 +143,7 @@ void main(){
 // authored surface: the foam albedo rides the swell layer (and a finer copy the chop), its
 // bright streaks become whitecaps over the depth colour and its tonal variation breaks up
 // the flat gradient; everything fades out with `detail` like the normals do
-  float streak = max(smoothstep(0.22, 0.58, lum1), 0.5 * smoothstep(0.24, 0.62, lum2)) * u_has_albedo * detail;
+  float streak = max(smoothstep(0.22, 0.58, lum1), 0.5 * smoothstep(0.24, 0.62, lum2)) * u_has_albedo * detail * u_capzoom;
   c *= mix(1.0, clamp(0.80 + lum1 * 3.0, 0.7, 1.35), 0.30 * u_has_albedo * detail);
   vec3 vdir = normalize(u_campos - v_wpos);
 // water: smooth dielectric, so the sun glint comes from the GGX lobe and the sky from Fresnel
@@ -199,13 +197,19 @@ void main(){
   float ws = clamp(v_amp, 0.0, 1.4);
   float fold = smoothstep(0.93 - 0.05 * ws, 0.74 - 0.05 * ws, v_jac);
   float steep = smoothstep(0.04, 0.10, v_slope) * 0.7;
-  float caps = max(fold, steep) * smoothstep(0.25, 0.8, ws) * (0.5 + 1.0 * lum2) * detail;
+// 0.22.3: whitecaps only where a wave is a wave on screen. From the regional zoom the strategic
+// swell's folds smeared into kilometre-long white diagonals across every bay; past ~30 units
+// the caps fade and the sea keeps its glitter alone.
+  float caps = max(fold, steep) * smoothstep(0.25, 0.8, ws) * (0.5 + 1.0 * lum2) * detail * u_capzoom;
 // Surf: in the shoaling band the steepened waves break into a foam sheet that runs up the
 // beach. The shore direction is the depth gradient; the sheet's texture scrolls along it.
   vec2 hp = v_wpos.xz; float he = 0.9 * sc;
   vec2 g = vec2(depth_at(hp + vec2(he, 0.0)) - depth_at(hp - vec2(he, 0.0)), depth_at(hp + vec2(0.0, he)) - depth_at(hp - vec2(0.0, he)));
   vec2 shoredir = length(g) > 1e-4 ? -normalize(g) : vec2(0.0);
-  float band = smoothstep(1.8 * sc, 0.5 * sc, depth) * smoothstep(0.0, 0.16 * sc, depth);
+// 0.22.3: the breaker zone only. The old band ran out to 1.8 units of depth, which on the
+// Adriatic shelf is the whole sea, so every crest line carried a sheet of surf and the bays
+// were striped white from the regional view.
+  float band = smoothstep(0.42 * sc, 0.12 * sc, depth) * smoothstep(0.0, 0.05 * sc, depth) * max(u_capzoom, 0.35);
   float surf_tex = smoothstep(0.22, 0.6, dot(texture(u_albedo, p * 0.7 + shoredir * (t * 0.22) + u_drift1 * 0.5).rgb, vec3(0.3, 0.5, 0.2)));
   float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;
 // Shoreline: the thin lapping line at the waterline, as before.
@@ -271,7 +275,7 @@ void main(){
 // transparency: the terrain below has already been drawn, so shallow water reveals the
 // seabed and deep water goes opaque; the map view stays solid parchment
   if (u_sea_debug > 0.5) { fragColor = vec4(clamp(depth * 0.5, 0.0, 1.0), v_h > 0.35 ? 1.0 : 0.0, refr_on, 1.0); return; }
-  float alpha = mix(0.38, 0.92, smoothstep(0.0, 1.6 * u_wave_scale, depth));
+  float alpha = mix(0.26, 0.92, smoothstep(0.0, 1.6 * u_wave_scale, depth));
 // clearer shallows, seabed reads through a little further out
   alpha = max(alpha, caps_a * 0.9);
 // foam stays visible over the seabed

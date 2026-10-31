@@ -184,7 +184,7 @@ void main(){
   c = mix(c, snow, wsnow);
 // the sea floor: the beach sand runs on under the water and shades into silt and weed where
 // the shelf drops - it is this pale bottom that the turquoise shallows are seen through
-  vec3 seabed = mix(sand * 0.92, vec3(0.30, 0.40, 0.36), smoothstep(-0.12, -1.0, h));
+  vec3 seabed = mix(sand * 0.70, vec3(0.26, 0.33, 0.31), smoothstep(-0.04, -0.6, h));   // 0.22.3: darker, so the clearer water reads as water, not milk
   seabed = mix(seabed, vec3(0.28, 0.26, 0.20), wmarsh * 0.8);   // mud flats
   c = mix(c, seabed, under);
 // deserts: sahara, arabia, northern mexico, atacama - and the export's sand where it is high
@@ -252,6 +252,96 @@ void main(){
 // the atlas is sRGB-sampled (linear); the colour mix below is in sRGB
     c = mix(c, ts * (0.55 + 0.45 * (c / max(ts, vec3(0.02)))), 0.78 * tdet * (1.0 - wwater));
 // keep the biome's hue, take the material's grain
+  }
+// --- the hinterland (0.22.3, gfx/terrain_rings.cc land-use masks): fields, vineyards, orchards
+// and olive groves, villages - painted as patterns on the ground, never as objects, and only
+// where the camera is close enough for a pattern to be one; from the regional view each mask
+// collapses to its average colour. Everything shares one orientation per ~1.5-unit district,
+// so the parcels, rows and lanes of a valley run together the way a cadastre does.
+  vec4 lu = landuse_at(v_wpos.xz) * dk * (1.0 - under);
+  float lunear = (1.0 - smoothstep(110.0, 220.0, dist0)) * (1.0 - u_mapness);
+  float luclean = (1.0 - wrock) * (1.0 - wbeach) * (1.0 - wsnow) * (1.0 - wmarsh) * (1.0 - wwater) * (1.0 - wdes);
+  if ((lu.r + lu.g + lu.b + lu.a) * lunear * luclean > 0.01) {
+    vec2 dc = floor(v_wpos.xz / 1.5);
+    float ang = hash(dc + 0.37) * 3.14159;
+    float ca = cos(ang), sa = sin(ang);
+    vec2 q = vec2(v_wpos.x * ca - v_wpos.z * sa, v_wpos.x * sa + v_wpos.z * ca);
+    float lfar = smoothstep(18.0, 55.0, dist0);
+// fields: strip parcels, each its own crop, hedged; furrows across the ploughed ones up close
+    vec2 pc = vec2(0.15, 0.065);
+    vec2 pid = floor(q / pc), pf = fract(q / pc);
+    float ph = hash(pid + 7.0);
+    vec3 stubble = mix(vec3(0.70,0.62,0.36), vec3(0.78,0.70,0.44), nz);
+    vec3 young   = mix(vec3(0.42,0.60,0.26), vec3(0.50,0.66,0.30), nz);
+    vec3 fallow  = mix(vec3(0.58,0.54,0.38), vec3(0.64,0.58,0.42), nz);
+    vec3 fieldc = ph < 0.22 ? plough : ph < 0.46 ? stubble : ph < 0.68 ? young : ph < 0.86 ? meadow : fallow;
+    fieldc *= 0.90 + 0.20 * hash(pid + 3.0);
+    float furrow = 0.5 + 0.5 * sin(q.y / pc.y * 6.2832 * 9.0);
+    fieldc *= 1.0 - 0.12 * furrow * (1.0 - smoothstep(12.0, 35.0, dist0)) * (ph < 0.22 ? 1.0 : 0.35);
+    float edged = min(min(pf.x, 1.0 - pf.x) * pc.x, min(pf.y, 1.0 - pf.y) * pc.y);
+    float hedge = (1.0 - smoothstep(0.0035, 0.0085, edged)) * (1.0 - smoothstep(25.0, 70.0, dist0));
+    fieldc = mix(fieldc, vec3(0.24,0.32,0.17), hedge * 0.8);
+    vec3 fieldfar = mix(hay, young, 0.45) * 0.95;
+    fieldc = mix(fieldc, fieldfar, lfar * 0.7);
+    float fk = lu.r * lunear * luclean;
+    c = mix(c, fieldc, fk * 0.92);
+// vineyards: rows of vines along the contour on pale, stony soil; one green-ochre from afar
+    vec2 down = normalize(n.xz + vec2(1e-4, 0.0));
+    float along_slope = dot(v_wpos.xz, down);
+    float row = 0.5 + 0.5 * sin(along_slope / 0.011 * 6.2832);
+    float rowk = smoothstep(0.30, 0.70, row);
+    vec3 vinesoil = mix(vec3(0.62,0.52,0.38), vec3(0.56,0.48,0.36), nz);
+    vec3 vinegrn  = vec3(0.25,0.41,0.19);
+    vec3 vinec = mix(vinesoil, vinegrn, mix(rowk, 0.48, lfar));
+    float vedge = min(min(pf.x, 1.0 - pf.x) * pc.x, min(pf.y, 1.0 - pf.y) * pc.y);
+    vinec = mix(vinec, vec3(0.50,0.46,0.40), (1.0 - smoothstep(0.003, 0.007, vedge)) * (1.0 - lfar) * 0.7);   // the dry-stone wall between plots
+    float vk = lu.g * lunear * luclean;
+    c = mix(c, vinec, vk * 0.92);
+// orchards and olive groves: a jittered grid of crowns, lit by the sun side, over grass or
+// pale karst soil; apple-dark in the north, grey-green olive in the Mediterranean belt
+    vec2 oc = vec2(0.026);
+    vec2 oid = floor(q / oc);
+    vec2 of = fract(q / oc) - 0.5 + (vec2(hash(oid + 1.0), hash(oid + 2.0)) - 0.5) * 0.34;
+    float crown = (1.0 - smoothstep(0.24, 0.38, length(of))) * step(0.10, hash(oid + 5.0));
+    vec3 ocrown  = mix(vec3(0.17,0.33,0.14), vec3(0.44,0.50,0.36), med);
+    vec3 oground = mix(vec3(0.50,0.57,0.31), mix(vec3(0.66,0.59,0.44), vec3(0.72,0.66,0.50), nz), med);
+    vec3 orchc = mix(mix(oground, ocrown, crown), mix(oground, ocrown, 0.5), lfar);
+    float ok = lu.b * lunear * luclean;
+    c = mix(c, orchc, ok * 0.92);
+    if (ok * crown * (1.0 - lfar) > 0.01) {   // the crowns stand up out of the ground a little
+      vec2 w = vec2(of.x * ca + of.y * sa, -of.x * sa + of.y * ca);
+      n = normalize(mix(n, normalize(n + vec3(-w.x, 0.35, -w.y) * 1.6), ok * crown * (1.0 - lfar)));
+    }
+// villages: roofs on a loose grid with gaps between, pale packed earth and kitchen gardens
+// around them; from afar the warm ochre of a built-up place
+    vec2 hc = vec2(0.019, 0.014);
+    vec2 hid = floor(q / hc), hf = fract(q / hc) - 0.5;
+    float hh = hash(hid + 9.0);
+    float house = step(0.42, hh) * step(abs(hf.x), 0.30) * step(abs(hf.y), 0.28);
+    vec3 roofc = hh < 0.78 ? vec3(0.64,0.37,0.27) : vec3(0.47,0.44,0.40);
+    roofc *= 0.85 + 0.30 * hash(hid + 11.0);
+    vec3 yard = mix(vec3(0.62,0.56,0.44), vec3(0.42,0.52,0.28), step(0.72, hash(hid + 13.0)) * (1.0 - house));
+    vec3 villc = mix(mix(yard, roofc, house), vec3(0.60,0.49,0.40), lfar);
+    float bk = lu.a * lunear * (1.0 - wrock) * (1.0 - wwater) * (1.0 - wmarsh) * (1.0 - wbeach);
+    c = mix(c, villc, bk * 0.95);
+    if (bk * house * (1.0 - lfar) > 0.01) {   // a roof pitch under the sun: a little relief, no geometry
+      float ridge = sign(hf.y + 1e-4);
+      vec2 w = vec2(-sa * ridge, ca * ridge);
+      n = normalize(mix(n, normalize(n + vec3(w.x, 0.6, w.y) * 1.4), bk * house * (1.0 - lfar)));
+    }
+  }
+// --- the woods as a canopy (0.22.3): the forest colour was one flat dark green; close in, the
+// crowns are drawn as a bumpy noise - brighter on their sun side, dark between - and the
+// normal tilts with them, so a wood reads as a mass of trees rather than paint.
+  float canopy = wforest * (1.0 - smoothstep(22.0, 60.0, dist0)) * (1.0 - u_mapness) * (1.0 - under) * (1.0 - wsnow);
+  if (canopy > 0.02) {
+    vec2 cp = v_wpos.xz * 46.0; float e = 0.35;
+    float c0 = noise(cp) * 0.62 + noise(cp * 2.3 + 17.0) * 0.38;
+    float cx1 = noise(cp + vec2(e, 0.0)) * 0.62 + noise((cp + vec2(e, 0.0)) * 2.3 + 17.0) * 0.38;
+    float cz1 = noise(cp + vec2(0.0, e)) * 0.62 + noise((cp + vec2(0.0, e)) * 2.3 + 17.0) * 0.38;
+    c *= 1.0 + (c0 - 0.5) * 0.38 * canopy;
+    vec3 cn = normalize(vec3(-(cx1 - c0) / e * 0.9, 1.0, -(cz1 - c0) / e * 0.9));
+    n = normalize(mix(n, normalize(n + cn - vec3(0.0, 1.0, 0.0)), canopy * 0.8));
   }
   c *= stratk;
 // The cliff's foot (0.22): each set's wave bursts on the rock and throws spray up the face -
@@ -322,6 +412,10 @@ void main(){
   { float ok = 1.0 - smoothstep(500.0, 900.0, viewdist);
     if (ok > 0.01) g_sun_occ = mix(1.0, det_sun_occ(v_wpos + n * 0.08, u_sun, u_hm, u_geo, u_k, u_mapness), ok); }
   vec3 lit = sun_shade_ao(srgb_to_linear(c), n, vdir, v_wpos, rough, 0.0, viewdist, ao);
+// the seabed is lit through the water, not in open air (0.22.3): the sun has already lost
+// half its light going down and coming back, so the shallows read as water over sand and not
+// as a sunlit flat with a film on it
+  lit *= mix(1.0, 0.52, under * (1.0 - u_mapness));
 // map style
   vec4 tt = texture(u_terr, v_uv);
   int nid = int(tt.r * 255.0 + 0.5);

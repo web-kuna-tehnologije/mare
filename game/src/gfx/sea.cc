@@ -400,6 +400,9 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     // how far the ripple normals, the glitter and the foam keep their detail: with the camera
     // it looks from, so the sun still lights the sea at the regional zoom (0.22)
     rhi_set_f1(rhi_uniform(p,"u_detail_far"), maxf(400.f * wave_scale, cam.dist * 6.f + 300.f));
+    // whitecaps and foam streaks only while the camera is close enough for a wave to be a wave
+    // on screen (0.22.3): from the regional view they smeared into kilometre-long white diagonals
+    { float t = clampf((cam.dist - 9.f) / 9.f, 0.f, 1.f); rhi_set_f1(rhi_uniform(p,"u_capzoom"), local_depth > 0.f ? 1.f : 1.f - t * t * (3.f - 2.f * t)); }
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
     {   // the streamed detail rings (terrain_rings.cc), bound exactly as the terrain binds them,

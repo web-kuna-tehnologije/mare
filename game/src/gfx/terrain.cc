@@ -257,6 +257,9 @@ void TerrainRenderer::draw(float planes[6][4]) {
         const rhi_texture_t *vn = streamview_river_tex(0), *vf = streamview_river_tex(1);
         rhi_set_i1(UNI(terrain_prg,"u_river"), 18);     rhi_texture_bind(18, vn ? vn : &tex_territory);
         rhi_set_i1(UNI(terrain_prg,"u_river_far"), 19); rhi_texture_bind(19, vf ? vf : &tex_territory);
+        const rhi_texture_t *ln = streamview_landuse_tex(0), *lf = streamview_landuse_tex(1);   // the hinterland masks (0.22.3)
+        rhi_set_i1(UNI(terrain_prg,"u_landuse"), 20);     rhi_texture_bind(20, ln ? ln : &tex_territory);
+        rhi_set_i1(UNI(terrain_prg,"u_landuse_far"), 21); rhi_texture_bind(21, lf ? lf : &tex_territory);
     }
     rhi_set_f1(UNI(terrain_prg,"u_time"), RF.time);
     map_mode_bind(&terrain_prg);

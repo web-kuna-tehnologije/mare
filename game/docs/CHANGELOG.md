@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.22.3 — the 0.22.2 regressions undone, a blue-grey sea, Peljesac, the hinterland painted
+
+- **The world back at its height, and higher where it should be.** 0.22.2's 17 units per
+  9000 m is 20 again (`terrain_chunks.cc GC_HEIGHT_SCALE`), and above 700 m the land gains up
+  to 35% more (`GC_PEAK_BOOST`, full by 2600 m), so the Alps stand over the Po plain as a
+  range with snow on it instead of a line of brown hills. Lowlands and every coast keep their
+  calibration; nothing below 700 m moved.
+- **Nothing carves the ground any more.** The 0.22.2 canyons are gone, and the 0.22.1 river
+  channels - the 7 km ship-scale beds cut below sea level that opened gorges through every
+  range the big rivers rise in - are off by default: rivers are painted on the surface at
+  their true hairline width, no reach is navigable, no fleet enters one. `MARE_RIVER_CARVE=1`
+  brings the channels back (`rivers_carve_enabled`). The authored river data to come replaces
+  the generated network.
+- **The sea is blue-grey, shallows included** (`sea/sea.frag`). The 0.22 warm-sea ramp ran
+  every Mediterranean shallow through aqua and turquoise; the body is now one slate-to-deep
+  blue-grey ramp, the shallows read as shallow because the bottom shows through them (weaker
+  absorption, lower alpha, a darker seabed in `terrain.frag` so it is water and not milk), and
+  the whitecaps and foam streaks are gated by the camera's zoom (`u_capzoom`): from the
+  regional view they smeared into kilometre-long white diagonals across every bay.
+- **The lantina is the authored spar again** (`shipyard.cc`): `assets/elm/lateen_yard` as it
+  was taken from the import, scaled to the design line and slung at its middle on the swung
+  heading, the canvas hanging under it; the procedural spar only stands in past
+  `YARD_ASSET_MIN_PX`. Masts are slimmer (`MAST_SLIM` 0.58 -> 0.44).
+- **Peljesac is a peninsula and Ston has the sea on both sides** (`data/geo_coast.h`). The old
+  stretch was a self-crossing bow-tie that rasterized to a hole in the mainland. The coast now
+  runs Split - Omis - Makarska - Gradac - Ploce - Komarna - Mali Ston, out along Peljesac's
+  north shore to Loviste and back along the south shore to the Ston channel, then Slano and
+  Ragusa. Peljesac is drawn two cells thick (the rings round a one-cell strip to islets) with
+  the Mali Ston bay behind it cut by a strait that opens north-west into the Neretva channel,
+  and the Ston channel cut from the south-west. The merged Hvar+Brac and Korcula+Mljet blobs,
+  which sat where those channels run, are five islands now (Brac, Hvar, Korcula, Mljet,
+  Lastovo), each shifted at most a cell so that one water row survives between neighbours.
+- **The hinterland, painted** (`terrain_rings.cc`, `terrain/rings.glsl landuse_at`,
+  `terrain.frag`; TODO 7a/7b/7c/8b). A fourth ring texture carries four masks baked on the
+  ring's grid from the export's land cover and slope, the region's goods, the roads and the
+  settlements: fields (cropland on gentle low ground, thickest round villages and along
+  roads), vineyards (wine regions and the Mediterranean belt, sunny slopes, in patches),
+  orchards round the villages and olive groves across the belt's slopes, and villages (every
+  inland settlement's built disc plus roadside hamlets). The shader paints them as patterns in
+  one orientation per 1.5-unit district: hedged strip parcels each with its own crop and
+  furrows, vine rows along the contour between dry-stone walls, a jittered grid of lit crowns
+  over grass or karst soil, roofs on a loose grid with yards between; each collapses to its
+  average colour from the regional view. Woods are a canopy now - crowns as a bumpy noise with
+  a tilted normal - instead of flat dark green.
+- **Static props, no shadows** (`gfx/scatter.h/.cc`, `MARE_SCATTER=0`): low-poly orchard and
+  olive trees one per 0.3 units of the district grid inside the groves, vine bushes along the
+  contour in the vineyards, the odd flock of sheep on thin pasture - placed from the near ring's
+  land-use texture when it recomposes, drawn in the main pass only, never in the shadow or the
+  staged scenes. Trees are at the ship's scale (a fifth of a hull), since a tree the size of a
+  texel is a pixel from any camera that shows a field.
+- **Thin coasts in the fold** (`terrain_chunks.cc bake_rows`). A mask-land cell whose centre
+  the overview puts in the sea - a peninsula or island a cell wide that slips between the
+  cell centres, which is exactly Peljesac at 5-7 km against a 7 km cell - used to keep the
+  procedural beach ramp; it now takes the highest land under any of its taps, out to the
+  neighbouring cells' halves. Cells the data already puts on high ground are unchanged. Not
+  enough on its own: the rings' shore profile still caps a two-cell strip at under half its
+  relief, so Peljesac draws as a low sandy peninsula - see KNOWN_ISSUES.
+- `mare.exe --mask=lon0,lat1[,wcells,hcells]` prints the land mask and the folded base height
+  of a window as ASCII (headless): the way to check a coast edit without a screenshot.
+- The build mirror convention is now `C:\projects\mare_<worktree>_<datetime>` per session
+  (docs/TODO.md session notes).
+
 ## 0.22.2 — the tree tidied, a lower world, canyons, roads
 
 - **Files named for what they are.** The framework's `v3.c/.h` moved from the repository root

@@ -140,7 +140,8 @@ void Rivers::generate() {
             unsigned char pc = a >= (float)RIVER_DEEP_CELLS ? 1 : a >= (float)RIVER_NAV_CELLS ? 2 : 0;
             float hair = minf((0.010f + 0.011f * sqrtf(a / (float)RIVER_MIN_CELLS)) * 0.5f, 0.07f);
             float w;
-            if (a >= (float)RIVER_NAV_CELLS) {
+            if (!rivers_carve_enabled()) w = hair;   // painted only: the true width, never the ship-scale channel
+            else if (a >= (float)RIVER_NAV_CELLS) {
                 float t = clampf((a - RIVER_NAV_CELLS) / (float)(RIVER_DEEP_CELLS - RIVER_NAV_CELLS), 0.f, 1.f);
                 w = lerpf(RIVER_W_NAV, RIVER_W_DEEP, t);
             } else {
@@ -166,7 +167,7 @@ void Rivers::generate() {
     // enough, become water cells of the nav grid (nav_init folds navriver in), by class
     if (!navriver) navriver = (unsigned char *)calloc(NAV_W * NAV_H, 1);
     int nnav = 0, ndeep = 0;
-    for (int i = 0; i < N; ++i) if (isriver[i]) {
+    for (int i = 0; i < N; ++i) if (isriver[i] && rivers_carve_enabled()) {   // no channel cut, no river open to ships
         int cls = acc[i] >= RIVER_DEEP_CELLS ? 1 : acc[i] >= RIVER_NAV_CELLS ? 2 : 0;
         if (!cls) continue;
         int nx = (i % W) / NAV_DIV, ny = (i / W) / NAV_DIV, n = ny * NAV_W + nx;
@@ -188,6 +189,12 @@ void Rivers::generate() {
 // the segment grid (C, so the ring composer's workers can call it without the class)
 
 extern "C" {
+int  rivers_carve_enabled(void) {
+    static int v = -1;
+    if (v < 0) { const char *e = getenv("MARE_RIVER_CARVE"); v = e && atoi(e) != 0 ? 1 : 0;
+                 LOG_INFO("rivers", "river channels %s (MARE_RIVER_CARVE)", v ? "carved into the ground" : "painted on the surface, nothing carved"); }
+    return v;
+}
 void rivers_generate(void) { mare::game::world::rivers_sys().generate(); }
 void rivers_shutdown(void) { mare::game::world::rivers_sys().shutdown(); }
 

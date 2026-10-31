@@ -8,6 +8,28 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 "Framework" marks issues in v3 itself that we work around rather than fix.
 
 ## Rendering
+- **M** Peljesac is a peninsula in the land mask (two cells thick, the Mali Ston bay behind it,
+  the Ston channel in front - `mare.exe --mask=16.9,43.1,16,7` shows it) but *draws* as a low
+  sandy spit: every texel of a two-cell strip is within the rings' shore profile band
+  (`terrain_rings.cc`, reach 6 cells inland), whose beach-coast dome gives land at one cell
+  from the water under half its relief, and the overview's coast class there is sand. The
+  profile needs a "thin land" rule (relief from the strip's own width, rock where the export
+  says the peninsula is rock) or a finer land mask.
+- **M** The southern Dalmatian islands and Peljesac are drawn as strips one or two land-mask
+  cells wide (0.22.3, `geo_coast.h`). The navigation grid's majority rule treats a one-cell
+  strip as sailable, so a routed fleet can cross the Hvar or Korcula strip visually on the
+  rocks; Peljesac is two cells thick and holds. A finer land mask (CELLS_PER_DEG 32) is the
+  real fix; the strips were chosen over the old merged blobs because the blobs sat where the
+  Neretva, Peljesac and Mljet channels run.
+- **L** Rivers are painted on the surface and never carved (0.22.3 default): where a hairline
+  stream crosses a slope it follows the ground like a drawn line rather than a bed, and no
+  river is navigable. `MARE_RIVER_CARVE=1` restores the 0.22.1 ship-scale channels, which cut
+  through the ranges. The authored river data to come replaces both.
+- **L** The hinterland props (`gfx/scatter.cc`) are at the ship's scale and the painted
+  land-use patterns at the texel's, so a grove's trees stand on a stipple of much smaller
+  painted crowns, and vine bushes sit on painted rows of a different pitch. Props cast no
+  shadow by design for now. Both are placed from the near ring, so they appear only within
+  40 units of the look-at point and are rebuilt when it moves a quarter of the ring.
 - **M** `--rhi=vulkan` and `--rhi=dx12` bring their device up, pass their self tests and then
   **delegate every draw to OpenGL**. They are not yet alternative renderers: the window's GL
   context owns the surface, and a swapchain would have to replace it rather than share it.

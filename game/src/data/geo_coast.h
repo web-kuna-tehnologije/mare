@@ -62,9 +62,11 @@ static const float geo_eurasia[] = {
     16,41.8f, 14,42.5f, 12.5f,44, 12.3f,45.5f, 13.7f,45.6f,   /* Trieste */
     13.58f,45.40f, 13.56f,45.12f, 13.72f,44.92f, 13.88f,44.81f,   /* Istria: Porec, Rovinj, Pula */
     14.03f,45.02f, 14.22f,45.22f, 14.42f,45.33f,                  /* ... and back up its eastern shore to Rijeka */
-    14.6f,44.9f, 15.3f,44.2f, 16,43.5f, 16.9f,43.1f,
-    17.05f,42.92f, 17.4f,42.82f, 17.68f,42.78f, 17.45f,42.95f, 17.1f,43.02f,   /* Peljesac, out and back: a peninsula, not a straight coast */
-    17.6f,42.75f, 18.5f,42.5f,
+    14.6f,44.9f, 15.3f,44.2f, 16,43.5f, 16.45f,43.52f, 16.70f,43.44f,          /* Split, Omis */
+    16.95f,43.30f, 17.35f,43.10f, 17.48f,43.045f, 17.56f,43.00f, 17.63f,42.955f, 17.705f,42.87f,   /* Makarska, Gradac, Ploce, Komarna, Mali Ston: the mainland shore of the bay */
+    17.60f,42.975f, 17.50f,42.985f, 17.33f,42.985f, 17.26f,43.04f, 17.04f,43.045f, 16.99f,42.99f,   /* Peljesac (0.22.3): the north shore west to Loviste. Drawn two cells thick - the */
+    17.10f,42.905f, 17.30f,42.905f, 17.45f,42.87f, 17.58f,42.85f, 17.68f,42.805f,                   /* rings round a one-cell strip away to islets - with the bay behind it cut by a strait */
+    17.72f,42.83f, 17.86f,42.76f, 18.10f,42.64f, 18.5f,42.5f,                                       /* Ston, Slano, Ragusa */
     19.5f,41.5f, 19.5f,40, 20.5f,39, 21,37.5f, 22.5f,36.5f, 23,38, 24,38, 23.5f,40, 25,41,
     26.5f,40.5f, 28,41, 29,41.2f, 28.8f,40.4f, 26.5f,40.3f, 26.2f,39.5f, 26.8f,38.5f,
     27.2f,37, 28.5f,36.7f, 30.5f,36.3f, 32,36.2f, 34,36.2f, 36,36.7f, 36,35, 35.5f,33.5f,
@@ -141,8 +143,17 @@ static const float geo_marajo[]    = { -50.5f,-0.2f, -48.5f,-0.1f, -48.8f,-1.2f,
 // they are authored as vector data rather than hoped for from a heightmap.
 static const float geo_dugi_kornati[] = { 15.406f,43.872f, 15.337f,43.936f, 15.219f,43.973f, 15.081f,43.973f, 14.963f,43.936f, 14.894f,43.872f, 14.894f,43.798f, 14.963f,43.734f, 15.081f,43.697f, 15.219f,43.697f, 15.337f,43.734f, 15.406f,43.798f, END };
 static const float geo_vis[]       = { 15.953f,43.122f, 15.916f,43.186f, 15.852f,43.223f, 15.778f,43.223f, 15.714f,43.186f, 15.677f,43.122f, 15.677f,43.048f, 15.714f,42.984f, 15.778f,42.947f, 15.852f,42.947f, 15.916f,42.984f, 15.953f,43.048f, END };
-static const float geo_hvar_brac[] = { 16.96f,43.122f, 16.85f,43.186f, 16.66f,43.223f, 16.44f,43.223f, 16.25f,43.186f, 16.14f,43.122f, 16.14f,43.048f, 16.25f,42.984f, 16.44f,42.947f, 16.66f,42.947f, 16.85f,42.984f, 16.96f,43.048f, END };
-static const float geo_korcula_mljet[] = { 17.713f,42.772f, 17.562f,42.836f, 17.301f,42.873f, 16.999f,42.873f, 16.738f,42.836f, 16.587f,42.772f, 16.587f,42.698f, 16.738f,42.634f, 16.999f,42.597f, 17.301f,42.597f, 17.562f,42.634f, 17.713f,42.698f, END };
+// The southern Dalmatian islands (0.22.3): the merged Hvar+Brac and Korcula+Mljet blobs sat
+// where Peljesac's channels run, so each island is its own thin polygon now, shifted at most
+// a cell from its true place so that one water row survives between every neighbour: the
+// Brac channel, the Hvar channel, the Neretva channel north of Peljesac, the Peljesac channel
+// off Korcula and the Mljet channel. Thin strips are drawn at a cell, so the nav grid's
+// majority rule still lets a fleet sail across one - see KNOWN_ISSUES.
+static const float geo_brac[]    = { 16.45f,43.33f, 16.65f,43.36f, 16.80f,43.33f, 16.80f,43.28f, 16.60f,43.265f, 16.45f,43.29f, END };
+static const float geo_hvar[]    = { 16.42f,43.17f, 16.70f,43.19f, 17.00f,43.17f, 17.18f,43.13f, 17.00f,43.115f, 16.70f,43.12f, 16.42f,43.13f, END };
+static const float geo_korcula[] = { 16.66f,42.845f, 16.90f,42.855f, 17.16f,42.845f, 17.20f,42.82f, 16.95f,42.795f, 16.68f,42.80f, END };
+static const float geo_mljet[]   = { 17.33f,42.785f, 17.50f,42.80f, 17.62f,42.775f, 17.60f,42.74f, 17.50f,42.73f, 17.33f,42.745f, END };
+static const float geo_lastovo[] = { 16.82f,42.72f, 16.95f,42.725f, 16.95f,42.675f, 16.82f,42.675f, END };
 static const float geo_kefalonia[] = { 20.604f,38.241f, 20.562f,38.312f, 20.491f,38.354f, 20.409f,38.354f, 20.338f,38.312f, 20.296f,38.241f, 20.296f,38.159f, 20.338f,38.088f, 20.409f,38.046f, 20.491f,38.046f, 20.562f,38.088f, 20.604f,38.159f, END };
 static const float geo_zakynthos[] = { 20.904f,37.772f, 20.862f,37.836f, 20.791f,37.873f, 20.709f,37.873f, 20.638f,37.836f, 20.596f,37.772f, 20.596f,37.698f, 20.638f,37.634f, 20.709f,37.597f, 20.791f,37.597f, 20.862f,37.634f, 20.904f,37.698f, END };
 static const float geo_kythira[]   = { 23.154f,36.291f, 23.112f,36.362f, 23.041f,36.404f, 22.959f,36.404f, 22.888f,36.362f, 22.846f,36.291f, 22.846f,36.209f, 22.888f,36.138f, 22.959f,36.096f, 23.041f,36.096f, 23.112f,36.138f, 23.154f,36.209f, END };
@@ -174,7 +185,7 @@ static const float *geo_land[] = {
     geo_mallorca, geo_zealand, geo_gotland, geo_madeira, geo_tenerife, geo_grancanaria,
     geo_azores1, geo_azores2, geo_azores3, geo_capeverde, geo_capeverde2, geo_mozisland,
     geo_longisland, geo_capebreton, geo_princeedward, geo_anticosti, geo_vancouver, geo_marajo,
-    geo_dugi_kornati, geo_vis, geo_hvar_brac, geo_korcula_mljet,
+    geo_dugi_kornati, geo_vis, geo_brac, geo_hvar, geo_korcula, geo_mljet, geo_lastovo,
     geo_kefalonia, geo_zakynthos, geo_kythira, geo_rhodes, geo_karpathos, geo_kos, geo_samos,
     geo_chios, geo_lesbos, geo_limnos, geo_thasos, geo_skyros, geo_sporades, geo_andros_tinos,
     geo_paros_naxos, geo_kea_kythnos, geo_milos, geo_santorini,
@@ -224,6 +235,11 @@ static const float strait_dover[]     = { 1.3f,51.0f, 1.9f,51.3f, END };
 static const float strait_bosporus_to_marmara[] = { 28.8f,40.2f, 26.8f,40.0f, END };
 static const float strait_st_lawrence[] = { -66,50.3f, -68.5f,49, -70,48, -71,47.3f, END };
 static const float strait_hudson[]    = { -70,62, -65,61, END };
+// Ston (0.22.3): the Mali Ston bay behind Peljesac, open north-west into the Neretva channel,
+// and the Ston channel from the south-west - the salt town has the sea on both sides of its
+// isthmus, which a 7 km raster could never resolve on its own
+static const float strait_malostonski[] = { 17.62f,42.944f, 17.52f,43.006f, 17.32f,43.006f, 17.25f,43.069f, 17.05f,43.069f, 16.95f,43.10f, END };
+static const float strait_stonski[]     = { 17.50f,42.80f, 17.62f,42.805f, 17.705f,42.825f, END };
 
 static const geo_strait_t geo_straits[] = {
     {0.12f, strait_gibraltar}, {0.12f, strait_oresund}, {0.25f, strait_kattegat}, {0.15f, strait_belt},
@@ -231,6 +247,7 @@ static const geo_strait_t geo_straits[] = {
     {0.35f, strait_cabot}, {0.15f, strait_dardanelles}, {0.2f, strait_magellan}, {0.3f, strait_florida},
     {0.3f, strait_windward}, {0.3f, strait_mona}, {0.25f, strait_dover}, {0.2f, strait_bosporus_to_marmara},
     {0.35f, strait_st_lawrence}, {0.6f, strait_hudson},
+    {0.028f, strait_malostonski}, {0.022f, strait_stonski},
 };
 
 

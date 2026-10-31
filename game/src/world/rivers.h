@@ -42,6 +42,11 @@ extern unsigned char *river_mask;     // LM_W*LM_H: 1 where a river wide enough 
 extern int    river_npts, river_n;
 extern river_t *rivers;
 
+// Whether rivers may reshape the ground at all (0.22.3). Off by default: the rings paint a
+// river on the surface at its true hairline width and nothing is cut, no navigable channel is
+// opened and no fleet enters a river. MARE_RIVER_CARVE=1 brings the 0.22.1 channels back
+// (ship-scale beds below sea level, navriver). The authored river data to come replaces this.
+int  rivers_carve_enabled(void);
 // build everything from the base heightmap and land mask (after the geography bake, before nav_init)
 void rivers_generate(void);
 void rivers_shutdown(void);

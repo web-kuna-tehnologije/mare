@@ -652,7 +652,7 @@ int Shipyard::push(const shipyard_req_t *r) {
     // The generated poles are chunky for their height - at the battle zoom a cog's mast read as
     // a tree trunk - so they are thinned radially (gpu.h inst_t.slim), which a uniform scale
     // cannot do without losing the height the class table sets.
-    #define MAST_SLIM     0.58f
+    #define MAST_SLIM     0.44f      // 0.22.3: slimmer again (0.58 still read as a trunk from the quarterdeck)
     // ... and stepped *into* the ship rather than stood on `deck`. That fraction is a per-class
     // guess at where the hull model's deck is, and where it guesses high the mast floated a
     // metre over the planking. A mast is stepped on the keelson in any case, so burying the heel
@@ -784,19 +784,35 @@ int Shipyard::push(const shipyard_req_t *r) {
                 if (c->sail[k] == SAIL_LATEEN) {
                     float sw = r->heading + swing;
                     float sfx = cosf(sw), sfz = -sinf(sw);            // forward on the swung heading
-                    // The lantina is drawn procedurally (0.22). The authored `lateen_yard`
-                    // asset is a Meshy scan whose two ends are visibly different thicknesses -
-                    // a lateen antenna is two spars lashed and should read the same at tack and
-                    // peak - and its far LODs decimate the thin diagonal to a sliver. The
-                    // procedural spar (cut 1 of the canvas mesh) is one constant width along
-                    // its whole length and costs nothing extra, so it stands at every distance.
-                    int authored = 0;
+                    // The lantina is the authored asset again (0.22.3, assets/elm/lateen_yard - the
+                    // spar as it was taken from the import): scaled to the design line LAT_TACK ->
+                    // LAT_PEAK and slung at its middle on the swung heading, the canvas cut [0]
+                    // hanging under it. 0.22 had replaced it with the procedural spar because the
+                    // scan's far LODs decimate to a sliver; the procedural one now only stands in
+                    // past YARD_ASSET_MIN_PX, where the authored spar would be under a pixel wide.
+                    float spar_len = (LAT_PEAK_Y - LAT_TACK_Y) * mh * 1.41421f;
+                    asset_t *la = asset_find("lateen_yard") ? asset_get_role(ASSET_SHIP_PART, "lateen_yard") : NULL;
+                    int authored = la && lod_px(spar_len * 0.5f, r->camdist) >= YARD_ASSET_MIN_PX;
                     inst_t li = in;
                     li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2; li.scale = mh;
                     li.fx1 = 1.f; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
                     li.ax = r->x; li.az = r->z;
-                    *instlist_push(&lateen_cloth_inst[1]) = li;
-                    (void)sfx; (void)sfz;
+                    *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;
+                    if (authored) {
+                        // the asset's rise is its y extent; scale it to the design line, put its
+                        // middle on the line's middle (the model's pivot is its slung point)
+                        float yext = maxf(la->bmax[1] - la->bmin[1], 1e-3f);
+                        float s = (LAT_PEAK_Y - LAT_TACK_Y) * mh / yext;
+                        float acx = (la->bmin[0] + la->bmax[0]) * 0.5f * s, acy = (la->bmin[1] + la->bmax[1]) * 0.5f * s;
+                        float cx = 0.5f * (LAT_TACK_X + LAT_PEAK_X) * mh - acx, cy = 0.5f * (LAT_TACK_Y + LAT_PEAK_Y) * mh - acy;
+                        inst_t yi = in;
+                        yi.heading = sw; yi.scale = s;
+                        yi.x = bx + sfx * cx; yi.z = bz + sfz * cx; yi.y = deck_y2 + cy;
+                        yi.ax = r->x; yi.az = r->z;
+                        yi.r = 1.f; yi.g = 1.f; yi.b = 1.f;
+                        scene_asset_instance(la, yi, r->key ^ (unsigned)(0x71A3u + k * 0x53u), r->camdist);
+                        shipyard_yards_authored++;
+                    }
                     continue;
                 }
                 // square sails: each layer's canvas and its authored yard on the braced heading

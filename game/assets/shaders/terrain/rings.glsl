@@ -68,3 +68,16 @@ vec4 river_at(vec2 xz){
   vec4 rf = ff > 0.0 ? texture(u_river_far, fuv) : vec4(0.0, 0.5, 0.5, 0.0);
   rf.r *= ff;
   return mix(rf, rn, nf); }
+
+// The rings' land-use masks (gfx/terrain_rings.cc, 0.22.3): R fields, G vineyards, B orchards
+// and olive groves, A villages - what the hinterland is used for, zero on the sea, the shore,
+// steep and high ground. The terrain shader paints its patterns into them. Read like shore_at.
+uniform sampler2D u_landuse; uniform sampler2D u_landuse_far;
+vec4 landuse_at(vec2 xz){
+  vec2 nuv = (xz - u_det_rect.xy) * u_det_rect.zw;
+  vec2 fuv = (xz - u_det_far_rect.xy) * u_det_far_rect.zw;
+  float nf = u_det_on.x > 0.5 ? det_fade(nuv) : 0.0;
+  float ff = u_det_on.y > 0.5 ? det_fade(fuv) : 0.0;
+  vec4 ln = nf > 0.0 ? texture(u_landuse, nuv) : vec4(0.0);
+  vec4 lf = ff > 0.0 ? texture(u_landuse_far, fuv) * ff : vec4(0.0);
+  return mix(lf, ln, nf); }

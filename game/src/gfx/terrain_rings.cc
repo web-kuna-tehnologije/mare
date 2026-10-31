@@ -29,7 +29,9 @@ extern "C" {
 #include "../world/terrain_chunks.h"
 #include "../world/rivers.h"
 #include "../world/roads.h"
+#include "../world/regions.h"
 #include "terrain_atlas.h"
+#include "scatter.h"
 #include "../assets/asset.h"
 }
 
@@ -60,6 +62,7 @@ public:
     const rhi_texture_t *detail_tex(int ring);
     const rhi_texture_t *shore_tex(int ring);
     const rhi_texture_t *river_tex(int ring);
+    const rhi_texture_t *landuse_tex(int ring);
     void   detail_rect(int ring, float out[4]);
     float  detail_texel(int ring);
     int    rings() { return SV_RINGS; }
@@ -70,10 +73,12 @@ private:
     typedef struct sv_ring_t {
         rhi_texture_t tex;
         rhi_texture_t shore_tex;         // the shore mask (0.22): R cliff, G beach, B marsh, A exposure
-        rhi_texture_t river_tex;         // the rivers (0.22): R water, G/B flow direction, A width
+        rhi_texture_t river_tex;         // the rivers (0.22): R water, G/B flow direction, A road
+        rhi_texture_t landuse_tex;       // the hinterland (0.22.3): R fields, G vineyards, B orchards/olive groves, A villages
         float   *buf;
         unsigned char *shore;            // RGBA8, same grid
         unsigned char *river;            // RGBA8, same grid
+        unsigned char *landuse;          // RGBA8, same grid
         int      res;                    // texels per edge
         float    extent;                 // world units covered
         int      max_level;              // finest tile level this ring may sample (Nyquist, above)
@@ -92,8 +97,9 @@ private:
 
     // one row band of a ring; reads tile payloads which only ever appear (never vanish) while the
     // main thread sits in the parallel_for below
-    typedef struct sv_fill_t { float *buf; unsigned char *shore; unsigned char *river; const river_grid_t *rg; const road_grid_t *rdg; int res; float x0, z0, step; int max_level;
+    typedef struct sv_fill_t { float *buf; unsigned char *shore; unsigned char *river; unsigned char *landuse; const river_grid_t *rg; const road_grid_t *rdg; int carve; int res; float x0, z0, step; int max_level;
                                float port_xz[96][3]; int nports;   // land anchor x, z and the wall radius to keep (the harbours inside the ring: coast polish keeps clear of them)
+                               float set_xz[192][4]; int nsets;    // settlements in and around the ring (land use, 0.22.3): x, z, built radius, kind (0 farm village, 1 mine, 2 fur post, 3 port town)
                                int src[SV_MAX_SLOTS][3]; } sv_fill_t;   // per worker slot: texels answered by a chunk, by a chunk with maps, cliff texels (no atomics: the bands are disjoint)
     static void sv_fill_rows(void *arg, int begin, int end, int slot);
     double sv_ring_compose(sv_ring_t *r, float cx, float cz);
@@ -311,15 +317,18 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             shore[2] = (unsigned char)(255.f * clampf(marsh * w, 0.f, 1.f));
             shore[3] = (unsigned char)(255.f * clampf(portw * (1.f - marsh) * w, 0.f, 1.f));
         }
-        // Rivers (world/rivers.h): the channel is cut into the ring - a flat bed hw wide, banks
-        // sloping back over another 1.5 hw - and the river texture says where the water is and
-        // which way it runs. Deeper for a wider river (0.02 .. 0.06 units: 9 .. 27 m before the
-        // world's vertical exaggeration). Not inside the shore band: the mouth meets the sea's
-        // own profile there, and the river texture carries the water across it.
+        // Rivers (world/rivers.h). By default (0.22.3) nothing is carved: the river texture says
+        // where the water is, at the river's true hairline width, and which way it runs, and
+        // terrain.frag paints it on the ground as it stands. With MARE_RIVER_CARVE=1 the 0.22.1
+        // channel comes back: a navigable reach cut below sea level so the sea pass fills it,
+        // a stream with a shallow bed. The 0.22.2 canyons are gone for good - they cut gorges
+        // through every range the big rivers rise in. Not inside the shore band: the mouth meets
+        // the sea's own profile there, and the river texture carries the water across it.
         unsigned char river[4] = { 0, 0, 0, 0 };
         if (f->rg && dcs > -1.5f) {
             float rd = 0, rhw = 0, rdx = 1, rdz = 0; int rcls = 0;
             if (rivers_grid_query(f->rg, wx, wz, &rd, &rhw, &rdx, &rdz, &rcls)) {
+                if (!f->carve) rhw = minf(rhw, 0.05f);          // painted: never wider than ~350 m of ground
                 // a stream narrower than a ring texel falls between the samples: it is drawn at
                 // 0.6 of a texel and faded by how much narrower it really is
                 float rw = maxf(rhw, 0.6f * f->step);
@@ -330,34 +339,20 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                     // the Danube at Belgrade, the Sava at Zagreb. The same river higher up is
                     // only painted on the ground: a bed forced down to sea level through a
                     // mountain would be a canyon, not a river.
-                    float lowland = rcls ? 1.f - smoothstep_(1.3f, 2.6f, base) : 0.f;
+                    float lowland = f->carve && rcls ? 1.f - smoothstep_(1.3f, 2.6f, base) : 0.f;
                     if (lowland > 0.01f) {
                         float bed  = rcls == 1 ? -0.34f : -0.20f;       // deep enough for the draught the class carries
                         float bank = smoothstep_(0.72f * rw, 2.3f * rw, rd);
                         float target = lerpf(bed, maxf(base, 0.05f), bank);
                         d = lerpf(d, target - base, wk * lowland);
                     }
-                    // Canyons (0.22.2). Where a sizeable river runs through high ground it has cut a
-                    // gorge: a flat floor with the stream on it, walls that rise steeply within a
-                    // quarter width, deeper the higher the land stands. The walls are written into
-                    // the shore mask's cliff channel, so terrain.frag paints them as bare rock with
-                    // scree at the foot - the same material the sea cliffs use. Small streams keep
-                    // their shallow bed: a brook does not carve a canyon.
-                    float hill  = rcls ? 1.f - lowland : smoothstep_(1.0f, 2.0f, base);
-                    float gorge = hill * smoothstep_(0.04f, 0.22f, rhw) * wk;
-                    if (gorge > 0.01f) {
-                        float depth = 0.28f + 0.42f * clampf(base - 0.9f, 0.f, 2.f);
-                        float wall  = smoothstep_(0.85f * rw, 1.30f * rw, rd);
-                        d -= depth * (1.f - wall) * gorge;
-                        float rock = (1.f - smoothstep_(1.7f * rw, 2.5f * rw, rd)) * smoothstep_(0.35f * rw, 0.9f * rw, rd) * gorge;
-                        unsigned char rc = (unsigned char)(255.f * clampf(rock, 0.f, 1.f));
-                        if (rc > shore[0]) shore[0] = rc;
-                    }
-                    if (lowland < 0.99f) {   // the painted stream: a shallow bed with water drawn on it
+                    if (lowland < 0.99f) {   // the painted stream: water drawn on the ground (a shallow bed only when carving)
                         float k = 1.f - lowland;
-                        float bankp = clampf((rd - rw) / (1.5f * rw), 0.f, 1.f);
-                        float cut = (0.02f + 0.6f * rhw) * (1.f - bankp * bankp * (3.f - 2.f * bankp));
-                        d -= cut * wk * k;
+                        if (f->carve) {
+                            float bankp = clampf((rd - rw) / (1.5f * rw), 0.f, 1.f);
+                            float cut = (0.02f + 0.6f * rhw) * (1.f - bankp * bankp * (3.f - 2.f * bankp));
+                            d -= cut * wk * k;
+                        }
                         float water = (1.f - smoothstep_(0.80f, 1.10f, rd / rw)) * clampf(rhw / (0.35f * f->step), 0.22f, 1.f) * k;
                         river[0] = (unsigned char)(255.f * clampf(water * (dcs > -1.0f ? 1.f : 0.f) * portw, 0.f, 1.f));
                     }
@@ -376,9 +371,75 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                 river[3] = (unsigned char)(255.f * clampf(road, 0.f, 1.f));
             }
         }
+        // The hinterland (0.22.3, docs/TODO.md 7a/7b/7c): what the land is *used* for, as four
+        // masks the terrain shader paints its patterns into - strip fields, vine rows, orchard
+        // and olive grids, village roofs. Baked here, on the ring's grid, from the export's land
+        // cover and slope, the region's goods, the roads and the settlements; nothing is carved
+        // and nothing is an object. Zero on the sea, the beach, steep ground and high ground.
+        unsigned char landuse[4] = { 0, 0, 0, 0 };
+        if (dcs > 0.6f && base > 0.03f) {
+            gc_sample_t gu; int has = geochunks_sample(lon, lat, &gu) && gu.has_maps;
+            float slope, aspect_s;
+            if (has) { slope = sqrtf(gu.normal[0] * gu.normal[0] + gu.normal[2] * gu.normal[2]) / maxf(gu.normal[1], 0.05f); aspect_s = gu.normal[2]; }
+            else { float hx = world_height(wx + cell, wz) - world_height(wx - cell, wz), hz = world_height(wx, wz + cell) - world_height(wx, wz - cell);
+                   slope = sqrtf(hx * hx + hz * hz) / (2.f * cell); aspect_s = hz / (2.f * cell); }
+            int biome = has ? gu.biome : GC_BIOME_GRASS;
+            float crop = biome == GC_BIOME_CROPS ? 1.f : biome == GC_BIOME_GRASS ? 0.5f : biome == GC_BIOME_SHRUBS ? 0.25f : biome == GC_BIOME_TREES ? 0.08f : 0.f;
+            // slopes here are the *drawn* world's (the export normal is exaggerated ~15x), so a
+            // Po-plain field grade reads 0.05 and a real hillside 0.3-0.8
+            float gentle = 1.f - smoothstep_(0.28f, 0.60f, slope);
+            float low    = 1.f - smoothstep_(1.6f, 2.6f, base);
+            // the nearest settlement, and the built disc it stands in
+            float ds = 1e9f, rs = 0.1f, village = 0.f; int skind = 0;
+            for (int q = 0; q < f->nsets; ++q) {
+                float dq = dist2d(wx, wz, f->set_xz[q][0], f->set_xz[q][1]);
+                if (dq < ds) { ds = dq; rs = f->set_xz[q][2]; skind = (int)f->set_xz[q][3]; }
+                if (f->set_xz[q][3] < 2.5f) village = maxf(village, 1.f - smoothstep_(f->set_xz[q][2] * 0.8f, f->set_xz[q][2] * 1.15f, dq));
+            }
+            float near_set  = 1.f - smoothstep_(rs * 1.5f, rs * 1.5f + 1.3f, ds);
+            float near_road = 0.f, rdd = 1e9f;
+            { float rh; int rc; if (f->rdg && roads_grid_query(f->rdg, wx, wz, &rdd, &rh, &rc)) near_road = 1.f - smoothstep_(0.12f, 0.7f, rdd); }
+            float patch  = world_fbm(lon * 9.f + 2.f, lat * 9.f + 4.f, 2, 0x4C11u);
+            float patch2 = world_fbm(lon * 21.f + 6.f, lat * 21.f + 1.f, 2, 0x2E53u);
+            // fields: cropland on gentle low ground, thickest round the villages and along the roads
+            float fields = crop * gentle * low * clampf(0.62f + 0.38f * maxf(near_set, 0.7f * near_road), 0.f, 1.f) * (0.72f + 0.28f * smoothstep_(0.35f, 0.6f, patch));
+            // the region's goods decide what grows on the slopes
+            int reg = region_at(wx, wz);
+            float wine_pot = reg >= 0 && reg < G.nregions ? G.regions[reg].potential[G_WINE] : 0.f;
+            // the olive belt: the Mediterranean to ~44.5 N, and the coasts a little further (Liguria,
+            // Istria, Lake Garda is the limit) - the Po plain is not olive country
+            float coastal = 1.f - smoothstep_(3.f, 7.f, dcs);
+            float medb = smoothstep_(35.f, 37.f, lat) * (1.f - smoothstep_(44.2f + 1.2f * coastal, 45.0f + 1.2f * coastal, lat)) * smoothstep_(-10.f, -6.f, lon) * (1.f - smoothstep_(36.f, 40.f, lon));
+            float wine = maxf(smoothstep_(0.25f, 0.6f, wine_pot), 0.35f * medb);
+            float sunny = clampf(0.45f + 3.0f * aspect_s, 0.f, 1.f);
+            float vine = wine * smoothstep_(0.06f, 0.16f, slope) * (1.f - smoothstep_(0.5f, 0.8f, slope)) * sunny
+                       * (1.f - smoothstep_(0.9f, 1.6f, base)) * (crop >= 0.25f ? 1.f : 0.35f)
+                       * smoothstep_(0.52f, 0.62f, patch2) * (0.5f + 0.5f * near_set);
+            // orchards round the villages; olive groves across the Mediterranean belt's slopes
+            float orch  = (1.f - smoothstep_(rs * 1.2f, rs * 1.2f + 0.55f, ds)) * gentle * low * (crop > 0.05f ? 1.f : 0.f) * smoothstep_(0.54f, 0.64f, patch2 * 0.6f + patch * 0.4f);
+            float olive = medb * smoothstep_(0.10f, 0.22f, slope) * (1.f - smoothstep_(0.55f, 0.85f, slope)) * (1.f - smoothstep_(1.0f, 1.6f, base)) * (crop > 0.05f ? 1.f : 0.f)
+                        * smoothstep_(0.57f, 0.66f, world_fbm(lon * 13.f + 9.f, lat * 13.f + 3.f, 2, 0x7A21u)) * (0.4f + 0.6f * near_set);
+            // roadside hamlets: a few of the 0.9-unit cells along a road get a cluster of houses
+            float hamlet = 0.f;
+            if (rdd < 0.08f && fields > 0.25f) {
+                float cxh = floorf(wx / 0.9f), czh = floorf(wz / 0.9f);
+                float hh = world_fbm(cxh * 0.37f + 0.5f, czh * 0.37f + 0.5f, 1, 0x1D5Bu);
+                float dcell = dist2d(wx, wz, (cxh + 0.5f) * 0.9f, (czh + 0.5f) * 0.9f);
+                if (hh > 0.62f) hamlet = (1.f - smoothstep_(0.045f, 0.075f, rdd)) * (1.f - smoothstep_(0.16f, 0.26f, dcell));
+            }
+            float built = maxf(village, hamlet) * (1.f - smoothstep_(0.5f, 0.8f, slope));
+            (void)skind;
+            fields = fields * (1.f - 0.85f * built); vine *= 1.f - built; orch = maxf(orch, olive) * (1.f - built);
+            vine *= 1.f - orch * 0.8f; fields *= 1.f - maxf(vine, orch) * 0.7f;
+            landuse[0] = (unsigned char)(255.f * clampf(fields, 0.f, 1.f));
+            landuse[1] = (unsigned char)(255.f * clampf(vine, 0.f, 1.f));
+            landuse[2] = (unsigned char)(255.f * clampf(orch, 0.f, 1.f));
+            landuse[3] = (unsigned char)(255.f * clampf(built, 0.f, 1.f));
+        }
         f->buf[j * f->res + i] = d;
         memcpy(f->shore + ((size_t)j * f->res + i) * 4, shore, 4);
         memcpy(f->river + ((size_t)j * f->res + i) * 4, river, 4);
+        memcpy(f->landuse + ((size_t)j * f->res + i) * 4, landuse, 4);
     }
     // a band's own tally, folded in once (the rows are disjoint, so this is a plain add per
     // worker rather than a contended counter per texel)
@@ -399,7 +460,7 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     double t0 = diag_now();
     float step = r->extent / (r->res - 1);
     sv_fill_t f;                                 // snapped to the sample grid so detail never swims
-    f.buf = r->buf; f.shore = r->shore; f.river = r->river; f.res = r->res;
+    f.buf = r->buf; f.shore = r->shore; f.river = r->river; f.landuse = r->landuse; f.res = r->res; f.carve = rivers_carve_enabled();
     f.x0 = floorf((cx - r->extent * 0.5f) / step) * step;
     f.z0 = floorf((cz - r->extent * 0.5f) / step) * step;
     f.step = step; f.max_level = r->max_level;
@@ -416,6 +477,19 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
         if (px < f.x0 - margin || px > f.x0 + r->extent + margin || pz < f.z0 - margin || pz > f.z0 + r->extent + margin) continue;
         f.port_xz[f.nports][0] = px; f.port_xz[f.nports][1] = pz; f.port_xz[f.nports][2] = keep; f.nports++;
     }
+    f.nsets = 0;   // the settlements the land use gathers round (0.22.3): inland first, then the port towns
+    for (int i = 0; i < G.ninland && f.nsets < 192; ++i) {
+        const inland_t *s = &G.inland[i]; if (!s->alive) continue;
+        if (s->x < f.x0 - 3.f || s->x > f.x0 + r->extent + 3.f || s->z < f.z0 - 3.f || s->z > f.z0 + r->extent + 3.f) continue;
+        float rad = s->kind == INLAND_FARM ? 0.11f + 0.06f * sqrtf(maxf(s->pop, 0.f)) : s->kind == INLAND_MINE ? 0.08f : 0.06f;
+        f.set_xz[f.nsets][0] = s->x; f.set_xz[f.nsets][1] = s->z; f.set_xz[f.nsets][2] = rad; f.set_xz[f.nsets][3] = (float)s->kind; f.nsets++;
+    }
+    for (int i = 0; i < G.nports && f.nsets < 192; ++i) {
+        const port_t *p = &G.ports[i]; if (p->size <= 0) continue;
+        float px = lon2x(p->lon), pz = lat2z(p->lat);
+        if (px < f.x0 - 3.f || px > f.x0 + r->extent + 3.f || pz < f.z0 - 3.f || pz > f.z0 + r->extent + 3.f) continue;
+        f.set_xz[f.nsets][0] = px; f.set_xz[f.nsets][1] = pz; f.set_xz[f.nsets][2] = 0.16f + 0.05f * p->size; f.set_xz[f.nsets][3] = 3.f; f.nsets++;
+    }
     jobs_parallel_for(JOB_LANE_WORKER, sv_fill_rows, &f, r->res, 32);
     {   // what the ring holds: the range of the delta and how much of it the shore work touched
         float mn = 1e9f, mx = -1e9f; int big = 0, nriver = 0;
@@ -426,12 +500,16 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
                   r->extent < 100.f ? "near" : "far", f.x0, f.z0, mn, mx, big, f.nports, sf, sc, su, nriver, rg.nidx);
     }
     LOG_DEBUG("stream", "ring %s rivers: %d segments in the grid", r->extent < 100.f ? "near" : "far", rg.nidx);
-    { int nr = 0; for (int i = 0; i < r->res * r->res; ++i) nr += r->river[i * 4] > 64; LOG_DEBUG("stream", "ring %s rivers: %d water texels", r->extent < 100.f ? "near" : "far", nr); }
+    { int nr = 0, nf = 0, nv = 0, no = 0, nb = 0;
+      for (int i = 0; i < r->res * r->res; ++i) { nr += r->river[i * 4] > 64; nf += r->landuse[i * 4] > 64; nv += r->landuse[i * 4 + 1] > 64; no += r->landuse[i * 4 + 2] > 64; nb += r->landuse[i * 4 + 3] > 64; }
+      LOG_DEBUG("stream", "ring %s rivers: %d water texels; land use: %d field, %d vineyard, %d orchard, %d village texels (over 1/4)", r->extent < 100.f ? "near" : "far", nr, nf, nv, no, nb); }
     rivers_grid_free(&rg); roads_grid_free(&rdg);
     rhi_texture_update(&r->tex, r->buf);
     rhi_texture_update(&r->shore_tex, r->shore);
     rhi_texture_update(&r->river_tex, r->river);
+    rhi_texture_update(&r->landuse_tex, r->landuse);
     r->x0 = f.x0; r->z0 = f.z0; r->on = 1;
+    if (r == &sv_ring[SV_NEAR]) scatter_rebuild(r->landuse, r->buf, r->res, f.x0, f.z0, step);   // the props stand on the near ring's land use (0.22.3)
     return (diag_now() - t0) * 1000;
 }
 
@@ -460,6 +538,8 @@ void StreamView::update() {
             sv_ring[i].shore_tex = rhi_texture_make(res[i], res[i], RHI_FMT_RGBA8, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, sv_ring[i].shore);
             sv_ring[i].river = (unsigned char *)calloc((size_t)res[i] * res[i] * 4, 1);
             sv_ring[i].river_tex = rhi_texture_make(res[i], res[i], RHI_FMT_RGBA8, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, sv_ring[i].river);
+            sv_ring[i].landuse = (unsigned char *)calloc((size_t)res[i] * res[i] * 4, 1);
+            sv_ring[i].landuse_tex = rhi_texture_make(res[i], res[i], RHI_FMT_RGBA8, RHI_FILTER_LINEAR, RHI_WRAP_CLAMP, sv_ring[i].landuse);
             sv_ring[i].extent = extent[i]; sv_ring[i].max_level = lvl[i]; sv_ring[i].last_compose = -1e9;
         }
         const char *e = getenv("MARE_STREAM_TILES"); if (e) stream_show_tiles = atoi(e) != 0;   // overlay on for unattended captures
@@ -518,6 +598,7 @@ void StreamView::update() {
 const rhi_texture_t *StreamView::detail_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].tex : 0; }
 const rhi_texture_t *StreamView::shore_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].shore_tex : 0; }
 const rhi_texture_t *StreamView::river_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].river_tex : 0; }
+const rhi_texture_t *StreamView::landuse_tex(int ring) { return (unsigned)ring < SV_RINGS && sv_ring[ring].on ? &sv_ring[ring].landuse_tex : 0; }
 void StreamView::detail_rect(int ring, float out[4]) {
     const sv_ring_t *r = &sv_ring[(unsigned)ring < SV_RINGS ? ring : 0];
     out[0] = r->x0; out[1] = r->z0; out[2] = 1.f / r->extent; out[3] = 1.f / r->extent;
@@ -594,6 +675,7 @@ void streamview_draw_debug(void) { mare::engine::render::stream_view().draw_debu
 const rhi_texture_t *streamview_detail_tex(int ring) { return mare::engine::render::stream_view().detail_tex(ring); }
 const rhi_texture_t *streamview_shore_tex(int ring) { return mare::engine::render::stream_view().shore_tex(ring); }
 const rhi_texture_t *streamview_river_tex(int ring) { return mare::engine::render::stream_view().river_tex(ring); }
+const rhi_texture_t *streamview_landuse_tex(int ring) { return mare::engine::render::stream_view().landuse_tex(ring); }
 void  streamview_detail_rect(int ring, float out[4]) { mare::engine::render::stream_view().detail_rect(ring, out); }
 float streamview_detail_texel(int ring) { return mare::engine::render::stream_view().detail_texel(ring); }
 int   streamview_rings(void) { return mare::engine::render::stream_view().rings(); }

@@ -41,6 +41,7 @@ extern "C" {
 #include "gfx/occlusion.h"
 #include "gfx/occquery.h"
 #include "gfx/staged_scene.h"
+#include "gfx/scatter.h"
 #include "gfx/weather.h"
 #include "ui/ui.h"
 #include "ui/options.h"
@@ -205,15 +206,37 @@ static int map_chunks_list(const char *spec, unsigned seed) {
     return 0;
 }
 
+// --mask=lon0,lat1,wcells,hcells: print the land mask (and the sign of the base height after the
+// geography fold) as ASCII for a window of land-mask cells, then exit. Headless. The way to see
+// what the coast polygons in data/geo_coast.h actually rasterize to without a screenshot.
+static int mask_dump(const char *spec, unsigned seed) {
+    float lon0 = 16.f, lat1 = 43.6f; int wc = 40, hc = 18;
+    if (sscanf(spec, "%f,%f,%d,%d", &lon0, &lat1, &wc, &hc) < 2) { fprintf(stderr, "--mask=lon0,lat1[,wcells,hcells]\n"); return 2; }
+    world_init(seed);
+    geochunks_init(NULL);
+    terrainmap_bake_geography(NULL);
+    int cx0 = lon2cx(lon0), cy0 = lat2cy(lat1);
+    printf("land mask (# land . sea) and base height (H > 0.35, h > 0, ~ -0.35..0, . deeper) from %.2f,%.2f, %d x %d cells\n", lon0, lat1, wc, hc);
+    for (int y = cy0; y < cy0 + hc && y < LM_H; ++y) {
+        printf("%7.3f ", cy2lat(y));
+        for (int x = cx0; x < cx0 + wc && x < LM_W; ++x) putchar(landmask[y * LM_W + x] ? '#' : '.');
+        printf("   ");
+        for (int x = cx0; x < cx0 + wc && x < LM_W; ++x) { float h = heightmap[y * LM_W + x]; putchar(h > 0.35f ? 'H' : h > 0.f ? 'h' : h > -0.35f ? '~' : '.'); }
+        putchar('\n');
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     unsigned seed = (unsigned)time(0); int autostart = 0, headless = 0, skip = 0, dev = 0;
-    const char *map_chunk = 0, *map_chunks = 0;
+    const char *map_chunk = 0, *map_chunks = 0, *mask_spec = 0;
     diag_config_t dc = { "logs", LOG_WARN, LOG_DEBUG, LOG_TRACE, 0 };
     for (int i = 1; i < argc; ++i) {
         if (!strncmp(argv[i], "--seed=", 7)) seed = (unsigned)atoi(argv[i]+7);
         else if (!strncmp(argv[i], "--nation=", 9)) autostart = atoi(argv[i]+9);
         else if (!strncmp(argv[i], "--simulate=", 11)) headless = atoi(argv[i]+11);
         else if (!strncmp(argv[i], "--map-chunk=", 12)) map_chunk = argv[i]+12;
+        else if (!strncmp(argv[i], "--mask=", 7)) mask_spec = argv[i]+7;
         else if (!strncmp(argv[i], "--map-chunks=", 13)) map_chunks = argv[i]+13;
         else if (!strcmp(argv[i], "--map-chunks")) map_chunks = "3";
         else if (!strncmp(argv[i], "--skip=", 7)) skip = atoi(argv[i]+7);
@@ -236,6 +259,7 @@ int main(int argc, char **argv) {
     options_load();
     if (!getenv("MARE_RHI") && OPT.backend[0]) rhi_select(OPT.backend);
     if (map_chunk) return map_chunk_dump(map_chunk, seed);    // reference image for a map chunk, then out
+    if (mask_spec) return mask_dump(mask_spec, seed);         // ASCII land mask window, then out
     if (map_chunks) return map_chunks_list(map_chunks, seed); // the whole authoring work list, then out
     if (headless) {   // balance run without a window
         world_init(seed); nav_init(); game_new(autostart ? autostart : NATION_NETHERLANDS, seed);
@@ -279,6 +303,7 @@ int main(int argc, char **argv) {
     { double t0 = diag_now(); entities_startup(); entities_load();
       LOG_INFO("main", "%d entities loaded in %.1f ms", entities_count(), (diag_now()-t0)*1000); rhi_check_errors("entities_load"); }
     asset_set_upload_hook(scene_asset_upload);   // finished assets reach the GPU through the MAIN lane, one LOD per budgeted job
+    if (getenv("MARE_SCATTER")) { scatter_enabled = atoi(getenv("MARE_SCATTER")) != 0; LOG_INFO("gfx", "hinterland props %s (MARE_SCATTER)", scatter_enabled ? "on" : "off"); }
     if (getenv("MARE_SHIPS")) { shipyard_enabled = atoi(getenv("MARE_SHIPS")) != 0; LOG_INFO("asset", "authored ships %s (MARE_SHIPS)", shipyard_enabled ? "on" : "off"); }
     if (shipyard_enabled) shipyard_request_all();   // the Gen I hulls, rigs and oars, ahead of the first battle
     U.show_debug = dev;
@@ -531,6 +556,7 @@ int main(int argc, char **argv) {
             else {
                 prof_begin(p_ports); if (U.pass_ports) scene_submit_ports(); prof_end(p_ports);
                 prof_begin(p_ships); if (U.pass_ships) scene_submit_ships(); prof_end(p_ships);
+                if (U.pass_terrain) scatter_submit();   // the hinterland's trees, vines and sheep (0.22.3): main pass only, no shadows
             }
             rhi_gpu_end();
             occq_flush();                       // bounding-box queries against the depth the opaque pass just wrote
