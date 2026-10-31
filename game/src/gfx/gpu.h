@@ -68,7 +68,11 @@ void mb_line(mb_t *m, const float a[3], const float b[3], float halfw, float r, 
 //   partition the screen exactly (no holes, no double coverage, no sorting).
 //   fx1: 1 when the instance is hidden from the camera this frame (occquery.h): the main pass
 //   leaves it out, the shadow pass still draws it. fx2, fx3 are reserved.
-typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway, sel, bob, xlen; float dither, fx1, fx2, fx3;
+typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway, sel, bob, slim; float dither, fx1, fx2, fx3;
+                        // slim > 0 scales the model's x and z only (0.22): a generated mast is
+                        // chunky for its height, and a uniform scale cannot thin a pole without
+                        // shortening it. Spars whose long axis is y (the masts) set it; a yard
+                        // or a bowsprit must not, since their length lies in x or z.
                         float ax, az;   // wave/roll anchor: the hull position a ship part is rigid to (0,0 = this IS the hull)
 } inst_t;
 typedef struct mesh_t { rhi_geometry_t geo; int ninst; } mesh_t;

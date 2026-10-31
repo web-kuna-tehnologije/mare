@@ -160,10 +160,15 @@ static const float nrm_x[3] = { 1, 0, 0 }, nrm_z[3] = { 0, 0, 1 };
 // hang from exactly this line, in mast-height units with the mast axis at x = 0 and the deck at
 // y = 0, so canvas and authored yard coincide by construction when both are instanced on the
 // same swung heading.
-#define LAT_TACK_X  0.56f           // low forward end (the tack)
-#define LAT_TACK_Y  0.08f
-#define LAT_PEAK_X -0.46f           // high aft end (the peak, above the masthead)
-#define LAT_PEAK_Y  1.10f
+// 0.22: the tack was 0.56 mast-heights forward of its mast and only 0.08 above the deck. On a
+// galiot that put the fore end of the yard past the stem and swept the canvas *through* the
+// bulwarks every time the sail was swung. The line is now shorter forward and carried higher,
+// which is also how a settee yard is actually slung - the tack is hauled down to the stemhead,
+// not to the waterline.
+#define LAT_TACK_X  0.44f           // low forward end (the tack)
+#define LAT_TACK_Y  0.15f
+#define LAT_PEAK_X -0.42f           // high aft end (the peak, above the masthead)
+#define LAT_PEAK_Y  1.06f
 // Below this projected size an authored yard would be drawn from a decimated far LOD that has
 // no thickness left (a thin spar decimates to a sliver): the sail's own procedural spar takes
 // over, and the hand-over is a few pixels wide either way.
@@ -340,11 +345,13 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
     // reaching well forward of the mast - to the peak above the masthead. The settee-cut
     // triangle hangs just under it, tack near the rail, clew sheeted aft.
     float ya[3] = { sx + LAT_TACK_X * h, dy + LAT_TACK_Y * h, 0 }, yb[3] = { sx + LAT_PEAK_X * h, dy + LAT_PEAK_Y * h, 0 };
-    if (spars) rig_bar(spars, ya, yb, maxf(RIG_YARD_W, 0.011f * h), spar_col);
+    if (spars) rig_bar(spars, ya, yb, maxf(RIG_YARD_W, 0.0062f * h), spar_col);   // one width end to end, and slimmer (0.22)
     float T[3] = { ya[0] + (yb[0] - ya[0]) * 0.04f, ya[1] + (yb[1] - ya[1]) * 0.04f - 0.014f * h, z };   // head, inset from the ends, just under the spar
     float P[3] = { ya[0] + (yb[0] - ya[0]) * 0.97f, ya[1] + (yb[1] - ya[1]) * 0.97f - 0.014f * h, z };
-    float F[3] = { sx + 0.50f * h, dy + 0.04f * h, z }, C[3] = { sx - 0.40f * h, dy + 0.09f * h, z };    // the foot
-    float hw = 0.40f * h;
+    // the foot: sheeted well above the rail, so a swung sail passes over the deck instead of
+    // through it (0.22)
+    float F[3] = { sx + 0.38f * h, dy + 0.21f * h, z }, C[3] = { sx - 0.35f * h, dy + 0.26f * h, z };
+    float hw = 0.36f * h;
     for (int i = 0; i < N; ++i) {
         float w0 = i / (float)N, w1 = (i + 1) / (float)N;
         int l0 = cloth_level(w0), l1 = cloth_level(w1);
@@ -642,6 +649,15 @@ int Shipyard::push(const shipyard_req_t *r) {
     for (int k = 1; k < nm; ++k) if (c->mast_h[k] > c->mast_h[main]) main = k;
     #define MAST_OVERHANG 1.0f
     #define MAST_TRIM     0.85f
+    // The generated poles are chunky for their height - at the battle zoom a cog's mast read as
+    // a tree trunk - so they are thinned radially (gpu.h inst_t.slim), which a uniform scale
+    // cannot do without losing the height the class table sets.
+    #define MAST_SLIM     0.58f
+    // ... and stepped *into* the ship rather than stood on `deck`. That fraction is a per-class
+    // guess at where the hull model's deck is, and where it guesses high the mast floated a
+    // metre over the planking. A mast is stepped on the keelson in any case, so burying the heel
+    // is both right and the safe direction to be wrong in: the deck hides it.
+    #define MAST_STEP     0.14f
     asset_t *mref = NULL;                                   // the mainmast sizes the rig
     if (c->masts) {
         asset_t *mp[SHIP_MAX_MASTS] = { 0 };
@@ -663,7 +679,8 @@ int Shipyard::push(const shipyard_req_t *r) {
                 float dx = c->mast_at[k] * len;
                 inst_t mi = in;
                 mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
-                mi.y = deck_y;
+                mi.y = deck_y - MAST_STEP * hh;
+                mi.slim = MAST_SLIM;
                 mi.ax = r->x; mi.az = r->z;   // a mast is a fixed part of its ship: same swell, same roll (i_anchor)
                 // Every mast part is fitted to the class's rig height, so the fore/main/mizzen
                 // proportion comes from the class table either way - which keeps it a number
@@ -767,29 +784,19 @@ int Shipyard::push(const shipyard_req_t *r) {
                 if (c->sail[k] == SAIL_LATEEN) {
                     float sw = r->heading + swing;
                     float sfx = cosf(sw), sfz = -sinf(sw);            // forward on the swung heading
-                    float spar_len = (LAT_PEAK_Y - LAT_TACK_Y) * mh * 1.41421f;
-                    asset_t *la = asset_find("lateen_yard") ? asset_get_role(ASSET_SHIP_PART, "lateen_yard") : NULL;
-                    int authored = la && lod_px(spar_len * 0.5f, r->camdist) >= YARD_ASSET_MIN_PX;
+                    // The lantina is drawn procedurally (0.22). The authored `lateen_yard`
+                    // asset is a Meshy scan whose two ends are visibly different thicknesses -
+                    // a lateen antenna is two spars lashed and should read the same at tack and
+                    // peak - and its far LODs decimate the thin diagonal to a sliver. The
+                    // procedural spar (cut 1 of the canvas mesh) is one constant width along
+                    // its whole length and costs nothing extra, so it stands at every distance.
+                    int authored = 0;
                     inst_t li = in;
                     li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2; li.scale = mh;
                     li.fx1 = 1.f; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
                     li.ax = r->x; li.az = r->z;
-                    *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;
-                    if (authored) {
-                        // the asset's rise is its y extent; scale it to the design line, put its
-                        // middle on the line's middle (the model's pivot is its slung point)
-                        float yext = maxf(la->bmax[1] - la->bmin[1], 1e-3f);
-                        float s = (LAT_PEAK_Y - LAT_TACK_Y) * mh / yext;
-                        float acx = (la->bmin[0] + la->bmax[0]) * 0.5f * s, acy = (la->bmin[1] + la->bmax[1]) * 0.5f * s;
-                        float cx = 0.5f * (LAT_TACK_X + LAT_PEAK_X) * mh - acx, cy = 0.5f * (LAT_TACK_Y + LAT_PEAK_Y) * mh - acy;
-                        inst_t yi = in;
-                        yi.heading = sw; yi.scale = s;
-                        yi.x = bx + sfx * cx; yi.z = bz + sfz * cx; yi.y = deck_y2 + cy;
-                        yi.ax = r->x; yi.az = r->z;
-                        yi.r = 1.f; yi.g = 1.f; yi.b = 1.f;
-                        scene_asset_instance(la, yi, r->key ^ (unsigned)(0x71A3u + k * 0x53u), r->camdist);
-                        shipyard_yards_authored++;
-                    }
+                    *instlist_push(&lateen_cloth_inst[1]) = li;
+                    (void)sfx; (void)sfz;
                     continue;
                 }
                 // square sails: each layer's canvas and its authored yard on the braced heading

@@ -113,7 +113,12 @@ int Fleets::index_of(const fleet_t *f) { return (int)(f - G.fleets); }
 
 // returns 0 and cancels the order when the destination is unreachable (never sails over land)
 int Fleets::set_path(fleet_t *f, float tx, float tz) {
+    // rivers (world/rivers.h): a fleet of sloops and fluyts may go up to the shallow reaches,
+    // merchantmen and frigates only into the great rivers' estuaries, anything bigger stays at sea
+    float hull = 0.f; for (int i = 0; i < f->nships; ++i) hull = maxf(hull, ship_types[f->ships[i].type].hull);
+    nav_river_limit = hull <= 60.f ? 2 : hull <= 130.f ? 1 : 0;
     float len = nav_path(f->x, f->z, tx, tz, f->path_x, f->path_z, &f->npath, MAX_WAYPOINTS);
+    nav_river_limit = 0;
     f->pathi = 0;
     if (len < 0 || f->npath == 0) { f->npath = 0; f->order = ORDER_IDLE; f->target_port = -1; f->target_fleet_id = 0; LOG_DEBUG("fleet", "%s: no route to %.1f,%.1f", f->name, x2lon(tx), z2lat(tz)); return 0; }
     return 1;

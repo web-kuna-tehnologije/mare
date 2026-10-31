@@ -18,13 +18,13 @@ extern "C" {
 #include "../world/world.h"
 #include "../world/regions.h"
 #include "../assets/asset.h"
-#include "heightatlas.h"
+#include "chunkatlas.h"
 #include "../engine/shaders.h"
 }
 
 render_frame_t RF;
 int screen_w = 1, screen_h = 1, window_w = 1, window_h = 1;
-int terrain_chunks_drawn, terrain_tris_drawn, terrain_show_regions;
+int terrain_chunks_drawn, terrain_tris_drawn, terrain_show_regions, terrain_map_mode;
 int terrain_ao_on = 1;          // baked horizon occlusion on the ambient term (MARE_TERRAIN_AO=0)
 int terrain_tess_enabled = 1;   // ui/options.h; only consulted when the context supports tessellation
 
@@ -40,6 +40,7 @@ public:
     void init();
     float max_height() { return terrain_hmax; }       // terrain_max_height
     const rhi_texture_t *heightmap_texture() { return &tex_height; }
+    const rhi_texture_t *territory_texture() { return &tex_territory; }
     void territory_upload();
     void draw(float planes[6][4]);
 
@@ -54,6 +55,10 @@ private:
     int tess_on = 0;
     rhi_geometry_t terrain_geo[LODS];
     rhi_texture_t tex_height, tex_territory, tex_ao;
+    rhi_texture_t tex_reginfo;        // 256 x 1 RGBA8: per region, the dominant good + 1 and the development (map modes)
+public:
+    void map_mode_bind(const rhi_pipeline_t *p);
+private:
     int tex_atlas = -1;               // textures.c handle of the ground material atlas (NULL until streamed in)
     static constexpr float lod_dist[LODS-1] = { 45, 110, 240, 520 };
 
@@ -96,7 +101,7 @@ void TerrainRenderer::build_lod(int lod) {
 void TerrainRenderer::init() {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 3, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 3*sizeof(float), 0 } };
-    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_grain", GLSL_ATLAS_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+    static const char *uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_grain", "u_shore", "u_shore_far", "u_river", "u_river_far", "u_time", GLSL_MAPMODE_UNIFORMS, GLSL_CHUNK_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     const rhi_pipeline_desc_t terrain_desc{ .vs = shader_source("terrain/terrain.vert"), .fs = shader_source("terrain/terrain.frag"), .layout = &layout, .uniforms = uniforms, .depth_test = 1, .depth_write = 1 };   // (C compound literal -> named: C++ cannot take &T{...})
     terrain_prg = rhi_pipeline_make(&terrain_desc);
     // Tessellated terrain (GL 4.0; MARE_TERRAIN_TESS=0 reverts to the grids): one 8x8 lattice
@@ -116,7 +121,7 @@ void TerrainRenderer::init() {
             for (int ci = 0; ci < 4; ++ci) { pv[pk++] = corner[ci][0]; pv[pk++] = corner[ci][1]; pv[pk++] = 0; }
         }
         patch_geo = rhi_geometry_make(&layout, pv, TP * TP * 4, 0, 0);
-        static const char *tess_uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_tess", "u_grain", GLSL_ATLAS_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+        static const char *tess_uniforms[] = { "u_vp", "u_origin", "u_size", "u_flatten", "u_hm", "u_geo", "u_k", "u_terr", "u_texel", "u_texel_world", "u_campos", "u_mapness", "u_sky", "u_nation_colors", "u_daylight", "u_regions", "u_terr_texel", "u_ao", "u_ao_on", "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_atlas", "u_has_atlas", "u_tess", "u_grain", "u_shore", "u_shore_far", "u_river", "u_river_far", "u_time", GLSL_MAPMODE_UNIFORMS, GLSL_CHUNK_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
         const rhi_pipeline_desc_t tess_desc{ .vs = shader_source("terrain/terrain_tess.vert"), .fs = shader_source("terrain/terrain.frag"),
                                              .tcs = shader_source("terrain/terrain.tesc"), .tes = shader_source("terrain/terrain.tese"), .patch_verts = 4,
                                              .layout = &layout, .uniforms = tess_uniforms, .depth_test = 1, .depth_write = 1 };
@@ -149,7 +154,8 @@ void TerrainRenderer::init() {
         LOG_INFO("gpu", "terrain horizon occlusion baked (%dx%d) in %.0f ms", aw, ah, (diag_now() - t0) * 1000);
         const char *e = getenv("MARE_TERRAIN_AO"); if (e) terrain_ao_on = atoi(e) != 0;
     }
-    tex_territory = rhi_texture_make(TERR_W, TERR_H, RHI_FMT_RGB8, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
+    tex_territory = rhi_texture_make(TERR_W, TERR_H, RHI_FMT_RGBA8, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
+    tex_reginfo = rhi_texture_make(256, 1, RHI_FMT_RGBA8, RHI_FILTER_NEAREST, RHI_WRAP_CLAMP, 0);
     {   // the ground material atlas, streamed like the sea textures: this worktree's terrain folder first
         char path[600]; FILE *pf;
         snprintf(path, sizeof path, "%s/terrain/terrain_textures.png", asset_root());
@@ -167,10 +173,39 @@ void TerrainRenderer::init() {
 }
 
 void TerrainRenderer::territory_upload() {
-    static unsigned char *rgb; if (!rgb) rgb = (unsigned char *)malloc(TERR_W*TERR_H*3);   // R nation+1, G development*80, B region id+1
-    for (int i = 0; i < TERR_W*TERR_H; ++i) { rgb[i*3] = territory[i]; rgb[i*3+1] = devmap ? devmap[i] : 0; rgb[i*3+2] = regionmap ? regionmap[i] : 0; }
+    static unsigned char *rgb; if (!rgb) rgb = (unsigned char *)malloc(TERR_W*TERR_H*4);   // R nation+1, G development*80, B region id+1, A influence
+    for (int i = 0; i < TERR_W*TERR_H; ++i) { rgb[i*4] = territory[i]; rgb[i*4+1] = devmap ? devmap[i] : 0; rgb[i*4+2] = regionmap ? regionmap[i] : 0; rgb[i*4+3] = influence ? influence[i] : 0; }
     rhi_texture_update(&tex_territory, rgb);
+    // per region: what it mostly produces (the good with the largest potential) and how far it
+    // is developed - the production map mode reads this by the region id in the B channel
+    static unsigned char info[256 * 4];
+    memset(info, 0, sizeof info);
+    for (int r = 0; r < G.nregions && r < 255; ++r) {
+        // the good the region is *known for*: potential weighted by value, so a wine or silver
+        // country is not painted as one more grain plain
+        const region_t *R = &G.regions[r]; int best = -1; float bp = 0.f, total = 0.f;
+        for (int g = 0; g < MAX_GOODS; ++g) { total += R->potential[g]; float v = R->potential[g] * sqrtf((float)goods[g].base_price); if (v > bp) { bp = v; best = g; } }
+        info[(r + 1) * 4 + 0] = (unsigned char)(best + 1);
+        info[(r + 1) * 4 + 1] = (unsigned char)clampf(R->development / 3.f * 255.f, 0.f, 255.f);
+        info[(r + 1) * 4 + 2] = (unsigned char)clampf(total * 40.f, 0.f, 255.f);
+        info[(r + 1) * 4 + 3] = 255;
+    }
+    rhi_texture_update(&tex_reginfo, info);
     territory_dirty = 0;
+}
+
+// The map modes' uniforms (ui.h MAP_MODE_*), bound on the terrain and the sea pipelines. The
+// nations' faiths are not in the data tables, so they live here: a historical reading of
+// the start of the period.
+void TerrainRenderer::map_mode_bind(const rhi_pipeline_t *p) {
+    rhi_set_i1(rhi_uniform(p, "u_mapmode"), terrain_map_mode);
+    // 0 none, 1 Catholic, 2 Protestant, 3 Orthodox, 4 Islam (index 0 = unowned, then nation 0..9)
+    static const float faith[11] = { 0, 1, 1, 2, 1, 2, 1, 1, 4, 2, 0 };
+    rhi_set_f1v(rhi_uniform(p, "u_nation_religion"), faith, 11);
+    float gc[(MAX_GOODS + 1) * 3] = { 0.5f, 0.5f, 0.5f };
+    for (int g = 0; g < MAX_GOODS; ++g) { unsigned c = goods[g].color; gc[(g + 1) * 3] = col_r(c); gc[(g + 1) * 3 + 1] = col_g(c); gc[(g + 1) * 3 + 2] = col_b(c); }
+    rhi_set_f3v(rhi_uniform(p, "u_good_colors"), gc, MAX_GOODS + 1);
+    rhi_set_i1(rhi_uniform(p, "u_reginfo"), 16); rhi_texture_bind(16, &tex_reginfo);
 }
 
 int TerrainRenderer::aabb_visible(float planes[6][4], float x0, float y0, float z0, float x1, float y1, float z1) {
@@ -213,9 +248,18 @@ void TerrainRenderer::draw(float planes[6][4]) {
       rhi_set_i1(UNI(terrain_prg,"u_atlas"), 8); rhi_texture_bind(8, atlas ? atlas : &tex_territory);
       rhi_set_f1(UNI(terrain_prg,"u_has_atlas"), atlas ? 1.f : 0.f); }
     rhi_set_i1(UNI(terrain_prg,"u_grain"), 9); rhi_texture_bind(9, detail_grain());   // micro relief on the close ground (0.19 materials)
-    // the resident fine tiles at their own resolution (0.20): the ring texel is what the
-    // shader treats as "already carried", so the atlas only adds what is finer than that
-    heightatlas_bind(&terrain_prg, 10, 11, streamview_detail_texel(0));
+    // the chunks' material maps (0.22): class, splat and normal atlases plus the slot table
+    chunkatlas_bind(&terrain_prg, 10, 11, 12, 13);
+    {   // the rings' shore masks, same rects as the detail rings: what kind of coast a texel is
+        const rhi_texture_t *sn = streamview_shore_tex(0), *sf = streamview_shore_tex(1);
+        rhi_set_i1(UNI(terrain_prg,"u_shore"), 14);     rhi_texture_bind(14, sn ? sn : &tex_territory);
+        rhi_set_i1(UNI(terrain_prg,"u_shore_far"), 15); rhi_texture_bind(15, sf ? sf : &tex_territory);
+        const rhi_texture_t *vn = streamview_river_tex(0), *vf = streamview_river_tex(1);
+        rhi_set_i1(UNI(terrain_prg,"u_river"), 18);     rhi_texture_bind(18, vn ? vn : &tex_territory);
+        rhi_set_i1(UNI(terrain_prg,"u_river_far"), 19); rhi_texture_bind(19, vf ? vf : &tex_territory);
+    }
+    rhi_set_f1(UNI(terrain_prg,"u_time"), RF.time);
+    map_mode_bind(&terrain_prg);
     rhi_set_f4(UNI(terrain_prg,"u_geo"), LON0, LON1, LAT0, LAT1);
     rhi_set_f1(UNI(terrain_prg,"u_k"), WORLD_K);
     rhi_set_f2(UNI(terrain_prg,"u_texel"), 1.f/LM_W, 1.f/LM_H);
@@ -255,6 +299,8 @@ extern "C" {
 float terrain_max_height(void) { return mare::engine::render::terrain_renderer().max_height(); }
 void terrain_init(void) { mare::engine::render::terrain_renderer().init(); }
 const rhi_texture_t *terrain_heightmap_texture(void) { return mare::engine::render::terrain_renderer().heightmap_texture(); }
+const rhi_texture_t *terrain_territory_texture(void) { return mare::engine::render::terrain_renderer().territory_texture(); }
 void render_territory_upload(void) { mare::engine::render::terrain_renderer().territory_upload(); }
+void map_mode_bind(const rhi_pipeline_t *p) { mare::engine::render::terrain_renderer().map_mode_bind(p); }
 void terrain_draw(float planes[6][4]) { mare::engine::render::terrain_renderer().draw(planes); }
 }

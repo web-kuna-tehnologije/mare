@@ -39,7 +39,6 @@ extern "C" {
 #include "camera.h"
 #include "../assets/asset.h"
 #include "../engine/shaders.h"
-#include "heightatlas.h"
 }
 
 int sea_tess_on;                 // the tessellated path is in use (GL 4.0 and not MARE_SEA_TESS=0)
@@ -185,7 +184,7 @@ void Sea::init() {
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                           "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug",
                                           "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs",
-                                          GLSL_ATLAS_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+                                          "u_shore", "u_shore_far", "u_detail_far", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     // (C compound literals -> named descriptors: C++ cannot take &T{...}; the tess one is also
@@ -398,6 +397,9 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     rhi_set_f1(rhi_uniform(p,"u_mapness"), RF.mapness);
     rhi_set_f1(rhi_uniform(p,"u_daylight"), RF.daylight);
     rhi_set_f1(rhi_uniform(p,"u_wave_scale"), wave_scale);
+    // how far the ripple normals, the glitter and the foam keep their detail: with the camera
+    // it looks from, so the sun still lights the sea at the regional zoom (0.22)
+    rhi_set_f1(rhi_uniform(p,"u_detail_far"), maxf(400.f * wave_scale, cam.dist * 6.f + 300.f));
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
     {   // the streamed detail rings (streamview.cc), bound exactly as the terrain binds them,
@@ -414,10 +416,15 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
         rhi_set_f2(rhi_uniform(p,"u_det_on"), dn ? 1.f : 0.f, df ? 1.f : 0.f);
         rhi_set_f2(rhi_uniform(p,"u_det_texel"), streamview_detail_texel(0), streamview_detail_texel(1));
         rhi_set_f1(rhi_uniform(p,"u_mapness_vs"), RF.mapness);
-        // the water has to meet the ground the terrain actually draws, so it reads the same
-        // atlas residual (staged scenes have no heightmap and no atlas)
-        heightatlas_bind(p, 10, 11, local_depth > 0.f ? 0.f : streamview_detail_texel(0));
+        // and the rings' shore masks (cliff, beach, marsh, exposure): where the waves break
+        const rhi_texture_t *sn = local_depth > 0.f ? 0 : streamview_shore_tex(0), *sf = local_depth > 0.f ? 0 : streamview_shore_tex(1);
+        rhi_set_i1(rhi_uniform(p,"u_shore"), 10);     rhi_texture_bind(10, sn ? sn : hm);
+        rhi_set_i1(rhi_uniform(p,"u_shore_far"), 11); rhi_texture_bind(11, sf ? sf : hm);
     }
+    // the map modes (0.22): the sea is coloured by depth or dimmed under a thematic map
+    map_mode_bind(p);
+    rhi_set_i1(rhi_uniform(p,"u_terr"), 17); rhi_texture_bind(17, terrain_territory_texture());
+    rhi_set_f2(rhi_uniform(p,"u_terr_texel"), 1.f/TERR_W, 1.f/TERR_H);
     { static int dbg = -1; if (dbg < 0) { const char *e = getenv("MARE_SEA_DEBUG"); dbg = e ? atoi(e) : 0; }
       rhi_set_f1(rhi_uniform(p,"u_sea_debug"), dbg ? 1.f : 0.f); }
     light_bind(p);

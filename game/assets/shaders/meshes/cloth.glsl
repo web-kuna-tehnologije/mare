@@ -28,12 +28,14 @@
       float press = wxs * cnrm.x + wzs * cnrm.z;
       float fill = abs(cnrm.x) > 0.5 ? press + way * 0.9 : (abs(press) < 0.15 ? 0.15 : press);
       float mag = clamp(abs(fill), 0.0, 1.4), dir = fill < 0.0 ? -1.0 : 1.0;
-      float fn = 0.3 + 0.7 * min(mag, 1.0);
+      float fn = 0.45 + 0.55 * min(mag, 1.0);
+// 0.22: a drawing sail is never flat. Even in a light air the canvas holds its round, which is
+// what the reference sheet (assets/fleet_sails.png) shows and what the old 0.3 floor missed.
       float prof = sin(3.14159 * min(cw * 0.82, 1.0));
 // zero at the yard, fullest two thirds down, held at the foot
       float across = 0.35 + 0.65 * cos(cu * 1.5708);
 // the leeches are held by their bowlines
-      float belly = hw * 0.42 * fn * prof * across;
+      float belly = hw * 0.52 * fn * prof * across;
 // fuller than the old 0.28: the reference sheet's canvas is round with wind
       if (dir < 0.0) {
 // Aback - the wind blows straight onto the ship: the canvas is thrown back against its own

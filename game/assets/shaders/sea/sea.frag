@@ -18,6 +18,8 @@ uniform vec4 u_hole;
 uniform vec2 u_clip;
 // x = world z the water stops at, y = 1 when that clip is on (staged city: the shore)
 uniform float u_sea_debug;
+uniform float u_detail_far;
+// how far the ripple detail, glitter and foam keep their strength: scales with the camera (sea.cc)
 // MARE_SEA_DEBUG=1: red = depth/2, green = land reading, blue = refraction on
 out vec4 fragColor;
 #include "common/color.glsl"
@@ -26,14 +28,18 @@ out vec4 fragColor;
 #include "common/nmap.glsl"
 #include "common/fog.glsl"
 #include "terrain/detail.glsl"
-#include "terrain/atlas.glsl"
+#include "common/mapmode.glsl"
+uniform sampler2D u_terr; uniform vec2 u_terr_texel;
+float shash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+float snoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f);
+  return mix(mix(shash(i),shash(i+vec2(1,0)),f.x), mix(shash(i+vec2(0,1)),shash(i+vec2(1,1)),f.x), f.y); }
 float depth_at(vec2 pp) {
 // water depth from the heightmap plus the streamed detail rings (staged scenes: constant)
   if (u_local_depth > 0.0) return u_local_depth;
   float lon = pp.x / u_k, lat = -pp.y / u_k;
   vec2 uv = vec2((lon - u_geo.x)/(u_geo.y-u_geo.x), (u_geo.w - lat)/(u_geo.w-u_geo.z));
   float h = texture(u_hm, uv).r + det_at(pp) * (1.0 - u_mapness);
-  return max(-ha_shape(h, pp, 1.0 - u_mapness), 0.0);
+  return max(-h, 0.0);
 }
 void main(){
   if (u_hole.w > 0.5) {
@@ -48,7 +54,17 @@ void main(){
   float lon = v_wpos.x / u_k, lat = -v_wpos.z / u_k;
   float depth = max(-v_h, 0.0);
   float dist = distance(v_wpos, u_campos);
+// Two reaches (0.22). The ripple normal maps and the foam textures keep their old reach -
+// at the regional zoom a ripple is well under a pixel and the maps alias into streaks - but
+// the sun's glitter and the caustics follow the camera (u_detail_far), so the sea is still lit
+// by the sun from far above instead of going flat past a fixed line.
   float detail = (1.0 - smoothstep(60.0 * u_wave_scale, 400.0 * u_wave_scale, dist)) * v_edge;
+  float dfar = max(400.0 * u_wave_scale, u_detail_far);
+  float detail_lit = (1.0 - smoothstep(0.15 * dfar, dfar, dist)) * v_edge;
+// the sun's shadow on the water from the land: a cliff coast or a mountain range to the
+// south-west puts the bay at its foot in shade (terrain/detail.glsl det_sun_occ)
+  if (u_local_depth <= 0.0) { float ok = 1.0 - smoothstep(500.0, 900.0, dist);
+    if (ok > 0.01) g_sun_occ = mix(1.0, max(det_sun_occ(v_wpos, u_sun, u_hm, u_geo, u_k, u_mapness), 0.55), ok); }
   vec2 p = v_wpos.xz / u_wave_scale; float t = u_time;
 // two scrolling samples of the tileable wave normal map, large swell + fine chop, riding on
 // top of the Gerstner normal (which carries the shape, this carries the ripple)
@@ -86,6 +102,9 @@ void main(){
 // first), so past a few units of depth the seabed - and whether a terrain chunk was drawn
 // there at all - no longer shows. Samples that land on something in front of the water
 // (a hull) fall back to the straight-down sample.
+  vec3 alb1 = texture(u_albedo, p * 0.33 + u_drift1).rgb;
+  vec3 alb2 = texture(u_albedo, p * 1.15 + u_drift2 + vec2(0.37, 0.11)).rgb;
+  float lum1 = dot(alb1, vec3(0.3, 0.5, 0.2)), lum2 = dot(alb2, vec3(0.3, 0.5, 0.2));
   vec3 vdir0 = normalize(u_campos - v_wpos);
   vec3 body0 = sun_shade(c, normalize(wn + vec3(slope.x, 0.0, slope.y)), vdir0, v_wpos, 0.9, 0.0, dist);
 // the lit water column: what the refraction fades *into*
@@ -112,14 +131,20 @@ void main(){
     vec3 tr = exp(-absorb * depth * 1.05);
 // Mix towards the *lit* water column, not the raw body colour: the sunlit seabed is twenty
 // times brighter than an unlit blue, and won every shallow pixel however small `tr` was.
+// Caustics (0.22): the surface focuses the sun on the shallow bottom - the two ripple layers
+// bright crossings, sharpened, scrolling with them, fading out where the bottom is too deep
+// to see and when the sun is low or the land shades the water.
+// Caustics: the surface focuses the sun on a bottom shallow enough to see. Clamped hard - the
+// first cut multiplied the seabed by up to 3.4 and turned every shelf into white bands (0.22).
+    float cau = pow(clamp(lum1 * 0.6 + lum2 * 0.7, 0.0, 1.0), 3.0);
+    float caufade = smoothstep(1.2, 0.2, depth) * smoothstep(0.02, 0.18, depth)
+                  * clamp(u_sun.y * 2.0, 0.0, 1.0) * g_sun_occ * detail_lit;
+    bg *= 1.0 + clamp(cau * caufade, 0.0, 0.45);
     refr = mix(body0, bg, tr); refr_on = 1.0;
   }
 // authored surface: the foam albedo rides the swell layer (and a finer copy the chop), its
 // bright streaks become whitecaps over the depth colour and its tonal variation breaks up
 // the flat gradient; everything fades out with `detail` like the normals do
-  vec3 alb1 = texture(u_albedo, p * 0.33 + u_drift1).rgb;
-  vec3 alb2 = texture(u_albedo, p * 1.15 + u_drift2 + vec2(0.37, 0.11)).rgb;
-  float lum1 = dot(alb1, vec3(0.3, 0.5, 0.2)), lum2 = dot(alb2, vec3(0.3, 0.5, 0.2));
   float streak = max(smoothstep(0.22, 0.58, lum1), 0.5 * smoothstep(0.24, 0.62, lum2)) * u_has_albedo * detail;
   c *= mix(1.0, clamp(0.80 + lum1 * 3.0, 0.7, 1.35), 0.30 * u_has_albedo * detail);
   vec3 vdir = normalize(u_campos - v_wpos);
@@ -153,7 +178,7 @@ void main(){
 // a narrow glitter. A real sea's highlight is thousands of points, not one smooth patch.
   vec3 nsp = normalize(wn + vec3(slope.x, 0.0, slope.y) * 2.6);
   float sp = pow(max(dot(nsp, normalize(u_sun + vdir)), 0.0), 190.0);
-  glint += u_suncol * sp * 0.22 * detail * (1.0 - 0.6 * u_calm);
+  glint += u_suncol * sp * 0.22 * max(detail, 0.45 * detail_lit) * (1.0 - 0.6 * u_calm);
   vec3 body = sun_shade(c, n, vdir, v_wpos, 0.9, 0.0, dist);
 // the little diffuse the suspended sediment gives
   vec3 col3d = mix(mix(body, refr, refr_on), skyrefl, fres3) + glint;
@@ -185,6 +210,19 @@ void main(){
   float surf = band * (0.3 + 0.7 * max(v_crest, fold)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail;
 // Shoreline: the thin lapping line at the waterline, as before.
   float foam = (1.0 - smoothstep(0.0, 0.26 * sc, depth)) * (0.55 + 0.45*sin(depth*30.0/sc - t*2.0 + w1)) * detail;
+// The coast the waves meet (0.22, the rings' shore mask): R cliff, G beach, B marsh, A exposure.
+// Waves come in *sets* - a forty-second swell of bigger ones, then a lull - and every set's
+// wave breaks differently on each coast: on a cliff it slams the face and bursts into a sheet
+// of white at its foot (the terrain shader throws the spray up the rock); on a beach the surf
+// sheet runs further up the sand with each set and drains back; a marsh takes no surf at all.
+  vec4 sh = shore_at(v_wpos.xz);
+  float sets = 0.55 + 0.45 * sin(t * 0.157);
+  float wph = t * 0.8 + snoise(hp * 6.0 / sc) * 6.2832;
+  float crash = pow(max(sin(wph), 0.0), 3.0) * sets;
+  float cliffband = (1.0 - smoothstep(0.0, 0.9 * sc, depth)) * sh.r * sh.a;
+  float crashf = cliffband * (0.35 + 0.65 * crash) * (0.5 + 0.8 * surf_tex) * detail;
+  surf *= 1.0 + 0.6 * sh.g * sets;
+  float marshk = 1.0 - 0.85 * sh.b;
 // Ships: white only where the ship is going. The bow wave the vertex stage raised breaks
 // at its crest (v_shipw), the stem throws spray ahead, and the forward half of the hull
 // breaks the water along its shoulders. Nothing trails astern: the long V wake this used to
@@ -218,7 +256,7 @@ void main(){
   shipk *= 1.0 - clamp(shipcrest, 0.0, 0.8);
   float shipf = (1.0 - shipk) * detail;
   vec3 foamcol = srgb_to_linear(vec3(0.93, 0.96, 0.98)) * (u_ambsky * 1.0 + u_suncol * 0.35);
-  float foamall = clamp((caps * 0.9 + surf * 0.8 + shipf + foam * 0.7) * u_foam, 0.0, 1.0);
+  float foamall = clamp((caps * 0.9 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
   col3d = mix(col3d, foamcol, foamall);
   col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);
   float caps_a = foamall;
@@ -238,6 +276,18 @@ void main(){
   alpha = max(alpha, caps_a * 0.9);
 // foam stays visible over the seabed
   alpha = mix(alpha, 1.0, max(u_mapness, refr_on));
+// the map modes (0.22): depth paints the water itself; the thematic modes dim it to a flat
+// grey-blue so the land carries the colour
+  if (u_mapmode > 0 && u_local_depth <= 0.0) {
+// the depth read per fragment from the heightmap and the rings, not the coarse sea grid's
+// interpolated vertex height - that showed every far-grid cell as a block of one colour
+    vec3 mc = u_mapmode == 1 ? mm_depth_color(depth_at(v_wpos.xz)) : vec3(0.30, 0.36, 0.44);
+// replaced outright, lit only by the swell's own shading: any share of the refracted frame
+// would show the terrain chunks drawn under the shallows as 64-cell blocks
+    col = srgb_to_linear(mc) * max(u_daylight, 0.6) * (0.80 + 0.20 * max(dot(wn, u_sun), 0.0));
+    alpha = 1.0;
+  }
+
 // refraction composites the background itself: opaque
   fragColor = vec4(col, alpha);
 }

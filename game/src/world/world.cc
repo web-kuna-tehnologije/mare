@@ -20,6 +20,7 @@ short         *coastdist;
 float         *coastdist_f;
 float         *heightmap;
 unsigned char *territory;
+unsigned char *influence;
 int            territory_dirty = 1;
 
 namespace mare::game::world {
@@ -355,16 +356,17 @@ int World::is_land(float wx, float wz) {
 void World::compute_territory() {
     for (int ty = 0; ty < TERR_H; ++ty) for (int tx = 0; tx < TERR_W; ++tx) {
         int mx = tx*TERR_DIV + TERR_DIV/2, my = ty*TERR_DIV + TERR_DIV/2, i = ty*TERR_W+tx;
-        territory[i] = 0;
+        territory[i] = 0; influence[i] = 0;
         if (!landmask[my*LM_W+mx]) continue;
-        float lon = cx2lon(mx), lat = cy2lat(my), best = 1e9f; int bn = 0;
+        float lon = cx2lon(mx), lat = cy2lat(my), best = 1e9f, bestk = 0.f; int bn = 0;
         for (int p = 0; p < G.nports; ++p) {
             const port_t *pt = &G.ports[p]; if (pt->size <= 0) continue;
             float r = 1.2f + 1.1f * pt->size + pt->building[B_FORT]*0.4f;
             float dx = (pt->lon - lon) * cosf(lat*0.01745f), dy = pt->lat - lat, d = sqrtf(dx*dx+dy*dy);
-            if (d < r && d < best) { best = d; bn = pt->nation + 1; }
+            if (d < r && d < best) { best = d; bn = pt->nation + 1; bestk = 1.f - d / r; }
         }
         territory[i] = (unsigned char)bn;
+        influence[i] = (unsigned char)(clampf(bestk, 0.f, 1.f) * 255.f + 0.5f);
     }
     territory_dirty = 2;
 }
@@ -378,6 +380,7 @@ void World::init(unsigned seed) {
     coastdist = (short *)calloc(LM_W*LM_H, sizeof(short));
     heightmap = (float *)calloc(LM_W*LM_H, sizeof(float));
     territory = (unsigned char *)calloc(TERR_W*TERR_H, 1);
+    influence = (unsigned char *)calloc(TERR_W*TERR_H, 1);
     for (unsigned i = 0; i < sizeof(geo_land)/sizeof(geo_land[0]); ++i)  raster_polygon(geo_land[i], 1);
     for (unsigned i = 0; i < sizeof(geo_water)/sizeof(geo_water[0]); ++i) raster_polygon(geo_water[i], 0);
     for (unsigned i = 0; i < sizeof(geo_straits)/sizeof(geo_straits[0]); ++i) raster_strait(geo_straits[i].pts, geo_straits[i].halfwidth);

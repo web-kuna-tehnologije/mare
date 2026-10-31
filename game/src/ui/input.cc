@@ -171,7 +171,12 @@ void Input::camera_input(float dt, int ui_blocked) {
     static int rotating = 0;
     if (mouse_down('m') && !ui_blocked) rotating = 1;
     if (!mouse_held('m')) rotating = 0;
-    if (rotating) { cam.want_yaw += dmx * 0.006f; cam.want_dist *= powf(1.004f, dmy); }
+    // middle drag: yaw sideways, pitch up and down (the wheel zooms). PageUp / PageDown tilt
+    // too, Home levels the tilt back to the zoom's own pitch.
+    if (rotating) { cam.want_yaw += dmx * 0.006f; cam_pitch_user = clampf(cam_pitch_user + dmy * 0.18f, -80.f, 60.f); }
+    if (KHELD(GLFW_KEY_PAGE_DOWN)) cam_pitch_user = clampf(cam_pitch_user - 40.f * dt, -80.f, 60.f);
+    if (KHELD(GLFW_KEY_PAGE_UP))   cam_pitch_user = clampf(cam_pitch_user + 40.f * dt, -80.f, 60.f);
+    if (KDOWN(GLFW_KEY_HOME))      cam_pitch_user = 0.f;
     if (cam.follow_fleet_id) { const fleet_t *f = fleet_by_id(cam.follow_fleet_id); if (f) { float x, z, h; scene_fleet_pos(f, &x, &z, &h); cam.want_tx = x; cam.want_tz = z; } else cam.follow_fleet_id = 0; }
 }
 

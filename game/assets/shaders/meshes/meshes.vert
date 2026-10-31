@@ -10,7 +10,8 @@ out vec3 v_cloth;   // canvas material (meshes.frag): x = 1 on a cloth instance,
 void main(){
   v_dither = i_fx.x;
   float h = i_pos.w; float c = cos(h), s = sin(h);
-  vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;
+  vec3 p = a_pos * i_scol.x;
+  if (i_misc.w > 0.0) { p.x *= i_misc.w; p.z *= i_misc.w; }   // radial slim (gpu.h): thins a mast without shortening it
 #include "meshes/cloth.glsl"
 // Sea motion: roll about the keel plus a slower pitch, two frequencies each so the period 
 // never reads as a loop. i_misc.x carries how hard the ship is working (moored, under way, 

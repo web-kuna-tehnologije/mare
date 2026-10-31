@@ -17,6 +17,8 @@ extern "C" {
 #define NAV_PRE_CHUNKS 8    // parallel chunks for nav_ports_precompute (each owns ~10 MB of scratch)
 
 unsigned char *navgrid;
+unsigned char *navriver;
+int nav_river_limit = 0;
 unsigned char *navcoast;
 
 // Search scratch. A* and the lazily computed distance rows run on the main thread and share
@@ -107,6 +109,7 @@ void Nav::init() {
     double t0 = diag_now(); nav_metrics_init();
     navgrid  = (unsigned char *)calloc(NAV_W*NAV_H, 1);
     navcoast = (unsigned char *)calloc(NAV_W*NAV_H, 1);
+    if (!navriver) navriver = (unsigned char *)calloc(NAV_W*NAV_H, 1);
     nav_scratch_alloc(&S);
     // a nav cell is water if at least half of its sub-cells are water (keeps carved straits open)
     for (int ny = 0; ny < NAV_H; ++ny) for (int nx = 0; nx < NAV_W; ++nx) {
@@ -114,6 +117,10 @@ void Nav::init() {
         for (int sy = 0; sy < NAV_DIV; ++sy) for (int sx = 0; sx < NAV_DIV; ++sx) water += !landmask[(ny*NAV_DIV+sy)*LM_W + nx*NAV_DIV+sx];
         navgrid[ny*NAV_W+nx] = water * 2 >= NAV_DIV*NAV_DIV;
     }
+    // the navigable rivers (world/rivers.h) are water too, kept apart by class so a search
+    // with no river allowance (nav_river_limit 0) never enters them
+    int nriv = 0;
+    for (int i = 0; i < NAV_W*NAV_H; ++i) if (navriver[i]) { if (navgrid[i]) navriver[i] = 0; else { navgrid[i] = 1; nriv++; } }
     for (int ny = 0; ny < NAV_H; ++ny) for (int nx = 0; nx < NAV_W; ++nx) {
         int c = 0;
         if (navgrid[ny*NAV_W+nx])
@@ -133,7 +140,7 @@ void Nav::init() {
             for (int dy = -1; dy <= 1; ++dy) for (int dx = -1; dx <= 1; ++dx) { int nx = cx+dx, ny = cy+dy; if (!nav_ok(nx,ny)) continue; int n = ny*NAV_W+nx; if (!comp[n]) { comp[n] = id; stack[sp++] = n; } } }
     }
     int water = 0; for (int i = 0; i < NAV_W*NAV_H; ++i) water += navgrid[i];
-    LOG_INFO("nav", "navigation grid %dx%d built in %.1f ms: %d water cells in %d separate bodies", NAV_W, NAV_H, (diag_now()-t0)*1000, water, ncomp);
+    LOG_INFO("nav", "navigation grid %dx%d built in %.1f ms: %d water cells (%d of them river) in %d separate bodies", NAV_W, NAV_H, (diag_now()-t0)*1000, water, nriv, ncomp);
 }
 
 int Nav::nav_nearest_body(float wx, float wz, int *out_x, int *out_y, int maxr, int body) {   // body 0 = any
@@ -190,6 +197,7 @@ void Nav::expand(nav_scratch_t *s, int cur, int goal_x, int goal_y) {
         int nx = cx+dx, ny = cy+dy; if (!nav_ok(nx,ny)) continue;
         if (dx && dy && (!nav_ok(cx+dx,cy) || !nav_ok(cx,cy+dy))) continue; // no corner cutting
         int n = ny*NAV_W+nx;
+        if (navriver[n] > nav_river_limit) continue;                        // too shallow for this fleet (0: rivers closed)
         if (s->mark[n] == CLOSED(s)) continue;
         float ng = g + ((dx && dy) ? 1.41421356f : 1.f) + (navcoast[n] ? COAST_PENALTY : 0);
         if (s->mark[n] != s->gen || ng < s->g_cost[n]) {

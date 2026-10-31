@@ -12,7 +12,6 @@ extern "C" {
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../assets/asset.h"
-#include "terraintiles.h"
 #include "geochunks.h"
 #include "../data/geo_ports.h"   // the protection mask in terrainmap_bake_geography
 }
@@ -169,7 +168,7 @@ int TerrainMap::ground(float height, float slope, float lat) {
 }
 
 // Fold the authored geography in from the streamed tiles (see terrainmap.h). The decisions
-// live in terraintiles_bake; this driver supplies what it must not touch - a protection mask
+// live in geochunks_bake; this driver supplies what it must not touch - a protection mask
 // over every historical harbour basin, so no island can land on a port's water - and repairs
 // what a mask change invalidates: the carved straits are forced open again and the signed
 // coast-distance field is rebuilt before navigation reads it.
@@ -177,16 +176,7 @@ int TerrainMap::bake_geography(const char *tiles_dir) {
     if (!heightmap || !landmask) return 0;
     { const char *on = getenv("MARE_TERRAIN_GEO");
       if (on && atoi(on) == 0) { LOG_INFO("terrain", "geography fold off (MARE_TERRAIN_GEO=0)"); return 0; } }
-    char fallback[512], probe[600];
-    if (!tiles_dir) tiles_dir = getenv("MARE_TERRAIN_DIR");   // same override terraintiles_init honours
-    if (!tiles_dir) {   // the per-worktree tile set first, the shared one as the fallback (terraintiles.c)
-        snprintf(fallback, sizeof fallback, "%s/terrain/tiles", asset_root());
-        snprintf(probe, sizeof probe, "%s/height.json", fallback);
-        FILE *pf = fopen(probe, "rb");
-        if (pf) fclose(pf);
-        else snprintf(fallback, sizeof fallback, "%s/../terrain/tiles", asset_root());
-        tiles_dir = fallback;
-    }
+    (void)tiles_dir;   // the u16 cut this used to fall back to is gone (0.22): the chunks are the source
     unsigned char *protect = (unsigned char *)calloc(LM_W * LM_H, 1);
     if (protect)
         for (int p = 0; p < GEO_NPORTS; ++p) {
@@ -199,14 +189,10 @@ int TerrainMap::bake_geography(const char *tiles_dir) {
     int flips = 0;
     double lm0 = 0, lmax0 = 0; long nl = 0;      // land height statistics, so a fold that flattens the world is visible in the log
     for (int i = 0; i < LM_W * LM_H; ++i) if (landmask[i]) { lm0 += heightmap[i]; if (heightmap[i] > lmax0) lmax0 = heightmap[i]; nl++; }
-    // The export itself where it is there (exact float32 metres and the coverage mask,
-    // assets/data/how_to.txt), the u16 cut of it otherwise. Both fold under identical rules
-    // and decode through the same calibration, so this changes fidelity, not geography.
+    // The export itself: exact float32 metres and the coverage mask, straight from the
+    // terrain-v2 overview (assets/data_new/MARE_INTEGRATION.md).
     int changed = geochunks_bake(heightmap, landmask, LM_W, LM_H,
                                  LON0, LAT1, (float)CELLS_PER_DEG, protect, &flips);
-    if (!changed)
-        changed = terraintiles_bake(tiles_dir, heightmap, landmask, LM_W, LM_H,
-                                    LON0, LAT1, (float)CELLS_PER_DEG, protect, &flips);
     { double lm1 = 0, lmax1 = 0; for (int i = 0; i < LM_W * LM_H; ++i) if (landmask[i]) { lm1 += heightmap[i]; if (heightmap[i] > lmax1) lmax1 = heightmap[i]; }
       LOG_INFO("terrain", "land height mean %.2f max %.2f before the fold, %.2f / %.2f after", nl ? lm0 / nl : 0, lmax0, nl ? lm1 / nl : 0, lmax1); }
     free(protect);

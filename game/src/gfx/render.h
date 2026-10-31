@@ -38,6 +38,7 @@ extern int window_w, window_h;      // window size in screen coordinates (differ
 
 void render_init(void);             // build programs, LOD grids, textures, procedural meshes (after world_init)
 void render_territory_upload(void); // push the territory map to the GPU when territory_dirty == 2
+const rhi_texture_t *terrain_territory_texture(void);   // RGBA8 TERR_W x TERR_H: nation+1, development, region+1, influence
 
 // world streaming view (streamview.c, game/docs/DESIGN_STREAMING.md): drives world/stream.h
 // from the camera, composes the terrain detail window, debug overlay, metrics
@@ -46,6 +47,8 @@ void streamview_push_tiles(void);                   // authored tile meshes (ins
 void streamview_draw_debug(void);                   // tile grid overlay (dd lines; stream_show_tiles)
 // Two clipmap rings: 0 = near (tactical detail), 1 = far (coastal detail, wider).
 const rhi_texture_t *streamview_detail_tex(int ring);   // NULL until that ring was composed
+const rhi_texture_t *streamview_shore_tex(int ring);    // the ring's shore mask (RGBA8: cliff, beach, marsh, exposure), same rect
+const rhi_texture_t *streamview_river_tex(int ring);    // the ring's rivers (RGBA8: water, flow x, flow z, width), same rect
 void  streamview_detail_rect(int ring, float out[4]);   // x0, z0, 1/extent, 1/extent (world)
 float streamview_detail_texel(int ring);                // world units per texel (for shader normals)
 int   streamview_rings(void);
@@ -143,6 +146,10 @@ void meshes_bind_rope(void);        // cordage: line geometry expanded by a geom
 int  meshes_rope_available(void);   // 1 when the rope pipeline exists (the shipyard then builds ropes as line pairs)
 extern int terrain_chunks_drawn, terrain_tris_drawn;   // stats for the dashboard
 extern int terrain_show_regions;                       // map view: shade hinterlands by development and draw their borders
+extern int terrain_map_mode;                           // ui.h MAP_MODE_*: colour the ground (and the sea) by one quantity (0.22)
+// uniforms shared by the terrain and sea passes for the map modes: terrain.cc binds them
+void map_mode_bind(const rhi_pipeline_t *p);
+#define GLSL_MAPMODE_UNIFORMS "u_mapmode", "u_nation_religion", "u_good_colors", "u_reginfo"
 extern int terrain_tess_enabled;                       // player setting: use the tessellated terrain path when the context has it
 
 // procedural meshes built at init

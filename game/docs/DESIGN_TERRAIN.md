@@ -167,6 +167,89 @@ itself on the strength of it. Getting a visibly sharper coast needs a genuinely 
 (EU-DEM, EMODnet bathymetry or similar for the Adriatic); the moment one is cut into the fine
 set, the probe will find the detail and the atlas will switch itself on.
 
+## 3e. The terrain-v2 chunks are the terrain (0.22)
+
+Everything in 3d still holds about *what* a chunk is; what changed is that the exporter's
+output under `assets/data_new` (format `mare-terrain-v2`, `MARE_INTEGRATION.md` beside it) is
+now the **only** authored terrain, and all of it is read:
+
+| map | read as | used for |
+|-----|---------|----------|
+| `height.r32` + `coverage.r8` | float32 metres, validity | the rings' height (bilinear, a hole hands over to the next dataset or the base), the geography bake |
+| `biome.r8` + `biome_source.r8` | class id, provenance | the material masks (nearest, blended over the four surrounding samples) |
+| `splat.png` | RGBA8 linear | grass / rock / sand / snow weights (bilinear, renormalised) |
+| `normal.png` | RGB8 linear, east / up / south | terrain-scale lighting outside the near ring, the shore mask's slope |
+
+`world/geochunks` holds **several datasets at once**, finest first: the overview and whatever
+regional builds the exporter cut (`mare-terrain all --bbox ... --resolution-m 30`). A sampler
+asks the finest resident dataset first; independent builds are not stitched (their grids need
+not align, as the spec warns) - the rings cross-fade by distance anyway. `longitude_wrap` is
+honoured for the overview; a regional dataset rejects points outside its bbox.
+
+**On the GPU** (`gfx/chunkatlas`, `terrain/chunks.glsl`): resident chunks of the overview take
+slots in three RGBA8 atlases (class: id / coverage / provenance; splat; normal) with a slot
+table, one chunk uploaded per frame. Addressing is the spec's vertex-aligned rule, `(sample +
+0.5) / 513` inside the slot, so the shared edge sample reads the same from either chunk and a
+bilinear tap never reaches a neighbour's slot. No mipmaps (independent per-chunk mips seam).
+The regional datasets feed the rings' heights but not yet the atlas - docs/TODO.md.
+
+**The masks** (`terrain.frag`): every procedural rule keeps standing where no chunk answers;
+where one does, the export's weights and classes are the masks - rock weight adds karst on
+the flat, sand weight a beach near the water and an erg high and dry, the tree class puts the
+woods, cropland becomes strip fields, built-up a roof-and-stone mottle, wetland reed and mud,
+mangrove dark green, permanent water a still glossy surface, moss the tundra. The class is
+read at the four samples around the fragment (`ch_classes`) and each class's weight is their
+bilinear blend sharpened around a noise offset, so classes meet along ragged lines and not the
+3 km grid. The export's normal has true-metre slopes; the drawn world is exaggerated 15.5x
+(`geochunks_exaggeration`: 20 units per 9000 m against 16 units per 111 km), so its horizontal
+components are scaled by that before normalising.
+
+**The shore** (`gfx/streamview.cc`): the 0.22 shore profile is driven by the data. For every
+ring texel within reach of the coastline the chunk is sampled *one cell inland* (the shoreline
+sample itself is as likely to be the ocean class): a steep export normal or a rock weight makes
+a cliff, a sand weight and a gentle slope a beach whose strand is up to 1.6x wider, the wetland
+and mangrove classes a marsh (flat on both sides, mud far out, no surf). The 0.17 cliff noise
+keeps a voice only where the data is undecided. What the texel became is written to a second
+ring texture, the **shore mask** (RGBA8: cliff, beach, marsh, exposure - exposure is the
+harbour fade, so no port ever gets surf), which `terrain.frag` and `sea.frag` read through
+`shore_at` with the detail rings' rects. Convex corners of the land-mask raster are rounded by
+taking the minimum of the Euclidean coast-distance field and a 3x3 blur of it: the coast only
+ever recedes (under half a cell), bays stay, harbours are protected, and the simulation never
+sees it - this is what turns a two-cell island from a box into an islet.
+
+**What the data cannot give yet.** The overview is heuristic land cover (`biome_source` 2
+everywhere: no WorldCover was supplied to the exporter), so the classes follow elevation,
+latitude and slope rather than observed cover; a build with `--landcover` tiles fixes that
+without a code change. And it is still ~3 km per sample: a regional 30 m build is what
+sharpens a coast.
+
+## 3f. Rivers (0.22)
+
+`world/rivers.h/.cc`. The base heightfield (after the geography bake) is flooded from the sea
+in order of height (a priority flood: the cell a land cell is first reached from is its
+downstream neighbour, and a depression fills to its spill point, so every cell drains). One
+unit of rain per cell accumulated down those directions is the drainage area; a cell draining
+more than `RIVER_MIN_CELLS` (45 land cells, ~2200 km2) is river; rivers are traced from the
+heads (river cells with no river flowing in) down to the sea or into the river they join, the
+biggest catchments first. The 7 km cell path is Chaikin-smoothed once and given a meander from
+the world's fbm so it reads as a river rather than a staircase; the half-width grows with the
+catchment (0.3 .. 1.7 km). Deterministic, no rng, ~450 ms at start-up for 11,500 rivers.
+
+The rings consume them through a segment grid built per compose (`rivers_grid_build`, 1-unit
+bins over the ring): every texel within 2.5 half-widths of a centreline is **carved** - a flat
+bed and banks sloping back, 9 .. 27 m deep before the vertical exaggeration, fading into the
+shore profile within a cell of the coast - and written to a **river texture** (water, flow
+direction, width). A river narrower than the ring texel is drawn at 0.6 texels so it does not
+fall between the samples. `terrain.frag` paints the water where that texture says so: a dark
+green-blue surface reflecting the sky, ripples drawn along the flow and advected by the clock,
+a glossy roughness; the map modes draw it as a blue line.
+
+**Navigation.** Cells draining over `RIVER_NAV_CELLS` (420) are nav-grid water of class 2,
+over `RIVER_DEEP_CELLS` (1400) class 1 (`navriver`, folded in by `nav_init`); A* enters a
+river cell only while `nav_river_limit` allows its class, which `fleet.cc` sets from the
+fleet's largest hull around each path search (sloops and fluyts 2, merchantmen and frigates 1,
+galleons and liners 0) and the port-distance rows leave at 0, so trade distances are unchanged.
+
 ## 4. Scale
 
 The world is 16 world units per degree (`WORLD_K` = 4 x `WORLD_SCALE`, 0.17), which makes the

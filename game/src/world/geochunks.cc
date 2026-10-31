@@ -1,49 +1,77 @@
-// The GEBCO export read as chunks (see geochunks.h and assets/data/how_to.txt).
-// Sections: the manifest and the chunk grid · the load pipeline on the job system · the
-// wanted set and the budget · sampling.
+// The terrain export read as chunks (see geochunks.h and assets/data_new/MARE_INTEGRATION.md).
+// Sections: datasets and manifests · the load pipeline on the job system · the wanted set and
+// the budget · sampling · the one-shot geography fold · the C ABI.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <filesystem>
+#include <string>
+#include <vector>
+#include <algorithm>
 
 extern "C" {
 #include "geochunks.h"
+#include "../core/types.h"
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../core/jobs.h"
 #include "../assets/asset.h"
 }
+#if !defined(STBI_INCLUDE_STB_IMAGE_H)
+#include "../../../ext/ext-image/ext-image/3rd/stb_image.h"
+#endif
 
 namespace mare::game::world {
 
-// The calibration the whole game is tuned against (world/terraintiles.cc TT_*): the u16 cut
-// encoded land linearly to 9000 m and the sea sqrt-compressed to 12000 m, and the renderer
-// decoded that to these world ranges. Reading the float32 source directly has to land on the
-// same numbers or every shallow-water gate, wave fade and biome threshold shifts under it.
-// The sqrt on the sea half is deliberate and explained in tools/terrain_from_gebco.py: a
-// linear real-metre shelf puts the whole north Adriatic at ~0.04 units and washes every
-// coastal sea into the shallow colour.
+// The calibration the whole game is tuned against: land linear to 9000 m -> 20 world units,
+// the sea sqrt-compressed to 12000 m -> -9. The sqrt on the sea half is deliberate: a linear
+// real-metre shelf puts the whole north Adriatic at ~0.04 units and washes every coastal sea
+// into the shallow colour. Every shallow-water gate, wave fade and biome threshold in the
+// shaders assumes these numbers.
 #define GC_LAND_MAX_M   9000.f
 #define GC_DEPTH_MAX_M 12000.f
 #define GC_HEIGHT_SCALE   20.f
 #define GC_DEPTH_SCALE     9.f
+#define GC_M_PER_DEG  111320.f      // metres per degree of latitude: the export's normals use geographic metre spacing
+
+static inline float gc_world(float m) {
+    return m >= 0.f ? minf(m / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE
+                    : -sqrtf(minf(-m / GC_DEPTH_MAX_M, 1.f)) * GC_DEPTH_SCALE;
+}
+
+enum { GC_EMPTY = 0, GC_QUEUED, GC_READY };
 
 typedef struct gc_chunk_t {
-    unsigned char state;              // 0 empty, 1 queued, 2 ready
+    unsigned char state;              // GC_EMPTY / GC_QUEUED / GC_READY
+    unsigned char absent;             // the files are not there: never ask again
     short         cx, cy;
     float        *height;             // GC_SAMPLES^2 metres when ready
-    unsigned char *coverage;          // GC_SAMPLES^2, 1 = valid sample
+    unsigned char *coverage;          // N^2, 1 = valid sample
+    unsigned char *cls, *splat, *normal;   // N^2 RGBA8 each (geochunks.h), NULL when the files were missing
     unsigned      last_want;
-    unsigned char absent;             // the files are not there: never ask again
+    size_t        bytes;
 } gc_chunk_t;
 
-typedef struct gc_job_t { gc_chunk_t *c; float *height; unsigned char *coverage; double ms; } gc_job_t;
+typedef struct gc_job_t {
+    int ds; gc_chunk_t *c;
+    float *height; unsigned char *coverage, *biome, *source, *coast;
+    unsigned char *splat_png, *normal_png; size_t splat_n, normal_n;
+    unsigned char *cls, *splat, *normal;
+    double ms;
+} gc_job_t;
+
+typedef struct gc_ds_t {
+    gc_dataset_t info;
+    gc_chunk_t  *chunk; int nchunks;
+    double       area;                // bbox area in square degrees (the overview is the largest)
+} gc_ds_t;
 
 #define GC_BAKE_SLOTS 64        // worker slots the bake's per-slot counters cover
 class GeoChunks;
 // one chunk row's worth of work for the geography fold, shared by the workers folding it
 typedef struct bake_band_t {
-    GeoChunks *self;
+    const gc_ds_t *d;
     float **row; unsigned char **cov;
     float *hm; unsigned char *lm; const unsigned char *protect;
     int w, h, cy, y0;
@@ -52,7 +80,7 @@ typedef struct bake_band_t {
     int tally[GC_BAKE_SLOTS][2];   // [0] cells written, [1] new land
 } bake_band_t;
 
-enum { GC_EMPTY = 0, GC_QUEUED, GC_READY };
+typedef struct gc_biome_t { int id; const char *name; unsigned char rgb[3]; char name_buf[32]; } gc_biome_t;
 
 class GeoChunks {
 public:
@@ -61,49 +89,58 @@ public:
     void     update(float lon, float lat, float radius_deg);
     int      height_m(float lon, float lat, float *out);
     int      height_world(float lon, float lat, float *out);
+    int      sample(float lon, float lat, gc_sample_t *out);
     int      resident(float lon, float lat);
     int      bake(float *hm, unsigned char *lm, int w, int h, float lon0, float lat1,
                   float cells_per_deg, const unsigned char *protect, int *flips);
     static void bake_rows(void *arg, int begin, int end, int slot);   // one band, on the pool
-
-    friend struct bake_band_t_access;
     void     stats(gc_stats_t *out);
     unsigned generation() { return gen; }
+    unsigned update_number() { return update_no; }
+    int      dataset_count() { return (int)ds.size(); }
+    int      dataset(int i, gc_dataset_t *out) { if (i < 0 || i >= (int)ds.size()) return 0; *out = ds[i].info; return 1; }
+    int      chunk_maps(int d, int cx, int cy, const unsigned char **cls, const unsigned char **splat, const unsigned char **normal);
+    unsigned chunk_wanted(int d, int cx, int cy) { gc_chunk_t *c = at(d, cx, cy); return c ? c->last_want : 0; }
+    const gc_biome_t *biome(int id);
+    float    exaggeration() { return (GC_HEIGHT_SCALE / GC_LAND_MAX_M) / (WORLD_K / GC_M_PER_DEG); }
 
-public:
-    // read by bake_rows on the worker threads (the fold is the only thing that touches them
-    // from anywhere but the main thread, and only for reading)
-    char  root[320] = {};
     int   present = 0, inited = 0;
-    int   chunks_x = 0, chunks_y = 0;
-    float bbox_w = -180.f, bbox_s = -90.f, bbox_e = 180.f, bbox_n = 90.f;
+    std::vector<gc_ds_t> ds;          // finest first
 private:
-    gc_chunk_t *chunk = nullptr; int nchunks = 0;
     size_t bytes = 0, budget = (size_t)GC_BUDGET_MB * 1024 * 1024;
     unsigned update_no = 0, gen = 1;
     int loaded_total = 0, evicted = 0, missing_files = 0;
     double last_read_ms = 0;
+    gc_biome_t biomes[16]; int nbiomes = 0;
 
-    static size_t chunk_bytes() { return (size_t)GC_SAMPLES * GC_SAMPLES * (sizeof(float) + 1); }
     static int  json_num(const char *s, const char *key, double *out);
     static int  json_pair(const char *s, const char *key, double *a, double *b);
-    static int  json_array4(const char *s, const char *key, double *v4);
+    static int  json_array(const char *s, const char *key, double *v, int n);
+    static int  json_str(const char *s, const char *key, char *out, size_t n);
+    static int  json_bool(const char *s, const char *key, int *out);
     static char *read_text(const char *path, size_t *n);
-    const char *probe_dir(char *buf, size_t n);
-    int  parse_manifest();
-    void verify_bounds();
-    gc_chunk_t *at(int cx, int cy) { return (unsigned)cx < (unsigned)chunks_x && (unsigned)cy < (unsigned)chunks_y ? &chunk[cy * chunks_x + cx] : nullptr; }
-    int  locate(float lon, float lat, int *cx, int *cy, float *fx, float *fy);
-    void request(gc_chunk_t *c);
+    static int  file_exists(const char *path) { FILE *f = fopen(path, "rb"); if (f) { fclose(f); return 1; } return 0; }
+    void probe(const char *dir, std::vector<std::string> &roots);
+    int  add_dataset(const char *root);
+    void parse_biomes(const char *js);
+    void default_biomes();
+    gc_chunk_t *at(int d, int cx, int cy) {
+        if (d < 0 || d >= (int)ds.size()) return nullptr;
+        gc_ds_t &D = ds[d];
+        return (unsigned)cx < (unsigned)D.info.chunks_x && (unsigned)cy < (unsigned)D.info.chunks_y ? &D.chunk[cy * D.info.chunks_x + cx] : nullptr; }
+    int  locate(const gc_ds_t &D, float lon, float lat, int *cx, int *cy, float *fx, float *fy);
+    const gc_chunk_t *find(float lon, float lat, int *dsi, float *fx, float *fy);
+    void request(int d, gc_chunk_t *c);
     void publish(void *p);
     static void publish_cb(void *p);
+    static void decode_cb(void *p);
     static void read_cb(void *p);
 };
 
 GeoChunks &geochunks() { static GeoChunks g; return g; }
 
 // ---------------------------------------------------------------------------
-// the manifest and the chunk grid
+// datasets and manifests
 
 char *GeoChunks::read_text(const char *path, size_t *n) {
     FILE *f = fopen(path, "rb");
@@ -124,181 +161,324 @@ int GeoChunks::json_num(const char *s, const char *key, double *out) {
     p = strchr(p, ':'); if (!p) return 0;
     *out = atof(p + 1); return 1;
 }
-// "key": [ a, b ] - the manifest writes its arrays over several lines
-int GeoChunks::json_pair(const char *s, const char *key, double *a, double *b) {
-    char pat[64]; snprintf(pat, sizeof pat, "\"%s\"", key);
-    const char *p = strstr(s, pat); if (!p) return 0;
-    p = strchr(p, '['); if (!p) return 0;
-    char *end = nullptr;
-    *a = strtod(p + 1, &end); if (!end) return 0;
-    const char *comma = strchr(end, ','); if (!comma) return 0;
-    *b = strtod(comma + 1, nullptr);
-    return 1;
-}
-int GeoChunks::json_array4(const char *s, const char *key, double *v4) {
+// "key": [ a, b, ... ] - the manifest writes its arrays over several lines
+int GeoChunks::json_array(const char *s, const char *key, double *v, int n) {
     char pat[64]; snprintf(pat, sizeof pat, "\"%s\"", key);
     const char *p = strstr(s, pat); if (!p) return 0;
     p = strchr(p, '['); if (!p) return 0;
     const char *q = p + 1; char *end = nullptr;
-    for (int i = 0; i < 4; ++i) {
-        v4[i] = strtod(q, &end);
+    for (int i = 0; i < n; ++i) {
+        v[i] = strtod(q, &end);
         if (end == q) return 0;
-        q = strchr(end, ','); if (!q && i < 3) return 0;
+        q = strchr(end, ','); if (!q && i < n - 1) return 0;
         if (q) q++;
     }
     return 1;
 }
-
-// Where the export lives. The asset root is the per-worktree tree (assets/elm), and the raw
-// export sits beside it under assets/data, so the first probe is the sibling; the rest let
-// the game find it from a build directory or a staged copy, as asset_root() does.
-const char *GeoChunks::probe_dir(char *buf, size_t n) {
-    const char *env = getenv("MARE_GEOCHUNK_DIR");
-    if (env) { snprintf(buf, n, "%s", env); return buf; }
-    static const char *cands[] = {
-        "%s/../data/export-global", "%s/data/export-global",
-    };
-    for (unsigned i = 0; i < sizeof cands / sizeof *cands; ++i) {
-        snprintf(buf, n, cands[i], asset_root());
-        char probe[384]; snprintf(probe, sizeof probe, "%s/manifest.json", buf);
-        FILE *f = fopen(probe, "rb"); if (f) { fclose(f); return buf; }
-    }
-    static const char *plain[] = { "assets/data/export-global", "../assets/data/export-global",
-                                   "../../assets/data/export-global", "../../../assets/data/export-global" };
-    for (unsigned i = 0; i < sizeof plain / sizeof *plain; ++i) {
-        snprintf(buf, n, "%s", plain[i]);
-        char probe[384]; snprintf(probe, sizeof probe, "%s/manifest.json", buf);
-        FILE *f = fopen(probe, "rb"); if (f) { fclose(f); return buf; }
-    }
-    snprintf(buf, n, "%s/../data/export-global", asset_root());
-    return buf;
-}
-
-int GeoChunks::parse_manifest() {
-    char path[384]; snprintf(path, sizeof path, "%s/manifest.json", root);
-    size_t n = 0; char *js = read_text(path, &n);
-    if (!js) { LOG_DEBUG("terrain", "no %s", path); return 0; }
-    double a = 0, b = 0, v4[4] = { -180, -90, 180, 90 }, samples = GC_SAMPLES, cells = GC_CELLS;
-    int ok = json_pair(js, "chunk_count", &a, &b);
-    json_array4(js, "bbox", v4);
-    json_num(js, "samples_per_chunk", &samples);
-    json_num(js, "cells_per_chunk", &cells);
-    free(js);
-    if (!ok) { LOG_WARN("terrain", "%s: no chunk_count", path); return 0; }
-    chunks_x = (int)a; chunks_y = (int)b;
-    bbox_w = (float)v4[0]; bbox_s = (float)v4[1]; bbox_e = (float)v4[2]; bbox_n = (float)v4[3];
-    if (chunks_x <= 0 || chunks_y <= 0 || chunks_x * chunks_y > GC_MAX_CHUNKS) {
-        LOG_WARN("terrain", "%s: %dx%d chunks is out of range", path, chunks_x, chunks_y); return 0; }
-    if ((int)samples != GC_SAMPLES || (int)cells != GC_CELLS) {
-        LOG_WARN("terrain", "%s: %d samples / %d cells per chunk, this build reads %d/%d",
-                 path, (int)samples, (int)cells, GC_SAMPLES, GC_CELLS); return 0; }
+int GeoChunks::json_pair(const char *s, const char *key, double *a, double *b) { double v[2]; if (!json_array(s, key, v, 2)) return 0; *a = v[0]; *b = v[1]; return 1; }
+int GeoChunks::json_str(const char *s, const char *key, char *out, size_t n) {
+    char pat[64]; snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(s, pat); if (!p) return 0;
+    p = strchr(p + strlen(pat), ':'); if (!p) return 0;
+    p = strchr(p, '"'); if (!p) return 0;
+    const char *e = strchr(p + 1, '"'); if (!e) return 0;
+    size_t len = (size_t)(e - p - 1); if (len >= n) len = n - 1;
+    memcpy(out, p + 1, len); out[len] = 0;
     return 1;
 }
+int GeoChunks::json_bool(const char *s, const char *key, int *out) {
+    char pat[64]; snprintf(pat, sizeof pat, "\"%s\"", key);
+    const char *p = strstr(s, pat); if (!p) return 0;
+    p = strchr(p, ':'); if (!p) return 0;
+    while (*p == ':' || *p == ' ' || *p == '\t') p++;
+    *out = !strncmp(p, "true", 4); return 1;
+}
 
-// The how_to derives a chunk's bounds from the manifest (bbox split chunk_count ways), and
-// every chunk also ships its own tile.json. Read one and check the two agree, so a future
-// export with a different layout is caught here instead of as crooked terrain.
-void GeoChunks::verify_bounds() {
-    char path[384]; snprintf(path, sizeof path, "%s/chunks/0/0/tile.json", root);
+// Where the datasets live. The asset root is the per-worktree tree (assets/elm) and the
+// export sits beside it under assets/data_new, so the first probe is the sibling; the rest let
+// the game find it from a build directory or a staged copy, as asset_root() does. A root is
+// either a dataset itself (manifest.json) or a folder of datasets.
+void GeoChunks::probe(const char *dir, std::vector<std::string> &roots) {
+    std::vector<std::string> cands;
+    if (dir) cands.push_back(dir);
+    else {
+        const char *env = getenv("MARE_GEOCHUNK_DIR");
+        if (env) cands.push_back(env);
+        else {
+            // the newest delivery first (data_new_2: the LOD package and the regional builds),
+            // then the previous one; every dataset found in either is registered
+            static const char *names[] = { "data_new_2", "data_new" };
+            char buf[400];
+            for (const char *nm : names) {
+                snprintf(buf, sizeof buf, "%s/../%s", asset_root(), nm); cands.push_back(buf);
+                snprintf(buf, sizeof buf, "%s/%s", asset_root(), nm);    cands.push_back(buf);
+                static const char *plain[] = { "assets/%s", "../assets/%s", "../../assets/%s", "../../../assets/%s" };
+                for (const char *p : plain) { snprintf(buf, sizeof buf, p, nm); cands.push_back(buf); }
+            }
+        }
+    }
+    std::vector<std::string> seen;
+    for (const std::string &c : cands) {
+        std::error_code ec;
+        std::string canon = std::filesystem::weakly_canonical(c, ec).string(); if (ec) canon = c;
+        if (std::find(seen.begin(), seen.end(), canon) != seen.end()) continue;
+        std::string m = c + "/manifest.json";
+        if (file_exists(m.c_str())) { roots.push_back(c); seen.push_back(canon); continue; }
+        if (!std::filesystem::is_directory(c, ec)) continue;
+        std::vector<std::string> found;
+        for (const auto &e : std::filesystem::directory_iterator(c, ec)) {
+            if (!e.is_directory(ec)) continue;
+            std::string mm = e.path().string() + "/manifest.json";
+            if (file_exists(mm.c_str())) found.push_back(e.path().string());
+        }
+        if (!found.empty()) { std::sort(found.begin(), found.end()); roots.insert(roots.end(), found.begin(), found.end()); seen.push_back(canon); }
+    }
+}
+
+void GeoChunks::default_biomes() {
+    // the spec's classes with the ESA WorldCover palette; the manifest's own table overrides
+    static const gc_biome_t def[] = {
+        { 0, "missing", { 0, 0, 0 }, "" }, { 1, "ocean", { 18, 55, 94 }, "" }, { 10, "tree_cover", { 37, 88, 43 }, "" },
+        { 20, "shrubland", { 113, 127, 65 }, "" }, { 30, "grassland", { 126, 157, 73 }, "" }, { 40, "cropland", { 206, 173, 93 }, "" },
+        { 50, "built_up", { 160, 80, 70 }, "" }, { 60, "bare_sparse", { 180, 170, 150 }, "" }, { 70, "snow_ice", { 240, 240, 240 }, "" },
+        { 80, "permanent_water", { 30, 90, 160 }, "" }, { 90, "wetland", { 70, 130, 120 }, "" }, { 95, "mangroves", { 20, 120, 80 }, "" },
+        { 100, "moss_lichen", { 170, 170, 120 }, "" },
+    };
+    nbiomes = (int)(sizeof def / sizeof def[0]);
+    for (int i = 0; i < nbiomes; ++i) biomes[i] = def[i];
+}
+void GeoChunks::parse_biomes(const char *js) {
+    const char *b = strstr(js, "\"biome_classes\""); if (!b) return;
+    for (int i = 0; i < nbiomes; ++i) {
+        char pat[16]; snprintf(pat, sizeof pat, "\"%d\"", biomes[i].id);
+        const char *p = strstr(b, pat); if (!p) continue;
+        const char *brace = strchr(p, '{'), *close = strchr(p, '}'); if (!brace || !close || brace > close) continue;
+        char obj[256]; size_t n = (size_t)(close - brace + 1); if (n >= sizeof obj) n = sizeof obj - 1;
+        memcpy(obj, brace, n); obj[n] = 0;
+        if (json_str(obj, "name", biomes[i].name_buf, sizeof biomes[i].name_buf)) biomes[i].name = biomes[i].name_buf;
+        double rgb[3]; if (json_array(obj, "rgb", rgb, 3)) for (int k = 0; k < 3; ++k) biomes[i].rgb[k] = (unsigned char)clampf((float)rgb[k], 0.f, 255.f);
+    }
+}
+const gc_biome_t *GeoChunks::biome(int id) {
+    for (int i = 0; i < nbiomes; ++i) if (biomes[i].id == id) return &biomes[i];
+    return &biomes[0];
+}
+
+int GeoChunks::add_dataset(const char *root) {
+    char path[400]; snprintf(path, sizeof path, "%s/manifest.json", root);
     size_t n = 0; char *js = read_text(path, &n);
-    if (!js) return;
-    double v4[4];
-    int ok = json_array4(js, "bounds_wgs84", v4);
+    if (!js) { LOG_DEBUG("terrain", "no %s", path); return 0; }
+    char fmt[48] = "";
+    json_str(js, "format", fmt, sizeof fmt);
+    int package = !strcmp(fmt, "mare-world-package-v1");
+    if (!package && strcmp(fmt, "mare-terrain-v2")) {
+        LOG_WARN("terrain", "%s: format \"%s\" is neither mare-terrain-v2 nor mare-world-package-v1 - dataset skipped", path, fmt);
+        free(js); return 0;
+    }
+    double v4[4] = { -180, -90, 180, 90 };
+    json_array(js, "bbox", v4, 4);
+    int wrap = 0; json_bool(js, "longitude_wrap", &wrap);
+    if (ds.empty()) {   // the class table is global to the format; the first manifest supplies it (a package keeps it in source-manifest.json)
+        parse_biomes(js);
+        if (package) { char sp[400]; snprintf(sp, sizeof sp, "%s/source-manifest.json", root);
+                       size_t sn = 0; char *sj = read_text(sp, &sn); if (sj) { parse_biomes(sj); free(sj); } }
+    }
+    // A plain v2 export is one level; a package lists its levels under "lod_levels", each with
+    // its own cells / samples / step and chunk directory. Every level becomes a dataset of its
+    // own: the finest answers first, the coarser ones stand in while it streams and feed the
+    // far ring where their spacing is all it can carry.
+    int added = 0;
+    const char *lv = package ? strstr(js, "\"lod_levels\"") : nullptr;
+    const char *cursor = lv ? strchr(lv, '[') : js;
+    for (int level = 0; level < 8; ++level) {
+        const char *obj = cursor;
+        char buf[2048]; const char *src = js;
+        if (package) {
+            obj = strchr(cursor, '{'); if (!obj) break;
+            // the level object runs to its matching brace
+            int depth = 0; const char *e = obj;
+            for (; *e; ++e) { if (*e == '{') depth++; else if (*e == '}' && --depth == 0) break; }
+            if (!*e) break;
+            size_t n = (size_t)(e - obj + 1); if (n >= sizeof buf) n = sizeof buf - 1;
+            memcpy(buf, obj, n); buf[n] = 0; src = buf; cursor = e + 1;
+            if (!strstr(buf, "\"level\"")) break;          // past the lod_levels array: the geometry / maps objects follow
+        }
+        gc_ds_t D = {}; gc_dataset_t &I = D.info;
+        double a = 0, b = 0, samples = GC_SAMPLES, cells = GC_CELLS, sx = 0, sy = 0, lvl = 0;
+        int ok = json_pair(src, "chunk_count", &a, &b);
+        json_num(src, "samples_per_chunk", &samples);
+        json_num(src, "cells_per_chunk", &cells);
+        json_pair(src, "pixel_step_degrees", &sx, &sy);
+        if (package) json_num(src, "level", &lvl);
+        if (!ok) { LOG_WARN("terrain", "%s: no chunk_count", path); if (!package) break; else continue; }
+        I.chunks_x = (int)a; I.chunks_y = (int)b; I.samples = (int)samples; I.cells = (int)cells; I.lod = (int)lvl;
+        I.west = (float)v4[0]; I.south = (float)v4[1]; I.east = (float)v4[2]; I.north = (float)v4[3];
+        I.wrap = wrap && fabsf((I.east - I.west) - 360.f) < 1e-3f;
+        if (I.chunks_x <= 0 || I.chunks_y <= 0 || I.chunks_x * I.chunks_y > GC_MAX_CHUNKS) {
+            LOG_WARN("terrain", "%s: %dx%d chunks is out of range (max %d)", path, I.chunks_x, I.chunks_y, GC_MAX_CHUNKS); if (!package) break; else continue; }
+        if (I.samples != I.cells + 1 || I.samples < 3 || I.samples > GC_SAMPLES) {
+            LOG_WARN("terrain", "%s: %d samples / %d cells per chunk is not a grid this build reads", path, I.samples, I.cells); if (!package) break; else continue; }
+        I.step_lon = sx > 0 ? (float)sx : (I.east - I.west) / (I.chunks_x * I.cells);
+        I.step_lat = sy > 0 ? (float)sy : (I.north - I.south) / (I.chunks_y * I.cells);
+        snprintf(I.root, sizeof I.root, "%s", root);
+        if (package) snprintf(I.subdir, sizeof I.subdir, "lods/%d/", I.lod); else I.subdir[0] = 0;
+        D.area = (double)(I.east - I.west) * (I.north - I.south);
+        D.nchunks = I.chunks_x * I.chunks_y;
+        D.chunk = (gc_chunk_t *)calloc((size_t)D.nchunks, sizeof *D.chunk);
+        for (int y = 0; y < I.chunks_y; ++y) for (int x = 0; x < I.chunks_x; ++x) { gc_chunk_t *c = &D.chunk[y * I.chunks_x + x]; c->cx = (short)x; c->cy = (short)y; }
+        {   // the spec derives a chunk's bounds from the manifest and every chunk ships its own
+            // tile.json: read one and check the two agree, so a future layout is caught here
+            snprintf(path, sizeof path, "%s/%schunks/0/0/tile.json", root, I.subdir);
+            size_t tn = 0; char *tj = read_text(path, &tn);
+            if (tj) {
+                double t4[4];
+                if (json_array(tj, "bounds_wgs84", t4, 4)) {
+                    float e = I.west + (I.east - I.west) / I.chunks_x, s2 = I.north - (I.north - I.south) / I.chunks_y;
+                    float d = fabsf((float)t4[0] - I.west) + fabsf((float)t4[1] - s2) + fabsf((float)t4[2] - e) + fabsf((float)t4[3] - I.north);
+                    if (d > 1e-3f) LOG_WARN("terrain", "%s: chunk 0,0 says %.3f,%.3f..%.3f,%.3f but the manifest grid gives %.3f,%.3f..%.3f,%.3f", root, t4[0], t4[1], t4[2], t4[3], I.west, s2, e, I.north);
+                }
+                free(tj);
+            }
+        }
+        ds.push_back(D); added++;
+        LOG_INFO("terrain", "%s%s: %dx%d chunks of %d samples, %.4f x %.4f deg/sample (~%.0f m), lon %.1f..%.1f lat %.1f..%.1f%s, %s",
+                 package ? "world-package level " : "terrain-v2 dataset", package ? std::to_string(I.lod).c_str() : "",
+                 I.chunks_x, I.chunks_y, I.samples, I.step_lon, I.step_lat, I.step_lat * GC_M_PER_DEG, I.west, I.east, I.south, I.north, I.wrap ? ", wraps" : "", root);
+        if (!package) break;
+        if ((int)ds.size() >= GC_MAX_DATASETS) break;
+    }
     free(js);
-    if (!ok) return;
-    float w = bbox_w, nlat = bbox_n;
-    float e = bbox_w + (bbox_e - bbox_w) / chunks_x, s = bbox_n - (bbox_n - bbox_s) / chunks_y;
-    float d = fabsf((float)v4[0] - w) + fabsf((float)v4[1] - s) + fabsf((float)v4[2] - e) + fabsf((float)v4[3] - nlat);
-    if (d > 1e-3f)
-        LOG_WARN("terrain", "chunk 0,0 says %.3f,%.3f..%.3f,%.3f but the manifest grid gives %.3f,%.3f..%.3f,%.3f",
-                 v4[0], v4[1], v4[2], v4[3], w, s, e, nlat);
-    else
-        LOG_DEBUG("terrain", "chunk bounds verified against chunks/0/0/tile.json");
+    return added;
 }
 
 int GeoChunks::init(const char *dir) {
     shutdown();
+    default_biomes();
     { const char *on = getenv("MARE_GEOCHUNKS");
-      if (on && atoi(on) == 0) { LOG_INFO("terrain", "geo chunks off (MARE_GEOCHUNKS=0)"); return 0; } }
-    char buf[320];
-    if (dir) snprintf(buf, sizeof buf, "%s", dir); else probe_dir(buf, sizeof buf);
-    snprintf(root, sizeof root, "%s", buf);
-    if (!parse_manifest()) { LOG_INFO("terrain", "no GEBCO chunk export under %s: the cut tile set stands", root); return 0; }
+      if (on && atoi(on) == 0) { LOG_INFO("terrain", "terrain chunks off (MARE_GEOCHUNKS=0)"); return 0; } }
+    std::vector<std::string> roots;
+    probe(dir, roots);
+    for (const std::string &r : roots) if ((int)ds.size() < GC_MAX_DATASETS) add_dataset(r.c_str());
+    if (ds.empty()) { LOG_WARN("terrain", "no terrain dataset found (looked beside %s for data_new_2 and data_new): the procedural world stands alone", asset_root()); return 0; }
+    // finest first: a regional build answers before the overview wherever both are resident
+    std::stable_sort(ds.begin(), ds.end(), [](const gc_ds_t &a, const gc_ds_t &b) { return a.info.step_lat != b.info.step_lat ? a.info.step_lat < b.info.step_lat : a.area < b.area; });
+    for (int i = 0; i < (int)ds.size(); ++i) ds[i].info.index = i;
     { const char *e = getenv("MARE_GEOCHUNK_MB"); if (e && atoi(e) > 0) budget = (size_t)atoi(e) * 1024 * 1024; }
-    nchunks = chunks_x * chunks_y;
-    chunk = (gc_chunk_t *)calloc((size_t)nchunks, sizeof *chunk);
-    for (int y = 0; y < chunks_y; ++y) for (int x = 0; x < chunks_x; ++x) {
-        gc_chunk_t *c = &chunk[y * chunks_x + x]; c->cx = (short)x; c->cy = (short)y;
-    }
-    verify_bounds();
     present = inited = 1;
-    LOG_INFO("terrain", "GEBCO chunks: %dx%d of %d samples (float32 metres + coverage), lon %.0f..%.0f lat %.0f..%.0f, budget %zu MB, %s",
-             chunks_x, chunks_y, GC_SAMPLES, bbox_w, bbox_e, bbox_s, bbox_n, budget / (1024 * 1024), root);
-    return 1;
+    LOG_INFO("terrain", "%d terrain-v2 dataset%s, budget %zu MB, vertical exaggeration %.1fx", (int)ds.size(), ds.size() == 1 ? "" : "s", budget / (1024 * 1024), exaggeration());
+    return (int)ds.size();
 }
 
 void GeoChunks::shutdown() {
-    if (chunk) {
-        for (;;) { int busy = 0; for (int i = 0; i < nchunks; ++i) busy += chunk[i].state == GC_QUEUED;
+    for (gc_ds_t &D : ds) {
+        for (;;) { int busy = 0; for (int i = 0; i < D.nchunks; ++i) busy += D.chunk[i].state == GC_QUEUED;
                    if (!busy) break; jobs_help(); }
-        for (int i = 0; i < nchunks; ++i) { free(chunk[i].height); free(chunk[i].coverage); }
-        free(chunk);
+        for (int i = 0; i < D.nchunks; ++i) { gc_chunk_t *c = &D.chunk[i]; free(c->height); free(c->coverage); free(c->cls); free(c->splat); free(c->normal); }
+        free(D.chunk);
     }
-    chunk = nullptr; nchunks = 0; bytes = 0; present = inited = 0;
+    ds.clear(); bytes = 0; present = inited = 0;
 }
 
 // ---------------------------------------------------------------------------
-// load pipeline: IO read -> MAIN publish
+// load pipeline: IO read -> DECODE unpack -> MAIN publish
 
 void GeoChunks::publish_cb(void *p) { geochunks().publish(p); }
 
 void GeoChunks::publish(void *p) {           // MAIN
     gc_job_t *j = (gc_job_t *)p;
+    gc_chunk_t *c = j->c;
     if (j->height && j->coverage) {
-        j->c->height = j->height; j->c->coverage = j->coverage; j->c->state = GC_READY;
-        bytes += chunk_bytes(); loaded_total++; last_read_ms = j->ms; gen++;
+        c->height = j->height; c->coverage = j->coverage;
+        c->cls = j->cls; c->splat = j->splat; c->normal = j->normal;
+        size_t n2 = (size_t)ds[j->ds].info.samples * ds[j->ds].info.samples;
+        c->bytes = n2 * (sizeof(float) + 1 + (c->cls ? 4 : 0) + (c->splat ? 4 : 0) + (c->normal ? 4 : 0));
+        c->state = GC_READY;
+        bytes += c->bytes; loaded_total++; last_read_ms = j->ms; gen++;
     } else {
-        free(j->height); free(j->coverage);
-        j->c->state = GC_EMPTY; j->c->absent = 1; missing_files++;
+        free(j->height); free(j->coverage); free(j->cls); free(j->splat); free(j->normal);
+        c->state = GC_EMPTY; c->absent = 1; missing_files++;
     }
     free(j);
+}
+
+static unsigned char *gc_read_file(const char *path, size_t *n) {
+    FILE *f = fopen(path, "rb"); if (!f) return nullptr;
+    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
+    unsigned char *b = len > 0 ? (unsigned char *)malloc((size_t)len) : nullptr;
+    size_t got = b ? fread(b, 1, (size_t)len, f) : 0;
+    fclose(f);
+    if (!b || got != (size_t)len) { free(b); return nullptr; }
+    *n = got; return b;
+}
+static unsigned char *gc_read_exact(const char *path, size_t want) {   // a raw map, validated by length
+    size_t n = 0; unsigned char *b = gc_read_file(path, &n);
+    if (b && n != want) { LOG_WARN("terrain", "%s: %zu bytes, expected %zu - ignored", path, n, want); free(b); return nullptr; }
+    return b;
+}
+
+void GeoChunks::decode_cb(void *p) {         // DECODE
+    gc_job_t *j = (gc_job_t *)p;
+    const int N = geochunks().ds[j->ds].info.samples;
+    const size_t nsamp = (size_t)N * N;
+    if (j->height) {
+        // class map: biome id, coverage, provenance, coast - built here so the atlas uploads one RGBA8
+        j->cls = (unsigned char *)malloc(nsamp * 4);
+        if (j->cls) for (size_t i = 0; i < nsamp; ++i) {
+            j->cls[i * 4 + 0] = j->biome ? j->biome[i] : 0;
+            j->cls[i * 4 + 1] = j->coverage[i] ? 255 : 0;
+            j->cls[i * 4 + 2] = j->source ? j->source[i] : (j->biome ? 2 : 0);
+            j->cls[i * 4 + 3] = j->coast && j->coast[i] != 255 ? j->coast[i] : 0;
+        }
+        if (j->splat_png) {
+            int w = 0, h = 0, n = 0;
+            unsigned char *px = stbi_load_from_memory(j->splat_png, (int)j->splat_n, &w, &h, &n, 4);
+            if (px && w == N && h == N) j->splat = px;
+            else { if (px) LOG_WARN("terrain", "splat.png is %dx%d, expected %dx%d - ignored", w, h, N, N); stbi_image_free(px); }
+        }
+        if (j->normal_png) {
+            int w = 0, h = 0, n = 0;
+            unsigned char *px = stbi_load_from_memory(j->normal_png, (int)j->normal_n, &w, &h, &n, 4);
+            if (px && w == N && h == N) j->normal = px;
+            else { if (px) LOG_WARN("terrain", "normal.png is %dx%d, expected %dx%d - ignored", w, h, N, N); stbi_image_free(px); }
+        }
+    }
+    free(j->biome); free(j->source); free(j->coast); free(j->splat_png); free(j->normal_png);
+    j->biome = j->source = j->coast = j->splat_png = j->normal_png = nullptr;
+    jobs_submit(JOB_LANE_MAIN, publish_cb, j, 0);
 }
 
 void GeoChunks::read_cb(void *p) {           // IO
     gc_job_t *j = (gc_job_t *)p;
     GeoChunks &g = geochunks();
-    char path[448];
+    const gc_ds_t &D = g.ds[j->ds];
+    char path[448], dir[400];
     double t0 = diag_now();
-    size_t nsamp = (size_t)GC_SAMPLES * GC_SAMPLES;
-    // "chunks/{y}/{x}" (manifest chunk_directory); y = 0 is the northern row, x = 0 the west
-    snprintf(path, sizeof path, "%s/chunks/%d/%d/height.r32", g.root, j->c->cy, j->c->cx);
-    FILE *f = fopen(path, "rb");
-    if (f) {
-        float *h = (float *)malloc(nsamp * sizeof(float));
-        // the how_to is explicit: check that exactly 513 x 513 elements were read
-        if (h && fread(h, sizeof(float), nsamp, f) == nsamp) j->height = h; else free(h);
-        fclose(f);
-    }
+    const size_t nsamp = (size_t)D.info.samples * D.info.samples;
+    // "chunks/{y}/{x}" (manifest chunk_directory; a package puts lods/<level>/ in front);
+    // y = 0 is the northern row, x = 0 the west
+    snprintf(dir, sizeof dir, "%s/%schunks/%d/%d", D.info.root, D.info.subdir, j->c->cy, j->c->cx);
+    // the spec is explicit: validate byte lengths before using a map
+    snprintf(path, sizeof path, "%s/height.r32", dir);
+    j->height = (float *)gc_read_exact(path, nsamp * sizeof(float));
     if (j->height) {
-        snprintf(path, sizeof path, "%s/chunks/%d/%d/coverage.r8", g.root, j->c->cy, j->c->cx);
-        f = fopen(path, "rb");
-        if (f) {
-            unsigned char *c = (unsigned char *)malloc(nsamp);
-            if (c && fread(c, 1, nsamp, f) == nsamp) j->coverage = c; else free(c);
-            fclose(f);
-        }
+        snprintf(path, sizeof path, "%s/coverage.r8", dir);     j->coverage = gc_read_exact(path, nsamp);
         // a chunk with heights but no coverage file is taken as fully covered: the mask is
         // there to find holes, and its absence is not a reason to drop real samples
         if (!j->coverage) { j->coverage = (unsigned char *)malloc(nsamp); if (j->coverage) memset(j->coverage, 1, nsamp); }
+        snprintf(path, sizeof path, "%s/biome.r8", dir);        j->biome  = gc_read_exact(path, nsamp);
+        snprintf(path, sizeof path, "%s/biome_source.r8", dir); j->source = gc_read_exact(path, nsamp);
+        snprintf(path, sizeof path, "%s/coast.r8", dir);        { FILE *cf = fopen(path, "rb"); if (cf) { fclose(cf); j->coast = gc_read_exact(path, nsamp); } }
+        snprintf(path, sizeof path, "%s/splat.png", dir);       j->splat_png  = gc_read_file(path, &j->splat_n);
+        snprintf(path, sizeof path, "%s/normal.png", dir);      j->normal_png = gc_read_file(path, &j->normal_n);
     }
     j->ms = (diag_now() - t0) * 1000;
-    jobs_submit(JOB_LANE_MAIN, publish_cb, j, 0);
+    jobs_submit(JOB_LANE_DECODE, decode_cb, j, 0);
 }
 
-void GeoChunks::request(gc_chunk_t *c) {
+void GeoChunks::request(int d, gc_chunk_t *c) {
     if (c->state != GC_EMPTY || c->absent) return;
     gc_job_t *j = (gc_job_t *)calloc(1, sizeof *j);
-    j->c = c;
+    j->c = c; j->ds = d;
     c->state = GC_QUEUED;
     jobs_submit(JOB_LANE_IO, read_cb, j, 0);
 }
@@ -307,18 +487,22 @@ void GeoChunks::request(gc_chunk_t *c) {
 // the wanted set and the budget
 
 // lon/lat -> chunk and the fractional sample position inside it. The global sample grid is
-// chunks_x * GC_CELLS + 1 wide: neighbouring chunks share their edge samples, which is why
-// the export's joins agree to 0 m and why fx can reach exactly GC_CELLS.
-int GeoChunks::locate(float lon, float lat, int *cx, int *cy, float *fx, float *fy) {
-    if (!present || lon < bbox_w || lon > bbox_e || lat < bbox_s || lat > bbox_n) return 0;
-    float u = (lon - bbox_w) / (bbox_e - bbox_w) * (float)(chunks_x * GC_CELLS);
-    float v = (bbox_n - lat) / (bbox_n - bbox_s) * (float)(chunks_y * GC_CELLS);
+// chunks_x * GC_CELLS + 1 wide: neighbouring chunks share their edge samples, which is why the
+// export's joins agree to 0 m and why fx can reach exactly GC_CELLS. A wrapping dataset takes
+// any longitude; the others reject points outside their bbox, as the spec asks.
+int GeoChunks::locate(const gc_ds_t &D, float lon, float lat, int *cx, int *cy, float *fx, float *fy) {
+    const gc_dataset_t &I = D.info;
+    if (I.wrap) { float span = I.east - I.west; lon = fmodf(lon - I.west, span); if (lon < 0) lon += span; lon += I.west; }
+    else if (lon < I.west || lon > I.east) return 0;
+    if (lat < I.south || lat > I.north) return 0;
+    float u = (lon - I.west) / (I.east - I.west) * (float)(I.chunks_x * I.cells);
+    float v = (I.north - lat) / (I.north - I.south) * (float)(I.chunks_y * I.cells);
     int X = (int)u, Y = (int)v;
-    *cx = X / GC_CELLS; *cy = Y / GC_CELLS;
-    if (*cx >= chunks_x) { *cx = chunks_x - 1; }
-    if (*cy >= chunks_y) { *cy = chunks_y - 1; }
-    *fx = u - (float)(*cx * GC_CELLS);
-    *fy = v - (float)(*cy * GC_CELLS);
+    *cx = X / I.cells; *cy = Y / I.cells;
+    if (*cx >= I.chunks_x) *cx = I.chunks_x - 1;
+    if (*cy >= I.chunks_y) *cy = I.chunks_y - 1;
+    *fx = u - (float)(*cx * I.cells);
+    *fy = v - (float)(*cy * I.cells);
     return 1;
 }
 
@@ -326,59 +510,171 @@ void GeoChunks::update(float lon, float lat, float radius_deg) {
     if (!inited) return;
     update_no++;
     int started = 0;
-    int x0, y0, x1, y1; float fx, fy;
-    if (!locate(clampf(lon - radius_deg, bbox_w, bbox_e), clampf(lat + radius_deg, bbox_s, bbox_n), &x0, &y0, &fx, &fy)) return;
-    if (!locate(clampf(lon + radius_deg, bbox_w, bbox_e), clampf(lat - radius_deg, bbox_s, bbox_n), &x1, &y1, &fx, &fy)) return;
-    for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x) {
-        gc_chunk_t *c = at(x, y); if (!c) continue;
-        c->last_want = update_no;
-        if (c->state == GC_EMPTY && !c->absent && started < GC_MAX_INFLIGHT) { request(c); started++; }
+    for (int d = 0; d < (int)ds.size(); ++d) {
+        gc_ds_t &D = ds[d]; const gc_dataset_t &I = D.info;
+        float w = lon - radius_deg, e = lon + radius_deg, s = lat - radius_deg, n = lat + radius_deg;
+        if (n < I.south || s > I.north) continue;                      // the view misses this dataset
+        if (!I.wrap) { if (e < I.west || w > I.east) continue; w = clampf(w, I.west, I.east); e = clampf(e, I.west, I.east); }
+        s = clampf(s, I.south, I.north); n = clampf(n, I.south, I.north);
+        int x0, y0, x1, y1; float fx, fy;
+        if (!locate(D, w, n, &x0, &y0, &fx, &fy) || !locate(D, e, s, &x1, &y1, &fx, &fy)) continue;
+        int nx = I.chunks_x;
+        if (I.wrap && x1 < x0) x1 += nx;        // the window crosses the antimeridian
+        if (I.wrap && e - w >= I.east - I.west) { x0 = 0; x1 = nx - 1; }
+        for (int y = y0; y <= y1; ++y) for (int xx = x0; xx <= x1; ++xx) {
+            gc_chunk_t *c = at(d, I.wrap ? (xx % nx + nx) % nx : xx, y); if (!c) continue;
+            c->last_want = update_no;
+            if (c->state == GC_EMPTY && !c->absent && started < GC_MAX_INFLIGHT) { request(d, c); started++; }
+        }
     }
     for (int guard = 0; guard < 8 && bytes > budget; ++guard) {
         gc_chunk_t *victim = nullptr;
-        for (int i = 0; i < nchunks; ++i) {
-            gc_chunk_t *c = &chunk[i];
+        for (gc_ds_t &D : ds) for (int i = 0; i < D.nchunks; ++i) {
+            gc_chunk_t *c = &D.chunk[i];
             if (c->state != GC_READY || c->last_want == update_no) continue;
             if (!victim || c->last_want < victim->last_want) victim = c;
         }
         if (!victim) break;
-        free(victim->height); free(victim->coverage);
-        victim->height = nullptr; victim->coverage = nullptr; victim->state = GC_EMPTY;
-        bytes -= chunk_bytes(); evicted++; gen++;
+        free(victim->height); free(victim->coverage); free(victim->cls); free(victim->splat); free(victim->normal);
+        victim->height = nullptr; victim->coverage = nullptr; victim->cls = victim->splat = victim->normal = nullptr;
+        victim->state = GC_EMPTY;
+        bytes -= victim->bytes; victim->bytes = 0; evicted++; gen++;
     }
 }
 
 // ---------------------------------------------------------------------------
 // sampling
 
-int GeoChunks::height_m(float lon, float lat, float *out) {
-    int cx, cy; float fx, fy;
-    if (!locate(lon, lat, &cx, &cy, &fx, &fy)) return 0;
-    const gc_chunk_t *c = at(cx, cy);
-    if (!c || c->state != GC_READY) return 0;
+// the finest dataset with a resident, fully covered cell under the point
+const gc_chunk_t *GeoChunks::find(float lon, float lat, int *dsi, float *fx, float *fy) {
+    for (int d = 0; d < (int)ds.size(); ++d) {
+        int cx, cy; float x, y;
+        if (!locate(ds[d], lon, lat, &cx, &cy, &x, &y)) continue;
+        const gc_chunk_t *c = at(d, cx, cy);
+        if (!c || c->state != GC_READY) continue;
+        const int N = ds[d].info.samples, C = ds[d].info.cells;
+        int x0 = (int)x, y0 = (int)y;
+        if (x0 > C - 1) x0 = C - 1;
+        if (y0 > C - 1) y0 = C - 1;
+        const unsigned char *cv = c->coverage;
+        size_t i00 = (size_t)y0 * N + x0;
+        // coverage.r8: 0 means the export had no input sample there. The spec is explicit that
+        // this is not a land/sea mask - a hole is unknown ground, so the caller keeps what it
+        // already had rather than being handed a fabricated height. A finer dataset with a hole
+        // here hands over to the next one.
+        if (!cv[i00] || !cv[i00 + 1] || !cv[i00 + N] || !cv[i00 + N + 1]) continue;
+        *dsi = d; *fx = x; *fy = y;
+        return c;
+    }
+    return nullptr;
+}
+
+// Smooth height reconstruction (0.22). The samples are ~3 km apart and the rings read them at
+// ~1 km, so a bilinear read shows every sample as a crease - the faceted, sharp-edged ground
+// the data's author asked us to smooth away. A Catmull-Rom spline over the 4 x 4 samples
+// around the point passes through the samples (a peak stays a peak, the coastline does not
+// move) and is C1 between them, so ridges round off and slopes bend instead of kinking. Where
+// any of the sixteen taps is outside the chunk or marked missing the bilinear read stands in.
+static inline float gc_cr(float a, float b, float c, float d, float t) {
+    return b + 0.5f * t * (c - a + t * (2.f * a - 5.f * b + 4.f * c - d + t * (3.f * (b - c) + d - a)));
+}
+static float gc_height_at(const gc_chunk_t *c, int N, int C, float fx, float fy) {
     int x0 = (int)fx, y0 = (int)fy;
-    if (x0 > GC_CELLS - 1) x0 = GC_CELLS - 1;
-    if (y0 > GC_CELLS - 1) y0 = GC_CELLS - 1;
-    int x1 = x0 + 1, y1 = y0 + 1;              // always inside: 513 samples, 512 cells
+    if (x0 > C - 1) x0 = C - 1;
+    if (y0 > C - 1) y0 = C - 1;
     float tx = fx - x0, ty = fy - y0;
-    const unsigned char *cv = c->coverage;
-    size_t i00 = (size_t)y0 * GC_SAMPLES + x0, i10 = (size_t)y0 * GC_SAMPLES + x1;
-    size_t i01 = (size_t)y1 * GC_SAMPLES + x0, i11 = (size_t)y1 * GC_SAMPLES + x1;
-    // coverage.r8: 0 means the export had no input sample there. The how_to is explicit that
-    // this is not a land/sea mask - a hole is simply unknown ground, so the caller keeps what
-    // it already had rather than being handed a fabricated height.
-    if (!cv[i00] || !cv[i10] || !cv[i01] || !cv[i11]) return 0;
-    const float *h = c->height;
-    *out = lerpf(lerpf(h[i00], h[i10], tx), lerpf(h[i01], h[i11], tx), ty);
+    const float *h = c->height; const unsigned char *cv = c->coverage;
+    if (x0 >= 1 && y0 >= 1 && x0 + 2 <= C && y0 + 2 <= C) {
+        int ok = 1; float rows[4];
+        for (int j = -1; j <= 2 && ok; ++j) { const unsigned char *r = cv + (size_t)(y0 + j) * N + x0 - 1; ok = r[0] && r[1] && r[2] && r[3]; }
+        if (ok) {
+            for (int j = -1; j <= 2; ++j) { const float *r = h + (size_t)(y0 + j) * N + x0 - 1; rows[j + 1] = gc_cr(r[0], r[1], r[2], r[3], tx); }
+            return gc_cr(rows[0], rows[1], rows[2], rows[3], ty);
+        }
+    }
+    size_t i00 = (size_t)y0 * N + x0;
+    return lerpf(lerpf(h[i00], h[i00 + 1], tx), lerpf(h[i00 + N], h[i00 + N + 1], tx), ty);
+}
+
+int GeoChunks::height_m(float lon, float lat, float *out) {
+    int d; float fx, fy;
+    const gc_chunk_t *c = find(lon, lat, &d, &fx, &fy);
+    if (!c) return 0;
+    *out = gc_height_at(c, ds[d].info.samples, ds[d].info.cells, fx, fy);
     return 1;
 }
 
 int GeoChunks::height_world(float lon, float lat, float *out) {
     float m;
     if (!height_m(lon, lat, &m)) return 0;
-    *out = m >= 0.f ? minf(m / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE
-                    : -sqrtf(minf(-m / GC_DEPTH_MAX_M, 1.f)) * GC_DEPTH_SCALE;
+    *out = gc_world(m);
     return 1;
+}
+
+int GeoChunks::sample(float lon, float lat, gc_sample_t *out) {
+    memset(out, 0, sizeof *out);
+    out->normal[1] = 1.f;
+    int d; float fx, fy;
+    const gc_chunk_t *c = find(lon, lat, &d, &fx, &fy);
+    if (!c) return 0;
+    const int N = ds[d].info.samples, C = ds[d].info.cells;
+    int x0 = (int)fx, y0 = (int)fy;
+    if (x0 > C - 1) x0 = C - 1;
+    if (y0 > C - 1) y0 = C - 1;
+    float tx = fx - x0, ty = fy - y0;
+    size_t i00 = (size_t)y0 * N + x0, i10 = i00 + 1, i01 = i00 + N, i11 = i01 + 1;
+    out->dataset = d; out->has_height = 1;
+    out->height_m = gc_height_at(c, N, C, fx, fy);
+    out->height = gc_world(out->height_m);
+    if (c->cls) { size_t near = (tx < 0.5f ? i00 : i10) + (ty < 0.5f ? 0 : N); out->biome = c->cls[near * 4]; out->coast = c->cls[near * 4 + 3]; }
+    if (c->splat) {
+        float w[4] = { 0, 0, 0, 0 };
+        const float k[4] = { (1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty };
+        const size_t idx[4] = { i00, i10, i01, i11 };
+        for (int t = 0; t < 4; ++t) for (int ch = 0; ch < 4; ++ch) w[ch] += k[t] * c->splat[idx[t] * 4 + ch];
+        float sum = w[0] + w[1] + w[2] + w[3];
+        if (sum > 1.f) for (int ch = 0; ch < 4; ++ch) out->splat[ch] = w[ch] / sum;
+        out->has_maps = 1;
+    }
+    if (c->normal) {
+        float n[3] = { 0, 0, 0 };
+        const float k[4] = { (1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty };
+        const size_t idx[4] = { i00, i10, i01, i11 };
+        for (int t = 0; t < 4; ++t) for (int ch = 0; ch < 3; ++ch) n[ch] += k[t] * (c->normal[idx[t] * 4 + ch] / 127.5f - 1.f);
+        // east / up / south is the world's x / y / z; the slopes are true metres, the drawn
+        // ground is exaggerated, so the horizontal components scale by the ratio
+        float E = exaggeration();
+        n[0] *= E; n[2] *= E;
+        float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (len > 1e-6f) { out->normal[0] = n[0] / len; out->normal[1] = n[1] / len; out->normal[2] = n[2] / len; }
+        out->has_maps = 1;
+    }
+    return 1;
+}
+
+int GeoChunks::resident(float lon, float lat) {
+    int d; float fx, fy;
+    return find(lon, lat, &d, &fx, &fy) != nullptr;
+}
+
+int GeoChunks::chunk_maps(int d, int cx, int cy, const unsigned char **cls, const unsigned char **splat, const unsigned char **normal) {
+    const gc_chunk_t *c = at(d, cx, cy);
+    if (!c || c->state != GC_READY) return 0;
+    if (cls) *cls = c->cls; if (splat) *splat = c->splat; if (normal) *normal = c->normal;
+    return 1;
+}
+
+void GeoChunks::stats(gc_stats_t *out) {
+    memset(out, 0, sizeof *out);
+    for (const gc_ds_t &D : ds) for (int i = 0; i < D.nchunks; ++i) {
+        out->resident += D.chunk[i].state == GC_READY;
+        out->loading  += D.chunk[i].state == GC_QUEUED;
+        out->wanted   += D.chunk[i].last_want == update_no;
+    }
+    out->loaded_total = loaded_total; out->evicted = evicted; out->missing_files = missing_files;
+    out->bytes = bytes; out->budget_bytes = budget; out->last_read_ms = last_read_ms;
+    out->present = present; out->datasets = (int)ds.size();
+    if (!ds.empty()) { out->chunks_x = ds[0].info.chunks_x; out->chunks_y = ds[0].info.chunks_y; }
 }
 
 // ---------------------------------------------------------------------------
@@ -387,20 +683,20 @@ int GeoChunks::height_world(float lon, float lat, float *out) {
 // Bilinear sample from a loaded row of chunks. `row[cx]` holds that chunk's heights and
 // `cov[cx]` its coverage; both are NULL where the chunk is missing. Returns 0 (and leaves
 // `out` alone) outside the row, on a missing chunk, or where coverage says the sample is not
-// real - the how_to is explicit that a hole is unknown ground, not sea.
-static int gc_row_sample(float **row, unsigned char **cov, int chunks_x, int cyrow,
+// real - a hole is unknown ground, not sea.
+static int gc_row_sample(float **row, unsigned char **cov, int chunks_x, int cyrow, int N, int C,
                          float u, float v, float *out) {
     int X = (int)u, Y = (int)v;
-    int cx = X / GC_CELLS;
+    int cx = X / C;
     if (cx < 0 || cx >= chunks_x || !row[cx]) return 0;
-    if (Y / GC_CELLS != cyrow) return 0;
-    int lx = X - cx * GC_CELLS, ly = Y - cyrow * GC_CELLS;
-    if (lx > GC_CELLS - 1) lx = GC_CELLS - 1;
-    if (ly > GC_CELLS - 1) ly = GC_CELLS - 1;
-    float fx = u - (float)(cx * GC_CELLS + lx), fy = v - (float)(cyrow * GC_CELLS + ly);
+    if (Y / C != cyrow) return 0;
+    int lx = X - cx * C, ly = Y - cyrow * C;
+    if (lx > C - 1) lx = C - 1;
+    if (ly > C - 1) ly = C - 1;
+    float fx = u - (float)(cx * C + lx), fy = v - (float)(cyrow * C + ly);
     const float *h = row[cx]; const unsigned char *c = cov[cx];
-    size_t i00 = (size_t)ly * GC_SAMPLES + lx, i10 = i00 + 1;
-    size_t i01 = i00 + GC_SAMPLES, i11 = i01 + 1;
+    size_t i00 = (size_t)ly * N + lx, i10 = i00 + 1;
+    size_t i01 = i00 + N, i11 = i01 + 1;
     if (!c[i00] || !c[i10] || !c[i01] || !c[i11]) return 0;
     *out = lerpf(lerpf(h[i00], h[i10], fx), lerpf(h[i01], h[i11], fx), fy);
     return 1;
@@ -412,7 +708,8 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
     int k = (unsigned)slot < GC_BAKE_SLOTS ? slot : 0;
     static const float off[9][2] = { {0,0}, {-.33f,-.33f}, {0,-.33f}, {.33f,-.33f},
                                      {-.33f,0}, {.33f,0}, {-.33f,.33f}, {0,.33f}, {.33f,.33f} };
-    const float bw = b->self->bbox_w, be = b->self->bbox_e, bs = b->self->bbox_s, bn = b->self->bbox_n;
+    const gc_dataset_t &I = b->d->info;
+    const float bw = I.west, be = I.east, bs = I.south, bn = I.north;
     for (int r = begin; r < end; ++r) {
         int y = b->y0 + r;
         float lat = b->lat1 - (y + 0.5f) / b->cells_per_deg;
@@ -425,9 +722,8 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
                 float u = (lon + off[q][0] / b->cells_per_deg - bw) / (be - bw) * b->gw;
                 float v = (bn - (lat + off[q][1] / b->cells_per_deg)) / (bn - bs) * b->gh;
                 float m;
-                if (!gc_row_sample(b->row, b->cov, b->self->chunks_x, b->cy, u, v, &m)) continue;
-                float hh = m >= 0.f ? minf(m / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE
-                                    : -sqrtf(minf(-m / GC_DEPTH_MAX_M, 1.f)) * GC_DEPTH_SCALE;
+                if (!gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, I.samples, I.cells, u, v, &m)) continue;
+                float hh = gc_world(m);
                 votes += hh > 0.03f; got++;
                 if (q == 0) hc = hh;
             }
@@ -446,97 +742,88 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
 
 int GeoChunks::bake(float *hm, unsigned char *lm, int w, int h, float lon0, float lat1,
                     float cells_per_deg, const unsigned char *protect, int *flips) {
-    if (!present) return 0;
+    if (!present || ds.empty()) return 0;
+    // the overview - the dataset with the widest bbox - folds the base world; regional builds
+    // are presentation detail and never move the simulation's geography
+    const gc_ds_t *D = &ds[0];
+    for (const gc_ds_t &c : ds) if (c.area > D->area) D = &c;
+    for (const gc_ds_t &c : ds) if (c.area == D->area && c.info.step_lat < D->info.step_lat) D = &c;   // among the widest, the finest level
+    const gc_dataset_t &I = D->info;
     int allow_flips = 0;
     { const char *e = getenv("MARE_TERRAIN_ISLANDS"); if (e && atoi(e)) allow_flips = 1; }
     double t0 = diag_now();
     int changed = 0, newland = 0, missing = 0;
-    size_t nsamp = (size_t)GC_SAMPLES * GC_SAMPLES;
-    // (the cell centre plus a ring at a third of a cell - one stray source sample must not
-    // flip a 7 km cell, and a real island always does - lives in bake_rows with the sampling)
-    float **row = (float **)calloc((size_t)chunks_x, sizeof *row);
-    unsigned char **cov = (unsigned char **)calloc((size_t)chunks_x, sizeof *cov);
+    const int C = I.cells;
+    size_t nsamp = (size_t)I.samples * I.samples;
+    float **row = (float **)calloc((size_t)I.chunks_x, sizeof *row);
+    unsigned char **cov = (unsigned char **)calloc((size_t)I.chunks_x, sizeof *cov);
     if (!row || !cov) { free(row); free(cov); return 0; }
-    float gw = (float)(chunks_x * GC_CELLS), gh = (float)(chunks_y * GC_CELLS);
-    for (int cy = 0; cy < chunks_y; ++cy) {
+    float gw = (float)(I.chunks_x * C), gh = (float)(I.chunks_y * C);
+    for (int cy = 0; cy < I.chunks_y; ++cy) {
         // does this chunk row touch the base grid at all? skip the whole read if not
-        float rlat1 = bbox_n - (float)cy * (bbox_n - bbox_s) / chunks_y;
-        float rlat0 = bbox_n - (float)(cy + 1) * (bbox_n - bbox_s) / chunks_y;
+        float rlat1 = I.north - (float)cy * (I.north - I.south) / I.chunks_y;
+        float rlat0 = I.north - (float)(cy + 1) * (I.north - I.south) / I.chunks_y;
         float blat1 = lat1, blat0 = lat1 - h / cells_per_deg;
         if (rlat0 > blat1 || rlat1 < blat0) continue;
-        for (int cx = 0; cx < chunks_x; ++cx) {
+        for (int cx = 0; cx < I.chunks_x; ++cx) {
+            // and this chunk column?
+            float clon0 = I.west + (float)cx * (I.east - I.west) / I.chunks_x, clon1 = clon0 + (I.east - I.west) / I.chunks_x;
+            if (clon1 < lon0 || clon0 > lon0 + w / cells_per_deg) continue;
             char path[448];
-            snprintf(path, sizeof path, "%s/chunks/%d/%d/height.r32", root, cy, cx);
-            FILE *f = fopen(path, "rb");
-            if (!f) { missing++; continue; }
-            float *d = (float *)malloc(nsamp * sizeof(float));
-            if (d && fread(d, sizeof(float), nsamp, f) == nsamp) row[cx] = d; else free(d);
-            fclose(f);
-            if (!row[cx]) continue;
-            snprintf(path, sizeof path, "%s/chunks/%d/%d/coverage.r8", root, cy, cx);
-            f = fopen(path, "rb");
-            if (f) { unsigned char *c = (unsigned char *)malloc(nsamp);
-                     if (c && fread(c, 1, nsamp, f) == nsamp) cov[cx] = c; else free(c);
-                     fclose(f); }
+            snprintf(path, sizeof path, "%s/%schunks/%d/%d/height.r32", I.root, I.subdir, cy, cx);
+            row[cx] = (float *)gc_read_exact(path, nsamp * sizeof(float));
+            if (!row[cx]) { missing++; continue; }
+            snprintf(path, sizeof path, "%s/%schunks/%d/%d/coverage.r8", I.root, I.subdir, cy, cx);
+            cov[cx] = gc_read_exact(path, nsamp);
             if (!cov[cx]) { cov[cx] = (unsigned char *)malloc(nsamp); if (cov[cx]) memset(cov[cx], 1, nsamp); }
         }
-        // Which base rows fall in this band, computed rather than scanned: the old loop
-        // walked all 2080 rows once per chunk row. The rows are then folded in parallel -
-        // each writes its own cells, so the only shared state is the counters, and those are
-        // per worker slot.
-        float lat_hi = bbox_n - (float)cy * (bbox_n - bbox_s) / chunks_y;
-        float lat_lo = bbox_n - (float)(cy + 1) * (bbox_n - bbox_s) / chunks_y;
-        int y0 = (int)ceilf((lat1 - lat_hi) * cells_per_deg - 0.5f);
-        int y1 = (int)floorf((lat1 - lat_lo) * cells_per_deg - 0.5f);
-        if (y0 < 0) y0 = 0; if (y1 > h - 1) y1 = h - 1;
+        // Which base rows fall in this band, computed rather than scanned. The rows are then
+        // folded in parallel - each writes its own cells, so the only shared state is the
+        // counters, and those are per worker slot.
+        int y0 = (int)ceilf((lat1 - rlat1) * cells_per_deg - 0.5f);
+        int y1 = (int)floorf((lat1 - rlat0) * cells_per_deg - 0.5f);
+        if (y0 < 0) y0 = 0;
+        if (y1 > h - 1) y1 = h - 1;
         if (y1 >= y0) {
-            bake_band_t bb = { this, row, cov, hm, lm, protect, w, h, cy, y0, lon0, lat1, cells_per_deg, gw, gh, allow_flips, {} };
+            bake_band_t bb = { D, row, cov, hm, lm, protect, w, h, cy, y0, lon0, lat1, cells_per_deg, gw, gh, allow_flips, {} };
             if (jobs_worker_count() > 0) jobs_parallel_for(JOB_LANE_WORKER, bake_rows, &bb, y1 - y0 + 1, 8);
             else bake_rows(&bb, 0, y1 - y0 + 1, 0);
             for (int k = 0; k < GC_BAKE_SLOTS; ++k) { changed += bb.tally[k][0]; newland += bb.tally[k][1]; }
         }
-        for (int cx = 0; cx < chunks_x; ++cx) { free(row[cx]); row[cx] = NULL; free(cov[cx]); cov[cx] = NULL; }
+        for (int cx = 0; cx < I.chunks_x; ++cx) { free(row[cx]); row[cx] = NULL; free(cov[cx]); cov[cx] = NULL; }
     }
     free(row); free(cov);
     if (flips) *flips = newland;
-    LOG_INFO("terrain", "geography baked from the GEBCO chunks: %d cells written (%d new land), %d chunks absent, %.0f ms",
+    LOG_INFO("terrain", "geography baked from the terrain-v2 overview: %d cells written (%d new land), %d chunks absent, %.0f ms",
              changed, newland, missing, (diag_now() - t0) * 1000);
     return changed;
-}
-
-int GeoChunks::resident(float lon, float lat) {
-    int cx, cy; float fx, fy;
-    if (!locate(lon, lat, &cx, &cy, &fx, &fy)) return 0;
-    const gc_chunk_t *c = at(cx, cy);
-    return c && c->state == GC_READY;
-}
-
-void GeoChunks::stats(gc_stats_t *out) {
-    memset(out, 0, sizeof *out);
-    for (int i = 0; i < nchunks; ++i) {
-        out->resident += chunk[i].state == GC_READY;
-        out->loading  += chunk[i].state == GC_QUEUED;
-        out->wanted   += chunk[i].last_want == update_no;
-    }
-    out->loaded_total = loaded_total; out->evicted = evicted; out->missing_files = missing_files;
-    out->bytes = bytes; out->budget_bytes = budget; out->last_read_ms = last_read_ms;
-    out->present = present; out->chunks_x = chunks_x; out->chunks_y = chunks_y;
 }
 
 } // namespace mare::game::world
 
 // C ABI (geochunks.h) for the unported callers
 extern "C" {
-int  geochunks_init(const char *dir) { return mare::game::world::geochunks().init(dir); }
-void geochunks_shutdown(void) { mare::game::world::geochunks().shutdown(); }
-void geochunks_update(float lon, float lat, float radius_deg) { mare::game::world::geochunks().update(lon, lat, radius_deg); }
-int  geochunks_height_m(float lon, float lat, float *out) { return mare::game::world::geochunks().height_m(lon, lat, out); }
-int  geochunks_height(float lon, float lat, float *out) { return mare::game::world::geochunks().height_world(lon, lat, out); }
-int  geochunks_resident(float lon, float lat) { return mare::game::world::geochunks().resident(lon, lat); }
-void geochunks_stats(gc_stats_t *out) { mare::game::world::geochunks().stats(out); }
-unsigned geochunks_generation(void) { return mare::game::world::geochunks().generation(); }
+using mare::game::world::geochunks;
+int  geochunks_init(const char *dir) { return geochunks().init(dir); }
+void geochunks_shutdown(void) { geochunks().shutdown(); }
+void geochunks_update(float lon, float lat, float radius_deg) { geochunks().update(lon, lat, radius_deg); }
+int  geochunks_height_m(float lon, float lat, float *out) { return geochunks().height_m(lon, lat, out); }
+int  geochunks_height(float lon, float lat, float *out) { return geochunks().height_world(lon, lat, out); }
+int  geochunks_sample(float lon, float lat, gc_sample_t *out) { return geochunks().sample(lon, lat, out); }
+int  geochunks_resident(float lon, float lat) { return geochunks().resident(lon, lat); }
+void geochunks_stats(gc_stats_t *out) { geochunks().stats(out); }
+unsigned geochunks_generation(void) { return geochunks().generation(); }
+unsigned geochunks_update_number(void) { return geochunks().update_number(); }
+int  geochunks_dataset_count(void) { return geochunks().dataset_count(); }
+int  geochunks_dataset(int i, gc_dataset_t *out) { return geochunks().dataset(i, out); }
+int  geochunks_chunk_maps(int ds, int cx, int cy, const unsigned char **cls, const unsigned char **splat, const unsigned char **normal) {
+    return geochunks().chunk_maps(ds, cx, cy, cls, splat, normal); }
+unsigned geochunks_chunk_wanted(int ds, int cx, int cy) { return geochunks().chunk_wanted(ds, cx, cy); }
+const char *geochunks_biome_name(int id) { return geochunks().biome(id)->name; }
+void geochunks_biome_rgb(int id, float rgb[3]) { const auto *b = geochunks().biome(id); for (int k = 0; k < 3; ++k) rgb[k] = b->rgb[k] / 255.f; }
+float geochunks_exaggeration(void) { return geochunks().exaggeration(); }
 int  geochunks_bake(float *hm, unsigned char *lm, int w, int h, float lon0, float lat1,
                     float cells_per_deg, const unsigned char *protect, int *flips) {
-    return mare::game::world::geochunks().bake(hm, lm, w, h, lon0, lat1, cells_per_deg, protect, flips);
+    return geochunks().bake(hm, lm, w, h, lon0, lat1, cells_per_deg, protect, flips);
 }
 }
