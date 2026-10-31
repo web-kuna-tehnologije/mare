@@ -1,6 +1,9 @@
 in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither; in float v_wet;
 in vec3 v_cloth;
 uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform sampler2D u_grain;
+uniform sampler2D u_sail_a; uniform sampler2D u_sail_n;    // new canvas: albedo, normal
+uniform sampler2D u_sail_a2; uniform sampler2D u_sail_n2;  // used canvas
+uniform float u_has_sail;
 out vec4 fragColor;
 #include "common/color.glsl"
 #include "common/pbr.glsl"
@@ -48,6 +51,7 @@ void main(){
 // sun behind a sail lights it from within. A little fuzz sheen at grazing angles instead of
 // a hard specular, which is what keeps it reading as cloth rather than plastic.
   float canvas = v_cloth.x > 0.75 ? 1.0 : 0.0;          // flags (0.5) keep their plain colour
+  float premium = v_cloth.x > 1.5 ? 1.0 : 0.0;          // 2 = new canvas, 1 = used (0.22.6)
   vec3 trans = vec3(0.0);
   if (canvas > 0.5) {
     float near = 1.0 - smoothstep(20.0, 80.0, dist0);
@@ -58,8 +62,30 @@ void main(){
     float stain = texture(u_grain, v_wpos.xz * 0.23 + v_wpos.yy * 0.11).g;
     albedo *= 1.0 - 0.10 * seam * near - 0.06 * clamp(tabling, 0.0, 1.0) * near;
     albedo *= (0.90 + 0.10 * stain) * (1.0 - 0.09 * down);
-    if (near > 0.01) n = nmap_triplanar(u_grain, v_wpos * 9.0, n, 1.0, 0.18 * near);
-    rough = 0.86 + 0.06 * stain;
+// The authored sailcloth (0.22.6): the panel's own (across, down) are its UV, so the weave,
+// the bolt-rope seams and - on a used sail - the frayed tears sit along the cloths. New canvas
+// is tight and pale, used canvas coarse hessian gone brown; both carry their own normal map,
+// which is what gives the sail a surface at the battle zoom instead of a tinted plane.
+    if (u_has_sail > 0.5 && near > 0.01) {
+      vec2 suv = vec2(across * 2.0, down * 2.6);
+      vec3 sa = premium > 0.5 ? texture(u_sail_a, suv).rgb : texture(u_sail_a2, suv).rgb;
+      vec3 sn = premium > 0.5 ? texture(u_sail_n, suv).rgb : texture(u_sail_n2, suv).rgb;
+// 0.22.6: the tile carries the *pattern*, not the brightness. Its own mean is divided out
+// (the used hessian is a third as bright as new canvas and turned every sail to leather) and
+// only the local variation is kept, a little stronger on a worn suit than a new one.
+      float lum = dot(sa, vec3(0.3, 0.59, 0.11));
+      float mean = premium > 0.5 ? 0.76 : 0.52;      // measured means of the two tiles
+      float v = clamp(lum / mean, 0.45, 1.45);
+      vec3 hue = mix(vec3(1.0), sa / max(lum, 0.04), premium > 0.5 ? 0.30 : 0.45);
+      albedo *= mix(vec3(1.0), hue * v, 0.80 * near);
+      vec3 tn = normalize(sn * 2.0 - 1.0);
+// the map is in the panel's own tangent frame: across the cloths, down them, out of the face
+      vec3 tgt = normalize(cross(n, vec3(0.0, 1.0, 0.0)) + vec3(1e-4));
+      vec3 bit = cross(n, tgt);
+      n = normalize(mix(n, normalize(tn.x * tgt + tn.y * bit + tn.z * n), 0.65 * near));
+      rough = mix(rough, premium > 0.5 ? 0.80 : 0.93, near);
+    } else if (near > 0.01) n = nmap_triplanar(u_grain, v_wpos * 9.0, n, 1.0, 0.18 * near);
+    rough = mix(0.86 + 0.06 * stain, rough, u_has_sail * near);
 // transmission: the sun on the far side of the canvas (n faces the viewer), shadowed like the lit side
     float back = max(dot(-n, u_sun), 0.0);
     float sh = shadow_at(v_wpos, -n, back, dist0);

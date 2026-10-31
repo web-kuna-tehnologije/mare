@@ -12,6 +12,7 @@ extern "C" {
 #include "../core/types.h"
 #include "../core/util.h"
 #include "../core/diag.h"
+#include "../assets/asset.h"
 #include "../engine/shaders.h"
 }
 
@@ -66,6 +67,8 @@ private:
     void build_buildings();
     void build_puff();
     void meshes_bind_waves(const rhi_pipeline_t *p);
+    void bind_sails(const rhi_pipeline_t *p);
+    int  sail_tex[4] = { -1, -1, -1, -1 };
 };
 
 Meshes &meshes() { static Meshes m; return m; }
@@ -206,6 +209,7 @@ void Meshes::build_puff() {
 
 void Meshes::init() {
     static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain",
+                                      "u_sail_a", "u_sail_n", "u_sail_a2", "u_sail_n2", "u_has_sail",
                                       "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const char *depth_uniforms[] = { "u_vp", "u_time", "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, 0 };
     // (C compound literals -> named descriptors: C++ cannot take &T{...})
@@ -241,10 +245,29 @@ void Meshes::meshes_bind_waves(const rhi_pipeline_t *p) {
     rhi_set_f1(rhi_uniform(p,"u_wk"), WORLD_K);
 }
 
+// The authored canvas (0.22.6, issue3): two qualities of sailcloth, each an albedo and a
+// normal map, from assets/ships (tools/ship_textures.py cut them from the Meshy sheets).
+// A sail's own (across, down) coordinates are its UV, so no mesh needed UVs adding.
+void Meshes::bind_sails(const rhi_pipeline_t *p) {
+    if (sail_tex[0] < 0) {
+        static const char *names[4] = { "sail_premium_albedo", "sail_premium_normal", "sail_used_albedo", "sail_used_normal" };
+        for (int i = 0; i < 4; ++i) {
+            char path[600]; snprintf(path, sizeof path, "%s/ships/%s.png", asset_root(), names[i]);
+            sail_tex[i] = texture_request(path, i & 1 ? RHI_FMT_RGB8 : RHI_FMT_SRGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
+        }
+    }
+    const rhi_texture_t *t[4]; int have = 1;
+    for (int i = 0; i < 4; ++i) { t[i] = texture_get(sail_tex[i]); if (!t[i]) have = 0; }
+    static const char *uni[4] = { "u_sail_a", "u_sail_n", "u_sail_a2", "u_sail_n2" };
+    for (int i = 0; i < 4; ++i) { rhi_set_i1(rhi_uniform(p, uni[i]), 10 + i); rhi_texture_bind(10 + i, have ? t[i] : detail_grain()); }
+    rhi_set_f1(rhi_uniform(p, "u_has_sail"), have ? 1.f : 0.f);
+}
+
 void Meshes::bind() {
     rhi_pipeline_bind(&meshes_prg);
     meshes_bind_waves(&meshes_prg);
     rhi_set_i1(UNI(meshes_prg,"u_grain"), 2); rhi_texture_bind(2, detail_grain());
+    bind_sails(&meshes_prg);
     rhi_set_mat4(UNI(meshes_prg,"u_vp"), &RF.vp.x.x);
     rhi_set_f1(UNI(meshes_prg,"u_time"), RF.time);
     rhi_set_f3(UNI(meshes_prg,"u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);

@@ -88,6 +88,46 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## issue3, item by item (assets/issues/issue3/issue.txt, 0.22.6)
+
+| Item | Status |
+|---|---|
+| thicken the mast again | done: `MAST_SLIM` 0.425 -> 0.52 |
+| increase height of back mast on carracks and cogs | done: every aft station raised (see CHANGELOG) |
+| shipyard.cc data into files | done: `assets/ships/ship_classes.json`, built-in table is the fallback |
+| easily increase density of forests | done: `MARE_FOREST_DENSITY` |
+| add LODs to ambient props | done: mesh within 7 units of the look-at point, crossed cards beyond |
+| rigging to connect cloth sail to lantina, -15% thickness, knots, foot guide | done: robands, foot rope, sheet and tack; spar 15% slimmer; head gap 0.014 -> 0.004 |
+| divide lantina from front mast | done: tack hauled in 0.44 -> 0.30 mast heights, peak further aft |
+| oars too low in water | done: ports at the rail, steeper blade, half the dip |
+| fences, vineyards, grain, orchards as 3D | done: fence panels on the parcel edges, standing corn; vineyards and orchards were already props |
+| mines and villages with mills | done: a windmill per farm village, a pithead per mine |
+| sail classes + normal maps, quality | done: premium/used albedo+normal, per-ship (tools/ship_textures.py) |
+| 2 types of rigging, premium and used | done as two cordage colours per class, chosen per ship. The *texture* is not on the rope: at a 1-2 px rope width it would read as noise - the colour is what carries |
+| finish the todo list, skip rivers | items 7-10 below; rivers untouched and still painted-only |
+| forests in bunches, not in the fields | done: clump mask, cropland excludes woodland outright |
+| fields bigger, more noticeable, different sizes | done: parcel size per district, more contrast |
+| reduce zoomed-in terrain height (Po like Switzerland, Alps like spikes) | partly: the max(data, cell) pyramid artefact is gone and the world is 20% lower with `MARE_HEIGHT_SCALE` to tune. A *zoom-dependent* height was rejected - every height threshold and every prop would move as the camera came in. The remaining lumpiness is the 2.8 km sample spacing: roadmap item 1 |
+| ship wakes in 3D with foaming | done: Kelvin arms and the lane astern, as geometry, with their own foam |
+| reflections | done: screen-space, against the captured scene (`MARE_SEA_SSR=0` to compare) |
+| wind against the ship: move backwards and rotate | done as **leeway**: she falls off to close-hauled and is set to leeward. True sternway was tried and reverted - without tacking in the pathfinder a windward leg never finishes (two-year trade 19,700 -> 6,800). Tacking is the proper fix and is not done |
+
+### TODO items 7-10 after this round
+
+- **7a fields** - done (texture) + fences and standing corn as props.
+- **7b vineyards and orchards** - done (texture + props).
+- **7c villages** - done as far as procedural props go: houses, a windmill, a pithead. The
+  authored `small_stone_house` assets and a street layout still want the settlement generator.
+- **8a scatter framework** - done (`gfx/scatter.cc`): one rule per prop type, paged with the
+  near ring, LOD split, density knob.
+- **8b trees** - done: forest broadleaves and pines in stands, orchard and olive trees.
+- **8c rocks** - done: boulders on bare steep ground.
+- **9a micro-detail** - partly: fences are the stone-wall/hedge item; footpaths and rutted
+  track centres are not drawn.
+- **10 props** - the Meshy `assets/buildings/city` blends are still not exported through the
+  LOD pipeline; the props above are procedural meshes, not authored assets.
+- **10b bridges** - not done: `road_bridges[]` is recorded, nothing is drawn on it.
+
 ## Session notes (2026-10-31 afternoon, 0.22.5 - issue2)
 
 - Mirror `C:\projects\mare_oak_20261031_120901` (own `assets\elm` + `assets\data_chunks_terrain`

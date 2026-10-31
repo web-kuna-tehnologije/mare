@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.22.6 — the third issues folder: a data-driven fleet, a wake, reflections, a worked hinterland
+
+From `assets/issues/issue3`. The ocean checklist in `next feature.txt` was answered in 0.22.5;
+this round is the rest of that folder.
+
+### Ships
+- **The fleet is data now** (`assets/ships/ship_classes.json`, `shipyard.cc classes_init`).
+  The Gen I class table - stations, mast heights, sail codes, oar banks, every stat - is read
+  from the asset tree at startup; the built-in table stays as the fallback, and the file
+  overrides a class by name or appends a new one, so a tree without it still sails. Up to
+  `SHIP_CLASS_MAX` classes; the log says how many were overridden and added.
+- **Masts** thicker again (`MAST_SLIM` 0.425 -> 0.52) and the **aft masts taller** on the cogs
+  and carracks: the coastal trader's mizzen 0.62 -> 0.76, the armed cog's 0.58 -> 0.74, the
+  hulk's 0.62 -> 0.78, the carrack's 0.78 -> 0.90, the war carrack's two 0.82/0.68 ->
+  0.94/0.82, the great carrack's 0.84/0.70 -> 0.96/0.84.
+- **The lantina is bent to its sail** (issue3). The spar is 15% slimmer again, the canvas head
+  sits right under it (0.014 -> 0.004 mast heights), and the sail is now *laced* to it:
+  `LAT_ROBANDS` lashings along the head, a foot rope from tack to clew, a sheet aft and a tack
+  hauled down forward. The whole line is hauled in - the tack from 0.44 to 0.30 mast heights
+  forward, the peak further aft and up - so a mizzen's yard no longer reaches into the
+  mainmast's rigging ("divide lanteen from front mast").
+- **Oars out of the water**: the ports are just under the rail (0.72 -> 1.02 of the deck
+  fraction), the blade angle steeper, the dip halved.
+- **Two suits of sails and two conditions of cordage** (issue3). `tools/ship_textures.py` cuts
+  the Meshy sheets in `assets/ships/sails` and `assets/ships/rigging` into
+  `sail_premium_albedo/normal` and `sail_used_albedo/normal`; the panel's own (across, down)
+  coordinates are the UV, so the weave, the bolt-rope seams and a used sail's frayed tears run
+  along the cloths, with the tile's own normal map giving the canvas a surface. The cordage is
+  laid twice per class - pale new hemp and dark tarred rope. Which a ship gets is a stable
+  hash of her key, biased by nation: a pirate is in rags, a state navy mostly in new canvas.
+- **Head to wind** (`fleet.cc`): a square rig cannot lie closer than about fifty degrees, so
+  where the course demands it the ship **falls off** to the nearest bearing she can hold and is
+  **set bodily to leeward** while she claws up - which from the deck is the ship going
+  backwards. True sternway (a negative step) was written first and measured wrong: this
+  pathfinder cannot tack, so a leg into the wind never finished and two years of trade fell
+  from 19,700 to 6,800 in `sim_test`. Leeway gives the same picture and still completes a
+  passage. Never within two units of a waypoint, and never onto a shore.
+
+### Sea
+- **A trailing wake, in 3D** (`sea/vs_common.glsl`): the Kelvin pattern as geometry - two
+  diverging crests at 19.5 degrees whose phase runs out along each arm, and the dragged-down
+  turbulent lane between them, decaying over about six hull lengths - with its own broken
+  foam on the arms and churn in the lane (`sea.frag`). The 0.19 note stands: this is the real
+  pattern, not the painted V scar that used to be drawn at every zoom.
+- **Reflections** (issue3, dev.txt "Reflections"). A screen-space march against the scene copy
+  the refraction already captures: sixteen geometric steps, hit by linear depth, faded at the
+  screen edges and with a grazing ray, mixed into the sky term. Hulls and the near shore now
+  appear in the water. `MARE_SEA_SSR=0`.
+- **Foam on a collapsing wave**: where a fragment stands high in its own wave *and* the
+  Gerstner displacement is folding it over, the water is spilling down the face - a band of
+  white at the crest rather than over the whole swell.
+- **Waves crushing on the coast**: the breaker's phase runs with the depth so the line of
+  white marches shoreward, modulated along the shore so it breaks in stretches, and pulsed by
+  the forty-second set clock - instead of the uniform white outline every island used to wear.
+
+### Land
+- **The spikes.** The ring was taking `max(fine data, coarse cell)`, and the base map is the
+  7 km land-mask grid read bilinearly - a lattice of pyramids - so every pyramid that poked
+  through the finer field survived as a cone. The ring draws the data's own height now, still
+  held to the base's side of the waterline. On top of that the world is 20% lower
+  (`GC_HEIGHT_SCALE` 20 -> 16, peak boost 0.35 -> 0.28, `MARE_HEIGHT_SCALE` to taste) and the
+  ring's procedural ridge noise is lower again.
+- **Forests in stands**, not spread through the fields: a low-frequency clump mask gathers the
+  woodland, and cropland excludes it outright. Density on a knob (`MARE_FOREST_DENSITY`).
+- **Fields bigger and varied**: the parcel size is drawn per district, so one valley is worked
+  in long narrow strips and the next in broad blocks, with more contrast between neighbours.
+- **More of the hinterland standing up** (`gfx/scatter.cc`): fence panels along the parcel
+  edges, clumps of standing corn in the fields, a windmill beside every farm village, a
+  pithead over every mine, and boulders on the bare steep ground (TODO 8c). 
+- **LODs for the ambient props** (issue3): every tree is a mesh within 7 units of the look-at
+  point and a crossed pair of cards beyond it, split when the ring recomposes so nothing flips
+  while the view is still.
+
+### Elsewhere
+- `docs/ROADMAP_0.23.md`: what is done and the order for the rest.
+- A zero-size render target (a minimised window) no longer ends the run; `u_vp` is declared in
+  the sea fragment stage, which the SSR march needs.
+
 ## 0.22.5 — the second issues folder: shadows that hold still, a forest, villages, the battle sea
 
 From `assets/issues/issue2` (`issues.txt`, `next feature.txt`, seven screenshots):

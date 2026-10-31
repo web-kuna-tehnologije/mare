@@ -119,6 +119,10 @@ Status as of the current codebase. Each entry names the module that owns it.
   split square yards instanced on every station on the sail's swung/braced heading; cordage as
   geometry-stage lines of physical width; verlet flags pinned to the main masthead; canvas,
   water and ground materials (DESIGN_SHIPS.md 3c, DESIGN_RENDERER.md 0.19).
+- Data-driven ship classes (0.22.6): `assets/ships/ship_classes.json` overrides the built-in
+  Gen I table by name; two suits of sails and two conditions of cordage per ship.
+- Trailing Kelvin wake and screen-space reflections on the water (0.22.6); fences, standing
+  corn, windmills, pitheads and boulders in the hinterland, with a card LOD for the trees.
 - Forest and village props (0.22.5): trees and pines on the export's tree cover, houses on
   the village mask (`gfx/scatter.cc`); oars pitch into the water; light-plane shadow snapping.
 - The coastline from the terrain data (0.22.4): the world-game-package's overview decides

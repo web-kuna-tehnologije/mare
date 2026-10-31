@@ -58,6 +58,8 @@ void main(){
   v_nrm = vec3(n.x*c + n.z*s, n.y, -n.x*s + n.z*c);
   v_col = mix(a_col, i_scol.yzw, a_mat);
   v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(mix(a_rm.x, 0.9, isc), mix(a_rm.y, 0.0, isc));
-  v_cloth = vec3(isc * (a_mat > 0.5 ? 0.5 : 1.0), cu, cw);
+// 0.22.6: the cloth flag doubles as the sail's *quality* - 1 used canvas, 2 new (shipyard.cc
+// ship_quality); a flag keeps 0.5 and a rope 0. meshes.frag picks the sailcloth tile with it.
+  v_cloth = vec3(isc * (a_mat > 0.5 ? 0.5 : i_fx.y), cu, cw);
   gl_Position = u_vp * vec4(wp, 1.0);
 }

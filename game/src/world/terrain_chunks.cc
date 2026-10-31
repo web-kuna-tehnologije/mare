@@ -31,7 +31,15 @@ namespace mare::game::world {
 // shaders assumes these numbers.
 #define GC_LAND_MAX_M   9000.f
 #define GC_DEPTH_MAX_M 12000.f
-#define GC_HEIGHT_SCALE   20.f      // 0.22.3: back to 20 (0.22.2's 17 flattened the Alps into hills)
+// 0.22.6 (issue3 "reduce the height of the terrain when zoomed in - the Po valley looks like
+// Switzerland and the Alps like spikes"): 20 -> 16. A *zoom-dependent* scale was the obvious
+// reading, and is wrong: every height threshold in the terrain shader - snow line, tree line,
+// beach, scree - and every prop the scatter stands on the ground would move as the camera came
+// in. So the whole world is 20% lower instead, which leaves the Po plain flat and takes the
+// worst of the spikes off the ranges. MARE_HEIGHT_SCALE overrides it for a look without a build.
+#define GC_HEIGHT_SCALE   gc_height_scale()
+static float gc_height_scale_v = 16.f;
+static inline float gc_height_scale(void) { return gc_height_scale_v; }
 #define GC_DEPTH_SCALE     9.f
 #define GC_M_PER_DEG  111320.f      // metres per degree of latitude: the export's normals use geographic metre spacing
 // The high ranges (0.22.3). The linear 9000 m -> 20 units puts the Alps at 7-9 units, which
@@ -40,7 +48,7 @@ namespace mare::game::world {
 // the lowlands and every coast keep their calibration (the boost is zero below 700 m).
 #define GC_PEAK_FROM_M   700.f
 #define GC_PEAK_FULL_M  2600.f
-#define GC_PEAK_BOOST    0.35f
+#define GC_PEAK_BOOST    0.28f
 
 static inline float gc_world(float m) {
     if (m >= 0.f) {
@@ -368,6 +376,9 @@ int GeoChunks::init(const char *dir) {
     { const char *on = getenv("MARE_GEOCHUNKS");
       if (on && atoi(on) == 0) { LOG_INFO("terrain", "terrain chunks off (MARE_GEOCHUNKS=0)"); return 0; } }
     std::vector<std::string> roots;
+    { const char *e = getenv("MARE_HEIGHT_SCALE");
+      if (e) { gc_height_scale_v = clampf((float)atof(e), 2.f, 60.f);
+               LOG_INFO("terrain", "vertical exaggeration pinned: 9000 m -> %.1f world units (MARE_HEIGHT_SCALE)", gc_height_scale_v); } }
     probe(dir, roots);
     for (const std::string &r : roots) if ((int)ds.size() < GC_MAX_DATASETS) add_dataset(r.c_str());
     if (ds.empty()) { LOG_WARN("terrain", "no terrain dataset found (looked beside %s for data_chunks_terrain, data_new_2 and data_new): the procedural world stands alone", asset_root()); return 0; }

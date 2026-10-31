@@ -58,7 +58,7 @@ private:
     // detail bands per level: amplitude in world units and noise frequency in cycles per degree.
     // L0/L1 are at or below the base map's resolution, so they carry no delta (zero payload): they
     // exist as residency markers and coarse fallbacks, which keeps every code path uniform.
-    static constexpr float lvl_amp[STREAM_LEVELS]  = { 0.f, 0.f, 0.28f, 0.48f };   // 0.22.5: 40% lower ("reduce close-by heights")
+    static constexpr float lvl_amp[STREAM_LEVELS]  = { 0.f, 0.f, 0.20f, 0.34f };   // 0.22.5: 40% lower; 0.22.6: lower again (issue3)
     static constexpr float lvl_freq[STREAM_LEVELS] = { 0.f, 0.f, 3.0f,  6.5f  };
 
     int   grid_w[STREAM_LEVELS] = {}, grid_h[STREAM_LEVELS] = {}, lvl_off[STREAM_LEVELS + 1] = {};

@@ -21,6 +21,7 @@ extern "C" {
 #include "../data/tables.h"
 #include "../world/nav.h"
 #include "../world/wind.h"
+#include "../world/world.h"
 }
 
 namespace mare::game::sim {
@@ -263,8 +264,35 @@ void Fleets::fleet_move(fleet_t *f, float dt) {
         if (f->nships == 0) { log_event_at(EV_STORM, f->nation, 0, f->x, f->z, "%s is lost with all hands", f->name); destroy(f); return; }
         fleet_jettison(f);
     }
+    // Head to wind (0.22.6, issue3). A square rig cannot lie closer than about fifty degrees
+    // to the wind. Where the course demands it the ship *falls off* - the heading swings to the
+    // closest bearing she can hold, on whichever tack is nearer her course - and in a real
+    // breeze, well offshore, she gathers **sternway**: the step goes negative and she is driven
+    // back down her own track until the wind veers or the AI repaths. Close to the waypoint
+    // (an approach to a harbour) she only loses way, never backs up, so no fleet ever reverses
+    // out of a port it has nearly reached.
+    #define NO_GO_RAD  0.87f        // ~50 degrees: the closest a 1620 square rig lies
+    #define LEEWAY_MUL  0.55f       // how fast she is set to leeward while clawing up, world units/day per unit of wind
+    float want_h = atan2f(-dz, dx);
+    { float wdx, wdz, wstr; wind_at(f->x, f->z, G.day, &wdx, &wdz, &wstr);
+      float into = -(dx * wdx + dz * wdz);                 // +1 = straight into the wind's eye
+      if (into > 0.80f && wstr > 0.40f) {
+          float eye = atan2f(wdz, -wdx);                   // the bearing the wind blows from
+          float rel = wrap_angle(want_h - eye);
+          want_h = eye + (rel >= 0.f ? NO_GO_RAD : -NO_GO_RAD);   // she falls off to the closest she can lie
+          // ...and is set bodily to leeward while she claws up, which from the deck is the
+          // ship going backwards. True sternway - a negative step - was tried first and is
+          // wrong here: this pathfinder cannot tack, so a leg into the wind simply never
+          // finished and two years of trade fell from 19,700 to 6,800 (sim_test). Leeway
+          // gives the same picture and still completes a passage. Never onto a shore.
+          if (d > 2.f) {
+              float lee = LEEWAY_MUL * wstr * dt;
+              float nx = f->x + wdx * lee, nz = f->z + wdz * lee;
+              if (!world_is_land(nx, nz)) { f->x = nx; f->z = nz; }
+          }
+      } }
     float step = speed * dt;
-    f->heading += wrap_angle(atan2f(-dz, dx) - f->heading) * minf(1, dt * 6);
+    f->heading += wrap_angle(want_h - f->heading) * minf(1, dt * 6);
     if (step >= d) { f->x = tx; f->z = tz; if (++f->pathi >= f->npath) fleet_arrived(f); }
     else { f->x += dx * step; f->z += dz * step; }
 }

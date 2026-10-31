@@ -127,6 +127,7 @@ int sea_nyquist = 1;         // fade waves the detail grid cannot sample (MARE_S
 float sea_foam = 1.f;        // foam strength (dashboard / MARE_FOAM; 0 = none)
 int   sea_refract = 1;       // refract the frame behind the water (MARE_SEA_REFRACT=0: the old alpha blend)
 int   sea_ship_waves = 1;    // the water ships push aside (MARE_SHIP_WAVES=0 for the A/B; the foam stays)
+int   sea_ssr = 1;           // screen-space reflections of the hulls and the near shore (MARE_SEA_SSR=0)
 #define SEA_MAX_SHIPS 24
 float sea_wave_amp = 1.f;    // global wave height knob (dashboard / MARE_WAVES; 0 = flat water)
 float sea_wave_scale = 1.f;  // set per scene; the instanced meshes read it too, so ships ride the same swell
@@ -184,7 +185,7 @@ void Sea::init() {
                                           "u_campos", "u_mapness", "u_sky", "u_daylight", "u_center", "u_detail",
                                           "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hole", "u_clip", "u_sea_debug",
                                           "u_det", "u_det_far", "u_det_rect", "u_det_far_rect", "u_det_on", "u_det_texel", "u_mapness_vs",
-                                          "u_shore", "u_shore_far", "u_detail_far", "u_capzoom", "u_shorescale", "u_zrange", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
+                                          "u_shore", "u_shore_far", "u_detail_far", "u_capzoom", "u_shorescale", "u_zrange", "u_ssr", "u_terr", "u_terr_texel", GLSL_MAPMODE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     // (C compound literals -> named descriptors: C++ cannot take &T{...}; the tess one is also
@@ -407,6 +408,10 @@ void Sea::sea_bind_common(const rhi_pipeline_t *p, float wave_scale, float local
     { float t = clampf((cam.dist - 9.f) / 9.f, 0.f, 1.f); rhi_set_f1(rhi_uniform(p,"u_capzoom"), local_depth > 0.f ? 1.f : 1.f - t * t * (3.f - 2.f * t)); }
     rhi_set_f1(rhi_uniform(p,"u_shorescale"), local_depth > 0.f ? 1.f : clampf(cam.dist / 150.f, 0.08f, 0.6f));   // the shore bands narrow with the zoom (0.22.4; 0.22.5: thinner at the regional zoom - a 4 km foam rim is not a shore)
     rhi_set_f2(rhi_uniform(p,"u_zrange"), cam.znear, cam.zfar);   // to linearise the captured depth (refraction thickness)
+    // Screen-space reflections of whatever stands on the water (0.22.6): only where the camera
+    // is close enough for a hull to be more than a few pixels, and only when the scene copy the
+    // march reads actually exists (sea_refract captures it).
+    rhi_set_f1(rhi_uniform(p,"u_ssr"), (sea_ssr && sea_refract && hdr_scene_copy() && cam.dist < 70.f * maxf(wave_scale, 1.f)) ? 1.f : 0.f);
     rhi_set_f1(rhi_uniform(p,"u_local_depth"), local_depth);
     rhi_set_f2(rhi_uniform(p,"u_clip"), sea_clip_z, sea_clip_on ? 1.f : 0.f);
     {   // the streamed detail rings (terrain_rings.cc), bound exactly as the terrain binds them,

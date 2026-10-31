@@ -148,11 +148,15 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         if (fine) { h = gs.height; src_chunk++; if (gs.has_maps) src_maps++; }
         float d;
         if (fine) {
-            // the authored map's broad relief carries the synthesized ridges on top (0.17): the
-            // source's land band is compressed and smooth, the ridges are what makes it a range
-            // and, as in the bake, the authored map may only raise land and only deepen sea: a
-            // loose coastline neither flattens a hill nor lifts a sea floor to the surface
-            d = (base > 0.f ? maxf(h, base) : minf(h, base)) - base + 0.7f * sd;
+            // 0.22.6: the data's own height, *not* max(data, base). The base map is the 7 km
+            // land-mask grid read bilinearly, so it is a lattice of pyramids; taking the greater
+            // of it and the 2.8 km sample let every pyramid that poked through the finer field
+            // survive as a cone. That is the "Alps look like spikes" and the Po valley reading
+            // as Switzerland (issue3). Since 0.22.4 the bake has written the data into the base
+            // map anyway, so the two agree in the large and the max only added the artefact.
+            // The sign is still held to the base's side of the waterline, so no coastline moves.
+            float hd = base > 0.f ? maxf(h, 0.02f) : minf(h, -0.02f);
+            d = hd - base + 0.45f * sd;
         } else
             d = sd;
         // how far this texel is from a harbour: 0 at the quay, 1 beyond SV_PORT_FADE
@@ -468,7 +472,12 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             // the woods (0.22.5): the export's tree cover, thinned by fields and villages, with
             // the shrubland as open woodland; gfx/scatter.cc stands the trees on it
             float wood = biome == GC_BIOME_TREES ? 1.f : biome == GC_BIOME_SHRUBS ? 0.35f : 0.f;
-            wood *= (1.f - built) * (1.f - 0.8f * fields) * (1.f - vine) * (1.f - orch) * (1.f - smoothstep_(0.9f, 1.3f, slope));
+            // 0.22.6 (issue3 "forests need to be in bunches, not in the middle of the fields"):
+            // a low-frequency clump mask gathers the woodland into stands with clearings
+            // between them, and cropland now excludes it outright rather than thinning it.
+            float clump = smoothstep_(0.34f, 0.62f, world_fbm(lon * 5.5f + 17.f, lat * 5.5f + 23.f, 3, 0x3C9Fu));
+            wood *= 0.12f + 0.88f * clump;
+            wood *= (1.f - built) * (1.f - smoothstep_(0.18f, 0.45f, fields)) * (1.f - vine) * (1.f - orch) * (1.f - smoothstep_(0.9f, 1.3f, slope));
             forestb = (unsigned char)(255.f * clampf(wood, 0.f, 1.f));
         }
         f->buf[j * f->res + i] = d;
@@ -545,7 +554,7 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     rhi_texture_update(&r->river_tex, r->river);
     rhi_texture_update(&r->landuse_tex, r->landuse);
     r->x0 = f.x0; r->z0 = f.z0; r->on = 1;
-    if (r == &sv_ring[SV_NEAR]) scatter_rebuild(r->landuse, r->forest, r->buf, r->res, f.x0, f.z0, step);   // the props stand on the near ring's land use (0.22.3)
+    if (r == &sv_ring[SV_NEAR]) scatter_rebuild(r->landuse, r->forest, r->buf, r->res, f.x0, f.z0, step, &f.set_xz[0][0], f.nsets);   // the props stand on the near ring's land use (0.22.3)
     return (diag_now() - t0) * 1000;
 }
 

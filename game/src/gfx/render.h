@@ -132,6 +132,7 @@ extern int   sea_inner_on;               // fine inner patch lattice near the lo
 float sea_height_at(float x, float z);   // wave surface height at a world point this frame (CPU mirror of the shader sum)
 void sea_set_ships(const float *xzhs, const float *len, int n);   // ships to foam around this frame (x, z, heading, speed; hull length), max 24
 extern int   sea_tess_on;                // tessellated patches available (GL 4.0; MARE_SEA_TESS=0 forces the warped grid)
+extern int   sea_ssr;                    // screen-space reflections on the water (MARE_SEA_SSR=0)
 extern int   sea_tess_now;               // ... and in use this frame (only within SEA_TESS_DIST of the water)
 extern int   sea_tess_level_max;         // finest subdivision per patch edge (dashboard)
 extern float sea_wave_amp;               // wave height knob (1 = normal, 0 = flat; MARE_WAVES / dashboard)

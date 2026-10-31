@@ -326,6 +326,7 @@ int main(int argc, char **argv) {
     { double t0 = diag_now(); entities_startup(); entities_load();
       LOG_INFO("main", "%d entities loaded in %.1f ms", entities_count(), (diag_now()-t0)*1000); rhi_check_errors("entities_load"); }
     asset_set_upload_hook(scene_asset_upload);   // finished assets reach the GPU through the MAIN lane, one LOD per budgeted job
+    if (getenv("MARE_FOREST_DENSITY")) { scatter_density = clampf((float)atof(getenv("MARE_FOREST_DENSITY")), 0.f, 4.f); LOG_INFO("gfx", "forest density x%.2f (MARE_FOREST_DENSITY)", scatter_density); }
     if (getenv("MARE_SCATTER")) { scatter_enabled = atoi(getenv("MARE_SCATTER")) != 0; LOG_INFO("gfx", "hinterland props %s (MARE_SCATTER)", scatter_enabled ? "on" : "off"); }
     if (getenv("MARE_SHIPS")) { shipyard_enabled = atoi(getenv("MARE_SHIPS")) != 0; LOG_INFO("asset", "authored ships %s (MARE_SHIPS)", shipyard_enabled ? "on" : "off"); }
     if (shipyard_enabled) shipyard_request_all();   // the Gen I hulls, rigs and oars, ahead of the first battle
@@ -363,6 +364,7 @@ int main(int argc, char **argv) {
     if (getenv("MARE_OCCLUSION")) { occlusion_enabled = atoi(getenv("MARE_OCCLUSION")) != 0; LOG_INFO("gpu", "occlusion culling %s (MARE_OCCLUSION)", occlusion_enabled ? "on" : "off"); }
     if (getenv("MARE_SKY")) { sky_enabled = atoi(getenv("MARE_SKY")) != 0; LOG_INFO("gpu", "sky pass %s (MARE_SKY)", sky_enabled ? "on" : "off"); }
     if (getenv("MARE_SHIP_WAVES")) { sea_ship_waves = atoi(getenv("MARE_SHIP_WAVES")) != 0; LOG_INFO("gpu", "ship bow waves %s (MARE_SHIP_WAVES)", sea_ship_waves ? "on" : "off"); }
+    if (getenv("MARE_SEA_SSR")) { sea_ssr = atoi(getenv("MARE_SEA_SSR")) != 0; LOG_INFO("gpu", "sea reflections %s (MARE_SEA_SSR)", sea_ssr ? "on" : "off"); }
     if (getenv("MARE_SEA_REFRACT")) { sea_refract = atoi(getenv("MARE_SEA_REFRACT")) != 0; LOG_INFO("gpu", "sea refraction %s (MARE_SEA_REFRACT)", sea_refract ? "on" : "off"); }
     if (getenv("MARE_SEA_TESS_MAX")) { sea_tess_level_max = atoi(getenv("MARE_SEA_TESS_MAX")); LOG_INFO("gpu", "sea tessellation ceiling %d (MARE_SEA_TESS_MAX)", sea_tess_level_max); }
     if (getenv("MARE_SEA_INNER")) { sea_inner_on = atoi(getenv("MARE_SEA_INNER")) != 0; LOG_INFO("gpu", "sea inner lattice %s (MARE_SEA_INNER)", sea_inner_on ? "on" : "off"); }

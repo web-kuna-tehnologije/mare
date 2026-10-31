@@ -24,6 +24,41 @@ uniform float u_shorescale;
 uniform vec2 u_zrange;
 // the camera's near and far planes, to linearise the captured depth (refraction thickness, 0.22.4)
 float lin_depth(float zw, vec2 nf) { float ndc = zw * 2.0 - 1.0; return 2.0 * nf.x * nf.y / (nf.y + nf.x - ndc * (nf.y - nf.x)); }
+uniform mat4 u_vp;    // the view-projection, to put a world-space march back on the screen
+uniform float u_ssr;
+// 1 = march the captured scene for a reflection of whatever stands on the water (sea.cc, 0.22.6)
+// Screen-space reflection (issue3 "Reflections"). The frame captured just before the water
+// draws already holds the terrain and the hulls, with its own depth (hdr_capture_scene): the
+// ray is marched in world space, projected each step, and the first step whose linear depth is
+// behind the stored one is the hit. Sixteen steps that grow geometrically cover a ship
+// alongside without ever reaching the horizon, which is what the sky term is for. The result
+// fades at the screen edges, with a grazing ray, and where nothing was hit.
+vec3 ssr_reflect(vec3 ro, vec3 rd, mat4 vp, vec2 nf, out float hit) {
+  hit = 0.0;
+  if (u_ssr < 0.5 || rd.y < 0.03) return vec3(0.0);
+  float t = 0.25, grow = 1.34; vec3 best = vec3(0.0);
+  for (int i = 0; i < 16; ++i) {
+    vec3 p = ro + rd * t;
+    vec4 c = vp * vec4(p, 1.0);
+    if (c.w <= 0.0001) break;
+    vec3 ndc = c.xyz / c.w;
+    vec2 uv = ndc.xy * 0.5 + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) break;
+    float sd = texture(u_scene_depth, uv).r;
+    if (sd < 0.9999) {
+      float ray = lin_depth(ndc.z * 0.5 + 0.5, nf), scene = lin_depth(sd, nf);
+      if (ray > scene && ray - scene < 6.0 + t) {      // behind the stored surface, but not through the world
+        vec2 e = min(uv, 1.0 - uv);
+        float edge = smoothstep(0.0, 0.10, min(e.x, e.y));
+        best = texture(u_scene, uv).rgb;
+        hit = edge * smoothstep(0.03, 0.22, rd.y);
+        break;
+      }
+    }
+    t *= grow; t += 0.18;
+  }
+  return best;
+}
 // the shore bands' width in wave units follows the zoom (sea.cc, 0.22.4): the lapping line, the
 // surf and the cliff burst are a few hundred metres wide from the regional view and a few tens
 // of metres from the battle zoom - fixed world widths made every close shore a sheet of milk
@@ -193,6 +228,11 @@ void main(){
 // lobe is what makes water read as moulded plastic.
   vec3 fres3 = clamp(vec3(fres) * vec3(0.93, 1.0, 1.09), 0.0, 1.0);
   vec3 skyrefl = srgb_to_linear(u_sky) * (0.40 + 0.4 * u_calm) + u_ambsky * 0.32;
+// what actually stands on the water, reflected (0.22.6): the hulls and the near shore
+  { float hit = 0.0;
+    vec3 rd = reflect(-vdir, nf);
+    vec3 sc = ssr_reflect(v_wpos + vec3(0.0, 0.01, 0.0), rd, u_vp, u_zrange, hit);
+    if (hit > 0.001) skyrefl = mix(skyrefl, sc, hit * 0.85); }
   vec3 glint = sun_shade(vec3(0.0), n, vdir, v_wpos, rough, 0.0, dist) * 0.26;
 // albedo 0: the specular lobe alone, in the sun's shadow where it should be
 // Sparkle: the sub-ripple normals the shading normal has already averaged away, put back as
@@ -230,6 +270,13 @@ void main(){
 // battle's sea was tiled with them); through the texture's bright tenth it is a patch of foam
 // at texel resolution, and the cells never show.
   float capmask = smoothstep(0.05, 0.40, lum2);
+// The crest of a collapsing wave (0.22.6, issue3 "add foam and crest on top of collapsing
+// wave"). `lift` is how high this fragment stands in its own wave and `v_jac` how hard the
+// Gerstner displacement is folding it over: where a lifted fragment is also folding, the water
+// is spilling down the face, and that is where the white sits. Drawn as a band *at* the crest
+// rather than over the whole wave, so a swell reads as a line of white running along its top.
+  float collapse = smoothstep(0.55, 0.95, lift) * smoothstep(0.90, 0.66, v_jac);
+  float crestfoam = collapse * (0.35 + 0.65 * capmask) * smoothstep(0.15, 0.7, ws) * detail;
 // the staged scenes want white on every tessellated crest ("white foam on peaks"), the map
 // only where the fold says the wave is breaking
   float peak = u_local_depth > 0.0 ? smoothstep(0.1, 0.9, lift) * smoothstep(0.015, 0.06, v_slope) * 0.7 : 0.0;
@@ -242,11 +289,20 @@ void main(){
 // 0.22.3: the breaker zone only. The old band ran out to 1.8 units of depth, which on the
 // Adriatic shelf is the whole sea, so every crest line carried a sheet of surf and the bays
 // were striped white from the regional view.
+  float sets = 0.55 + 0.45 * sin(t * 0.157);   // the forty-second set clock, read by the surf and the cliff burst
   float band = smoothstep(0.55 * sb, 0.12 * sb, depth) * smoothstep(0.0, 0.05 * sb, depth) * max(u_capzoom, 0.35);
   float surf_tex = smoothstep(0.22, 0.6, dot(texture(u_albedo, p * 0.7 + shoredir * (t * 0.22) + u_drift1 * 0.5).rgb, vec3(0.3, 0.5, 0.2)));
 // waves breaking on the coast (0.22.5): each set's wave runs up as a sheet and drains - the
 // breaker's own clock, phase-shifted by the shore direction so the line of white travels in
-  float brk = pow(max(sin(t * 1.1 - depth / (0.18 * sb) * 6.2832 + snoise(hp * 2.0 / sc) * 1.5), 0.0), 2.0);
+// Waves crushing on the coast (0.22.6, issue3). The old rim was one white outline the same
+// width round every island. A breaker is a *line* that travels in: the phase runs with the
+// depth (so the crest marches shoreward), the set is modulated along the shore by a noise in
+// the shore-parallel direction (so it breaks in stretches, not everywhere at once), and the
+// whole thing pulses with the forty-second set clock.
+  vec2 alongshore = vec2(-shoredir.y, shoredir.x);
+  float shorex = dot(hp, alongshore) / sc;
+  float setmask = 0.45 + 0.55 * smoothstep(0.25, 0.75, snoise(vec2(shorex * 0.35, t * 0.05)));
+  float brk = pow(max(sin(t * 1.25 - depth / (0.16 * sb) * 6.2832 + snoise(hp * 2.0 / sc) * 1.5), 0.0), 2.4) * setmask * sets;
   float surf = band * (0.3 + 0.7 * max(max(v_crest, fold), brk)) * (0.45 + 0.75 * surf_tex) * smoothstep(0.1, 0.5, ws + 0.3) * detail * (1.0 + 0.6 * u_capzoom);
 // Shoreline: the thin lapping line at the waterline, as before.
   float foam = (1.0 - smoothstep(0.0, 0.26 * sb, depth)) * (0.55 + 0.45*sin(depth*30.0/sb - t*2.0 + w1)) * detail;
@@ -256,7 +312,6 @@ void main(){
 // of white at its foot (the terrain shader throws the spray up the rock); on a beach the surf
 // sheet runs further up the sand with each set and drains back; a marsh takes no surf at all.
   vec4 sh = shore_at(v_wpos.xz);
-  float sets = 0.55 + 0.45 * sin(t * 0.157);
   float wph = t * 0.8 + snoise(hp * 6.0 / sc) * 6.2832;
   float crash = pow(max(sin(wph), 0.0), 3.0) * sets;
   float cliffband = (1.0 - smoothstep(0.0, 0.9 * sb, depth)) * sh.r * sh.a;
@@ -278,7 +333,7 @@ void main(){
     float spd = clamp(u_ships[i].w * 10.0, 0.15, 1.0);
 // the stem's own splash: a tight patch of white at the cutwater, broken up by the foam texture
     float bowx = (along - 0.46 * L) / (0.13 * L), bowz = across / (0.14 * L);
-    float bow = exp(-(bowx * bowx + bowz * bowz)) * (0.5 + 0.5 * min(ws, 1.0)) * (0.5 + 0.9 * lum2) * spd;
+    float bow = exp(-(bowx * bowx + bowz * bowz)) * (0.5 + 0.5 * min(ws, 1.0)) * smoothstep(0.10, 0.55, lum2) * spd;   // 0.22.6: through the foam texture, so the stem's splash is broken water and not a white disc
 // the waterline break along the forward half only, a thin band chopped up by the ripple
 // detail so it reads as water slapping the planking; the quarter runs clean
     float hull = smoothstep(-0.10 * L, 0.05 * L, along) * (1.0 - smoothstep(0.36 * L, 0.46 * L, along))
@@ -292,11 +347,28 @@ void main(){
   }
 // the bow wave breaking: only its crest, and only in the texture's bright streaks, so it is a
 // broken white line riding the heap of water and not a sheet laid over it
+// the trailing wake's own white (0.22.6): the two Kelvin arms as broken crests and the churned
+// lane between them, both decaying over a few hull lengths
+  for (int i = 0; i < u_nships; ++i) {
+    vec2 dxz = v_wpos.xz - u_ships[i].xy; float L = max(u_shiplen[i], 0.2);
+    if (dot(dxz, dxz) > 26.0 * L * L) continue;
+    float ch = cos(u_ships[i].z), sh2 = -sin(u_ships[i].z);
+    float along = dxz.x * ch + dxz.y * sh2, across = abs(-dxz.x * sh2 + dxz.y * ch);
+    float spd = clamp(u_ships[i].w * 10.0, 0.0, 1.0);
+    float astern = -along;
+    if (astern <= 0.0 || spd < 0.05) continue;
+    float fade = exp(-astern / (3.4 * L)) * spd;
+    float arm = across - astern * 0.354, armw = 0.13 * L + 0.045 * astern;
+    float armk = exp(-(arm * arm) / (armw * armw)) * fade * smoothstep(0.26, 0.62, lum1);
+    float lane = (1.0 - smoothstep(0.0, 0.26 * L + 0.20 * astern, across)) * fade
+               * smoothstep(0.34, 0.70, lum2) * 0.55;
+    shipk *= 1.0 - clamp(armk * 0.9 + lane, 0.0, 0.8);
+  }
   float shipcrest = smoothstep(0.009, 0.015, v_shipw / max(sc, 1e-3)) * smoothstep(0.30, 0.58, lum2) * 0.8;
   shipk *= 1.0 - clamp(shipcrest, 0.0, 0.8);
   float shipf = (1.0 - shipk) * detail;
   vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * (u_ambsky * 1.15 + u_suncol * 0.55);   // 0.22.5: whiter
-  float foamall = clamp((caps * 0.9 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
+  float foamall = clamp((caps * 0.9 + crestfoam * 0.85 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
   col3d = mix(col3d, foamcol, foamall);
   col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);
   float caps_a = foamall;

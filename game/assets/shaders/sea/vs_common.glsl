@@ -32,6 +32,23 @@ float ship_wave(vec2 pp, float t) {
     float hull = smoothstep(-0.05 * L, 0.25 * L, along) * (1.0 - smoothstep(0.40 * L, 0.50 * L, along))
                * exp(-abs(abs(across) - 0.19 * L) / (0.08 * L));
     hgt += 0.012 * L * spd * hull;
+// The trailing wake (0.22.6, issue3 "ship wakes ... in 3D with foaming"). A real hull leaves a
+// Kelvin pattern: two diverging crests at about 19.5 degrees either side of the track, and the
+// flat turbulent lane between them. Both are *geometry* here, not paint - the arms are a wave
+// train whose phase runs along each arm, so the wake rolls outward as she goes, and the lane is
+// a shallow trough. It decays over about six hull lengths, which is what keeps it from
+// becoming the scar across the ocean the old V wake was (0.19).
+    float astern = -along;                        // how far behind her stem
+    if (astern > 0.0) {
+      float fade = exp(-astern / (3.2 * L)) * spd;
+      float arm = abs(across) - astern * 0.354;   // distance from the 19.5-degree arm
+      float armw = 0.16 * L + 0.05 * astern;      // the arm broadens as it runs out
+      float armk = exp(-(arm * arm) / (armw * armw)) * fade;
+      float aph = 6.28318 / (0.42 * L) * (astern * 1.06 + abs(across) * 0.35) - t * 1.4;
+      hgt += 0.016 * L * armk * cos(aph);
+      float lane = (1.0 - smoothstep(0.0, 0.30 * L + 0.22 * astern, abs(across))) * fade;
+      hgt -= 0.010 * L * lane;                    // the flattened, dragged-down lane astern
+    }
   }
   return hgt;
 }

@@ -20,6 +20,7 @@ extern "C" {
 #include "../core/diag.h"
 #include "../assets/asset.h"
 #include "../data/tables.h"
+#include "../assets/gjson.h"
 #include "../world/wind.h"
 }
 
@@ -91,27 +92,27 @@ typedef struct ship_class_t {
 // own length until its hull is generated.
 //
 //   stats: length, beam, draft (m), displacement (t), knots under sail, under oars, turn deg/s, guns, crew
-static const ship_class_t classes[] = {
+static const ship_class_t builtin_classes[] = {
   { "coastal_trader", "coastal_trader_hull", "coastal_trader_masts", NULL,         21.f, .38f, .60f, 1.f,  1, 2,
-    { .04f, -.33f },              { 1.f, .62f },             { 1, 2 },       { SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_single", "mast_mizzen" }, 0, 0, 0.f, .16f,
+    { .04f, -.33f },              { 1.f, .76f },             { 1, 2 },       { SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_single", "mast_mizzen" }, 0, 0, 0.f, .16f,
     { 21.f,  6.0f, 1.8f,   60.f, 5.0f, 0.f, 6.0f,  4,  15 } },
   { "cog",            "cog_hull",            "cog_masts",            NULL,         25.f, .38f, .60f, 1.f,  0, 1,
     { .02f },                     { 1.f },                   { 0 },          { SAIL_SQUARE1 }, { "mast_cog_single" },               0, 0, 0.f, .17f,
     { 25.f,  7.5f, 2.5f,  150.f, 4.5f, 0.f, 4.0f,  2,  20 } },
   { "armed_cog",      "armed_cog_hull",      "armed_cog_masts",      NULL,         32.f, .38f, .60f, 1.f,  0, 2,
-    { .03f, -.33f },              { 1.f, .58f },             { 0, 0 },       { SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_two", "mast_mizzen" }, 0, 0, 0.f, .16f,
+    { .03f, -.33f },              { 1.f, .74f },             { 0, 0 },       { SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_two", "mast_mizzen" }, 0, 0, 0.f, .16f,
     { 32.f,  9.0f, 3.0f,  260.f, 4.5f, 0.f, 3.5f, 14,  70 } },
   { "hulk",           "hulk_hull",           "hulk_masts",           NULL,         35.f, .38f, .62f, 1.f,  1, 3,
-    { .27f, -.01f, -.30f },       { .80f, 1.f, .62f },       { 0, 1, 2 },    { SAIL_SQUARE1, SAIL_SQUARE2, SAIL_SQUARE1 }, { "mast_cog_two", "mast_cog_two", "mast_cog_single" }, 0, 0, 0.f, .19f,
+    { .27f, -.01f, -.30f },       { .80f, 1.f, .78f },       { 0, 1, 2 },    { SAIL_SQUARE1, SAIL_SQUARE2, SAIL_SQUARE1 }, { "mast_cog_two", "mast_cog_two", "mast_cog_single" }, 0, 0, 0.f, .19f,
     { 35.f, 11.0f, 3.5f,  400.f, 4.0f, 0.f, 3.0f,  8,  50 } },
   { "carrack",        "carrack_hull",        "carrack_masts",        NULL,         38.f, .36f, .58f, 1.f,  1, 3,
-    { .28f, -.01f, -.31f },       { .80f, 1.f, .78f },       { 0, 1, 2 },    { SAIL_SQUARE2, SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen" }, 1, 0, 0.f, .16f,
+    { .28f, -.01f, -.31f },       { .80f, 1.f, .90f },       { 0, 1, 2 },    { SAIL_SQUARE2, SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen" }, 1, 0, 0.f, .16f,
     { 38.f, 11.0f, 4.0f,  500.f, 5.0f, 0.f, 3.0f, 20,  90 } },
   { "war_carrack",    "war_carrack_hull",    "war_carrack_masts",    NULL,         47.f, .36f, .58f, 1.f,  1, 4,
-    { .31f, -.03f, -.26f, -.42f },{ .82f, 1.f, .82f, .68f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
+    { .31f, -.03f, -.26f, -.42f },{ .82f, 1.f, .94f, .82f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
     { 47.f, 13.0f, 5.0f, 1000.f, 4.5f, 0.f, 2.2f, 40, 250 } },
   { "great_carrack",  "war_carrack_hull",    "war_carrack_masts",    NULL,         56.f, .36f, .58f, 56.f / 47.f, 1, 4,
-    { .31f, -.03f, -.26f, -.42f },{ .85f, 1.f, .84f, .70f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_great_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
+    { .31f, -.03f, -.26f, -.42f },{ .85f, 1.f, .96f, .84f }, { 0, 1, 2, 2 }, { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN, SAIL_LATEEN }, { "mast_cog_two", "mast_great_carrack", "mast_mizzen", "mast_mizzen" }, 1, 0, 0.f, .16f,
     { 56.f, 15.0f, 5.5f, 1500.f, 4.0f, 0.f, 1.8f, 74, 500 } },
   { "galiot",         "galiot_hull",         "mediterranean_masts",  "galley_oar", 28.f, .32f, .50f, 1.f,  0, 2,
     { .08f, -.30f },              { 1.f, .62f },             { 0, 0 },       { SAIL_LATEEN, SAIL_LATEEN }, { "mast_lateen_tall", "mast_lateen_tall" },  0, 22, .62f, .11f,
@@ -120,7 +121,102 @@ static const ship_class_t classes[] = {
     { .08f, -.30f },              { 1.f, .62f },             { 1, 2 },       { SAIL_LATEEN, SAIL_LATEEN }, { "mast_lateen_tall", "mast_lateen_tall" },  0, 20, .60f, .09f,
     { 25.f,  4.5f, 1.2f,   80.f, 5.5f, 7.0f, 6.0f,  4,  90 } },
 };
-#define NCLASSES ((int)(sizeof classes / sizeof classes[0]))
+#define NBUILTIN ((int)(sizeof builtin_classes / sizeof builtin_classes[0]))
+#define SHIP_CLASS_MAX 16
+
+// The live class table (0.22.6, issue3 "can we add shipyard.cc data into files"). The built-in
+// table above is the fallback - a tree without the data file still sails - and
+// assets/ships/ship_classes.json overrides it entry by entry at startup, so the fleet can be
+// retuned, and new classes added, without touching the source. Strings are copied into the
+// store, because a loaded class cannot point at string literals.
+typedef struct class_store_t {
+    char name[32], hull[48], masts[48], oars[48], lib[SHIP_MAX_MASTS][48];
+} class_store_t;
+static ship_class_t g_classes[SHIP_CLASS_MAX];
+static class_store_t g_store[SHIP_CLASS_MAX];
+static int g_nclasses = 0;
+#define NCLASSES g_nclasses
+
+static int sail_code_of(const gjson_t *j, int tok) {
+    if (jstreq(j, tok, "square1")) return SAIL_SQUARE1;
+    if (jstreq(j, tok, "square2")) return SAIL_SQUARE2;
+    if (jstreq(j, tok, "square3")) return SAIL_SQUARE3;
+    if (jstreq(j, tok, "lateen"))  return SAIL_LATEEN;
+    return SAIL_NONE;
+}
+// Copy a JSON string into the class store and point the class at it; "" means "no such part",
+// which the rest of the shipyard spells as NULL.
+static const char *store_str(const gjson_t *j, int tok, char *dst, int cap, const char *dflt) {
+    if (tok < 0) { if (!dflt) return NULL; snprintf(dst, cap, "%s", dflt); return dst; }
+    jstrcpy(j, tok, dst, cap);
+    return dst[0] ? dst : NULL;
+}
+
+// The fleet, from data (0.22.6). The built-in table is copied in first, then every entry of
+// assets/ships/ship_classes.json overrides the class of the same name or appends a new one, so
+// the file need only carry what it changes and a missing file costs nothing.
+static void classes_init() {
+    if (g_nclasses) return;
+    for (int i = 0; i < NBUILTIN && i < SHIP_CLASS_MAX; ++i) g_classes[g_nclasses++] = builtin_classes[i];
+    char path[600]; snprintf(path, sizeof path, "%s/ships/ship_classes.json", asset_root());
+    FILE *f = fopen(path, "rb");
+    if (!f) { LOG_INFO("asset", "no ship_classes.json beside the assets: the %d built-in classes stand", g_nclasses); return; }
+    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);
+    char *js = (n > 0 && n < (1 << 20)) ? (char *)malloc((size_t)n + 1) : NULL;
+    size_t got = js ? fread(js, 1, (size_t)n, f) : 0;
+    fclose(f);
+    if (!js) return;
+    js[got] = 0;
+    gjson_t j;
+    if (!gjson_parse(&j, js, (int)got)) { LOG_WARN("asset", "%s is not valid JSON: the built-in classes stand", path); free(js); return; }
+    int arr = jget(&j, 0, "classes");
+    int changed = 0, added = 0;
+    for (int e = 0, ne = jlen(&j, arr); e < ne; ++e) {
+        int o = jat(&j, arr, e);
+        char nm[32] = ""; jstrcpy(&j, jget(&j, o, "name"), nm, sizeof nm);
+        if (!nm[0]) continue;
+        int idx = -1;
+        for (int i = 0; i < g_nclasses; ++i) if (g_classes[i].name && !strcmp(g_classes[i].name, nm)) { idx = i; break; }
+        if (idx < 0) { if (g_nclasses >= SHIP_CLASS_MAX) { LOG_WARN("asset", "ship_classes.json: more than %d classes, '%s' skipped", SHIP_CLASS_MAX, nm); continue; }
+                       idx = g_nclasses++; g_classes[idx] = ship_class_t{}; added++; }
+        else changed++;
+        ship_class_t *c = &g_classes[idx]; class_store_t *st = &g_store[idx];
+        snprintf(st->name, sizeof st->name, "%s", nm); c->name = st->name;
+        c->hull  = store_str(&j, jget(&j, o, "hull"),  st->hull,  sizeof st->hull,  c->hull);
+        c->masts = store_str(&j, jget(&j, o, "masts"), st->masts, sizeof st->masts, c->masts);
+        c->oars  = store_str(&j, jget(&j, o, "oars"),  st->oars,  sizeof st->oars,  c->oars);
+        c->length_m   = (float)jnum(&j, jget(&j, o, "length_m"), c->length_m);
+        c->draft      = (float)jnum(&j, jget(&j, o, "draft"), c->draft);
+        c->deck       = (float)jnum(&j, jget(&j, o, "deck"), c->deck);
+        c->model_scale= (float)jnum(&j, jget(&j, o, "model_scale"), c->model_scale);
+        c->split      = jint(&j, jget(&j, o, "split"), c->split);
+        c->nmasts     = jint(&j, jget(&j, o, "nmasts"), c->nmasts);
+        if (c->nmasts > SHIP_MAX_MASTS) c->nmasts = SHIP_MAX_MASTS;
+        { int a = jget(&j, o, "mast_at"); if (a >= 0) jfloats(&j, a, c->mast_at, mini(jlen(&j, a), SHIP_MAX_MASTS)); }
+        { int a = jget(&j, o, "mast_h");  if (a >= 0) jfloats(&j, a, c->mast_h,  mini(jlen(&j, a), SHIP_MAX_MASTS)); }
+        { int a = jget(&j, o, "mast_part"); for (int k = 0, nk = a >= 0 ? mini(jlen(&j, a), SHIP_MAX_MASTS) : 0; k < nk; ++k) c->mast_part[k] = (signed char)jint(&j, jat(&j, a, k), c->mast_part[k]); }
+        { int a = jget(&j, o, "sail");      for (int k = 0, nk = a >= 0 ? mini(jlen(&j, a), SHIP_MAX_MASTS) : 0; k < nk; ++k) c->sail[k] = (signed char)sail_code_of(&j, jat(&j, a, k)); }
+        { int a = jget(&j, o, "mast_lib");  for (int k = 0, nk = a >= 0 ? mini(jlen(&j, a), SHIP_MAX_MASTS) : 0; k < nk; ++k) c->mast_lib[k] = store_str(&j, jat(&j, a, k), st->lib[k], sizeof st->lib[k], c->mast_lib[k]); }
+        c->spritsail = jint(&j, jget(&j, o, "spritsail"), c->spritsail);
+        c->oar_pairs = jint(&j, jget(&j, o, "oar_pairs"), c->oar_pairs);
+        c->oar_span  = (float)jnum(&j, jget(&j, o, "oar_span"), c->oar_span);
+        c->beam_frac = (float)jnum(&j, jget(&j, o, "beam_frac"), c->beam_frac);
+        int so = jget(&j, o, "stats");
+        if (so >= 0) {
+            c->st.length_m   = (float)jnum(&j, jget(&j, so, "length_m"), c->st.length_m);
+            c->st.beam_m     = (float)jnum(&j, jget(&j, so, "beam_m"), c->st.beam_m);
+            c->st.draft_m    = (float)jnum(&j, jget(&j, so, "draft_m"), c->st.draft_m);
+            c->st.tonnes     = (float)jnum(&j, jget(&j, so, "tonnes"), c->st.tonnes);
+            c->st.knots     = (float)jnum(&j, jget(&j, so, "knots_sail"), c->st.knots);
+            c->st.oar_knots = (float)jnum(&j, jget(&j, so, "knots_oar"), c->st.oar_knots);
+            c->st.turn_dps   = (float)jnum(&j, jget(&j, so, "turn_dps"), c->st.turn_dps);
+            c->st.guns       = jint(&j, jget(&j, so, "guns"), c->st.guns);
+            c->st.crew       = jint(&j, jget(&j, so, "crew"), c->st.crew);
+        }
+    }
+    LOG_INFO("asset", "ship classes from %s: %d overridden, %d added, %d in the fleet", path, changed, added, g_nclasses);
+    free(j.t); free(js);
+}
 
 // ---------------------------------------------------------------------------
 // Rigging, sails and colours (DESIGN_SHIPS.md section 3c)
@@ -151,6 +247,12 @@ static const ship_class_t classes[] = {
 #define RIG_FLAG_LEN 0.085f
 #define RIG_FLAG_H   0.042f
 static const float rope_col[3] = { 0.20f, 0.155f, 0.115f };  // tarred hemp: dark brown, lit, not black
+// Two conditions of cordage (0.22.6, issue3 "add 2 types of rigging premium and used"): a
+// ship fresh from the arsenal has pale new hemp on her, a worn one dark tarred rope gone
+// hairy. `g_rope_col` is what rig_rope lays down and rig_build sets it per copy.
+static const float rope_new[3]  = { 0.44f, 0.37f, 0.26f };
+static const float rope_worn[3] = { 0.17f, 0.135f, 0.10f };
+static const float *g_rope_col = rope_col;
 static const float spar_col[3] = { 0.36f, 0.27f, 0.17f };     // oiled oak
 static const float sail_col[3] = { 0.86f, 0.83f, 0.74f };     // unbleached canvas
 static const float nrm_x[3] = { 1, 0, 0 }, nrm_z[3] = { 0, 0, 1 };
@@ -165,10 +267,19 @@ static const float nrm_x[3] = { 1, 0, 0 }, nrm_z[3] = { 0, 0, 1 };
 // bulwarks every time the sail was swung. The line is now shorter forward and carried higher,
 // which is also how a settee yard is actually slung - the tack is hauled down to the stemhead,
 // not to the waterline.
-#define LAT_TACK_X  0.44f           // low forward end (the tack)
-#define LAT_TACK_Y  0.15f
-#define LAT_PEAK_X -0.42f           // high aft end (the peak, above the masthead)
-#define LAT_PEAK_Y  1.06f
+// 0.22.6 (issue3 "divide lanteen from front mast"): the tack reached 0.44 mast-heights
+// forward, which on a four-master put the fore end of the mizzen's yard among the mainmast's
+// rigging. It is hauled in to 0.30 and carried higher; the peak goes further aft and up, so
+// the spar keeps its length and its rake and the whole sail sits abaft its own mast.
+#define LAT_TACK_X  0.30f           // low forward end (the tack)
+#define LAT_TACK_Y  0.26f
+#define LAT_PEAK_X -0.52f           // high aft end (the peak, above the masthead)
+#define LAT_PEAK_Y  1.12f
+// The canvas is bent to the spar with robands - short lashings every few feet along the head -
+// and its foot is guided by a rope from tack to clew. Both are drawn in the sail's own mesh
+// (0.22.6, issue3), so they swing with it.
+#define LAT_ROBANDS 7               // lashings along the head
+#define LAT_HEAD_GAP 0.004f         // how far under the spar the head sits, in mast heights (was 0.014)
 // Below this projected size an authored yard would be drawn from a decimated far LOD that has
 // no thickness left (a thin spar decimates to a sliver): the sail's own procedural spar takes
 // over, and the hand-over is a few pixels wide either way.
@@ -206,7 +317,7 @@ typedef struct flag_sim_t {
     inst_t inst;                    // this frame's rig instance (the flag rides the rig's transform)
 } flag_sim_t;
 
-typedef struct rig_cache_t { mesh_t rope, cloth; int built; unsigned gen; } rig_cache_t;
+typedef struct rig_cache_t { mesh_t rope, rope_worn, cloth; int built; unsigned gen; } rig_cache_t;
 // Square canvas as shared unit meshes (half-width 1, head at y = 0, hanging down), one per
 // cut: the deep single course of a cog, the standard course, the narrower topsails. Instanced
 // per (ship, station, layer) on the yard's braced heading, so canvas and the authored
@@ -245,6 +356,8 @@ private:
     static int  cloth_level(float t);
     static void rig_sail_square(mb_t *cloth, mb_t *spars, float x, float top, float bot, float hw);
     static void rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, float h);
+    static void rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c, int nm,
+                                  const float *sx, const float *ty, float dy, float hb);
     static void rig_build(rig_cache_t *rc, const ship_class_t *c, int nm, const float *sx,
                           const float *ty, float dy, float hb);
     static asset_t *yard_asset(const ship_class_t *c, int k, int layer);
@@ -257,11 +370,12 @@ private:
     static int  med_flavour(int nation);
     static int  north_flavour(int nation);
     static const ship_class_t *class_for(int type, int nation);
+    static int  ship_quality(const shipyard_req_t *r);
     static asset_t *mast_asset(const ship_class_t *c, int k);
 
     // ---- state (file-scope statics of the C version)
-    rig_cache_t rig_cache[NCLASSES];
-    instlist_t  rig_inst[NCLASSES], cloth_inst[NCLASSES];
+    rig_cache_t rig_cache[SHIP_CLASS_MAX];
+    instlist_t  rig_inst[SHIP_CLASS_MAX], rig_worn_inst[SHIP_CLASS_MAX], cloth_inst[SHIP_CLASS_MAX];
     int         rope_lines = -1;      // ropes as geometry-stage lines (meshes_rope_available), decided on first use
     // The lateen canvas as one shared unit mesh (mast height 1, mast axis at the origin),
     // instanced per lateen station with the yard's swung heading, so sail and lantina turn as one
@@ -302,8 +416,8 @@ void Shipyard::rig_bar(mb_t *m, const float a[3], const float b[3], float w, con
 // standing rigging: a line pair for the geometry stage, or the old cross quads without one.
 // `w` is the physical half-width in hull fractions (the fallback uses its own, visible width).
 void Shipyard::rig_rope(mb_t *m, const float a[3], const float b[3], float w) {
-    if (meshes_rope_available()) mb_line(m, a, b, w, rope_col[0], rope_col[1], rope_col[2]);
-    else rig_bar(m, a, b, RIG_ROPE_W_FALLBACK * (w / RIG_ROPE_W), rope_col);
+    if (meshes_rope_available()) mb_line(m, a, b, w, g_rope_col[0], g_rope_col[1], g_rope_col[2]);
+    else rig_bar(m, a, b, RIG_ROPE_W_FALLBACK * (w / RIG_ROPE_W), g_rope_col);
 }
 
 // How free a strip boundary is, as the 32-level code: t = 0 at the spar, 1 at the loose edge.
@@ -341,13 +455,19 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
     // spars == NULL: the authored lantina stands on this line (shipyard_push), canvas only
     const int N = 5, M = 6;
     float z = 0.012f;
+    // The robands go into whichever mesh is being built - but they must be *triangles*: this
+    // mesh is drawn by the triangle pipeline, and rig_rope emits two-vertex line primitives
+    // for the geometry stage when one is available. Feeding those to a triangle draw turned
+    // every lateen into a black sheet (0.22.6). rig_bar is the cross-quad form.
+    mb_t *cord = spars ? spars : cloth;
+    const float roband_w = RIG_ROPE_W_FALLBACK * 0.55f;
     // The yard is the authored asset's line (LAT_*): a 45-degree spar from low at the bow -
     // reaching well forward of the mast - to the peak above the masthead. The settee-cut
     // triangle hangs just under it, tack near the rail, clew sheeted aft.
     float ya[3] = { sx + LAT_TACK_X * h, dy + LAT_TACK_Y * h, 0 }, yb[3] = { sx + LAT_PEAK_X * h, dy + LAT_PEAK_Y * h, 0 };
-    if (spars) rig_bar(spars, ya, yb, maxf(RIG_YARD_W, 0.0062f * h), spar_col);   // one width end to end, and slimmer (0.22)
-    float T[3] = { ya[0] + (yb[0] - ya[0]) * 0.04f, ya[1] + (yb[1] - ya[1]) * 0.04f - 0.014f * h, z };   // head, inset from the ends, just under the spar
-    float P[3] = { ya[0] + (yb[0] - ya[0]) * 0.97f, ya[1] + (yb[1] - ya[1]) * 0.97f - 0.014f * h, z };
+    if (spars) rig_bar(spars, ya, yb, maxf(RIG_YARD_W, 0.0053f * h), spar_col);   // 0.22.6: 15% slimmer again (issue3)
+    float T[3] = { ya[0] + (yb[0] - ya[0]) * 0.04f, ya[1] + (yb[1] - ya[1]) * 0.04f - LAT_HEAD_GAP * h, z };   // head, inset from the ends, right under the spar
+    float P[3] = { ya[0] + (yb[0] - ya[0]) * 0.97f, ya[1] + (yb[1] - ya[1]) * 0.97f - LAT_HEAD_GAP * h, z };
     // the foot: sheeted well above the rail, so a swung sail passes over the deck instead of
     // through it (0.22)
     float F[3] = { sx + 0.38f * h, dy + 0.21f * h, z }, C[3] = { sx - 0.35f * h, dy + 0.26f * h, z };
@@ -369,15 +489,30 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
                           hw, sail_col[0], sail_col[1], sail_col[2], 0.f);
         }
     }
+    // Robands (0.22.6): the head is lashed to the spar every few feet. Each is a short rope
+    // from the yard down to the head of the canvas - what makes the sail read as *bent to* the
+    // lantina rather than hanging near it.
+    for (int i = 0; i <= LAT_ROBANDS; ++i) {
+        float t = (float)i / LAT_ROBANDS;
+        float yp[3], hp[3];
+        for (int a = 0; a < 3; ++a) { yp[a] = ya[a] + (yb[a] - ya[a]) * t; hp[a] = T[a] + (P[a] - T[a]) * t; }
+        rig_bar(cord, yp, hp, roband_w * h, rope_col);
+    }
+    // the foot rope: tack to clew, guiding the bottom of the sail (issue3)
+    rig_bar(cord, F, C, roband_w * 1.3f * h, rope_col);
+    // the sheet: from the clew down and aft to the rail, and the tack hauled down forward
+    { float sheet[3] = { sx - 0.44f * h, dy + 0.02f * h, z };
+      rig_bar(cord, C, sheet, roband_w * 1.4f * h, rope_col);
+      float tackpt[3] = { sx + 0.34f * h, dy + 0.02f * h, z };
+      rig_bar(cord, F, tackpt, roband_w * 1.4f * h, rope_col); }
 }
 
 // Build both meshes for a class. `hb` is the hull's half beam and `ty[]` the mast tops, all in
 // fractions of hull length measured from the waterline.
-void Shipyard::rig_build(rig_cache_t *rc, const ship_class_t *c, int nm, const float *sx,
-                      const float *ty, float dy, float hb) {
-    mb_t rope = {0}, cloth = {0};
-    mb_material(&rope, 0.85f, 0.f);
-    mb_material(&cloth, 0.92f, 0.f);
+// The standing rigging of one class. Split out of rig_build (0.22.6) so the cordage can be
+// laid twice, once in each condition: `cloth` is built only on the first pass.
+void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c, int nm,
+                                 const float *sx, const float *ty, float dy, float hb) {
     float bow = 0.47f, stern = -0.47f;
     int main = 0;
     for (int k = 1; k < nm; ++k) if (c->mast_h[k] > c->mast_h[main]) main = k;
@@ -388,16 +523,16 @@ void Shipyard::rig_build(rig_cache_t *rc, const ship_class_t *c, int nm, const f
             float f = (i - 1) * 0.055f;
             for (int side = -1; side <= 1; side += 2) {
                 float foot[3] = { sx[k] + f - 0.02f, dy + 0.01f, side * hb * (0.86f - 0.06f * i) };   // to the channels at the rail
-                rig_rope(&rope, top, foot, RIG_ROPE_W);
+                rig_rope(rope, top, foot, RIG_ROPE_W);
             }
         }
         // forestay to the next mast's foot (or the bow), backstay to the stern: the stays are
         // the heaviest cordage aboard
         float fwd[3] = { k + 1 < nm && sx[k + 1] > sx[k] ? sx[k + 1] : bow,
                          k + 1 < nm && sx[k + 1] > sx[k] ? dy + (ty[k + 1] - dy) * 0.18f : dy + 0.012f, 0 };
-        rig_rope(&rope, top, fwd, RIG_ROPE_W * 1.35f);
+        rig_rope(rope, top, fwd, RIG_ROPE_W * 1.35f);
         float aft[3] = { k > 0 ? sx[k - 1] : stern, dy + 0.01f, 0 };
-        rig_rope(&rope, top, aft, RIG_ROPE_W * 1.35f);
+        rig_rope(rope, top, aft, RIG_ROPE_W * 1.35f);
         // ratlines on the main shrouds, so the rig reads as climbable up close
         if (k == main) {
             for (int r = 1; r <= 5; ++r) {
@@ -406,7 +541,7 @@ void Shipyard::rig_build(rig_cache_t *rc, const ship_class_t *c, int nm, const f
                 float ax = sx[k] - 0.02f - 0.055f * (1.f - t);
                 for (int side = -1; side <= 1; side += 2) {
                     float p0[3] = { ax, y, side * w * 0.55f }, p1[3] = { ax, y, side * w };
-                    rig_rope(&rope, p0, p1, RIG_ROPE_W * 0.6f);
+                    rig_rope(rope, p0, p1, RIG_ROPE_W * 0.6f);
                 }
             }
         }
@@ -417,19 +552,36 @@ void Shipyard::rig_build(rig_cache_t *rc, const ship_class_t *c, int nm, const f
     if (c->spritsail) {   // the bowsprit, steeved up from the forecastle, with its spritsail slung under it
         if (!asset_find("bowsprit")) {   // authored spar in the registry: shipyard_push stands it instead
             float a[3] = { bow - 0.04f, dy + 0.05f, 0 }, b[3] = { bow + 0.20f, dy + 0.16f, 0 };
-            rig_bar(&rope, a, b, RIG_YARD_W, spar_col);
+            rig_bar(rope, a, b, RIG_YARD_W, spar_col);
         }
-        rig_sail_square(&cloth, asset_find("bowsprit") ? NULL : &rope, bow + 0.10f, dy + 0.13f, dy + 0.03f, 0.08f);
+        if (cloth) rig_sail_square(cloth, asset_find("bowsprit") ? NULL : rope, bow + 0.10f, dy + 0.13f, dy + 0.03f, 0.08f);
     }
     // (the flag is no longer part of this mesh: it is a simulated cloth per ship, flag_push)
-    (void)main;
-    rc->rope  = mesh_upload(&rope);
-    rc->cloth = mesh_upload(&cloth);
+}
+
+// Build the meshes for a class. `hb` is the hull's half beam and `ty[]` the mast tops, all in
+// fractions of hull length measured from the waterline. The cordage is laid twice - new hemp
+// and worn tarred rope (0.22.6) - and the ship picks one by her condition.
+void Shipyard::rig_build(rig_cache_t *rc, const ship_class_t *c, int nm, const float *sx,
+                      const float *ty, float dy, float hb) {
+    mb_t rope = {0}, rope2 = {0}, cloth = {0};
+    mb_material(&rope, 0.85f, 0.f);
+    mb_material(&rope2, 0.85f, 0.f);
+    mb_material(&cloth, 0.92f, 0.f);
+    g_rope_col = rope_new;
+    rig_build_cordage(&rope, &cloth, c, nm, sx, ty, dy, hb);
+    g_rope_col = rope_worn;
+    rig_build_cordage(&rope2, NULL, c, nm, sx, ty, dy, hb);
+    g_rope_col = rope_col;
+    rc->rope      = mesh_upload(&rope);
+    rc->rope_worn = mesh_upload(&rope2);
+    rc->cloth     = mesh_upload(&cloth);
     rc->built = 1;
 }
 
 const ship_class_t *Shipyard::by_name(const char *n) {
-    for (int i = 0; i < NCLASSES; ++i) if (!strcmp(classes[i].name, n)) return &classes[i];
+    classes_init();
+    for (int i = 0; i < NCLASSES; ++i) if (!strcmp(g_classes[i].name, n)) return &g_classes[i];
     return NULL;
 }
 
@@ -450,6 +602,17 @@ const ship_class_t *Shipyard::class_for(int type, int nation) {
     case SHIP_LINER:    return by_name("great_carrack");
     default:            return NULL;
     }
+}
+
+// New canvas or used (0.22.6, issue3). A ship's suit of sails and her cordage are either
+// fresh from the arsenal or worn: the two sailcloth tiles and the two rope colours. It is a
+// stable property of the hull - the same ship always looks the same - from her key, biased by
+// who sails her: a pirate is in rags, a state navy mostly in new canvas.
+int Shipyard::ship_quality(const shipyard_req_t *r) {
+    unsigned h = r->key * 2654435761u; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
+    float u = (h & 0xFFFFu) / 65535.f;
+    float newish = r->nation == NATION_PIRATES ? 0.15f : 0.62f;
+    return u < newish;
 }
 
 const char *Shipyard::class_name(int type, int nation) {
@@ -596,8 +759,9 @@ void Shipyard::flag_push(const shipyard_req_t *r, const ship_class_t *c, float s
 }
 
 void Shipyard::request_all(void) {
+    classes_init();
     for (int i = 0; i < NCLASSES; ++i) {
-        const ship_class_t *c = &classes[i];
+        const ship_class_t *c = &g_classes[i];
         asset_t *a; char role[80];
         if ((a = asset_find(c->hull)))             asset_request(a);
         for (int k = 0; k < SHIP_MAX_MASTS; ++k)
@@ -644,6 +808,8 @@ int Shipyard::push(const shipyard_req_t *r) {
     scene_asset_instance(hull, in, r->key, r->camdist);
     shipyard_ships_drawn++;
 
+    const int qual = ship_quality(r);       // 1 = new canvas and pale hemp, 0 = used (0.22.6)
+    const float cloth_q = qual ? 2.f : 1.f;   // what meshes.vert reads as the sail's quality
     int nm = c->nmasts > 0 ? (c->nmasts > SHIP_MAX_MASTS ? SHIP_MAX_MASTS : c->nmasts) : 1;
     int main = 0;
     for (int k = 1; k < nm; ++k) if (c->mast_h[k] > c->mast_h[main]) main = k;
@@ -652,7 +818,7 @@ int Shipyard::push(const shipyard_req_t *r) {
     // The generated poles are chunky for their height - at the battle zoom a cog's mast read as
     // a tree trunk - so they are thinned radially (gpu.h inst_t.slim), which a uniform scale
     // cannot do without losing the height the class table sets.
-    #define MAST_SLIM     0.425f     // 0.22.5: +25% on 0.22.4's 0.34 ("now mast is too thin")
+    #define MAST_SLIM     0.52f      // 0.22.6: thicker again (issue3); 0.34 -> 0.425 -> 0.52
     // ... and stepped *into* the ship rather than stood on `deck`. That fraction is a per-class
     // guess at where the hull model's deck is, and where it guesses high the mast floated a
     // metre over the planking. A mast is stepped on the keelson in any case, so burying the heel
@@ -700,7 +866,7 @@ int Shipyard::push(const shipyard_req_t *r) {
     // built the first time both the hull and the rig are resident (their sizes set the mast
     // stations). Skipped once the ship is small enough that cordage is below a pixel.
     if (lod_px(len * 0.5f, r->camdist) > RIG_MIN_PX) {
-        rig_cache_t *rc = &rig_cache[(int)(c - classes)];
+        rig_cache_t *rc = &rig_cache[(int)(c - g_classes)];
         if (!rc->built && mref) {
             float ml = (mref->bmax[0] - mref->bmin[0]) * cscale, ms = MAST_TRIM;
             if (ml > len * MAST_OVERHANG) ms = MAST_TRIM * len * MAST_OVERHANG / ml;
@@ -724,10 +890,10 @@ int Shipyard::push(const shipyard_req_t *r) {
             ri.y = 0.f;                       // the rig mesh is modelled from the waterline
             ri.scale = len;                   // and in fractions of hull length
             ri.fx1 = 0.f; ri.fx2 = 0.f; ri.fx3 = 0.f;
-            *instlist_push(&rig_inst[(int)(c - classes)]) = ri;
-            inst_t ci = ri; ci.fx1 = 1.f;     // cloth: the wind model in meshes.c
+            *instlist_push(qual ? &rig_inst[(int)(c - g_classes)] : &rig_worn_inst[(int)(c - g_classes)]) = ri;
+            inst_t ci = ri; ci.fx1 = cloth_q;   // cloth: the wind model in meshes.c, and the suit of sails
             ci.fx2 = wdx * wstr; ci.fx3 = wdz * wstr;
-            *instlist_push(&cloth_inst[(int)(c - classes)]) = ci;
+            *instlist_push(&cloth_inst[(int)(c - g_classes)]) = ci;
             shipyard_rigged++;
 
             // --- the flag: a simulated cloth at the main masthead, in the ship's frame. The
@@ -800,7 +966,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     int authored = la && lod_px(spar_len * 0.5f, r->camdist) >= YARD_ASSET_MIN_PX;
                     inst_t li = in;
                     li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2 + stn_lift(k); li.scale = mh;
-                    li.fx1 = 1.f; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
+                    li.fx1 = cloth_q; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
                     li.ax = r->x; li.az = r->z;
                     *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;
                     if (authored) {
@@ -836,7 +1002,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     qi.heading = bhd;
                     qi.x = bx + cb * off; qi.z = bz + sb * off;
                     qi.y = top_w; qi.scale = hw_w;
-                    qi.fx1 = 1.f; qi.fx2 = wdx * wstr; qi.fx3 = wdz * wstr;
+                    qi.fx1 = cloth_q; qi.fx2 = wdx * wstr; qi.fx3 = wdz * wstr;
                     qi.ax = r->x; qi.az = r->z;
                     *instlist_push(&sq_cloth_inst[(int)ly->l[l].kind][authored ? 0 : 1]) = qi;
                     if (authored) {
@@ -881,7 +1047,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             float span = c->oar_span * len, half = c->beam_frac * len;
             float olen = (oar->bmax[0] - oar->bmin[0]) * cscale;   // the oar is modelled along +x
             float out = half * 0.96f + olen * OAR_INBOARD;         // centre of the oar, just outboard of the rail
-            float y = -water + hh * c->deck * 0.72f;        // the oar ports sit below the rail
+            float y = -water + hh * c->deck * 1.02f;        // 0.22.6: the ports are just under the rail, not half-way down the side (issue3: "oars are too low in water")
             float pull = clampf(r->rock, 0.f, 1.6f);                      // how hard she is working
             // A sweep is pulled at 20-26 strokes a minute, not the fast churn this used to run:
             // rate ~2.2 rad/s flat out. The blade dips on the pull and lifts on the recovery -
@@ -890,7 +1056,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             float rate = 0.9f + 1.3f * pull, reach = 0.07f + 0.20f * pull;
             float oph = RF.time * rate + (float)(r->key & 63u) * 0.09f;
             float stroke = reach * sinf(oph);
-            float dip = 0.012f * len * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
+            float dip = 0.006f * len * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
             const float side_sign = 1.f;
             for (int i = 0; i < c->oar_pairs; ++i) {
                 float t = c->oar_pairs > 1 ? i / (float)(c->oar_pairs - 1) - 0.5f : 0.f;
@@ -912,7 +1078,9 @@ int Shipyard::push(const shipyard_req_t *r) {
                     oi.heading = r->heading - side * (1.5708f + stroke * side_sign);
                     // the sweep angles *down* into the water (0.22.5): a pitch about the oar's own
                     // z axis (meshes.vert reads fx2 on rigid instances), steeper on the pull
-                    oi.fx2 = 0.30f + 0.14f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
+                    // 0.22.6: a steeper blade angle from the higher port, so the loom rises over
+                    // the gunwale and only the blade is in the water
+                    oi.fx2 = 0.46f + 0.17f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
                     oi.r = 0.62f; oi.g = 0.52f; oi.b = 0.36f;   // oak, not the nation's colours
                     oi.sel = 0.f;
                     scene_asset_instance(oar, oi, r->key ^ (unsigned)(0x9E37u + i * 2 + (side > 0)), r->camdist);
@@ -928,7 +1096,7 @@ int Shipyard::push(const shipyard_req_t *r) {
 // Per frame: the instance lists are rebuilt from scratch (scene.c and staged_scene.cc both call
 // this before pushing ships), then uploaded and drawn with whatever pipeline is bound.
 void Shipyard::frame_begin(void) {
-    for (int i = 0; i < NCLASSES; ++i) { instlist_clear(&rig_inst[i]); instlist_clear(&cloth_inst[i]); }
+    for (int i = 0; i < NCLASSES; ++i) { instlist_clear(&rig_inst[i]); instlist_clear(&rig_worn_inst[i]); instlist_clear(&cloth_inst[i]); }
     for (int v = 0; v < 2; ++v) instlist_clear(&lateen_cloth_inst[v]);
     for (int q = 0; q < SQ_KINDS; ++q) for (int v = 0; v < 2; ++v) instlist_clear(&sq_cloth_inst[q][v]);
     for (int i = 0; i < FLAG_MAX; ++i) flags[i].drawn = 0;
@@ -938,8 +1106,9 @@ void Shipyard::frame_begin(void) {
 void Shipyard::upload(void) {
     for (int i = 0; i < NCLASSES; ++i) {
         if (!rig_cache[i].built) continue;
-        mesh_set_instances(&rig_cache[i].rope,  rig_inst[i].v,   rig_inst[i].n);
-        mesh_set_instances(&rig_cache[i].cloth, cloth_inst[i].v, cloth_inst[i].n);
+        mesh_set_instances(&rig_cache[i].rope,      rig_inst[i].v,      rig_inst[i].n);
+        mesh_set_instances(&rig_cache[i].rope_worn, rig_worn_inst[i].v, rig_worn_inst[i].n);
+        mesh_set_instances(&rig_cache[i].cloth,     cloth_inst[i].v,    cloth_inst[i].n);
     }
     if (lateen_cloth_built) for (int v = 0; v < 2; ++v) mesh_set_instances(&lateen_cloth_mesh[v], lateen_cloth_inst[v].v, lateen_cloth_inst[v].n);
     if (sq_cloth_built) for (int q = 0; q < SQ_KINDS; ++q) for (int v = 0; v < 2; ++v) mesh_set_instances(&sq_cloth_mesh[q][v], sq_cloth_inst[q][v].v, sq_cloth_inst[q][v].n);
@@ -955,7 +1124,8 @@ int Shipyard::submit(void) {
     if (lines) meshes_bind_rope();
     for (int i = 0; i < NCLASSES; ++i) {
         if (!rig_cache[i].built) continue;
-        mesh_draw(&rig_cache[i].rope);  n += rig_cache[i].rope.ninst;
+        mesh_draw(&rig_cache[i].rope);      n += rig_cache[i].rope.ninst;
+        mesh_draw(&rig_cache[i].rope_worn); n += rig_cache[i].rope_worn.ninst;
     }
     if (lines) meshes_bind();
     for (int i = 0; i < NCLASSES; ++i) {
@@ -975,7 +1145,8 @@ int Shipyard::submit_shadow(void) {
     int lines = meshes_rope_available();
     for (int i = 0; i < NCLASSES; ++i) {
         if (!rig_cache[i].built) continue;
-        if (!lines) { mesh_draw(&rig_cache[i].rope); n += rig_cache[i].rope.ninst; }
+        if (!lines) { mesh_draw(&rig_cache[i].rope); n += rig_cache[i].rope.ninst;
+                      mesh_draw(&rig_cache[i].rope_worn); n += rig_cache[i].rope_worn.ninst; }
         mesh_draw(&rig_cache[i].cloth); n += rig_cache[i].cloth.ninst;
     }
     if (lateen_cloth_built) for (int v = 0; v < 2; ++v) { mesh_draw(&lateen_cloth_mesh[v]); n += lateen_cloth_mesh[v].ninst; }

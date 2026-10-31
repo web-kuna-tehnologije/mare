@@ -272,15 +272,19 @@ void main(){
     float ca = cos(ang), sa = sin(ang);
     vec2 q = vec2(v_wpos.x * ca - v_wpos.z * sa, v_wpos.x * sa + v_wpos.z * ca);
     float lfar = smoothstep(18.0, 55.0, dist0);
-// fields: strip parcels, each its own crop, hedged; furrows across the ploughed ones up close
-    vec2 pc = vec2(0.15, 0.065);
+// fields: strip parcels, each its own crop, hedged; furrows across the ploughed ones up close.
+// 0.22.6 (issue3 "make fields bigger and more noticeable, different sizes"): the parcel size is
+// drawn per district, so one valley is worked in long narrow strips and the next in broad
+// blocks, and all of them are half again as large as the old uniform 0.15 x 0.065.
+    float psz = 0.85 + 1.30 * hash(dc + 11.0);
+    vec2 pc = vec2(0.15 * psz, 0.065 * psz * (0.7 + 0.9 * hash(dc + 23.0)));
     vec2 pid = floor(q / pc), pf = fract(q / pc);
     float ph = hash(pid + 7.0);
     vec3 stubble = mix(vec3(0.70,0.62,0.36), vec3(0.78,0.70,0.44), nz);
     vec3 young   = mix(vec3(0.42,0.60,0.26), vec3(0.50,0.66,0.30), nz);
     vec3 fallow  = mix(vec3(0.58,0.54,0.38), vec3(0.64,0.58,0.42), nz);
     vec3 fieldc = ph < 0.22 ? plough : ph < 0.46 ? stubble : ph < 0.68 ? young : ph < 0.86 ? meadow : fallow;
-    fieldc *= 0.90 + 0.20 * hash(pid + 3.0);
+    fieldc *= 0.84 + 0.34 * hash(pid + 3.0);   // 0.22.6: more contrast between neighbours
     float furrow = 0.5 + 0.5 * sin(q.y / pc.y * 6.2832 * 9.0);
     fieldc *= 1.0 - 0.12 * furrow * (1.0 - smoothstep(12.0, 35.0, dist0)) * (ph < 0.22 ? 1.0 : 0.35);
     float edged = min(min(pf.x, 1.0 - pf.x) * pc.x, min(pf.y, 1.0 - pf.y) * pc.y);
@@ -289,7 +293,7 @@ void main(){
     vec3 fieldfar = mix(hay, young, 0.45) * 0.95;
     fieldc = mix(fieldc, fieldfar, lfar * 0.7);
     float fk = lu.r * lunear * luclean;
-    c = mix(c, fieldc, fk * 0.92);
+    c = mix(c, fieldc, fk * 0.97);   // 0.22.6: more noticeable
 // vineyards: rows of vines along the contour on pale, stony soil; one green-ochre from afar
     vec2 down = normalize(n.xz + vec2(1e-4, 0.0));
     float along_slope = dot(v_wpos.xz, down);
