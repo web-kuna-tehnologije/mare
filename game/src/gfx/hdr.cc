@@ -8,6 +8,7 @@
 #include "../platform/v3cpp.hh"
 #include <cstdlib>
 
+#include <cstring>
 extern "C" {
 #include "render.h"
 #include "glsl.h"
@@ -47,10 +48,12 @@ public:
     const rhi_texture_t *depth();
     const rhi_texture_t *depth_captured();
     void resolve(int w, int h);
+    void set_shocks(const float *v, int n) { nshock_ = n < 0 ? 0 : n > 16 ? 16 : n; if (nshock_) memcpy(shock_, v, sizeof(float) * 4 * nshock_); }
 
 private:
     rhi_target_t hdr_target;
     rhi_pipeline_t tonemap_prg;
+    float shock_[16 * 4]; int nshock_ = 0;   // the battle's shockwaves this frame (particles.cc): screen uv, ring radius px, strength
     rhi_geometry_t fs_tri;
     rhi_target_t ao_target; rhi_pipeline_t ao_prg;
     rhi_target_t bloom_a, bloom_b; rhi_pipeline_t bright_prg, blur_prg;
@@ -63,7 +66,7 @@ void Hdr::init() {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     static const char *uniforms[] = { "u_scene", "u_exposure", "u_ao", "u_ao_mix", "u_ao_texel", "u_bloom", "u_bloom_mix",
-                                      "u_depth", "u_inv_vp", "u_campos", "u_sun", "u_suncol", "u_vfog", "u_vfogcol", 0 };
+                                      "u_depth", "u_inv_vp", "u_campos", "u_sun", "u_suncol", "u_vfog", "u_vfogcol", "u_shock", "u_nshock", "u_screen", 0 };
     const rhi_pipeline_desc_t tonemap_desc{ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("hdr/tonemap.frag"), .layout = &layout, .uniforms = uniforms };   // (compound literals -> named: C++ cannot take &T{...})
     tonemap_prg = rhi_pipeline_make(&tonemap_desc);
     static const char *ao_uniforms[] = { "u_depth", "u_inv_vp", "u_vp", "u_campos", "u_texel", "u_on", 0 };
@@ -168,6 +171,11 @@ void Hdr::resolve(int w, int h) {
       rhi_set_i1(UNI(tonemap_prg, "u_ao"), 1); rhi_texture_bind(1, on ? &ao_target.color : &hdr_target.color);
       rhi_set_f1(UNI(tonemap_prg, "u_ao_mix"), on ? hdr_ssao_strength * clampf(1.f - RF.mapness * 2.f, 0.f, 1.f) : 0.f);
       rhi_set_f2(UNI(tonemap_prg, "u_ao_texel"), ao_target.w ? 1.f / ao_target.w : 0.f, ao_target.h ? 1.f / ao_target.h : 0.f); }
+    // the shockwaves (0.22.8): a muzzle blast bends and blurs the picture in a ring for a quarter second
+    rhi_set_i1(UNI(tonemap_prg, "u_nshock"), nshock_);
+    if (nshock_) rhi_set_f4v(UNI(tonemap_prg, "u_shock"), shock_, nshock_);
+    rhi_set_f2(UNI(tonemap_prg, "u_screen"), (float)w, (float)h);
+    nshock_ = 0;   // consumed: a frame without a battle draws none
     rhi_draw(&fs_tri, 0);
 }
 
@@ -183,5 +191,6 @@ void hdr_capture_scene(void) { mare::engine::render::hdr().capture_scene(); }
 const rhi_texture_t *hdr_scene_copy(void) { return mare::engine::render::hdr().scene_copy_ptr(); }
 const rhi_texture_t *hdr_depth(void) { return mare::engine::render::hdr().depth(); }
 const rhi_texture_t *hdr_depth_captured(void) { return mare::engine::render::hdr().depth_captured(); }
+void hdr_set_shocks(const float *v, int n) { mare::engine::render::hdr().set_shocks(v, n); }
 void hdr_resolve(int w, int h) { mare::engine::render::hdr().resolve(w, h); }
 }

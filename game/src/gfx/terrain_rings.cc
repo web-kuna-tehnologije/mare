@@ -239,7 +239,11 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
         if (fine && portw > 0.001f && dcs > 0.f && adc < SV_FRINGE_OUT) {
             float u = (adc - SV_FRINGE_IN) / (SV_FRINGE_OUT - SV_FRINGE_IN);
             float wc = (1.f - (u <= 0.f ? 0.f : u >= 1.f ? 1.f : u * u * (3.f - 2.f * u))) * portw;
-            if (wc > 0.001f) d = lerpf(d, maxf(h, 0.20f) - base + 0.4f * sd, wc);
+            // 0.22.8 (issue4 "lowlands", "Dalmatia is near 0 m not 500"): the ridge noise is
+            // only added where the data itself says the coast is high; a lowland shore gets
+            // the data's height and nothing on top
+            float ridge_ok = smoothstep_(0.45f, 1.4f, h);
+            if (wc > 0.001f) d = lerpf(d, maxf(h, 0.20f) - base + 0.4f * sd * ridge_ok, wc);
         }
         // The shore itself (0.22): a *profile* of the distance to the coastline, shaped by what
         // the chunk data says the coast is.
@@ -274,9 +278,15 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             // whatever the noise says - with deep water off it, because that is what a mountain
             // plunging into the sea has.
             float near_land = maxf(maxf(base, world_height(wx + cell, wz)), maxf(world_height(wx - cell, wz), maxf(world_height(wx, wz + cell), world_height(wx, wz - cell))));
+            // 0.22.8: `near_land` is the base grid, whose 7 km cells carry the *highest* ground
+            // of the cell to the waterline - which is how the Venetian lagoon and the Dutch
+            // coast got the Dinaric treatment. Where the data answers, the land behind the
+            // shore is the data's own height, so a plain stays a plain however high the cell
+            // reads (todo 22, "fix the coasts of the Lowlands").
+            float land_h = fine ? maxf(h, 0.f) : near_land;
             float cliff = world_fbm(lon * 0.7f + 55.f, lat * 0.7f + 5.f, 3, G.seed + 77);   // world.c compute_heightmap's field
-            float cl = clampf((cliff - 0.50f) / 0.22f, 0.f, 1.f) * smoothstep_(0.35f, 0.9f, near_land);
-            cl = maxf(cl, smoothstep_(1.2f, 2.6f, near_land));
+            float cl = clampf((cliff - 0.50f) / 0.22f, 0.f, 1.f) * smoothstep_(0.35f, 0.9f, land_h);
+            cl = maxf(cl, smoothstep_(1.2f, 2.6f, land_h));
             float sandy = 0.5f, marsh = 0.f;
             // the data's say: read one cell inland of the texel (the shoreline sample itself is
             // often the ocean class), the slope from the export's normal, the weights, the class
@@ -286,7 +296,7 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             if (glen > 1e-5f) { ilon += gxd / glen * 1.0f / CELLS_PER_DEG; ilat -= gzd / glen * 1.0f / CELLS_PER_DEG; }
             if (geochunks_sample(ilon, ilat, &gl) && gl.has_maps) {
                 float sl = sqrtf(gl.normal[0] * gl.normal[0] + gl.normal[2] * gl.normal[2]) / maxf(gl.normal[1], 0.05f);   // rise over run, drawn world
-                float cl_data = clampf(smoothstep_(0.10f, 0.40f, sl) * 0.85f + gl.splat[1] * 0.45f, 0.f, 1.f) * smoothstep_(0.25f, 0.8f, maxf(near_land, gl.height));
+                float cl_data = clampf(smoothstep_(0.10f, 0.40f, sl) * 0.85f + gl.splat[1] * 0.45f, 0.f, 1.f) * smoothstep_(0.25f, 0.8f, maxf(land_h, gl.height));   // 0.22.8: the data's land, not the cell's
                 int b = gl.biome;
                 marsh = (b == GC_BIOME_WETLAND || b == GC_BIOME_MANGROVE) ? 1.f : 0.f;
                 if (b == GC_BIOME_WATER && gl.height < 0.25f) marsh = 0.6f;        // a lagoon or a delta lake behind the line
@@ -325,7 +335,12 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                 float mud = -(0.03f + 0.14f * (1.f - expf(-sn * 0.45f)) + drop);
                 target = lerpf(target, mud, marsh);
             } else {
-                float relief = fine ? maxf(h, base) : base;
+                // 0.22.8 (todo 23, "reduce the height near the coast"): behind a shore the
+                // data answers for, the relief is the data's - the base cell's height only
+                // returns past the band, so a lowland coast is low all the way in. Held a
+                // little above the waterline so the land mask's land stays land.
+                float relief = fine ? maxf(h, 0.40f) : base;
+                if (fine) relief = lerpf(relief, maxf(h, base), smoothstep_(reach * 0.7f, reach, dcs));
                 // a beach coast: sand ramping up, then the relief returning as a *dome* - the
                 // ground rises as the square root of the distance to the water, so a lifted
                 // island (a flat 0.55 inside its coast) comes up as a rounded hill, and a

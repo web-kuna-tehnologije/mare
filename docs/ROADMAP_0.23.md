@@ -1,11 +1,11 @@
-# Road map after 0.22.7 (worktree oak, 2026-10-31)
+# Road map after 0.22.8 (worktree oak, 2026-10-31)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.7
+## Done to 0.22.8
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -15,7 +15,10 @@ data-driven classes, the painted hinterland with instanced props, roads, map mod
 staged battle and city scenes. 0.22.7 (issue4): the battle's own clock, the wind shown and
 used in the battle, the stage coast read from the world (bearing, land cover, relief) with a
 shore the surf breaks on, open-sea haze, a free camera height, and a particle system for the
-broadsides (wind-blown smoke, muzzle flash, embers).
+broadsides (wind-blown smoke, muzzle flash, embers). 0.22.8 (issue5): three-layer gunsmoke
+with water rings, spray and tonemap shockwaves; the cordage textured; masts in proportion;
+lowland coasts and coastal heights from the data; closer map zoom with a ground-riding target;
+dense pines; the eight hulls at 800k triangles for the battle view.
 
 ## Next, in order
 
@@ -26,16 +29,16 @@ broadsides (wind-blown smoke, muzzle flash, embers).
 2. **Terrain self-shadow at the regional zoom** (horizon map per ring, 8 directions). This is
    what makes the `assets/example` frames read as relief rather than paint, and it is
    independent of the data resolution.
-3. **The lowland coasts from the data (todo_list 22-23).** The Venice screenshot in issue4:
-   cliffs and a plateau where the lagoon is at sea level. Gate the rings' procedural ridge and
-   the shore mask's cliff class by the data's real relief within ~10 km of the waterline.
-4. **Physics foundation (dev.txt P1.3).** Fixed timestep, buoyancy from multi-point sampling of
+3. **Physics foundation (dev.txt P1.3).** Fixed timestep, buoyancy from multi-point sampling of
    the same wave function the renderer uses, ship-to-ship and ship-to-coast collision, then
    the damage model. The wave function is already shared; the rest is new. The staged battle
    now has a clock of its own and a particle system to show the results in.
-5. **Naval VFX (P1.5).** Flash, wind-blown smoke and embers exist (0.22.7); fire, water
-   impacts, debris, sail damage and sinking wait on the damage model above - the particle
-   system is their vehicle.
+4. **Naval VFX (P1.5).** Flash, layered smoke, shockwaves, water rings and spray exist
+   (0.22.8); fire, shot splashes, debris, sail damage and sinking wait on the damage model
+   above - the particle system is their vehicle.
+5. **Textured assets proper**: UVs through the mesh layout and the base-colour sheet sampled
+   in the fragment stage. 800k vertex colours (0.22.8) is the ceiling of the baked path; this
+   is the step after it if the battle zoom still wants more.
 6. **Procedural cities and ports (P2.1).** The painted village mask and the house props are a
    placeholder for a real settlement generator with street layout and cultural kits; Venice,
    Dubrovnik and Constantinople want hand-placed landmarks.

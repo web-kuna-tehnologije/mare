@@ -145,6 +145,15 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
   stands 140-210 units off whatever the probe measured, and the heightfield is a noise shaped
   by the data's relief class, not the data itself. A lowland coast is a thin line from deck
   height; the berm and the trees are what make it read.
+- **L** The giant spar of issue5 (two lantinas the size of the fleet lying on the sea) was not
+  reproduced; 0.22.8 refuses to place a yard, lantina or bowsprit whose asset is not loaded
+  with real bounds and suppresses any spar longer than the hull and a half, logging the asset
+  and its extents. If the log line appears, that is the asset to look at.
+- **L** The tonemap shockwave is screen-space: a blast behind a hull still bends the hull's
+  pixels (there is no depth test on the ring). At the sizes used it reads as heat shimmer.
+- **L** The 800k LOD 0 hulls are ~25 MB each on disk and ~50 MB on the GPU; the LOD 0 trim
+  (`asset_lod0_trim`) keeps the fleet within budget, so a hull that has not been looked at
+  for a while reloads from disk when the camera returns to it (a short pop to LOD 1).
 - **L** The battle HUD's knots are a convention (14 kn per unit of wind strength); the
   strategic wind model has no physical speed.
 - **L** Fleet labels are not part of the label collision system: a selected fleet's label can

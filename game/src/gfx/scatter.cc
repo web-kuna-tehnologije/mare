@@ -31,7 +31,7 @@ namespace mare::game::view {
 #define TREE_CELL   0.16f        // orchard spacing (world units)
 #define TREE_H      0.11f        // tree height (0.22.5: bigger - "increase size of trees")
 #define WOOD_H      0.13f        // a forest tree; pines a little taller still
-#define WOOD_P      0.62f        // share of forest texels that get a tree (a real forest, not a scatter)
+#define WOOD_P      0.80f        // share of forest texels that get a tree (a real forest, not a scatter); 0.22.8: 0.62 -> 0.80 ("dense pine forests")
 #define HOUSE_W     0.020f       // a village house, wall to wall
 #define VINE_H      0.022f       // a vine bush's height; rows follow the contour
 #define SHEEP_L     0.018f       // a sheep, nose to tail
@@ -286,12 +286,20 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                 float ox = (hash2(i + 21.f, j + 21.f) - 0.5f) * step, oz = (hash2(i + 22.f, j + 22.f) - 0.5f) * step;
                 float h = ground(wx + ox, wz + oz);
                 if (h > 0.04f) {
-                    int conifer = (h > 1.6f || lat > 47.f || hash2(i + 23.f, j + 23.f) < 0.18f + 0.3f * clampf((h - 0.8f) / 1.2f, 0.f, 1.f));
-                    float sz = (conifer ? WOOD_H * 1.15f : WOOD_H) * (0.75f + 0.5f * hash2(i + 24.f, j + 24.f));
+                    int conifer = (h > 1.4f || lat > 46.f || hash2(i + 23.f, j + 23.f) < 0.22f + 0.35f * clampf((h - 0.7f) / 1.2f, 0.f, 1.f));
+                    float sz = (conifer ? WOOD_H * 1.35f : WOOD_H) * (0.75f + 0.5f * hash2(i + 24.f, j + 24.f));   // 0.22.8: pines taller (1.15 -> 1.35)
                     inst_t ti = inst(wx + ox, h - 0.015f, wz + oz, hash2(i + 25.f, j + 25.f) * 6.2832f, sz);
                     int faraway = dist2d(wx, wz, ringcx, ringcz) > PROP_LOD1;   // the card LOD beyond PROP_LOD1 (`far` is a reserved word on MSVC)
                     *instlist_push(faraway ? (conifer ? &li_card_p : &li_card_b) : (conifer ? &li_pine : &li_oak)) = ti;
                     total++;
+                    // 0.22.8 "dense pine forests": a conifer stand packs a second tree into the
+                    // texel on full-cover ground, so the pines close up into a wood
+                    if (conifer && F >= 200 && hash2(i + 26.f, j + 26.f) < 0.7f * scatter_density) {
+                        float ox2 = (hash2(i + 27.f, j + 27.f) - 0.5f) * step, oz2 = (hash2(i + 28.f, j + 28.f) - 0.5f) * step;
+                        float h2 = ground(wx + ox2, wz + oz2);
+                        if (h2 > 0.04f) { inst_t t2 = inst(wx + ox2, h2 - 0.015f, wz + oz2, hash2(i + 29.f, j + 29.f) * 6.2832f, sz * (0.8f + 0.3f * hash2(i + 30.f, j + 30.f)));
+                                          *instlist_push(faraway ? &li_card_p : &li_pine) = t2; total++; }
+                    }
                 }
             }
             continue;

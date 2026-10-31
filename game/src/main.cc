@@ -427,7 +427,14 @@ int main(int argc, char **argv) {
               float floor_y = world_is_land(cam.pos.x, cam.pos.z) ? world_height(cam.pos.x, cam.pos.z) + stream_delta_at(cam.pos.x, cam.pos.z) + 0.6f
                                                                  : 0.5f * sea_amp_now() * sea_wave_scale + 0.45f;
               if (floor_y > floor_s) floor_s = floor_y; else floor_s += (floor_y - floor_s) * (1.f - expf(-dt * 2.f));
-              cam_min_eye_y = detailview_mode() == DV_OFF ? floor_s : detailview_eye_floor(); }   // staged scenes: above their own water (0.22.7)
+              cam_min_eye_y = detailview_mode() == DV_OFF ? floor_s : detailview_eye_floor();   // staged scenes: above their own water (0.22.7)
+              // 0.22.8 (issue4 "block moving through terrain"): on the map the look-at point
+              // rides the ground under it, so a close camera over a range looks at the ridge
+              // rather than at sea level beneath it - and never through the hillside
+              if (detailview_mode() == DV_OFF) {
+                  float gy = world_is_land(cam.want_tx, cam.want_tz) ? maxf(world_height(cam.want_tx, cam.want_tz) + stream_delta_at(cam.want_tx, cam.want_tz), 0.f) : 0.f;
+                  cam.want_ty = gy * clampf(1.f - (cam.dist - 30.f) / 120.f, 0.f, 1.f);   // only while close: from the regional zoom up the target is sea level as before
+              } }
             prof_begin(p_input); input_frame(dt, ui_blocked); debug_keys(); cam_update(dt); prof_end(p_input);
             prof_begin(p_sim);
             // City view (3rd zoom): with the camera down on a town square the clock crawls to

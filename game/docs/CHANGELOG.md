@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.22.8 — the fifth issues folder: layered gunsmoke and shockwaves, textured cordage, masts in proportion, lowland coasts, 800k hulls
+
+From `assets/issues/issue5` (`issues.txt`, three screenshots, the Meshy "cannon fire shockwave"
+reference frame) plus four rows of `docs/todo_list.md` (20, 22-25).
+
+### The broadside (particles.cc, fx/puff.*, hdr/tonemap.frag)
+- **Three layers of smoke per gun.** A dense white *core* - two cumulus balls that race out
+  with the shot and keep rolling, lit hard with a bright crown - a grey *plume* of three puffs
+  behind it, and a thin *haze* veil that outlives both (10-15 s) and drifts off downwind. Each
+  layer has its own drag, buoyancy and erosion, so the cloud separates into a solid front, a
+  trailing body and a smear the way the reference frame shows it.
+- **The shock on the water**: under a low gun the blast flattens a ring of sea (a flat annulus
+  of foam that spreads and breaks up) and throws a sheet of spray outboard, which falls back
+  under gravity and is gone in a second.
+- **The shock in the air**: one shockwave per three guns, from the muzzle. The tonemap bends
+  the finished frame outward across a thin Gaussian ring that races out from the gun and
+  blurs it along the radius - the compressed shell of air - for a third of a second
+  (`hdr_set_shocks`, up to sixteen a frame; a frame without a battle draws none).
+- Pool 4096, back-to-front sorted, soft against the hulls as before.
+
+### Cordage with the Meshy rope tiles (issue5 "use them also for ropes")
+- The geometry stage that widens each rope now writes a rope UV (across the rope, distance
+  along it in rope diameters) and the ship's condition; `meshes.frag` lays the `rope_premium`
+  / `rope_used` tile along it - the strands' lay, the tar and the fraying on the worn suit -
+  normalised to the tile's mean so the rope keeps its colour, with a procedural twist where
+  the texels have blurred away. Fades out past 70 units, where a rope is a line again.
+
+### Masts in proportion (issue7.png, todo 20)
+- A lesser mast was a *shorter copy* of the same model, so scaling it to 0.8 of the main's
+  height also made it 0.8 as thick. The radial slim is now divided by the height ratio: every
+  mast on the ship has the main's girth at the deck. Fore and mizzen heights raised
+  (`ship_classes.json`: carrack 0.88/1.0/0.92, war carrack 0.90/1.0/0.95/0.86, great carrack
+  0.91/1.0/0.97/0.87, hulk 0.88/1.0/0.84).
+- **"Remove the lantina from the mast"**: checked in Blender - the mast library's lateen masts
+  (`mast_mizzen` = split parts 1-6, `mast_lateen_tall` = parts 1-4) do not contain their yards;
+  the lantina is the separate, swinging `lateen_yard` asset. Nothing to split.
+
+### The giant spar (issue5.png)
+- A yard, lantina or bowsprit is placed only once its asset is **loaded with real bounds**: a
+  part still streaming has zero bounds, and a scale computed from them (`design length /
+  extent`) is a spar the size of the fleet. A spar that still comes out longer than the hull
+  and a half is suppressed and logged with the asset's name and extents. Not reproduced in
+  pinned runs at 6-14 units; the log line is the trap for the next time.
+
+### 800k hulls for the battle view (issue5 "800k models with high texture quality")
+- `tools/meshy_import.py --lod0 800000 --tex 2048`: the eight hull classes re-imported with
+  LOD 0 at 800,000 triangles (was 300-400k) and the base colour sampled from 2048 px sheets
+  (was 1024). LOD 0 is only reached in the battle and city tiers, so the map never pays for
+  it. In this renderer the texture is baked into vertex colours, so "texture quality" is
+  vertex density: one colour sample every ~6 cm on a 47 m hull. Masts and yards keep 150k.
+  The importer also dedupes a tree that holds both the raw Meshy folders and their organised
+  copies.
+
+### The strategic map (todo 22-25)
+- **Lowland coasts from the data** (the Venice screenshot in issue4). The cliff class and the
+  cliff profile were decided by `near_land`, the 7 km *base cell*, which carries the highest
+  ground of the cell to the waterline - the Venetian lagoon and the Dutch coast got the
+  Dinaric treatment. Where the data answers, the land behind the shore is the data's own
+  height; the ridge noise in the coastal fringe is only added where that height is real.
+- **Height near the coast**: inside the shore band the relief is the data's height (held just
+  above the waterline so land stays land); the base cell's height returns only past the band.
+- **Zoom in more** on the map (`CAM_MIN_DIST` 2.5 -> 1.6 x scale) and the look-at point rides
+  the ground under it while the camera is close, so the view never passes through a hillside.
+- **Dense pine forests**: 80% of forest texels get a tree (was 62%), pines 17% taller, a second
+  pine per texel on full-cover conifer ground, conifers from 1.4 units of height or 46 N.
+
+### Elsewhere
+- `docs/todo_list.md` gains the issue5 rows (28-34) and a next-steps order.
+- Mirror `C:\projects\mare_oak_20261031_180609` (the previous oak mirror removed).
+
 ## 0.22.7 — the fourth issues folder: the battle's own clock, the coast from the world, a particle system
 
 From `assets/issues/issue4` (`issues.txt`, four screenshots). The whole list, with priorities,

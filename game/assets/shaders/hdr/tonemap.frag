@@ -5,10 +5,31 @@ uniform sampler2D u_depth; uniform mat4 u_inv_vp; uniform vec3 u_campos; uniform
 uniform vec4 u_vfog;
 // x = density, y = scale height, z = sun in-scatter strength, w = max distance
 uniform vec3 u_vfogcol;
+uniform vec4 u_shock[16]; uniform int u_nshock; uniform vec2 u_screen;
+// x,y = screen uv of a muzzle blast, z = the ring's radius in pixels, w = strength (0.22.8)
 out vec4 fragColor;
 #include "common/color.glsl"
 void main(){
-  vec3 c = texture(u_scene, v_uv).rgb * u_exposure;
+// The shockwave (0.22.8, issue5 "effect of shock in the air"): a muzzle blast is a thin shell
+// of compressed air racing out from the gun; it bends what is behind it (a refraction ring)
+// and smears it along the radius (motion blur of the front). Each shock is a Gaussian ring in
+// screen space whose displacement points outward; the taps along the radius are the blur.
+  vec2 uv = v_uv; float blur = 0.0; vec2 bdir = vec2(0.0); float glint = 0.0;
+  for (int i = 0; i < u_nshock; ++i) {
+    vec2 d = (v_uv - u_shock[i].xy) * u_screen;         // pixels
+    float dist = length(d); if (dist < 1e-3) continue;
+    float R = u_shock[i].z, w = 0.16 * R + 5.0;
+    float ring = exp(-pow((dist - R) / w, 2.0)) * u_shock[i].w;
+    vec2 dir = d / dist;
+    uv -= dir * ring * (0.08 * R + 3.0) / u_screen;       // the air lens: pushes the picture outward across the front
+    blur += ring * (0.05 * R + 2.0); bdir += dir * ring; glint += ring;
+  }
+  vec3 c;
+  if (blur > 0.3) {
+    vec2 step = normalize(bdir + vec2(1e-5)) * blur / u_screen;
+    c = (texture(u_scene, uv - step * 1.5).rgb + texture(u_scene, uv - step * 0.5).rgb + texture(u_scene, uv + step * 0.5).rgb + texture(u_scene, uv + step * 1.5).rgb) * 0.25 * u_exposure;
+    c *= 1.0 + 0.10 * min(glint, 1.0);                   // the compressed shell catches the light
+  } else c = texture(u_scene, uv).rgb * u_exposure;
 // --- volumetric fog. Density falls off exponentially with height, so the integral along the
 // view ray has a closed form: no marching, and a valley fills while a hilltop stays clear.
 // Looking towards the sun through it, the fog scatters his light back - haze glows, a storm

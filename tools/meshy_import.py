@@ -82,7 +82,12 @@ def find_models(root):
         # Meshy writes exactly one model per folder; if several, take the largest (the textured one)
         glb = max(glbs, key=lambda f: os.path.getsize(os.path.join(d, f)))
         found.append((asset_name(entry), os.path.join(d, glb)))
-    return found
+    # the tree may hold both the raw Meshy folder and its --organize copy: one model per name
+    seen, uniq = set(), []
+    for name, glb in found:
+        if name in seen: continue
+        seen.add(name); uniq.append((name, glb))
+    return uniq
 
 
 def find_blender(explicit=None):
@@ -185,7 +190,11 @@ def main():
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--blender")
     ap.add_argument("--timeout", type=int, default=3600, help="seconds per model")
+    ap.add_argument("--lod0", type=int, help="override the LOD 0 triangle budget for this kind (0 = keep the raw scan); 0.22.8: 800000 for the battle hulls")
+    ap.add_argument("--tex", type=int, help="override the texture size the base colour is baked from")
     a = ap.parse_args()
+    if a.lod0 is not None: BUDGETS[a.kind] = [a.lod0] + BUDGETS[a.kind][1:]
+    if a.tex is not None: TEX_PX[a.kind] = a.tex
 
     if not os.path.isdir(a.root):
         sys.exit("no such folder: %s" % a.root)

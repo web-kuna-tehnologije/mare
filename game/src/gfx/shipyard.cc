@@ -851,12 +851,18 @@ int Shipyard::push(const shipyard_req_t *r) {
                 inst_t mi = in;
                 mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
                 mi.y = deck_y - MAST_STEP * hh + stn_lift(k);
-                mi.slim = MAST_SLIM;
+                // 0.22.8 (issue5 "fix size of rigging and masts"): a lesser mast is a shorter
+                // *copy* of the same model, so scaling it to 0.8 of the main's height also made
+                // it 0.8 as thick - the fore and mizzen read as sticks beside the main. The
+                // radial slim is divided by the height ratio, so every mast on the ship has the
+                // main's girth at the deck (a real foremast is nearly as stout as the main).
+                float hk = c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f, hmain = c->mast_h[main] > 0.f ? c->mast_h[main] : 1.f;
+                mi.slim = MAST_SLIM * clampf(hmain / hk, 1.f, 1.6f);
                 mi.ax = r->x; mi.az = r->z;   // a mast is a fixed part of its ship: same swell, same roll (i_anchor)
                 // Every mast part is fitted to the class's rig height, so the fore/main/mizzen
                 // proportion comes from the class table either way - which keeps it a number
                 // you can tune without re-exporting anything.
-                mi.scale = ms * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);
+                mi.scale = ms * hk;
                 scene_asset_instance(mp[k], mi, r->key ^ (unsigned)(0x5BD1u + k * 0x97u), r->camdist);
             }
         }
@@ -889,7 +895,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             inst_t ri = in;
             ri.y = 0.f;                       // the rig mesh is modelled from the waterline
             ri.scale = len;                   // and in fractions of hull length
-            ri.fx1 = 0.f; ri.fx2 = 0.f; ri.fx3 = 0.f;
+            ri.fx1 = cloth_q; ri.fx2 = 0.f; ri.fx3 = 0.f;   // 0.22.8: the rope pipeline reads the quality for its texture (meshes/rope.geom)
             *instlist_push(qual ? &rig_inst[(int)(c - g_classes)] : &rig_worn_inst[(int)(c - g_classes)]) = ri;
             inst_t ci = ri; ci.fx1 = cloth_q;   // cloth: the wind model in meshes.c, and the suit of sails
             ci.fx2 = wdx * wstr; ci.fx3 = wdz * wstr;
@@ -963,6 +969,10 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // past YARD_ASSET_MIN_PX, where the authored spar would be under a pixel wide.
                     float spar_len = (LAT_PEAK_Y - LAT_TACK_Y) * mh * 1.41421f;
                     asset_t *la = asset_find("lateen_yard") ? asset_get_role(ASSET_SHIP_PART, "lateen_yard") : NULL;
+                    // 0.22.8: only a *loaded* asset with real bounds is placed - a part still
+                    // streaming has zero bounds, and a scale computed from them is the giant
+                    // spar of issue5 (two lantinas the size of the fleet lying across the sea)
+                    if (la && (la->state != ASSET_LOADED || la->bmax[1] - la->bmin[1] < 0.05f)) la = NULL;
                     int authored = la && lod_px(spar_len * 0.5f, r->camdist) >= YARD_ASSET_MIN_PX;
                     inst_t li = in;
                     li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2 + stn_lift(k); li.scale = mh;
@@ -974,6 +984,10 @@ int Shipyard::push(const shipyard_req_t *r) {
                         // middle on the line's middle (the model's pivot is its slung point)
                         float yext = maxf(la->bmax[1] - la->bmin[1], 1e-3f);
                         float s = (LAT_PEAK_Y - LAT_TACK_Y) * mh / yext;
+                        if (s * yext * 1.5f > len * 1.6f) {   // never a spar longer than the hull and a half: log it instead of drawing it
+                            static int warned; if (!warned) { warned = 1; LOG_WARN("gfx", "lateen_yard scale %.2f (extent %.3f, mh %.2f, len %.2f) implausible: spar suppressed", s, yext, mh, len); }
+                            continue;
+                        }
                         float acx = (la->bmin[0] + la->bmax[0]) * 0.5f * s, acy = (la->bmin[1] + la->bmax[1]) * 0.5f * s;
                         float cx = 0.5f * (LAT_TACK_X + LAT_PEAK_X) * mh - acx, cy = 0.5f * (LAT_TACK_Y + LAT_PEAK_Y) * mh - acy;
                         inst_t yi = in;
@@ -997,6 +1011,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     float hw_w  = mh * ly->l[l].hw;
                     float yard_len = 2.f * hw_w * 1.06f;
                     asset_t *ya = yard_asset(c, k, l);
+                    if (ya && (ya->state != ASSET_LOADED || ya->bmax[2] - ya->bmin[2] < 0.05f)) ya = NULL;   // 0.22.8: see the lantina above
                     int authored = ya && lod_px(yard_len * 0.5f, r->camdist) >= YARD_ASSET_MIN_PX;
                     inst_t qi = in;
                     qi.heading = bhd;
@@ -1010,6 +1025,10 @@ int Shipyard::push(const shipyard_req_t *r) {
                         // the spar; scale that to the sail's head and centre it on the mast line
                         float zext = maxf(ya->bmax[2] - ya->bmin[2], 1e-3f);
                         float s = yard_len / zext;
+                        if (yard_len > len * 1.3f || (ya->bmax[0] - ya->bmin[0]) * s > len) {   // a yard wider than the ship, or a wrong-node asset standing tall: not drawn
+                            static int warned; if (!warned) { warned = 1; LOG_WARN("gfx", "'%s' yard scale %.2f (extents %.3f x %.3f x %.3f, len %.2f) implausible: spar suppressed", ya->desc.name, s, ya->bmax[0] - ya->bmin[0], ya->bmax[1] - ya->bmin[1], zext, len); }
+                            continue;
+                        }
                         float acx = (ya->bmin[0] + ya->bmax[0]) * 0.5f * s, acy = (ya->bmin[1] + ya->bmax[1]) * 0.5f * s;
                         inst_t yi = in;
                         yi.heading = bhd; yi.scale = s;
@@ -1025,7 +1044,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             // procedural spar stood (rig_build draws only the spritsail canvas then)
             if (c->spritsail && asset_find("bowsprit")) {
                 asset_t *bs = asset_get_role(ASSET_SHIP_PART, "bowsprit");
-                if (bs) {
+                if (bs && bs->state == ASSET_LOADED && bs->bmax[0] - bs->bmin[0] > 0.05f) {   // 0.22.8: loaded, with bounds
                     float bl = bs->bmax[0] - bs->bmin[0];
                     inst_t bi = in;
                     bi.scale = 0.26f * len / maxf(bl, 0.01f);

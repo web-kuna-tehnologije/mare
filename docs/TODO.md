@@ -88,6 +88,17 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## issue5 (assets/issues/issue5, 0.22.8) - rows 28-34 of docs/todo_list.md
+
+Done: three-layer gunsmoke + water rings + spray + tonemap shockwaves (the Meshy reference
+frame); the cordage textured with the Meshy rope tiles; masts in proportion (girth shared with
+the main, fore/mizzen taller); the lantina confirmed a separate asset in Blender; the giant
+spar guarded and logged; the eight hulls re-imported at 800k triangles / 2048 px for the
+battle view. From the todo list: lowland coasts and coastal height from the data (22, 23),
+closer map zoom with a ground-riding target (24), dense pines (25). Mirror
+`C:\projects\mare_oak_20261031_180609`. Next: the P1.3 physics checklist (see todo_list.md
+"Order of work").
+
 ## issue4 (assets/issues/issue4, 0.22.7) - see docs/todo_list.md for every line with a priority
 
 Done this round (P0): the battle's own clock (Space / 1-4 / -/+, strategic clock untouched),

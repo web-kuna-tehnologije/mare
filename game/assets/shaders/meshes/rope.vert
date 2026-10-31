@@ -8,7 +8,7 @@ in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx; in vec2 i_anchor;
 uniform mat4 u_vp; uniform float u_time;
 uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;
 uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;
-out vec3 gv_nrm; out vec3 gv_col; out vec3 gv_wpos; out float gv_sel; out vec2 gv_rm; out float gv_dither; out float gv_wet; out float gv_hw;
+out vec3 gv_nrm; out vec3 gv_col; out vec3 gv_wpos; out float gv_sel; out vec2 gv_rm; out float gv_dither; out float gv_wet; out float gv_hw; out float gv_q;
 #include "common/waves.glsl"
 void main(){
   gv_dither = i_fx.x;
@@ -17,6 +17,7 @@ void main(){
 // the rope's physical half-width rides in the roughness channel (model units: fractions of
 // the hull length), scaled to world units by the instance
   gv_hw = a_rm.x * i_scol.x;
+  gv_q = i_fx.y;   // the cordage's condition (1 tarred and worn, 2 new hemp): meshes.frag picks the rope texture (0.22.8)
   vec2 ap = i_pos.xz; vec2 dl = vec2(0.0);
   if (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6) {
     ap = i_anchor;

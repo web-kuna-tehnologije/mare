@@ -4,6 +4,7 @@ uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform samp
 uniform sampler2D u_sail_a; uniform sampler2D u_sail_n;    // new canvas: albedo, normal
 uniform sampler2D u_sail_a2; uniform sampler2D u_sail_n2;  // used canvas
 uniform float u_has_sail;
+uniform sampler2D u_rope_a; uniform sampler2D u_rope_a2;   // cordage: new hemp, tarred and worn (0.22.8)
 out vec4 fragColor;
 #include "common/color.glsl"
 #include "common/pbr.glsl"
@@ -50,9 +51,31 @@ void main(){
 // triplanar grain, the foot is grimier than the head, and the cloth is *translucent* - the
 // sun behind a sail lights it from within. A little fuzz sheen at grazing angles instead of
 // a hard specular, which is what keeps it reading as cloth rather than plastic.
-  float canvas = v_cloth.x > 0.75 ? 1.0 : 0.0;          // flags (0.5) keep their plain colour
+  float rope = v_cloth.x > 2.5 ? 1.0 : 0.0;             // cordage from the geometry stage (meshes/rope.geom): 4 worn, 5 new
+  float canvas = v_cloth.x > 0.75 && rope < 0.5 ? 1.0 : 0.0;   // flags (0.5) keep their plain colour
   float premium = v_cloth.x > 1.5 ? 1.0 : 0.0;          // 2 = new canvas, 1 = used (0.22.6)
   vec3 trans = vec3(0.0);
+  if (rope > 0.5) {
+// The cordage texture (0.22.8, issue5 "use the sail and cloth textures for the ropes too"):
+// the Meshy rope sheets laid along the rope - a strip of the tile read along the rope's
+// length, across its width - so the lay of the strands and, on the worn suit, the fraying
+// and the tar show where a rope is wide enough on screen for them to; from further off the
+// strip averages back to the plain colour. A procedural twist on top keeps the lay reading
+// at the widths the texels have already blurred away.
+    float near = 1.0 - smoothstep(12.0, 70.0, dist0);
+    if (u_has_sail > 0.5 && near > 0.01) {
+      vec2 ruv = vec2(v_cloth.z * 0.045, 0.5 + v_cloth.y * 0.12);
+      vec3 ra = v_cloth.x > 4.5 ? texture(u_rope_a, ruv).rgb : texture(u_rope_a2, ruv).rgb;
+      float lum = dot(ra, vec3(0.3, 0.59, 0.11));
+      float mean = v_cloth.x > 4.5 ? 0.46 : 0.30;
+      float v = clamp(lum / mean, 0.5, 1.5);
+      vec3 hue = mix(vec3(1.0), ra / max(lum, 0.04), 0.35);
+      albedo *= mix(vec3(1.0), hue * v, 0.75 * near);
+    }
+    float twist = 0.5 + 0.5 * sin((v_cloth.z * 1.6 + v_cloth.y * 0.9) * 6.2832);
+    albedo *= 1.0 - 0.18 * twist * near;
+    rough = mix(rough, 0.82, near);
+  }
   if (canvas > 0.5) {
     float near = 1.0 - smoothstep(20.0, 80.0, dist0);
     float across = v_cloth.y * 0.5 + 0.5, down = v_cloth.z;

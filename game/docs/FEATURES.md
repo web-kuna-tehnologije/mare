@@ -119,6 +119,9 @@ Status as of the current codebase. Each entry names the module that owns it.
   split square yards instanced on every station on the sail's swung/braced heading; cordage as
   geometry-stage lines of physical width; verlet flags pinned to the main masthead; canvas,
   water and ground materials (DESIGN_SHIPS.md 3c, DESIGN_RENDERER.md 0.19).
+- The broadside (0.22.8): three smoke layers, water rings and spray, tonemap shockwaves; the
+  cordage carries the Meshy rope tiles; masts share the main's girth; the eight hulls have an
+  800k-triangle LOD 0 for the battle view (`tools/meshy_import.py --lod0`).
 - The staged battle (0.22.7): its own clock (stop, quarter to double time), the wind at the
   battle shown and used (line pace, smoke drift, arrows), the coast read from the world at the
   battle's bearing with a heightfield shore the surf breaks on (open sea = haze, desert = sand),

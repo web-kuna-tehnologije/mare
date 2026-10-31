@@ -68,7 +68,7 @@ private:
     void build_puff();
     void meshes_bind_waves(const rhi_pipeline_t *p);
     void bind_sails(const rhi_pipeline_t *p);
-    int  sail_tex[4] = { -1, -1, -1, -1 };
+    int  sail_tex[6] = { -1, -1, -1, -1, -1, -1 };   // 4 canvas tiles + the 2 cordage tiles (0.22.8)
 };
 
 Meshes &meshes() { static Meshes m; return m; }
@@ -209,7 +209,7 @@ void Meshes::build_puff() {
 
 void Meshes::init() {
     static const char *uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain",
-                                      "u_sail_a", "u_sail_n", "u_sail_a2", "u_sail_n2", "u_has_sail",
+                                      "u_sail_a", "u_sail_n", "u_sail_a2", "u_sail_n2", "u_has_sail", "u_rope_a", "u_rope_a2",
                                       "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
     static const char *depth_uniforms[] = { "u_vp", "u_time", "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, 0 };
     // (C compound literals -> named descriptors: C++ cannot take &T{...})
@@ -221,7 +221,7 @@ void Meshes::init() {
     smoke_prg = rhi_pipeline_make(&smoke_desc);
     rope_on = rhi_geometry_shader_supported();
     if (rope_on) {
-        static const char *rope_uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", "u_viewport", "u_rope",
+        static const char *rope_uniforms[] = { "u_vp", "u_time", "u_campos", "u_sky", "u_mapness", "u_grain", "u_viewport", "u_rope", "u_rope_a", "u_rope_a2", "u_has_sail",
                                                "u_wave_amp", "u_wave_scale", "u_local_depth", "u_hm", "u_geo", "u_wk", GLSL_WAVE_UNIFORMS, GLSL_LIGHT_UNIFORMS, 0 };
         const rhi_pipeline_desc_t rope_desc{ .vs = shader_source("meshes/rope.vert"), .fs = shader_source("meshes/meshes.frag"), .layout = &mesh_layout, .uniforms = rope_uniforms,
                                              .depth_test = 1, .depth_write = 1, .blend = RHI_BLEND_NONE, .gs = shader_source("meshes/rope.geom"), .lines = 1 };
@@ -250,16 +250,16 @@ void Meshes::meshes_bind_waves(const rhi_pipeline_t *p) {
 // A sail's own (across, down) coordinates are its UV, so no mesh needed UVs adding.
 void Meshes::bind_sails(const rhi_pipeline_t *p) {
     if (sail_tex[0] < 0) {
-        static const char *names[4] = { "sail_premium_albedo", "sail_premium_normal", "sail_used_albedo", "sail_used_normal" };
-        for (int i = 0; i < 4; ++i) {
+        static const char *names[6] = { "sail_premium_albedo", "sail_premium_normal", "sail_used_albedo", "sail_used_normal", "rope_premium", "rope_used" };
+        for (int i = 0; i < 6; ++i) {
             char path[600]; snprintf(path, sizeof path, "%s/ships/%s.png", asset_root(), names[i]);
-            sail_tex[i] = texture_request(path, i & 1 ? RHI_FMT_RGB8 : RHI_FMT_SRGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
+            sail_tex[i] = texture_request(path, (i & 1) && i < 4 ? RHI_FMT_RGB8 : RHI_FMT_SRGB8, RHI_FILTER_MIPMAP, RHI_WRAP_REPEAT);
         }
     }
-    const rhi_texture_t *t[4]; int have = 1;
-    for (int i = 0; i < 4; ++i) { t[i] = texture_get(sail_tex[i]); if (!t[i]) have = 0; }
-    static const char *uni[4] = { "u_sail_a", "u_sail_n", "u_sail_a2", "u_sail_n2" };
-    for (int i = 0; i < 4; ++i) { rhi_set_i1(rhi_uniform(p, uni[i]), 10 + i); rhi_texture_bind(10 + i, have ? t[i] : detail_grain()); }
+    const rhi_texture_t *t[6]; int have = 1;
+    for (int i = 0; i < 6; ++i) { t[i] = texture_get(sail_tex[i]); if (!t[i]) have = 0; }
+    static const char *uni[6] = { "u_sail_a", "u_sail_n", "u_sail_a2", "u_sail_n2", "u_rope_a", "u_rope_a2" };   // the cordage tiles ride with the canvas (0.22.8)
+    for (int i = 0; i < 6; ++i) { rhi_set_i1(rhi_uniform(p, uni[i]), 10 + i); rhi_texture_bind(10 + i, have ? t[i] : detail_grain()); }
     rhi_set_f1(rhi_uniform(p, "u_has_sail"), have ? 1.f : 0.f);
 }
 
@@ -291,6 +291,7 @@ void Meshes::bind_rope() {
     rhi_set_f2(UNI(rope_prg,"u_viewport"), (float)screen_w, (float)screen_h);
     float px1 = (float)screen_h / (2.f * tanf(45.f * 0.0174533f * 0.5f));   // pixels per world unit at distance 1 (camera.c: 45 degree vertical FOV)
     rhi_set_f2(UNI(rope_prg,"u_rope"), px1, 0.6f);
+    bind_sails(&rope_prg);   // the cordage tiles (0.22.8)
     light_bind(&rope_prg);
 }
 
