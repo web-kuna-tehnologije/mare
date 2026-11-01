@@ -6,6 +6,7 @@ uniform vec4 u_vfog;
 // x = density, y = scale height, z = sun in-scatter strength, w = max distance
 uniform vec3 u_vfogcol;
 uniform vec4 u_shock[16]; uniform int u_nshock; uniform vec2 u_screen;
+uniform sampler2D u_blurred; uniform float u_blur;   // the menu's blurred battle (0.22.11)
 // x,y = screen uv of a muzzle blast, z = the ring's radius in pixels, w = strength (0.22.8)
 out vec4 fragColor;
 #include "common/color.glsl"
@@ -30,6 +31,7 @@ void main(){
     c = (texture(u_scene, uv - step * 1.5).rgb + texture(u_scene, uv - step * 0.5).rgb + texture(u_scene, uv + step * 0.5).rgb + texture(u_scene, uv + step * 1.5).rgb) * 0.25 * u_exposure;
     c *= 1.0 + 0.10 * min(glint, 1.0);                   // the compressed shell catches the light
   } else c = texture(u_scene, uv).rgb * u_exposure;
+  if (u_blur > 0.001) c = mix(c, texture(u_blurred, uv).rgb * u_exposure, u_blur) * mix(1.0, 0.78, u_blur);   // the menu: soft and a touch darker, so the panel reads
 // --- volumetric fog. Density falls off exponentially with height, so the integral along the
 // view ray has a closed form: no marching, and a valley fills while a hilltop stays clear.
 // Looking towards the sun through it, the fog scatters his light back - haze glows, a storm

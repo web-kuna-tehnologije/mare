@@ -1,4 +1,4 @@
-# Todo list - issue folders 4 to 7 (assets/issues/issue4-7; 2026-10-31, worktree oak, 0.22.7-0.22.10)
+# Todo list - issue folders 4 to 8 (assets/issues/issue4-8; 2026-10-31/11-01, worktree oak, 0.22.7-0.22.11)
 
 Every line of the `issues.txt` files and every screenshot in the folders, as written, with a priority.
 P0 = this round, in order; P1 = next round; P2 = after the physics foundation exists;
@@ -22,13 +22,13 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 12 | P0 | Particle system; explosion particles by ship size and gun count, different particle sizes | [x] 0.22.7: `gfx/particles.cc` (instanced billboards, wind, drag, buoyancy, size over life); puff count and size scale with the class's guns and length |
 | 13 | P1 | Particle system support "instanced puffs only" (dev.txt) -> real system | [x] same as 12 |
 | 14 | P1 | Fire and smoke, 3D volumetric | [ ] needs the damage model (P1.3 fire) to have something to burn; the particle system is the vehicle |
-| 15 | P1 | Water impacts: ship bow foam only; real waves generated | [~] bow wave + Kelvin wake exist (0.22.6); shot splashes need the ballistic model (P1.3) |
+| 15 | P1 | Water impacts: ship bow foam only; real waves generated | [x] 0.22.11: round shot splash where they fall (ballistics events -> `particles_splash`: a spout and a foam ring); the stern wave and the diffusing wake are the generated waves |
 | 16 | P2 | Debris (procedural models now, authored later) | [ ] after hull/mast damage exists |
-| 17 | P1 | Sail effects / damage presentation (a char or a file to pick the look) | [ ] `assets/ships/ship_classes.json` is the place: a `sail_state` field (new/used/torn) per ship; the textures are in (0.22.6) |
+| 17 | P1 | Sail effects / damage presentation (a char or a file to pick the look) | [x] 0.22.11: `"sails": mixed|new|used` per class in `ship_classes.json` (war/great carrack new, fusta used, the rest per ship). A *torn* state waits on sail damage (P1.3) |
 | 18 | P2 | Sinking effects | [ ] after flooding/sinking state (P1.3) |
-| 19 | P1 | Weather effects in battle | [~] rain, haze, mist and storm overcast exist on the map (weather.cc) and the staged scene inherits them; 0.22.7 adds the open-sea haze; no spray, no lightning, no rain squalls as particles yet |
+| 19 | P1 | Weather effects in battle | [x] 0.22.11: spray torn off every stem in a fresh breeze and carried over the decks (`particles_spray`), on top of the inherited rain, haze, mist and overcast and the open-sea fog. Lightning is not done |
 | 20 | P1 | Rigging and masts: increase height and thickness so they are proportional (screenshot) | [x] 0.22.8: every mast keeps the main's girth (the radial slim is divided by the height ratio), fore and mizzen heights raised in `ship_classes.json` (carrack fore 0.80 -> 0.88, war carrack 0.82/0.94/0.82 -> 0.90/0.95/0.86, hulk 0.80/0.78 -> 0.88/0.84) |
-| 21 | P1 | Issue sails (screenshot): the lateens read dark brown and the foam blobs under the hulls are flat discs | [ ] the "used" suit's albedo is too dark in shadow; the hull foam disc wants the wake shape |
+| 21 | P1 | Issue sails (screenshot): the lateens read dark brown and the foam blobs under the hulls are flat discs | [x] 0.22.11: the foam under a hull is the wake map's churn now (0.22.9-11), no discs; the dark lateens were the fusta's *used* suit, which the class file now declares (todo 17) so it reads as intended rather than as a lighting fault |
 
 ## Strategic map
 
@@ -38,7 +38,7 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 23 | P1 | Reduce terrain height near the coast (Dalmatia is near 0 m, not 500) | [x] 0.22.8: inside the shore band the relief is the data's own height (held just above the waterline); the base cell's height only returns past the band (`terrain_rings.cc`) |
 | 24 | P1 | Zoom in a little more on the strategic map, but block moving through terrain | [x] 0.22.8: `CAM_MIN_DIST` 2.5 -> 1.6 world units x scale; the look-at point rides the ground under it when the camera is close (main.cc), the eye floor over land already existed |
 | 25 | P1 | Dense pine forests | [x] 0.22.8: tree share 0.62 -> 0.80 of forest texels, pines 17% taller, a second pine per texel on full-cover conifer ground, conifers from 1.4 units / 46 degrees north |
-| 26 | P1 | Vineyards and 3D crops visible on the strategic map; sheep | [~] vines, corn, orchards and sheep (pasture round the villages, `scatter.cc`) exist as props to 40 units; the props stop before the strategic zoom - a far card LOD for the fields is what is left |
+| 26 | P1 | Vineyards and 3D crops visible on the strategic map; sheep | [x] 0.22.11: vines in contour rows, every grain parcel full of standing wheat, every parcel fenced round, woods a closed canopy - all 3D props within the near ring (40 units), none casting shadows. Past the near ring the painted land-use carries them, as designed |
 | 27 | P0 | Keep the `mare_{workdir}_{timestamp}` root directory style, delete the others | [x] 0.22.7: `C:\projects\mare_oak_20261031_171857`; the old `mare_oak_*` and `snap_oak_*` folders removed (other sessions' folders untouched) |
 
 ## issue5 (assets/issues/issue5, 0.22.8)
@@ -80,6 +80,22 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 50 | P0 | The lantina and the sail should act with the ship as if tied with rope | [x] 0.22.10: roll and pitch applied to the whole ship about one pivot in all three vertex stages; parts no longer slide against the hull |
 | 51 | P0 | Build the game and make a 45 s, 60 fps trailer of a battle in foggy weather with 40+ ships, as an MP4 | [x] 0.22.10: `MARE_RECORD`, `MARE_BATTLE_SHIPS`, the keyed trailer camera, `tools-bat\trailer.bat`, Blender encoding; `trailer\mare_battle_trailer.mp4` |
 
+## issue8 (assets/issues/issue8, 0.22.11)
+
+| # | Pri | Item (the file names) | Status |
+|---|-----|-----------------------|--------|
+| 52 | P0 | A little bigger wave amplitude but less foam, more dense and concentrated - this looks artificial | [x] 0.22.11: staged swell 0.45 -> 0.60; the wake stamp narrower and denser, the trail thresholded so only solid churn shows |
+| 53 | P0 | Add the ship battle as the start menu, but blurred | [x] 0.22.11: a staged battle behind the title with the trailer camera on a loop, blurred four times at quarter size in the tonemap (`MARE_NO_PREVIEW=1` for the plain menu) |
+| 54 | P0 | The Alps look too pointy; thicker in width, less pointy, but a good start | [x] 0.22.11: ridge crest power 2 -> 1.35 at two thirds the amplitude, peak boost 0.28 -> 0.22 with a soft knee over 2600 m |
+| 55 | P0 | Good start but add fading out and cone spreading and disappearing; add real generated waves from stern and bow | [x] 0.22.11: the wake map diffuses as it decays (a cone that thins to nothing); a transverse stern wave and a short train down the lane join the bow wave |
+| 56 | P0 | Missing crest and foam on top of the waves | [x] 0.22.11: a floor under the foam colour (it vanished under a dark sky), whitecaps from a smaller swell |
+| 57 | P0 | Oars on the wrong side | [x] 0.22.11: the bank's heading sign was flipped - the blades pointed inboard and lay across the deck |
+| 58 | P0 | Water looks weird, like an oil spill; resolve the flickering (video) | [x] 0.22.11: a third of the tile's tonal darkening, roughness floor 0.26 -> 0.36 close in, the glitter lobe widened and tied to the specular AA (the per-pixel sparkle was the flicker), SSR damped and off within a few units of the eye. The video's last seconds were the camera inside a hull on the map: the near-camera dissolve is back there as a tight band |
+| 59 | P0 | When a ship fires she gets a backward force that moves her sideways and turns her (Newton, torque) | [x] 0.22.11: `nphys_impulse` per gun at the gun's position as it fires (recoil to leeward, yaw from the lever arm), x6 for legibility |
+| 60 | P0 | Real forests, not a tree here and there | [x] 0.22.11: every forest texel a tree plus up to three more on full cover; the canopy closes |
+| 61 | P0 | Fence the fields like in real life, not random placements | [x] 0.22.11: a panel on every cell of all four parcel edges, on the parcel grid |
+| 62 | P0 | Vineyards, wheat and similar in 3D, no shadow casting for now | [x] 0.22.11: vines in contour rows, wheat on a jittered grid over every grain parcel; the scatter was already main-pass only (no shadows) |
+
 ## P1.3 Physics foundation (M5.5) - the dev.txt checklist
 
 | Pri | Item | Status |
@@ -91,12 +107,12 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | P1 | Ship-to-ship collision | [x] 0.22.9: broadphase, disc pairs, inverse-mass correction, restitution, Coulomb friction, and the yaw the lever arm gives |
 | P1 | Ship-to-coast collision | [x] 0.22.9: the staged shore profile as a signed distance; a disc in water shallower than her draft grounds, is pushed seaward and slewed |
 | P2 | Wreck collision | [ ] |
-| P1 | Multi-point buoyancy sampling | [ ] `Sea::height_at` is the function to sample |
-| P1 | Pitch / roll / heave | [~] still the mesh shader's canned motion, now scaled by the body's heel (0.22.9); no rigid-body heave or pitch yet |
+| P1 | Multi-point buoyancy sampling | [x] 0.22.11: five points per hull (three keel discs, two bilges) against the caller's surface; `physics_test` checks pitch on a fore-aft wave and roll on a beam wave |
+| P1 | Pitch / roll / heave | [~] the body has them now (`nphys_attitude`, 0.22.11) and the renderer scales the hull's roll by them; the mesh shader still draws its own canned motion - replacing it with the body's angles needs a wider instance format |
 | - | Physics samples the same wave function as the renderer | [x] |
 | P2 | Broadphase collision | [ ] |
-| P1 | Ballistic ray / swept-sphere projectile model | [ ] |
-| P1 | Cannonball / projectile hits | [ ] |
+| P1 | Ballistic ray / swept-sphere projectile model | [x] 0.22.11: `nphys_fire` - swept spheres under gravity against the compound hulls, hits and splashes as events |
+| P1 | Cannonball / projectile hits | [x] 0.22.11: a hit gives the hull the ball's momentum and an event the staged scene turns into splinters; no damage yet (next row) |
 | P1 | Component / zone damage model | [ ] |
 | P1 | Hull damage | [ ] |
 | P1 | Mast damage | [ ] |
@@ -113,7 +129,7 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | - | Strategic simulation remains discrete: 1 day = 1 tick | [x] |
 | P1 | Strategic state includes hull integrity, crew/morale, guns, sails, flooding, fire, sinking | [~] hull/crew/guns exist; flooding/fire/sinking do not |
 
-## Order of work (updated 0.22.10)
+## Order of work (updated 0.22.11)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -123,11 +139,11 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 6. issue5 items 28-32. **Done 0.22.8** (31 guarded, not reproduced).
 7. issue6 items 35-43 and P1.3 items 1-6. **Done 0.22.9.**
 8. issue7 items 44-51 and the trailer. **Done 0.22.10.**
-9. Next, in this order:
-   1. **Multi-point buoyancy** against `Sea::height_at` (P1.3): sample the wave function at the three hull discs so heave, pitch and roll come from the body instead of the mesh shader's canned motion. The rigid body and the fixed step are in place; this is the next brick and the one the rest leans on.
-   2. **Ballistics and hits** (P1.3): a swept sphere from each gun against the compound hulls. The broadside already knows which guns fire and where they point.
-   3. **The damage model** (P1.3): hull, mast, sail and gun zones; then flooding, fire and the sinking state, with the tactical result written back to the strategic ship.
-   4. **The VFX that ride on it** (issue4 items 14-18): fire and smoke from a burning ship, shot splashes, debris, sail damage, sinking - all through `gfx/particles.cc`, which already has the layers and the wind.
-   5. Item 17 (`sail_state` per ship), item 21 (the used canvas too dark in shadow), item 26 (field cards at the strategic zoom), item 9 (true sternway, now that there is a rigid body to give it).
-   6. Broadphase and multithreaded physics jobs once there are enough bodies to need them; the worker pool is there.
-   7. Textured assets proper (UVs through the mesh layout) if 800k vertex colours are still not enough at battle zoom.
+9. issue8 items 52-62, todo 15/17/19/21/26, physics buoyancy + ballistics. **Done 0.22.11.**
+10. Next, in this order:
+   1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
+   2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy already knows where the waterline is), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
+   3. **Body attitude into the shader**: a vec4 anchor (heave, pitch, roll per instance) so the rig heels with the physics instead of the canned motion. The other oak session did this to its `i_anchor`; merge with care.
+   4. **True sternway** (item 9): the rigid body can now be pushed backwards by a head wind - give the drive a sail force by point of sail instead of a speed command.
+   5. **Broadphase and physics jobs** once the staged battle has more than ~60 hulls; the worker pool is there.
+   6. **Lightning** in a storm, and squalls as particles (the rest of todo 19).

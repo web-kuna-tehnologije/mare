@@ -260,7 +260,7 @@ void Meshes::bind_nearfade(const rhi_pipeline_t *p) {
     // camera was looking *at* and stippled it. The staged scenes are the only place the camera
     // can get inside a ship, so the dissolve is theirs alone (sea_local_depth > 0 there).
     float lo = maxf(cam.znear * 1.15f, 0.25f), hi = minf(maxf(cam.znear * 4.f, 1.0f), 2.2f);
-    if (sea_local_depth <= 0.f) hi = lo;
+    if (sea_local_depth <= 0.f) hi = lo * 1.6f;   // 0.22.11: on the map a tight band - a camera *inside* a hull still thins it (the issue8 video), a camera looking at one never does
     rhi_set_f3(rhi_uniform(p, "u_campos_v"), RF.campos.x, RF.campos.y, RF.campos.z);
     rhi_set_f2(rhi_uniform(p, "u_nearfade"), lo, maxf(hi, lo + 0.2f));
 }

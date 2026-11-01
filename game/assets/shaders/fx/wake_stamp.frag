@@ -26,18 +26,20 @@ void main(){
   if (astern > 0.0) {
 // the screw-less churn under the counter: a wide boil right astern that is the brightest
 // part of the whole wake, fading over about half a hull length
-    float boil = exp(-astern / 0.42) * (1.0 - smoothstep(0.0, 0.11 + 0.12 * astern, across));
-    foam += boil * 0.95;
+    float boil = exp(-astern / 0.38) * (1.0 - smoothstep(0.0, 0.085 + 0.06 * astern, across));
+    foam += boil * 1.05;
 // the two diverging arms, at 19.5 degrees, started here and left behind by the map
-    float arm = abs(across - astern * 0.354), armw = 0.055 + 0.05 * astern;
-    foam += exp(-(arm * arm) / (armw * armw)) * exp(-astern / 0.7) * 0.55;
+    float arm = abs(across - astern * 0.354), armw = 0.04 + 0.03 * astern;
+    foam += exp(-(arm * arm) / (armw * armw)) * exp(-astern / 0.7) * 0.5;
 // the flattened lane between them: not foam, but water she has already broken
     dist += (1.0 - smoothstep(0.0, 0.16 + 0.18 * astern, across)) * exp(-astern / 0.8);
   }
 // broken up so the trail is never a smooth airbrushed band
   vec2 np = vec2(along * 7.0, v_local.y * 7.0);
-  float brk = 0.55 + 0.75 * n2(np * 1.7) * (0.6 + 0.4 * n2(np * 5.3));
-  foam *= brk;
+// denser and more concentrated (issue8): the breakup takes the thin fringe away rather than
+// spotting the whole band, so what is painted is solid churn with ragged edges
+  float brk = n2(np * 1.7) * (0.6 + 0.4 * n2(np * 5.3));
+  foam *= smoothstep(0.12, 0.55, foam * (0.55 + 0.9 * brk));
   float a = clamp(max(foam, dist * 0.8) * spd, 0.0, 1.0) * u_ship.z;
   if (a < 0.002) discard;
   fragColor = vec4(clamp(foam * spd, 0.0, 1.0), clamp(dist * spd, 0.0, 1.0), 0.0, a);

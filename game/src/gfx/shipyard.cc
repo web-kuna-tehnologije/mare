@@ -84,6 +84,7 @@ typedef struct ship_class_t {
     float oar_span;                     // bank length along the hull, fraction of length
     float beam_frac;                    // half-beam at the oar ports, fraction of length
     ship_stats_t st;
+    int   sails;                        // 0 mixed (per ship, by her key and nation), 1 always new canvas, 2 always used (ship_classes.json "sails", 0.22.11); last, so the built-in rows need no change
 } ship_class_t;
 
 // The Gen I fleet as drawn in assets/fleet_sails.png and the design sheets. Hull and mast
@@ -198,6 +199,8 @@ static void classes_init() {
         { int a = jget(&j, o, "sail");      for (int k = 0, nk = a >= 0 ? mini(jlen(&j, a), SHIP_MAX_MASTS) : 0; k < nk; ++k) c->sail[k] = (signed char)sail_code_of(&j, jat(&j, a, k)); }
         { int a = jget(&j, o, "mast_lib");  for (int k = 0, nk = a >= 0 ? mini(jlen(&j, a), SHIP_MAX_MASTS) : 0; k < nk; ++k) c->mast_lib[k] = store_str(&j, jat(&j, a, k), st->lib[k], sizeof st->lib[k], c->mast_lib[k]); }
         c->spritsail = jint(&j, jget(&j, o, "spritsail"), c->spritsail);
+        { int sv = jget(&j, o, "sails");   // "mixed" | "new" | "used" (0.22.11, todo 17: the sail state as data)
+          if (sv >= 0) c->sails = jstreq(&j, sv, "new") ? 1 : jstreq(&j, sv, "used") ? 2 : 0; }
         c->oar_pairs = jint(&j, jget(&j, o, "oar_pairs"), c->oar_pairs);
         c->oar_span  = (float)jnum(&j, jget(&j, o, "oar_span"), c->oar_span);
         c->beam_frac = (float)jnum(&j, jget(&j, o, "beam_frac"), c->beam_frac);
@@ -615,6 +618,9 @@ const ship_class_t *Shipyard::class_for(int type, int nation) {
 // stable property of the hull - the same ship always looks the same - from her key, biased by
 // who sails her: a pirate is in rags, a state navy mostly in new canvas.
 int Shipyard::ship_quality(const shipyard_req_t *r) {
+    const ship_class_t *c = class_for(r->type, r->nation);
+    if (c && c->sails == 1) return 1;   // the class file says new canvas (0.22.11)
+    if (c && c->sails == 2) return 0;   // ... or worn
     unsigned h = r->key * 2654435761u; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13;
     float u = (h & 0xFFFFu) / 65535.f;
     float newish = r->nation == NATION_PIRATES ? 0.15f : 0.62f;
@@ -1100,7 +1106,10 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // still keeps her oars out and level. Only a yaw sweep - the instance
                     // transform has no other axis - which is the part of a stroke that reads.
                     oi.ax = r->x; oi.az = r->z;   // the bank rides the hull's swell, not its own
-                    oi.heading = r->heading - side * (1.5708f + stroke * side_sign);
+                    // 0.22.11 (issue8 "oars wrong side"): with heading - 90 the model's +x lay
+                    // along the ship's own side direction, so the blade (-x) pointed *inboard*
+                    // and the whole bank lay across the deck. Plus 90 puts the blade outboard.
+                    oi.heading = r->heading + side * (1.5708f - stroke * side_sign);
                     // the sweep angles *down* into the water (0.22.5): a pitch about the oar's own
                     // z axis (meshes.vert reads fx2 on rigid instances), steeper on the pull
                     // 0.22.6: a steeper blade angle from the higher port, so the loom rises over

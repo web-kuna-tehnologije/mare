@@ -23,6 +23,8 @@ int  detailview_busy(void);                    // clouds are covering the screen
 void detailview_enter_battle(int fleet_id);    // around this fleet's battle; 0 = freshest battle, staged exercise if none
 void detailview_enter_city(int port);          // -1 = nearest living town
 void detailview_exit(void);                    // back through the clouds to the map
+void detailview_abort(void);                   // drop the scene at once (the menu's blurred battle gives way to the game, 0.22.11)
+int  detailview_hits(void);                    // round shot that struck a hull this battle (ballistics, 0.22.11)
 void detailview_frame(float dt);               // animate + upload instances (before the shadow pass)
 int  detailview_submit(void);                  // draw stage + instances (main pass)
 int  detailview_submit_shadow(void);           // the same scene for a shadow cascade (coarse caster meshes)

@@ -1,11 +1,11 @@
-# Road map after 0.22.10 (worktree oak, 2026-10-31)
+# Road map after 0.22.11 (worktree oak, 2026-11-01)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.10
+## Done to 0.22.11
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -26,7 +26,11 @@ rigid-body transforms, compound hulls, ship-to-ship and ship-to-coast collision,
 staged battle and covered by `physics_test`. 0.22.10 (issue7): rolling broadsides with more
 fire and greyer smoke, the real foam tiles on the wake and the whitecaps, the rig moving as one
 rigid body with the hull, sharper tessellation, and the recording path (`MARE_RECORD`, the
-keyed trailer camera, Blender encoding) that made the first 45-second battle film.
+keyed trailer camera, Blender encoding) that made the first 45-second battle film. 0.22.11
+(issue8): recoil, real round shot with splashes and hits, five-point buoyancy, a wake that
+spreads into a cone and fades, a stern wave, the oil-slick and flicker fixes, oars outboard, the
+Alps widened, a blurred battle behind the menu, closed-canopy forests, fenced parcels, vine
+rows and standing wheat, the sail state as class data, bow spray in a breeze.
 
 ## Next, in order
 
@@ -37,11 +41,10 @@ keyed trailer camera, Blender encoding) that made the first 45-second battle fil
 2. **Terrain self-shadow at the regional zoom** (horizon map per ring, 8 directions). This is
    what makes the `assets/example` frames read as relief rather than paint, and it is
    independent of the data resolution.
-3. **The rest of the physics foundation (dev.txt P1.3).** Items 1-6 are done (0.22.9). Next:
-   multi-point buoyancy against `Sea::height_at`, so heave, pitch and roll come from the
-   bodies instead of the mesh shader; then ballistics and hits against the compound hulls;
-   then the component damage model, flooding, fire and sinking, written back to the
-   strategic ship.
+3. **The damage model (dev.txt P1.3).** Items 1-9 are done (0.22.9-0.22.11): the fixed step,
+   the rigid bodies, collision, buoyancy, ballistics with hits, recoil. Next is what the hits
+   *do*: zones with hit points, masts that fall, canvas that tears, flooding, fire and the
+   sinking state, written back to the strategic ship - and the VFX that ride on each.
 4. **Naval VFX (P1.5).** Flash, layered smoke, shockwaves, water rings and spray exist
    (0.22.8); fire, shot splashes, debris, sail damage and sinking wait on the damage model
    above - the particle system is their vehicle.

@@ -48,6 +48,8 @@ public:
     const rhi_texture_t *depth();
     const rhi_texture_t *depth_captured();
     void resolve(int w, int h);
+    void set_blur(float k) { blur_ = k < 0.f ? 0.f : k > 1.f ? 1.f : k; }
+    void blur_pass();
     void set_shocks(const float *v, int n) { nshock_ = n < 0 ? 0 : n > 16 ? 16 : n; if (nshock_) memcpy(shock_, v, sizeof(float) * 4 * nshock_); }
 
 private:
@@ -57,6 +59,7 @@ private:
     rhi_geometry_t fs_tri;
     rhi_target_t ao_target; rhi_pipeline_t ao_prg;
     rhi_target_t bloom_a, bloom_b; rhi_pipeline_t bright_prg, blur_prg;
+    rhi_target_t menu_a, menu_b; float blur_ = 0.f;   // the menu's blurred battle (0.22.11): the whole frame at quarter size, blurred four times
     rhi_texture_t scene_copy, depth_copy;
 };
 
@@ -66,7 +69,7 @@ void Hdr::init() {
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2*sizeof(float), 0 } };
     static const char *uniforms[] = { "u_scene", "u_exposure", "u_ao", "u_ao_mix", "u_ao_texel", "u_bloom", "u_bloom_mix",
-                                      "u_depth", "u_inv_vp", "u_campos", "u_sun", "u_suncol", "u_vfog", "u_vfogcol", "u_shock", "u_nshock", "u_screen", 0 };
+                                      "u_depth", "u_inv_vp", "u_campos", "u_sun", "u_suncol", "u_vfog", "u_vfogcol", "u_shock", "u_nshock", "u_screen", "u_blurred", "u_blur", 0 };
     const rhi_pipeline_desc_t tonemap_desc{ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("hdr/tonemap.frag"), .layout = &layout, .uniforms = uniforms };   // (compound literals -> named: C++ cannot take &T{...})
     tonemap_prg = rhi_pipeline_make(&tonemap_desc);
     static const char *ao_uniforms[] = { "u_depth", "u_inv_vp", "u_vp", "u_campos", "u_texel", "u_on", 0 };
@@ -106,6 +109,30 @@ void Hdr::bloom_pass() {
         rhi_set_i1(UNI(blur_prg, "u_src"), 0); rhi_texture_bind(0, pass ? &bloom_b.color : &bloom_a.color);
         rhi_set_f2(UNI(blur_prg, "u_dir"), pass ? 0.f : 1.f / w, pass ? 1.f / h : 0.f);
         rhi_draw(&fs_tri, 0);
+    }
+}
+
+// The menu's background (0.22.11, issue8 "add ship battle as start menu but blurred"): the
+// finished HDR frame at a quarter size, run through the bloom's separable blur four times, and
+// mixed over the sharp frame in the tonemap by `blur_`.
+void Hdr::blur_pass() {
+    if (!hdr_target.fbo || blur_ <= 0.001f) return;
+    int w = hdr_target.w / 4 > 0 ? hdr_target.w / 4 : 1, h = hdr_target.h / 4 > 0 ? hdr_target.h / 4 : 1;
+    if (menu_a.w != w || menu_a.h != h) {
+        if (menu_a.fbo) rhi_target_free(&menu_a);
+        if (menu_b.fbo) rhi_target_free(&menu_b);
+        menu_a = rhi_target_make(w, h, RHI_FMT_RGBA16F, 0);
+        menu_b = rhi_target_make(w, h, RHI_FMT_RGBA16F, 0);
+    }
+    rhi_pipeline_bind(&blur_prg);
+    const rhi_texture_t *src = &hdr_target.color;
+    for (int pass = 0; pass < 8; ++pass) {           // four horizontal + vertical pairs
+        rhi_target_t *dst = (pass & 1) ? &menu_a : &menu_b;
+        rhi_target_begin(dst, 0, 0, 0);
+        rhi_set_i1(UNI(blur_prg, "u_src"), 0); rhi_texture_bind(0, src);
+        rhi_set_f2(UNI(blur_prg, "u_dir"), (pass & 1) ? 0.f : 1.4f / w, (pass & 1) ? 1.4f / h : 0.f);
+        rhi_draw(&fs_tri, 0);
+        src = &dst->color;
     }
 }
 
@@ -171,6 +198,9 @@ void Hdr::resolve(int w, int h) {
       rhi_set_i1(UNI(tonemap_prg, "u_ao"), 1); rhi_texture_bind(1, on ? &ao_target.color : &hdr_target.color);
       rhi_set_f1(UNI(tonemap_prg, "u_ao_mix"), on ? hdr_ssao_strength * clampf(1.f - RF.mapness * 2.f, 0.f, 1.f) : 0.f);
       rhi_set_f2(UNI(tonemap_prg, "u_ao_texel"), ao_target.w ? 1.f / ao_target.w : 0.f, ao_target.h ? 1.f / ao_target.h : 0.f); }
+    { int on = blur_ > 0.001f && menu_a.fbo;
+      rhi_set_i1(UNI(tonemap_prg, "u_blurred"), 4); rhi_texture_bind(4, on ? &menu_a.color : &hdr_target.color);
+      rhi_set_f1(UNI(tonemap_prg, "u_blur"), on ? blur_ : 0.f); }
     // the shockwaves (0.22.8): a muzzle blast bends and blurs the picture in a ring for a quarter second
     rhi_set_i1(UNI(tonemap_prg, "u_nshock"), nshock_);
     if (nshock_) rhi_set_f4v(UNI(tonemap_prg, "u_shock"), shock_, nshock_);
@@ -192,5 +222,7 @@ const rhi_texture_t *hdr_scene_copy(void) { return mare::engine::render::hdr().s
 const rhi_texture_t *hdr_depth(void) { return mare::engine::render::hdr().depth(); }
 const rhi_texture_t *hdr_depth_captured(void) { return mare::engine::render::hdr().depth_captured(); }
 void hdr_set_shocks(const float *v, int n) { mare::engine::render::hdr().set_shocks(v, n); }
+void hdr_set_blur(float k) { mare::engine::render::hdr().set_blur(k); }
+void hdr_blur_pass(void) { mare::engine::render::hdr().blur_pass(); }
 void hdr_resolve(int w, int h) { mare::engine::render::hdr().resolve(w, h); }
 }

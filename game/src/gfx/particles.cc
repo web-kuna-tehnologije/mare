@@ -22,12 +22,13 @@ extern "C" {
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../engine/shaders.h"
+#include "../sim/naval_physics.h"
 }
 
 namespace mare::engine::render {
 
 // kinds, as fx/puff.frag reads them in i_misc.z
-enum { PK_SMOKE = 0, PK_FLASH = 1, PK_EMBER = 2, PK_CORE = 3, PK_HAZE = 4, PK_SPRAY = 5, PK_RING = 6 };
+enum { PK_SMOKE = 0, PK_FLASH = 1, PK_EMBER = 2, PK_CORE = 3, PK_HAZE = 4, PK_SPRAY = 5, PK_RING = 6, PK_SPLINTER = 7 };
 #define PTC_MAX   5632
 #define BLAST_MAX 12
 #define SHOCK_MAX 16
@@ -50,7 +51,7 @@ typedef struct blast_t { float x, z, dx, dz, age, life, rmax, inner, strength; }
 // timeout"): a broadside is laid *rolling* - each gun has its own delay, a few tens of
 // milliseconds to a second and a half - so the side goes off as a ripple of flashes rather
 // than one wall. The gun's geometry is fixed when it is queued; only the moment is deferred.
-typedef struct gun_t { float gx, gy, gz, sx, sz, fx, fz, gs, deck; float t; int ring; } gun_t;
+typedef struct gun_t { float gx, gy, gz, sx, sz, fx, fz, gs, deck; float t; int ring; int body; } gun_t;
 #define GUN_MAX 768
 
 class Particles {
@@ -58,7 +59,10 @@ public:
     void init();
     void reset() { n_ = 0; nshock_ = 0; nblast_ = 0; ngun_ = 0; sea_set_blasts(0, 0, 0); }
     void set_wind(float vx, float vz) { wind_x_ = vx; wind_z_ = vz; }
-    void broadside(float x, float y, float z, float heading, float side, float hull_len, int guns);
+    void broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body);
+    void splash(float x, float z, float size);
+    void hit(float x, float y, float z, float dx, float dz, float size);
+    void spray(float x, float y, float z, float dx, float dz, float strength);
     void update(float dt);
     int  draw();
     int  count() const { return n_; }
@@ -137,7 +141,7 @@ void Particles::blast(float x, float z, float dx, float dz, float L) {
 // blast throws spray. Bigger hulls carry bigger guns: the puff size grows with the length,
 // the count with the guns. 0.22.10: the guns are *queued* with their own delays and go off as
 // a ripple (fire_gun); the ring on the water is laid when the first of them fires.
-void Particles::broadside(float x, float y, float z, float heading, float side, float hull_len, int guns) {
+void Particles::broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body) {
     int nside = (int)clampf((float)guns * 0.5f, 1.f, 18.f);
     float L = maxf(hull_len, 3.f);
     float gs = clampf(0.55f + L / 38.f, 0.7f, 1.9f);                 // gun size factor: sloop 0.8, ship of the line ~1.05, great carrack 1.3
@@ -152,7 +156,7 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
         if (ngun_ >= GUN_MAX) break;
         float along = nside > 1 ? -half + 2.f * half * (float)g / (float)(nside - 1) : 0.f;
         gun_t q; q.gx = x + fx * along + sx * beam; q.gz = z + fz * along + sz * beam; q.gy = y + deck + (rnd_f(&rng_) - 0.5f) * 0.1f;
-        q.sx = sx; q.sz = sz; q.fx = fx; q.fz = fz; q.gs = gs; q.deck = deck; q.ring = (g % 2 == 0);
+        q.sx = sx; q.sz = sz; q.fx = fx; q.fz = fz; q.gs = gs; q.deck = deck; q.ring = (g % 2 == 0); q.body = body;
         float r = rnd_f(&rng_);
         q.t = r < 0.18f ? 0.f : r * r * spread;                       // some at once, the rest strung out
         if (q.t < tfirst) { tfirst = q.t; first = ngun_; }
@@ -166,6 +170,22 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
 
 // one gun going off
 void Particles::fire_gun(const gun_t &g) {
+    // 0.22.11: Newton's third law. The gun throws its shot one way and the ship the other -
+    // an impulse of the shot's momentum at the gun's own position, which is off her centre
+    // of mass, so a rolling broadside also *turns* her a little as it walks along the side
+    // (sim/naval_physics.h nphys_impulse). A 32-pounder's ball is 14.5 kg at ~480 m/s; the
+    // number here is that, in tonne-units per second at 2.47 m a unit, scaled up x6 so the
+    // sideways set of a 1000-tonne hull is a readable third of a unit a second instead of
+    // five centimetres. The shot itself goes into the ballistic model (nphys_fire): a swept
+    // sphere under gravity, with a little spread and a low elevation, that hits a hull or
+    // splashes (staged_scene.cc turns the events into spray and splinters).
+    if (g.body >= 0) {
+        float J = 17.f * g.gs;
+        nphys_impulse(g.body, g.gx, g.gz, -g.sx * J, -g.sz * J);
+        float yaw = (rnd_f(&rng_) - 0.5f) * 0.06f, el = 0.004f + rnd_f(&rng_) * 0.03f;
+        float dx = g.sx * cosf(yaw) - g.sz * sinf(yaw), dz = g.sx * sinf(yaw) + g.sz * cosf(yaw);
+        nphys_fire(g.body, g.gx + g.sx * 0.8f, g.gy, g.gz + g.sz * 0.8f, dx, el, dz, 150.f + 30.f * g.gs);
+    }
     const float gx = g.gx, gy = g.gy, gz = g.gz, sx = g.sx, sz = g.sz, fx = g.fx, fz = g.fz, gs = g.gs, deck = g.deck;
         // flash
         { ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_FLASH; p->x = gx + sx * 0.8f; p->y = gy; p->z = gz + sz * 0.8f;
@@ -240,6 +260,59 @@ void Particles::fire_gun(const gun_t &g) {
         if (g.ring && (rnd_f(&rng_) < 0.34f)) shock(gx + sx * 1.2f, gy, gz + sz * 1.2f, (4.f + 2.5f * gs), clampf(0.18f + 0.14f * gs, 0.18f, 0.40f));
 }
 
+// A round shot into the sea (0.22.11): a column of spray that climbs and falls, with a ring
+// of foam on the water where it went in. `size` is the shot's weight, roughly the gun factor.
+void Particles::splash(float x, float z, float size) {
+    int ns = 6 + (int)(size * 6.f);
+    for (int k = 0; k < ns; ++k) {
+        ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_SPRAY;
+        float a = rnd_f(&rng_) * 6.2832f, rr = rnd_f(&rng_) * 0.5f * size;
+        p->x = x + cosf(a) * rr; p->y = 0.1f; p->z = z + sinf(a) * rr;
+        p->vx = cosf(a) * (0.6f + rnd_f(&rng_) * 1.2f); p->vz = sinf(a) * (0.6f + rnd_f(&rng_) * 1.2f);
+        p->vy = 5.f + rnd_f(&rng_) * 7.f * size;
+        p->life = 1.1f + rnd_f(&rng_) * 0.6f; p->size0 = 0.35f * size; p->size1 = 1.4f * size; p->alpha = 0.85f; p->seed = rnd_f(&rng_);
+    }
+    { ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_RING; p->x = x; p->y = 0.05f; p->z = z;
+      p->life = 1.6f; p->size0 = 0.3f * size; p->size1 = 2.6f * size; p->alpha = 0.55f; p->seed = rnd_f(&rng_); }
+}
+
+// A round shot into a hull (0.22.11): a burst of splinters thrown on through the planking,
+// a puff of dust and smoke, and a few embers where the wad went in.
+void Particles::hit(float x, float y, float z, float dx, float dz, float size) {
+    int nsp = 8 + (int)(size * 6.f);
+    for (int k = 0; k < nsp; ++k) {
+        ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_SPLINTER;
+        float sw = (rnd_f(&rng_) - 0.5f) * 1.4f, up = rnd_f(&rng_) * 4.f;
+        p->x = x; p->y = y + (rnd_f(&rng_) - 0.3f) * 0.4f; p->z = z;
+        p->vx = dx * (4.f + rnd_f(&rng_) * 7.f) - dz * sw * 3.f; p->vz = dz * (4.f + rnd_f(&rng_) * 7.f) + dx * sw * 3.f; p->vy = up;
+        p->life = 0.7f + rnd_f(&rng_) * 0.8f; p->size0 = 0.12f * size; p->size1 = 0.10f * size; p->alpha = 1.f; p->seed = rnd_f(&rng_);
+    }
+    for (int k = 0; k < 2; ++k) {
+        ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_SMOKE;
+        p->x = x + dx * 0.3f; p->y = y + 0.2f; p->z = z + dz * 0.3f;
+        p->vx = dx * 1.5f + (rnd_f(&rng_) - 0.5f); p->vz = dz * 1.5f + (rnd_f(&rng_) - 0.5f); p->vy = 0.8f;
+        p->life = 2.2f + rnd_f(&rng_); p->size0 = 0.3f * size; p->size1 = 1.8f * size; p->alpha = 0.7f; p->shade = 0.48f + 0.1f * k;
+        p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f);
+    }
+    for (int k = 0; k < 3; ++k) {
+        ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_EMBER;
+        p->x = x; p->y = y; p->z = z; p->vx = dx * 3.f + (rnd_f(&rng_) - 0.5f) * 2.f; p->vz = dz * 3.f + (rnd_f(&rng_) - 0.5f) * 2.f; p->vy = 1.f + rnd_f(&rng_) * 2.f;
+        p->life = 0.3f + rnd_f(&rng_) * 0.3f; p->size0 = 0.08f * size; p->size1 = 0.04f * size; p->alpha = 1.f; p->seed = rnd_f(&rng_);
+    }
+}
+
+// Spray blown off a bow in a fresh breeze (0.22.11, todo 19 "weather effects in battle"):
+// a few drops torn off the stem and carried downwind over the deck.
+void Particles::spray(float x, float y, float z, float dx, float dz, float strength) {
+    int n = 1 + (int)(strength * 2.f);
+    for (int k = 0; k < n; ++k) {
+        ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_SPRAY;
+        p->x = x + (rnd_f(&rng_) - 0.5f) * 0.6f; p->y = y; p->z = z + (rnd_f(&rng_) - 0.5f) * 0.6f;
+        p->vx = dx * (3.f + rnd_f(&rng_) * 3.f) * strength; p->vz = dz * (3.f + rnd_f(&rng_) * 3.f) * strength; p->vy = 1.5f + rnd_f(&rng_) * 1.5f;
+        p->life = 0.6f + rnd_f(&rng_) * 0.4f; p->size0 = 0.25f; p->size1 = 0.9f; p->alpha = 0.55f * strength; p->seed = rnd_f(&rng_);
+    }
+}
+
 // The rings, to the sea (render.h sea_set_blasts): the front runs out and slows, the ring
 // broadens and thins, and it is gone in a couple of seconds. Pushed from update(), which runs
 // before the water draws - draw() happens after it, with the translucent passes.
@@ -277,10 +350,11 @@ void Particles::update(float dt) {
             case PK_FLASH: p->vx *= expf(-dt * 8.f); p->vz *= expf(-dt * 8.f); break;
             case PK_EMBER: p->vy -= G * dt; { float d = expf(-dt * 2.5f); p->vx = wind_x_ + (p->vx - wind_x_) * d; p->vz = wind_z_ + (p->vz - wind_z_) * d; } break;
             case PK_SPRAY: p->vy -= G * 0.8f * dt; { float d = expf(-dt * 1.5f); p->vx *= d; p->vz *= d; } break;
+            case PK_SPLINTER: p->vy -= G * dt; { float d = expf(-dt * 0.8f); p->vx *= d; p->vz *= d; } p->rot += 7.f * dt; break;
             case PK_RING: break;
         }
         p->x += p->vx * dt; p->y += p->vy * dt; p->z += p->vz * dt;
-        if ((p->kind == PK_EMBER || p->kind == PK_SPRAY) && p->y < 0.02f) { *p = p_[--n_]; continue; }   // quenched / back in the sea
+        if ((p->kind == PK_EMBER || p->kind == PK_SPRAY || p->kind == PK_SPLINTER) && p->y < 0.02f) { *p = p_[--n_]; continue; }   // quenched / back in the sea
         ++i;
     }
     for (int i = 0; i < nshock_; ) { sh_[i].age += dt; if (sh_[i].age >= sh_[i].life) sh_[i] = sh_[--nshock_]; else ++i; }
@@ -326,6 +400,7 @@ int Particles::draw() {
             case PK_EMBER: alpha = 1.f - t; r = 1.0f; g = 0.55f + 0.3f * (1.f - t); b = 0.18f; break;
             case PK_SPRAY: alpha = p->alpha * (1.f - t * t); r = 0.92f; g = 0.95f; b = 0.97f; break;
             case PK_RING:  alpha = p->alpha * (1.f - t) * (1.f - t) * clampf(p->age / 0.05f, 0.f, 1.f); r = 0.90f; g = 0.93f; b = 0.95f; break;
+            case PK_SPLINTER: alpha = 1.f - t * t; r = 0.55f; g = 0.42f; b = 0.26f; break;
         }
         // inst_t: pos+rotation | size+rgb | alpha, seed, kind, age01 | soft radius
         *instlist_push(&il_) = inst_t{ p->x, p->y, p->z, p->rot, size, r, g, b, alpha, p->seed, (float)p->kind, t, size, 0, 0, 0, 0, 0 };
@@ -355,7 +430,10 @@ extern "C" {
 void particles_init(void) { mare::engine::render::particles().init(); }
 void particles_reset(void) { mare::engine::render::particles().reset(); }
 void particles_set_wind(float vx, float vz) { mare::engine::render::particles().set_wind(vx, vz); }
-void particles_broadside(float x, float y, float z, float heading, float side, float hull_len, int guns) { mare::engine::render::particles().broadside(x, y, z, heading, side, hull_len, guns); }
+void particles_broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body) { mare::engine::render::particles().broadside(x, y, z, heading, side, hull_len, guns, body); }
+void particles_splash(float x, float z, float size) { mare::engine::render::particles().splash(x, z, size); }
+void particles_hit(float x, float y, float z, float dx, float dz, float size) { mare::engine::render::particles().hit(x, y, z, dx, dz, size); }
+void particles_spray(float x, float y, float z, float dx, float dz, float strength) { mare::engine::render::particles().spray(x, y, z, dx, dz, strength); }
 void particles_update(float dt) { mare::engine::render::particles().update(dt); }
 int  particles_draw(void) { return mare::engine::render::particles().draw(); }
 int  particles_count(void) { return mare::engine::render::particles().count(); }

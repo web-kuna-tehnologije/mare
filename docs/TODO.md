@@ -88,6 +88,17 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## issue8 (assets/issues/issue8, 0.22.11) - rows 52-62 of docs/todo_list.md
+
+Done: recoil per gun (impulse at the gun, yaw from the lever arm); round shot as swept spheres
+with splash and hit events (spray, foam ring, splinters); five-point buoyancy giving each body
+heave/pitch/roll; the wake map diffusing into a cone as it fades; a transverse stern wave;
+bigger staged swell with denser, scarcer wake foam; the oil-slick look and the glitter flicker
+fixed; foam visible under a dark sky; oars outboard; the Alps widened; a blurred staged battle
+behind the main menu; closed-canopy forests, parcels fenced on all four edges, vines in
+contour rows, grain parcels full of wheat (no shadows on any prop); `"sails"` per class; bow
+spray in a fresh breeze. Mirror `C:\projects\mare_oak_20261031_202444`. Next: the damage model.
+
 ## issue7 (assets/issues/issue7, 0.22.10) + the trailer - rows 44-51 of docs/todo_list.md
 
 Done: the guns fire in a ripple with random per-gun delays; more fire and greyer smoke; the

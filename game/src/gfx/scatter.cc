@@ -31,13 +31,14 @@ namespace mare::game::view {
 #define TREE_CELL   0.16f        // orchard spacing (world units)
 #define TREE_H      0.11f        // tree height (0.22.5: bigger - "increase size of trees")
 #define WOOD_H      0.13f        // a forest tree; pines a little taller still
-#define WOOD_P      0.80f        // share of forest texels that get a tree (a real forest, not a scatter); 0.22.8: 0.62 -> 0.80 ("dense pine forests")
+#define WOOD_P      1.00f        // share of forest texels that get a tree; 0.22.11: every forest texel, plus extra trees on full cover ("real forests, not a tree here and there")
+#define WOOD_EXTRA  3            // more trees per texel where the cover is full (0.22.11)
 #define HOUSE_W     0.020f       // a village house, wall to wall
 #define VINE_H      0.022f       // a vine bush's height; rows follow the contour
 #define SHEEP_L     0.018f       // a sheep, nose to tail
 #define SCATTER_FAR 16.f         // camera distance past which the small props are not drawn (they are specks by then)
 #define HOUSE_FAR   40.f         // ... the houses, mills and headframes carry further
-#define SCATTER_MAX 240000
+#define SCATTER_MAX 600000   // 0.22.11: the fields and the woods are full now
 // Ambient-prop LOD (0.22.6, issue3 "add LODs to ambient props"). Every tree is a mesh out to
 // PROP_LOD1 units from the look-at point and a crossed pair of cards beyond it, to the edge of
 // the near ring. The split is made when the ring recomposes - which is whenever the camera
@@ -159,12 +160,14 @@ void Scatter::build_meshes() {
         }
     }
     {   // a fence panel (0.22.6): two posts and two rails, one unit from post to post, along +x
-        const float wood[3] = { 0.42f, 0.34f, 0.24f };
+        // 0.22.11: a fence runs round every parcel now, so it is weathered pale grey-brown and
+        // half the height it was - a line on the land, not a dark net laid over it
+        const float wood[3] = { 0.66f, 0.60f, 0.50f };
         mb_t m = mb_t{}; mb_material(&m, MB_WOOD);
-        mb_box(&m, -0.5f, 0.45f, 0, 0.045f, 0.45f, 0.045f, wood[0], wood[1], wood[2], 0.f);
-        mb_box(&m,  0.5f, 0.45f, 0, 0.045f, 0.45f, 0.045f, wood[0], wood[1], wood[2], 0.f);
-        mb_box(&m, 0, 0.72f, 0, 0.5f, 0.035f, 0.030f, wood[0], wood[1], wood[2], 0.f);
-        mb_box(&m, 0, 0.38f, 0, 0.5f, 0.035f, 0.030f, wood[0], wood[1], wood[2], 0.f);
+        mb_box(&m, -0.5f, 0.24f, 0, 0.040f, 0.24f, 0.040f, wood[0], wood[1], wood[2], 0.f);
+        mb_box(&m,  0.5f, 0.24f, 0, 0.040f, 0.24f, 0.040f, wood[0], wood[1], wood[2], 0.f);
+        mb_box(&m, 0, 0.40f, 0, 0.5f, 0.028f, 0.025f, wood[0], wood[1], wood[2], 0.f);
+        mb_box(&m, 0, 0.20f, 0, 0.5f, 0.028f, 0.025f, wood[0], wood[1], wood[2], 0.f);
         fence = mesh_upload(&m);
     }
     {   // a clump of standing grain (0.22.6): three crossed blades of straw, one unit high
@@ -292,13 +295,19 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                     int faraway = dist2d(wx, wz, ringcx, ringcz) > PROP_LOD1;   // the card LOD beyond PROP_LOD1 (`far` is a reserved word on MSVC)
                     *instlist_push(faraway ? (conifer ? &li_card_p : &li_card_b) : (conifer ? &li_pine : &li_oak)) = ti;
                     total++;
-                    // 0.22.8 "dense pine forests": a conifer stand packs a second tree into the
-                    // texel on full-cover ground, so the pines close up into a wood
-                    if (conifer && F >= 200 && hash2(i + 26.f, j + 26.f) < 0.7f * scatter_density) {
-                        float ox2 = (hash2(i + 27.f, j + 27.f) - 0.5f) * step, oz2 = (hash2(i + 28.f, j + 28.f) - 0.5f) * step;
+                    // 0.22.11 (issue8 / "real forests"): a wood is a *canopy*, not a tree per
+                    // texel. On full cover every texel gets up to WOOD_EXTRA more trees, each on
+                    // its own jittered spot, conifer or broadleaf by the same rule, so the crowns
+                    // close and the ground disappears under them; thinner cover gets fewer.
+                    int extra = (int)(WOOD_EXTRA * clampf((F - 120.f) / 135.f, 0.f, 1.f) * scatter_density + hash2(i + 26.f, j + 26.f));
+                    for (int e = 0; e < extra && total < SCATTER_MAX; ++e) {
+                        float ox2 = (hash2(i + 27.f + e * 3.f, j + 27.f) - 0.5f) * step, oz2 = (hash2(i + 28.f, j + 28.f + e * 3.f) - 0.5f) * step;
                         float h2 = ground(wx + ox2, wz + oz2);
-                        if (h2 > 0.04f) { inst_t t2 = inst(wx + ox2, h2 - 0.015f, wz + oz2, hash2(i + 29.f, j + 29.f) * 6.2832f, sz * (0.8f + 0.3f * hash2(i + 30.f, j + 30.f)));
-                                          *instlist_push(faraway ? &li_card_p : &li_pine) = t2; total++; }
+                        if (h2 <= 0.04f) continue;
+                        int con2 = conifer || hash2(i + 35.f + e, j + 35.f) < 0.25f;
+                        float sz2 = (con2 ? WOOD_H * 1.35f : WOOD_H) * (0.7f + 0.5f * hash2(i + 30.f + e, j + 30.f));
+                        inst_t t2 = inst(wx + ox2, h2 - 0.015f, wz + oz2, hash2(i + 29.f + e, j + 29.f) * 6.2832f, sz2);
+                        *instlist_push(faraway ? (con2 ? &li_card_p : &li_card_b) : (con2 ? &li_pine : &li_oak)) = t2; total++;
                     }
                 }
             }
@@ -334,16 +343,28 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                     }
                 }
             }
-        } else if (Gm >= 110) {   // vineyards: a bush per texel or two, trained along the contour
-            float hp = hash2(i * 0.731f + 0.1f, j * 0.377f + 0.2f);
-            if (hp < 0.55f) {
-                float hx = ground(wx + step, wz) - ground(wx - step, wz), hz = ground(wx, wz + step) - ground(wx, wz - step);
-                float gl = sqrtf(hx * hx + hz * hz);
-                float dx = gl > 1e-5f ? -hz / gl : ca, dz = gl > 1e-5f ? hx / gl : -sa;   // along the contour
-                float heading = atan2f(-dz, dx);
-                float ox = (hash2(i + 7.f, j + 7.f) - 0.5f) * step, oz = (hash2(i + 8.f, j + 8.f) - 0.5f) * step;
-                float h = ground(wx + ox, wz + oz);
-                if (h > 0.04f) { *instlist_push(&li_vine) = inst(wx + ox, h - 0.002f, wz + oz, heading, VINE_H * (0.85f + 0.3f * hp)); total++; }
+        } else if (Gm >= 110) {   // vineyards (0.22.11): *rows* - bushes at a fixed spacing along
+            // lines that follow the contour, one row per VINE_ROW across the slope - not a bush
+            // dropped at random on half the texels. The row frame comes from the slope at the
+            // texel; the row lines are quantised in that frame so neighbouring texels agree.
+            float hx = ground(wx + step, wz) - ground(wx - step, wz), hz = ground(wx, wz + step) - ground(wx, wz - step);
+            float gl = sqrtf(hx * hx + hz * hz);
+            float dx = gl > 1e-5f ? -hz / gl : ca, dz = gl > 1e-5f ? hx / gl : -sa;   // along the contour
+            // on flat ground the contour is undefined: fall back to the district frame, quantised
+            // to the district so rows do not swing between texels
+            if (gl < 0.004f) { dx = ca; dz = -sa; }
+            float heading = atan2f(-dz, dx);
+            float ux = -dz, uz = dx;                                                    // across the rows (uphill)
+            const float VINE_ROW = 0.040f, VINE_GAP = 0.028f;
+            float across0 = (wx - step * 0.5f) * ux + (wz - step * 0.5f) * uz;
+            for (float rr = ceilf(across0 / VINE_ROW) * VINE_ROW; rr < across0 + step && total < SCATTER_MAX; rr += VINE_ROW) {
+                float along0 = (wx - step * 0.5f) * dx + (wz - step * 0.5f) * dz;
+                for (float aa = ceilf(along0 / VINE_GAP) * VINE_GAP; aa < along0 + step; aa += VINE_GAP) {
+                    float vx_ = dx * aa + ux * rr, vz_ = dz * aa + uz * rr;
+                    if (lu_at(vx_, vz_, 1) < 110) continue;
+                    float h = ground(vx_, vz_);
+                    if (h > 0.04f) { *instlist_push(&li_vine) = inst(vx_, h - 0.002f, vz_, heading, VINE_H * (0.9f + 0.2f * hash2(rr * 97.f, aa * 131.f))); total++; }
+                }
             }
         } else if (R >= 20 && R < 120) {   // the fields: standing grain, and a fence on the parcel edge
             // the shader's own parcel frame (terrain.frag): same district rotation, same hash
@@ -351,20 +372,45 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             float pcx = 0.15f * psz, pcz = 0.065f * psz * (0.7f + 0.9f * hash2(dcx + 23.f, dcz + 23.f));
             float qx = wx * ca - wz * sa, qz = wx * sa + wz * ca;
             float fz = qz / pcz - floorf(qz / pcz);
-            // a fence panel where the texel straddles a parcel boundary, one per cell of the edge
-            if (fz < step / pcz && hash2(floorf(qx / FENCE_L) + 41.f, floorf(qz / pcz) + 41.f) < 0.30f) {
-                float ex = (floorf(qx / FENCE_L) + 0.5f) * FENCE_L, ez = floorf(qz / pcz) * pcz;
-                float fx_ = ex * ca + ez * sa, fz_ = -ex * sa + ez * ca;
-                float h = ground(fx_, fz_);
-                if (h > 0.05f && lu_at(fx_, fz_, 0) >= 20) {
-                    *instlist_push(&li_fence) = inst(fx_, h - 0.004f, fz_, -ang, FENCE_L); total++;
+            // 0.22.11 ("fence the fields, not random placements"): a parcel is fenced *all the
+            // way round* - a panel on every cell of both its long edges and its short ends -
+            // wherever the ground on at least one side is cropland. Every panel is on the
+            // parcel grid, so a fence line is continuous from corner to corner.
+            float fx1 = qx / pcx - floorf(qx / pcx);
+            // only the worked parcels are fenced (the shader paints grain at R >= 60; the
+            // thinner R is pasture and fallow, left open) - with every edge fenced, fencing
+            // the fringe too laid a net over the whole lowland (241k panels in one ring)
+            const int fenced = R >= 60;
+            if (fenced && fz < step / pcz) {                              // the long edge (along the parcel's x)
+                float ez = floorf(qz / pcz) * pcz;
+                for (float ex = floorf((qx - step * 0.5f) / FENCE_L) * FENCE_L; ex < qx + step * 0.5f; ex += FENCE_L) {
+                    float cx_ = ex + 0.5f * FENCE_L;
+                    float fx_ = cx_ * ca + ez * sa, fz_ = -cx_ * sa + ez * ca;
+                    float h = ground(fx_, fz_);
+                    if (h > 0.05f && lu_at(fx_, fz_, 0) >= 20) { *instlist_push(&li_fence) = inst(fx_, h - 0.004f, fz_, -ang, FENCE_L); total++; }
                 }
             }
-            if (hash2(i * 0.611f + 0.9f, j * 0.433f + 0.5f) < 0.05f) {   // a clump of standing corn
-                float ox = (hash2(i + 51.f, j + 51.f) - 0.5f) * step, oz = (hash2(i + 52.f, j + 52.f) - 0.5f) * step;
-                float h = ground(wx + ox, wz + oz);
-                if (h > 0.05f) { *instlist_push(&li_wheat) = inst(wx + ox, h - 0.002f, wz + oz, hash2(i + 53.f, j + 53.f) * 6.2832f,
-                                                                  0.030f * (0.8f + 0.5f * hash2(i + 54.f, j + 54.f))); total++; }
+            if (fenced && fx1 < step / pcx) {                             // the short end (along the parcel's z)
+                float ex = floorf(qx / pcx) * pcx;
+                for (float ez = floorf((qz - step * 0.5f) / FENCE_L) * FENCE_L; ez < qz + step * 0.5f; ez += FENCE_L) {
+                    float cz_ = ez + 0.5f * FENCE_L;
+                    float fx_ = ex * ca + cz_ * sa, fz_ = -ex * sa + cz_ * ca;
+                    float h = ground(fx_, fz_);
+                    if (h > 0.05f && lu_at(fx_, fz_, 0) >= 20) { *instlist_push(&li_fence) = inst(fx_, h - 0.004f, fz_, -ang + 1.5708f, FENCE_L); total++; }
+                }
+            }
+            // standing grain (0.22.11): the field is *full* of it - a clump every WHEAT_GAP on a
+            // jittered grid - not a tuft on one texel in twenty. Only the grain parcels (the
+            // shader paints R 60-120 as crops, lower as ploughed/pasture).
+            if (R >= 60) {
+                const float WHEAT_GAP = 0.030f;
+                for (float gx_ = ceilf((wx - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gx_ < wx + step * 0.5f && total < SCATTER_MAX; gx_ += WHEAT_GAP)
+                    for (float gz_ = ceilf((wz - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gz_ < wz + step * 0.5f && total < SCATTER_MAX; gz_ += WHEAT_GAP) {
+                        float jx = (hash2(gx_ * 211.f, gz_ * 173.f) - 0.5f) * 0.6f * WHEAT_GAP, jz = (hash2(gx_ * 97.f + 3.f, gz_ * 59.f) - 0.5f) * 0.6f * WHEAT_GAP;
+                        float h = ground(gx_ + jx, gz_ + jz);
+                        if (h > 0.05f) { *instlist_push(&li_wheat) = inst(gx_ + jx, h - 0.002f, gz_ + jz, hash2(gx_ * 7.f, gz_ * 11.f) * 6.2832f,
+                                                                          0.026f * (0.8f + 0.4f * hash2(gx_ * 13.f, gz_ * 17.f))); total++; }
+                    }
             }
             continue;
         } else {   // pasture: the thin fields round a village - the odd flock of sheep

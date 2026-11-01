@@ -76,6 +76,12 @@ float ship_wave(vec2 pp, float t) {
       hgt += 0.016 * L * armk * cos(aph);
       float lane = (1.0 - smoothstep(0.0, 0.30 * L + 0.22 * astern, abs(across))) * fade;
       hgt -= 0.010 * L * lane;                    // the flattened, dragged-down lane astern
+// the stern wave (0.22.11, issue8 "real generated waves from stern and bow"): the water closing
+// behind the counter heaps into a transverse crest a tenth of a length astern, then runs out
+// as a short train of transverse waves down the lane, a hull length apart, fading in three
+      float sternw = (1.0 - smoothstep(0.18 * L, 0.34 * L, abs(across))) * spd;
+      hgt += 0.022 * L * sternw * exp(-pow((astern - 0.12 * L) / (0.10 * L), 2.0));
+      hgt += 0.012 * L * sternw * cos(6.28318 / (0.62 * L) * astern - t * 1.6) * exp(-astern / (1.6 * L)) * smoothstep(0.1 * L, 0.4 * L, astern);
     }
   }
 // the trail she has already left (the wake map): the broken water lies a little lower than

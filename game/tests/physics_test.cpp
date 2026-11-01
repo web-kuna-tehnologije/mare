@@ -71,7 +71,7 @@ static void test_ship_ship() {
     int b = nphys_add(18, 0, 3.14159265f, 20, 6, 1.2f, 800); // steering west
     nphys_drive(a, 2.0f, 0.f, 0.05f);
     nphys_drive(b, 2.0f, 3.14159265f, 0.05f);
-    float closest = 1e9f; int touched = 0;
+    float closest = 1e9f; int touched = 0; const int fails0 = fails;   // break on *this* test's failures only
     for (int i = 0; i < 1200; ++i) {
         nphys_advance(1.f / 60.f);
         if (nphys_contacts_last() > 0) touched = 1;
@@ -80,7 +80,7 @@ static void test_ship_ship() {
         float d = sqrtf((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
         if (d < closest) closest = d;
         CHECK(!(d < 2.f), "hulls interpenetrated to %.3f units apart at step %d", d, i);
-        if (fails) break;
+        if (fails > fails0) break;
     }
     CHECK(touched, "the two ships never registered a contact");
     CHECK(closest < 16.f, "they never actually met: closest %.2f", closest);
@@ -122,8 +122,64 @@ static void test_yaw_from_contact() {
     printf("  compound hull: struck on the bow, she swung %.1f degrees\n", (h1 - h0) * 57.2958f);
 }
 
+// 7: the surface under the hull gives her an attitude - a wave along her length pitches her,
+// one across her rolls her, a flat sea does neither
+static float test_surface(float x, float z, void *u) { int mode = *(int *)u; return mode == 1 ? 0.8f * sinf(x * 0.3f) : mode == 2 ? 0.6f * sinf(z * 0.6f) : 0.f; }
+static void test_buoyancy() {
+    nphys_reset();
+    int mode = 0; nphys_set_surface(test_surface, &mode);
+    int a = nphys_add(2.0f, 0, 0, 20, 6, 1.2f, 800);          // heading +x: pitch answers a wave along x
+    for (int i = 0; i < 240; ++i) nphys_advance(1.f / 60.f);
+    float hv, pt, rl; nphys_attitude(a, &hv, &pt, &rl);
+    CHECK(fabsf(pt) < 1e-3f && fabsf(rl) < 1e-3f, "a flat sea gave an attitude: pitch %.4f roll %.4f", pt, rl);
+    mode = 1; for (int i = 0; i < 240; ++i) nphys_advance(1.f / 60.f);
+    nphys_attitude(a, &hv, &pt, &rl);
+    CHECK(fabsf(pt) > 0.02f, "a wave along the keel did not pitch her: %.4f", pt);
+    CHECK(fabsf(rl) < 0.01f, "a wave along the keel rolled her: %.4f", rl);
+    mode = 2; for (int i = 0; i < 240; ++i) nphys_advance(1.f / 60.f);
+    nphys_attitude(a, &hv, &pt, &rl);
+    CHECK(fabsf(rl) > 0.02f, "a wave across the beam did not roll her: %.4f", rl);
+    printf("  buoyancy: five-point attitude - roll %.3f on a beam wave (pitch %.3f there, as it should be)\n", rl, pt);
+    nphys_set_surface(0, 0);
+}
+
+// 8: a shot fired at a hull hits it and nothing else; one fired at the open sea splashes
+static void test_ballistics() {
+    nphys_reset();
+    int a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
+    int b = nphys_add(0, 30, 0, 20, 6, 1.2f, 800);            // thirty units abeam to starboard
+    nphys_fire(a, 0, 1.5f, 3.f, 0.f, 0.03f, 1.f, 60.f);       // at b, nearly flat
+    nphys_fire(a, 0, 1.5f, -3.f, 0.f, 0.08f, -1.f, 60.f);     // the other way, into empty sea (a 2.5 s flight)
+    int hits = 0, splashes = 0, hitbody = -2;
+    for (int i = 0; i < 600; ++i) {
+        nphys_advance(1.f / 60.f);
+        nphys_event_t ev[16]; int n = nphys_poll_events(ev, 16);
+        for (int k = 0; k < n; ++k) { if (ev[k].kind == NPHYS_EV_HIT) { hits++; hitbody = ev[k].body; } else splashes++; }
+    }
+    CHECK(hits == 1, "expected one hit, got %d", hits);
+    CHECK(hitbody == b, "the hit landed on body %d, not %d", hitbody, b);
+    CHECK(splashes == 1, "expected one splash, got %d", splashes);
+    CHECK(nphys_shots() == 0, "%d shots still in the air", nphys_shots());
+    printf("  ballistics: 1 hit on the target hull, 1 splash in open water, nothing left flying\n");
+}
+
+// 9: an impulse off the centre pushes her the other way and turns her
+static void test_recoil() {
+    nphys_reset();
+    int a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
+    float vx, vz, yr;
+    nphys_impulse(a, 6.f, 3.f, 0.f, -400.f);                  // a broadside to starboard from a gun forward: the recoil is to port
+    nphys_velocity(a, &vx, &vz, &yr);
+    CHECK(vz < -1e-4f, "the recoil did not push her to port: vz %.5f", vz);
+    CHECK(fabsf(yr) > 1e-5f, "an off-centre impulse gave no yaw: %.6f", yr);
+    printf("  recoil: vz %.4f, yaw rate %.5f from an impulse 6 units forward of the centre\n", vz, yr);
+}
+
 int main(void) {
-    printf("physics_test: naval physics foundation (P1.3 1-6)\n");
+    printf("physics_test: naval physics foundation (P1.3 1-9)\n");
+    test_buoyancy();
+    test_ballistics();
+    test_recoil();
     test_fixed_step();
     test_interpolation();
     test_ship_ship();

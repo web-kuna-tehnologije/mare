@@ -1,5 +1,95 @@
 # Changelog
 
+## 0.22.11 — the eighth issues folder: recoil, shot and splashes, a diffusing wake, a blurred battle behind the menu, real forests and fenced fields
+
+From `assets/issues/issue8` (six screenshots and a video, each named for what to change), the
+recoil request, five todo rows (15, 17, 19, 21, 26), two physics items (buoyancy, ballistics)
+and the hinterland asks (real forests, fenced fields, vines and wheat in 3D).
+
+### Physics (sim/naval_physics.h, P1.3 items 7-9)
+- **Recoil** (`nphys_impulse`). A gun throws its shot one way and the ship the other: each
+  gun's impulse is applied at the gun's own position as it fires, so a rolling broadside sets
+  the hull to leeward *and*, because the guns are off her centre of mass, turns her a little
+  as the ripple walks along the side - Newton's third law and the lever arm. The ball's
+  momentum (14.5 kg at ~480 m/s) is scaled up six times so the set of a 1000-tonne hull is a
+  readable third of a unit a second rather than five centimetres.
+- **Multi-point buoyancy** (`nphys_set_surface`, `nphys_attitude`): the caller's wave function
+  sampled under the three keel discs and the two bilges every step gives each body a heave, a
+  pitch and a roll, relaxed towards over a few tenths of a second (heavier hulls more slowly).
+  The staged battle hands the sea's own `height_at` in; the renderer scales a hull's roll by
+  what the water under her says. `physics_test`: a flat sea gives no attitude, a wave along the
+  keel pitches and does not roll, one across the beam rolls.
+- **Ballistics** (`nphys_fire`, `nphys_poll_events`): every shot is a swept sphere under
+  gravity, tested each step against every other hull's three discs between the waterline and
+  the rail; a hit or a splash comes back as an event and the shot is gone. A hit gives the
+  hull the ball's momentum. `physics_test`: a shot at a hull abeam hits that hull and only it,
+  a shot at open water splashes, nothing is left flying.
+- The guns fire real shot now: `fire_gun` launches one at the target side with a little spread
+  and a low elevation; the staged scene turns the events into a column of spray and a foam
+  ring (splash) or splinters, dust and embers (hit). The battle HUD counts shot in the air and
+  hits made.
+
+### The water (issue8)
+- **The wake spreads and fades** (`gfx/wake.cc`, "add fading out and cone spreading and
+  disappearing"). The map is a ping-pong now: each frame the new map is the old one blurred by
+  a fraction of a texel and multiplied by the decay, so a trail that was a line astern widens
+  into a cone as it ages and thins until it is gone. The stamp is narrower and denser - the
+  breakup takes the thin fringe away instead of spotting the whole band ("less foam, more
+  dense and concentrated").
+- **A stern wave** (`sea/vs_common.glsl`, "real generated waves from stern and bow"): the water
+  closing behind the counter heaps into a transverse crest a tenth of a length astern, then a
+  short train of transverse waves runs down the lane, a hull length apart, fading in three.
+- **Bigger swell** in the staged scenes: 0.45 -> 0.60 of the map's.
+- **The oil-slick look and the flicker** (the video). Three causes, three fixes: the foam
+  tile's dark half was darkening the body (a third of that now); the near water's roughness
+  floor was 0.26 - mirror glass - and is 0.36; the glitter was a pow-190 lobe on a normal with
+  2.6x the ripple, a pixel-sized sparkle that flipped on and off every frame - it is half the
+  ripple, a pow 40-110 lobe with the specular-AA roughness folded in. The screen-space
+  reflection is damped and fades out within a few units of the eye, where its march shimmers.
+- **Foam on the crests in a fog** ("missing crest and foam on top of waves"): the foam colour
+  has a floor, so under a dark sky it stays lighter than the sea; the whitecaps come on from a
+  smaller swell.
+
+### The rig and the hulls (issue8)
+- **Oars outboard**: with `heading - 90` the oar model's +x lay along the ship's own side, so
+  the blade (-x) pointed inboard and the bank lay across the deck - the screenshot. Plus 90.
+- **The Alps thicker and less pointy**: the ring ridge's crest was squared (a knife edge every
+  ridge), now a 1.35 power with a shoulder, at two thirds the amplitude; the peak boost is
+  0.22 (was 0.28) with a soft knee over 2600 m, so a 4000 m summit stands a little lower and
+  its flanks catch up.
+- **Inside a hull on the map** (the end of the video): the near-camera dissolve is back on the
+  map as a tight band - a camera inside a ship still thins it, one looking at a ship never does.
+
+### The menu (issue8 "add ship battle as start menu but blurred")
+- A throwaway game is made when the menu comes up, a staged battle is entered behind it, the
+  trailer camera moves over it on a 45 s loop, and the tonemap mixes in the frame blurred four
+  times at quarter size (`hdr_blur_pass`, `u_blur`), a touch darker so the panel reads. The
+  player's pick drops the preview (`detailview_abort`) and starts the real game.
+  `MARE_NO_PREVIEW=1` for the old grey menu.
+
+### The hinterland ("real forests", "fence the fields", vines and wheat in 3D)
+- **Woods are a canopy**: every forest texel gets a tree and, where the cover is full, up to
+  three more on their own jittered spots, so the crowns close and the ground disappears.
+- **Parcels are fenced all the way round**: a panel on every cell of both long edges and both
+  short ends, on the parcel grid, so a fence runs corner to corner - not a panel on a random
+  third of one edge. Only the worked grain parcels (the shader's R >= 60); fencing the pasture
+  fringe too laid 241k panels over one lowland ring. The fence itself is weathered pale and
+  half its old height, a line on the land rather than a dark net.
+- **Vineyards in rows**: bushes at a fixed spacing along lines that follow the contour, one
+  row every 0.04 units up the slope, the rows quantised so neighbouring texels agree.
+- **Fields full of standing grain**: a clump every 0.03 units on a jittered grid over the grain
+  parcels (the shader's R 60-120), not a tuft on one texel in twenty.
+- None of the props casts a shadow: the scatter is drawn in the main pass only, as before
+  (that was already the case; nothing had to be removed). Instance budget 240k -> 600k.
+
+### The sail state (todo 17)
+- `ship_classes.json` takes `"sails": mixed | new | used` per class; the war carrack and the
+  great carrack are state navy in new canvas, the fusta is in rags, the rest per ship.
+
+### Weather in the battle (todo 19)
+- In a fresh breeze the stems throw spray that the wind carries over the decks
+  (`particles_spray`); the map's rain, haze and overcast already reach the staged scene.
+
 ## 0.22.10 — the seventh issues folder: rolling broadsides, real foam, sails that are tied to the ship, and a trailer
 
 From `assets/issues/issue7` (`issue.txt`, one screenshot) and the request for a 45-second

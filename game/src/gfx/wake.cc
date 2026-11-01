@@ -18,20 +18,21 @@ extern "C" {
 namespace mare::engine::render {
 
 #define WAKE_RES   1024
-#define WAKE_TAU   50.f      // seconds to fall to 1/e: a wake stays visible for a minute or two
-#define WAKE_PAINT 4.0f      // how fast a ship paints to full white (per second of exposure)
+#define WAKE_TAU   28.f      // seconds to fall to 1/e: a wake stays visible for a minute or so
+#define WAKE_PAINT 3.2f      // how fast a ship paints to full white (per second of exposure)
+#define WAKE_DIFF  0.55f     // texels of spread per second (0.22.11): the trail widens into a cone as it ages and thins as it spreads
 
 class Wake {
 public:
     void set_region(float cx, float cz, float half);
     void update(float dt, const float *xzhs, const float *len, int n);
-    int  active() const { return on_ && target_.fbo; }
-    const rhi_texture_t *texture() { return active() ? &target_.color : 0; }
+    int  active() const { return on_ && t_[0].fbo; }
+    const rhi_texture_t *texture() { return active() ? &t_[cur_].color : 0; }
     void rect(float out[4]) { out[0] = cx_ - half_; out[1] = cz_ - half_; out[2] = out[3] = 1.f / maxf(2.f * half_, 1e-3f); }
 
 private:
     void init();
-    rhi_target_t target_{};
+    rhi_target_t t_[2]{}; int cur_ = 0;   // ping-pong (0.22.11): the fade reads one and writes the other, so it can blur as it fades
     rhi_pipeline_t decay_prg_{}, stamp_prg_{};
     rhi_geometry_t fs_tri_{}, quad_{};
     int inited_ = 0, on_ = 0, cleared_ = 0;
@@ -44,9 +45,9 @@ void Wake::init() {
     if (inited_) return;
     static const rhi_attr_t attrs[] = { { "a_pos", 0, 2, 0, 0 } };
     static const rhi_layout_t layout = { attrs, 1, { 2 * sizeof(float), 0 } };
-    static const char *decay_uni[] = { "u_fade", 0 };
+    static const char *decay_uni[] = { "u_fade", "u_src", "u_texel", 0 };
     const rhi_pipeline_desc_t dd{ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("fx/wake_decay.frag"),
-                                  .layout = &layout, .uniforms = decay_uni, .blend = RHI_BLEND_ALPHA };
+                                  .layout = &layout, .uniforms = decay_uni, .blend = RHI_BLEND_NONE };
     decay_prg_ = rhi_pipeline_make(&dd);
     static const char *stamp_uni[] = { "u_rect", "u_quad", "u_ship", 0 };
     const rhi_pipeline_desc_t sd{ .vs = shader_source("fx/wake_stamp.vert"), .fs = shader_source("fx/wake_stamp.frag"),
@@ -56,7 +57,8 @@ void Wake::init() {
     fs_tri_ = rhi_geometry_make(&layout, tri, 3, 0, 0);
     float q[12] = { -1, -1,  1, -1,  1, 1,  -1, -1,  1, 1,  -1, 1 };
     quad_ = rhi_geometry_make(&layout, q, 6, 0, 0);
-    target_ = rhi_target_make(WAKE_RES, WAKE_RES, RHI_FMT_RGBA8, 0);
+    t_[0] = rhi_target_make(WAKE_RES, WAKE_RES, RHI_FMT_RGBA8, 0);
+    t_[1] = rhi_target_make(WAKE_RES, WAKE_RES, RHI_FMT_RGBA8, 0);
     inited_ = 1;
     LOG_INFO("gfx", "wake map: %dx%d, fade tau %.0f s", WAKE_RES, WAKE_RES, WAKE_TAU);
 }
@@ -72,14 +74,22 @@ void Wake::set_region(float cx, float cz, float half) {
 
 void Wake::update(float dt, const float *xzhs, const float *len, int n) {
     if (!active()) return;
-    if (!cleared_) { rhi_target_begin(&target_, 0.f, 0.f, 0.f); cleared_ = 1; }
-    else rhi_target_resume(&target_);
-    // fade: transparent black over everything multiplies the map by exp(-dt/tau)
+    if (!cleared_) { rhi_target_begin(&t_[0], 0.f, 0.f, 0.f); rhi_target_begin(&t_[1], 0.f, 0.f, 0.f); cleared_ = 1; }
+    // fade + spread (0.22.11, issue8 "fading out and cone spreading and disappearing"): the
+    // new map is the old one blurred by a little and multiplied by exp(-dt/tau). The blur is
+    // what turns a line astern into a cone - every frame the churn leaks a fraction of a texel
+    // outward, so what is old is wide and faint and what is fresh is narrow and bright.
     if (dt > 0.f) {
+        int nxt = cur_ ^ 1;
+        rhi_target_resume(&t_[nxt]);
         rhi_pipeline_bind(&decay_prg_);
-        rhi_set_f1(UNI(decay_prg_, "u_fade"), 1.f - expf(-dt / WAKE_TAU));
+        rhi_set_f1(UNI(decay_prg_, "u_fade"), expf(-dt / WAKE_TAU));
+        rhi_set_i1(UNI(decay_prg_, "u_src"), 0); rhi_texture_bind(0, &t_[cur_].color);
+        float spread = clampf(dt * WAKE_DIFF, 0.f, 0.5f);
+        rhi_set_f2(UNI(decay_prg_, "u_texel"), spread / WAKE_RES, spread / WAKE_RES);
         rhi_draw(&fs_tri_, 0);
-    }
+        cur_ = nxt;
+    } else rhi_target_resume(&t_[cur_]);
     // paint: one quad per ship, two hull lengths square, centred a little abaft her
     if (dt > 0.f && n > 0) {
         rhi_pipeline_bind(&stamp_prg_);

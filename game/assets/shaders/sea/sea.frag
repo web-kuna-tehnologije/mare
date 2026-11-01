@@ -216,7 +216,7 @@ void main(){
 // bright streaks become whitecaps over the depth colour and its tonal variation breaks up
 // the flat gradient; everything fades out with `detail` like the normals do
   float streak = max(smoothstep(0.22, 0.58, lum1), 0.5 * smoothstep(0.24, 0.62, lum2)) * u_has_albedo * detail * u_capzoom;
-  c *= mix(1.0, clamp(0.80 + lum1 * 3.0, 0.7, 1.35), 0.30 * u_has_albedo * detail);
+  c *= mix(1.0, clamp(0.80 + lum1 * 3.0, 0.85, 1.25), 0.12 * u_has_albedo * detail);   // 0.22.11: a third of the old tonal variation - the tile's dark half read as oil blotches (issue8)
   vec3 vdir = normalize(u_campos - v_wpos);
 // water: smooth dielectric, so the sun glint comes from the GGX lobe and the sky from Fresnel
 // Specular antialiasing. One pixel covers many waves once the camera pulls back, and a
@@ -226,7 +226,7 @@ void main(){
 // Water is a dielectric: almost nothing diffuse. Its colour is what the column transmits
 // (refr) plus the sky it reflects, weighted by Fresnel; the sun adds a glint. The old path
 // lit the body colour as a diffuse surface and read as plastic.
-  float rough = mix(0.5, 0.26, detail) * mix(1.0, 0.55, u_calm);
+  float rough = mix(0.5, 0.36, detail) * mix(1.0, 0.70, u_calm);   // 0.22.11: 0.26 -> 0.36 close in (the near sea read as an oil slick, issue8)
 // calm air leaves the surface glassy
   vec3 ndx = dFdx(n), ndy = dFdy(n);
   float nvar = dot(ndx, ndx) + dot(ndy, ndy);
@@ -246,14 +246,18 @@ void main(){
   { float hit = 0.0;
     vec3 rd = reflect(-vdir, nf);
     vec3 sc = ssr_reflect(v_wpos + vec3(0.0, 0.01, 0.0), rd, u_vp, u_zrange, hit);
-    if (hit > 0.001) skyrefl = mix(skyrefl, sc, hit * 0.85); }
+    if (hit > 0.001) skyrefl = mix(skyrefl, sc, hit * 0.65 * smoothstep(2.0 * u_wave_scale, 12.0 * u_wave_scale, dist)); }   // 0.22.11: damped, and not within a few units of the eye where the march shimmers
   vec3 glint = sun_shade(vec3(0.0), n, vdir, v_wpos, rough, 0.0, dist) * 0.26;
 // albedo 0: the specular lobe alone, in the sun's shadow where it should be
 // Sparkle: the sub-ripple normals the shading normal has already averaged away, put back as
 // a narrow glitter. A real sea's highlight is thousands of points, not one smooth patch.
-  vec3 nsp = normalize(wn + vec3(slope.x, 0.0, slope.y) * 2.6);
-  float sp = pow(max(dot(nsp, normalize(u_sun + vdir)), 0.0), 190.0);
-  glint += u_suncol * sp * 0.22 * max(detail, 0.45 * detail_lit) * (1.0 - 0.6 * u_calm);
+// 0.22.11: the lobe was pow 190 on a normal with 2.6x the ripple - a pixel-sized sparkle that
+// flipped on and off every frame (the flicker in the issue8 video). Half the ripple, a wider
+// lobe, and the specular-AA roughness folded in, so the glitter is a field that breathes.
+  vec3 nsp = normalize(wn + vec3(slope.x, 0.0, slope.y) * 1.4);
+  float spow = mix(110.0, 40.0, clamp(nvar * 60.0, 0.0, 1.0));
+  float sp = pow(max(dot(nsp, normalize(u_sun + vdir)), 0.0), spow);
+  glint += u_suncol * sp * 0.16 * max(detail, 0.45 * detail_lit) * (1.0 - 0.6 * u_calm);
   vec3 body = sun_shade(c, n, vdir, v_wpos, 0.9, 0.0, dist);
 // the little diffuse the suspended sediment gives
   vec3 col3d = mix(mix(body, refr, refr_on), skyrefl, fres3) + glint;
@@ -303,7 +307,7 @@ void main(){
 // the staged scenes want white on every tessellated crest ("white foam on peaks"), the map
 // only where the fold says the wave is breaking
   float peak = u_local_depth > 0.0 ? smoothstep(0.1, 0.9, lift) * smoothstep(0.015, 0.06, v_slope) * 0.7 : 0.0;
-  float caps = max(max(fold, steep), peak) * smoothstep(0.25, 0.8, ws) * capmask * detail * u_capzoom;
+  float caps = max(max(fold, steep), peak) * smoothstep(0.12, 0.7, ws) * capmask * detail * u_capzoom;   // 0.22.11: on from a smaller swell
 // Surf: in the shoaling band the steepened waves break into a foam sheet that runs up the
 // beach. The shore direction is the depth gradient; the sheet's texture scrolls along it.
   vec2 hp = v_wpos.xz; float he = 0.9 * sc;
@@ -400,9 +404,9 @@ void main(){
       vec2 wk = texture(u_wake, wuv).rg;
       float fw1 = u_has_foamw > 0.5 ? texture(u_foamw, p * 0.55 + u_drift1 * 0.35).r : 0.55;
       float fw2 = u_has_foamw > 0.5 ? texture(u_foamw, p * 1.9 + u_drift2 * 0.6 + vec2(0.31, 0.77)).r : 0.55;
-      float brk = smoothstep(0.34, 0.86, mix(fw1, fw2, 0.45) * (0.75 + 0.5 * fw2));
-      float trail = clamp(wk.x * (0.10 + 0.90 * brk) + wk.y * 0.14 * brk, 0.0, 1.0);
-      shipk *= 1.0 - clamp(trail * 0.55, 0.0, 0.55);
+      float brk = smoothstep(0.30, 0.80, mix(fw1, fw2, 0.45) * (0.75 + 0.5 * fw2));
+      float trail = smoothstep(0.10, 0.55, wk.x) * (0.25 + 0.75 * brk) + wk.y * 0.08 * brk;   // 0.22.11: dense where the churn is, nothing where it is faint (issue8 "less foam, more concentrated")
+      shipk *= 1.0 - clamp(trail * 0.62, 0.0, 0.62);
     }
   }
 // The blast rings (0.22.9, issue6 "a light transparent white circle, more opaque on the side
@@ -421,7 +425,10 @@ void main(){
     shipk *= 1.0 - clamp(u_blast[i].w * side * hole * ring * (0.45 + 0.75 * tex) * 0.30, 0.0, 0.34);
   }
   float shipf = (1.0 - shipk) * detail;
-  vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * (u_ambsky * 1.15 + u_suncol * 0.55);   // 0.22.5: whiter
+// 0.22.11 (issue8 "missing crest and foam on top of waves"): under a fog or a low sun the
+// ambient went so dark the foam vanished into the water; a floor keeps foam lighter than the
+// sea whatever the sky does
+  vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * max(u_ambsky * 1.15 + u_suncol * 0.55, vec3(0.22));
   float foamall = clamp((caps * 0.95 + crestfoam * 1.05 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
   col3d = mix(col3d, foamcol, foamall);
   col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);

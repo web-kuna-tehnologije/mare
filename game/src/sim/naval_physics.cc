@@ -26,7 +26,10 @@ static inline float npf_wrap(float a) { while (a > 3.14159265f) a -= 6.28318531f
 #define NP_SLOP        0.004f   // penetration left unresolved, so resting contacts do not jitter
 #define NP_CORRECT     0.55f    // share of the remaining penetration pushed out per step
 
+typedef struct shot_t { float x, y, z, vx, vy, vz; int owner, used; } shot_t;
+
 typedef struct body_t {
+    float heave, pitch, roll;      // from the surface under the hull (item 7)
     float x, z, h;                 // the fixed-step state
     float px, pz, ph;              // the step before it (nphys_pose interpolates between them)
     float vx, vz, yr;              // velocity and yaw rate
@@ -39,7 +42,32 @@ typedef struct body_t {
 
 class NavalPhysics {
 public:
-    void reset() { n_ = 0; acc_ = 0; steps_ = 0; contacts_ = 0; coast_on_ = 0; }
+    void reset() { n_ = 0; acc_ = 0; steps_ = 0; contacts_ = 0; coast_on_ = 0; nshot_ = 0; nev_ = 0; }
+    void set_surface(nphys_surface_fn fn, void *user) { surf_ = fn; surf_user_ = user; }
+    void impulse(int id, float px, float pz, float jx, float jz) {
+        if (!valid(id)) return;
+        body_t &b = b_[id];
+        b.vx += jx * b.inv_m; b.vz += jz * b.inv_m;
+        float rx = px - b.x, rz = pz - b.z;
+        b.yr += (rx * jz - rz * jx) * b.inv_i;          // the lever arm: an impulse off the centre turns her
+    }
+    void fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed) {
+        if (nshot_ >= NPHYS_MAX_SHOTS) return;
+        float l = sqrtf(dx * dx + dy * dy + dz * dz); if (l < 1e-6f) return;
+        shot_t &s = sh_[nshot_++];
+        s.x = x; s.y = y; s.z = z; s.vx = dx / l * speed; s.vy = dy / l * speed; s.vz = dz / l * speed; s.owner = owner; s.used = 1;
+    }
+    void attitude(int id, float *heave, float *pitch, float *roll) const {
+        if (!valid(id)) { *heave = *pitch = *roll = 0.f; return; }
+        *heave = b_[id].heave; *pitch = b_[id].pitch; *roll = b_[id].roll;
+    }
+    int poll_events(nphys_event_t *out, int max) {
+        int n = nev_ < max ? nev_ : max;
+        for (int i = 0; i < n; ++i) out[i] = ev_[i];
+        nev_ = 0;
+        return n;
+    }
+    int shots() const { return nshot_; }
     int  add(float x, float z, float h, float len, float beam, float draft, float tonnes);
     void drive(int id, float v, float h, float turn) {
         if (!valid(id)) return;
@@ -77,6 +105,12 @@ private:
     void integrate(body_t &b);
     void collide_ships();
     void collide_coast();
+    void buoyancy();
+    void shots_step();
+    void event(int kind, int body, int owner, float x, float y, float z, float speed) {
+        if (nev_ >= NPHYS_MAX_EVENTS) return;
+        ev_[nev_++] = nphys_event_t{ kind, body, owner, x, y, z, speed };
+    }
     // the compound hull: three discs down the keel, at these fractions of the length from the
     // centre, each of radius `beam * 0.5` shrunk a little at the ends where the hull narrows
     static void part(const body_t &b, int k, float *px, float *pz, float *pr) {
@@ -94,6 +128,9 @@ private:
     }
 
     body_t b_[NPHYS_MAX_BODIES]; int n_ = 0;
+    shot_t sh_[NPHYS_MAX_SHOTS]; int nshot_ = 0;
+    nphys_event_t ev_[NPHYS_MAX_EVENTS]; int nev_ = 0;
+    nphys_surface_fn surf_ = 0; void *surf_user_ = 0;
     float acc_ = 0.f; int steps_ = 0, contacts_ = 0;
     float cax_ = 0, caz_ = 0, cnx_ = 0, cnz_ = -1, camp_ = 0, cfreq_ = 0.01f, cslope_ = 0.15f; int coast_on_ = 0;
 };
@@ -121,8 +158,80 @@ void NavalPhysics::step() {
     const float dt = NPHYS_STEP;
     for (int i = 0; i < n_; ++i) if (b_[i].used) { b_[i].px = b_[i].x; b_[i].pz = b_[i].z; b_[i].ph = b_[i].h; }
     for (int i = 0; i < n_; ++i) if (b_[i].used) integrate(b_[i]);
+    buoyancy();
+    shots_step();
     collide_ships();
     collide_coast();
+}
+
+// Multi-point buoyancy (item 7). The surface is sampled under the three keel discs and under
+// the two bilges of the middle one; the mean is her heave, the fore-aft difference her pitch,
+// the port-starboard difference her roll - the attitude a hull of that length and beam takes
+// on that water, relaxed towards over a few tenths of a second so she rides rather than jitters.
+void NavalPhysics::buoyancy() {
+    if (!surf_) { for (int i = 0; i < n_; ++i) { b_[i].heave = b_[i].pitch = b_[i].roll = 0.f; } return; }
+    const float dt = NPHYS_STEP;
+    for (int i = 0; i < n_; ++i) {
+        body_t &b = b_[i];
+        if (!b.used) continue;
+        float c = cosf(b.h), s = -sinf(b.h), rx = -s, rz = c;
+        float d = 0.30f * b.len, w = 0.5f * b.beam;
+        float hf = surf_(b.x + c * d, b.z + s * d, surf_user_);
+        float ha = surf_(b.x - c * d, b.z - s * d, surf_user_);
+        float hm = surf_(b.x, b.z, surf_user_);
+        float hp = surf_(b.x - rx * w, b.z - rz * w, surf_user_);
+        float hs = surf_(b.x + rx * w, b.z + rz * w, surf_user_);
+        float heave = (hf + ha + hm + hp + hs) * 0.2f;
+        float pitch = atan2f(hf - ha, 2.f * d);
+        float roll  = atan2f(hs - hp, 2.f * w);
+        // a heavy hull answers the water more slowly than a light one
+        float k = 1.f - expf(-dt * (2.4f + 1.6f * npf_clamp(1.f - b.inv_m * 400.f, 0.f, 1.f)));
+        b.heave += (heave - b.heave) * k; b.pitch += (pitch - b.pitch) * k; b.roll += (roll - b.roll) * k;
+    }
+}
+
+// Ballistics (item 8): every shot is a swept sphere under gravity. Against each hull but the
+// firer's own, the segment it moved this step is tested against the three discs at the hull's
+// height band (the waterline to about a tenth of her length up - gun deck and rail); into the
+// sea it is a splash. Either way the shot is gone and an event is left for the caller.
+void NavalPhysics::shots_step() {
+    const float dt = NPHYS_STEP, G = 9.81f / 2.47f;   // gravity in the staged scene's units (~2.47 m each)
+    for (int i = 0; i < nshot_; ) {
+        shot_t &sh = sh_[i];
+        float x0 = sh.x, y0 = sh.y, z0 = sh.z;
+        sh.vy -= G * dt;
+        sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.z += sh.vz * dt;
+        int done = 0;
+        float spd = sqrtf(sh.vx * sh.vx + sh.vy * sh.vy + sh.vz * sh.vz);
+        for (int b = 0; b < n_ && !done; ++b) {
+            if (!b_[b].used || b == sh.owner) continue;
+            const body_t &B = b_[b];
+            float dx = sh.x - B.x, dz = sh.z - B.z;
+            if (dx * dx + dz * dz > 0.6f * 0.6f * B.len * B.len) continue;   // broadphase
+            float top = B.heave + 0.11f * B.len, bot = B.heave - 0.02f * B.len;
+            if (sh.y > top && y0 > top) continue;
+            for (int k = 0; k < NPHYS_PARTS && !done; ++k) {
+                float px, pz, pr; part(B, k, &px, &pz, &pr);
+                // closest approach of the segment (x0,z0)->(x,z) to the disc centre, in the plane
+                float ex = sh.x - x0, ez = sh.z - z0, fx = x0 - px, fz = z0 - pz;
+                float a = ex * ex + ez * ez, t = a > 1e-9f ? npf_clamp(-(fx * ex + fz * ez) / a, 0.f, 1.f) : 0.f;
+                float cx = x0 + ex * t - px, cz = z0 + ez * t - pz;
+                float yy = y0 + (sh.y - y0) * t;
+                if (cx * cx + cz * cz < pr * pr && yy <= top && yy >= bot) {
+                    event(NPHYS_EV_HIT, b, sh.owner, x0 + ex * t, yy, z0 + ez * t, spd);
+                    // the shot's momentum goes into the hull (a 14 kg ball at 450 m/s is a tonne-metre
+                    // a second: nothing a ship of 800 tonnes notices, but a boat does)
+                    body_t &Bm = b_[b];
+                    float j = 0.0058f * spd;   // tonne-units/s per shot, in the staged units
+                    Bm.vx += sh.vx / spd * j * Bm.inv_m; Bm.vz += sh.vz / spd * j * Bm.inv_m;
+                    done = 1;
+                }
+            }
+        }
+        if (!done && sh.y <= 0.f) { event(NPHYS_EV_SPLASH, -1, sh.owner, sh.x, 0.f, sh.z, spd); done = 1; }
+        if (!done && (fabsf(sh.x) > 4000.f || fabsf(sh.z) > 4000.f)) done = 1;
+        if (done) sh = sh_[--nshot_]; else ++i;
+    }
 }
 
 void NavalPhysics::integrate(body_t &b) {
@@ -276,6 +385,12 @@ float nphys_speed(int id) { return mare::game::sim::physics().speed(id); }
 float nphys_heel(int id) { return mare::game::sim::physics().heel(id); }
 int   nphys_aground(int id) { return mare::game::sim::physics().aground(id); }
 void  nphys_teleport(int id, float x, float z, float h) { mare::game::sim::physics().teleport(id, x, z, h); }
+void  nphys_set_surface(nphys_surface_fn fn, void *user) { mare::game::sim::physics().set_surface(fn, user); }
+void  nphys_impulse(int id, float px, float pz, float jx, float jz) { mare::game::sim::physics().impulse(id, px, pz, jx, jz); }
+void  nphys_fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed) { mare::game::sim::physics().fire(owner, x, y, z, dx, dy, dz, speed); }
+void  nphys_attitude(int id, float *heave, float *pitch, float *roll) { mare::game::sim::physics().attitude(id, heave, pitch, roll); }
+int   nphys_poll_events(nphys_event_t *out, int max) { return mare::game::sim::physics().poll_events(out, max); }
+int   nphys_shots(void) { return mare::game::sim::physics().shots(); }
 int   nphys_steps_last(void) { return mare::game::sim::physics().steps_last(); }
 int   nphys_contacts_last(void) { return mare::game::sim::physics().contacts_last(); }
 float nphys_alpha(void) { return mare::game::sim::physics().alpha(); }

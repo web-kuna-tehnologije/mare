@@ -365,6 +365,15 @@ int main(int argc, char **argv) {
     if (getenv("MARE_AUTOQUIT_S")) LOG_INFO("main", "will quit after %s seconds", getenv("MARE_AUTOQUIT_S"));
     log_set_listener(hud_on_log);
     U.in_menu = !autostart;
+    // The menu's backdrop (0.22.11, issue8): a staged battle, blurred, with the trailer camera
+    // slowly moving over it. A throwaway game is made for it (the player's pick replaces it).
+    int menu_preview = 0;
+    if (U.in_menu && !getenv("MARE_NO_PREVIEW")) {
+        game_new(NATION_VENICE, seed); game_advance(30.f);
+        int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60);
+        detailview_enter_battle(0); menu_preview = 1;
+        LOG_INFO("main", "menu preview: a staged battle behind the title");
+    }
     if (autostart) { game_new(autostart, seed); game_advance((float)skip); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60);
         const char *dvw = getenv("MARE_DETAIL");   // "battle" | "city": straight into a staged detail view (visual tests)
         if (dvw && !strcmp(dvw, "battle")) detailview_enter_battle(0);
@@ -599,13 +608,16 @@ int main(int argc, char **argv) {
         render_light_update();
         rhi_frame_stats_reset();
         prof_begin(p_gfx);
+        const int scene_live = !U.in_menu || menu_preview;   // the menu's battle renders like any other (0.22.11)
+        if (U.in_menu && menu_preview) { static float menu_t = 0.f; menu_t += dt; detailview_trailer(fmodf(menu_t, 45.f) - 7.f); cam_update(dt); }   // the menu has no input pass, so the camera is stepped here
+        hdr_set_blur(U.in_menu && menu_preview ? 1.f : 0.f);
         // scene geometry is built once, then submitted to the shadow cascades and the main passes
         lod_frame_begin((float)screen_h, 45.f * 0.0174533f, dt);   // screen-space LOD metric for this frame (camera.c: 45 degree vertical FOV)
         lod_set_tier(cam.dist, cam.mapness);                       // which kind of scene this is, and its triangle budget
         if (!U.in_menu) streamview_update();                       // world streaming: wanted set, tile loads, the terrain detail window
         occ_frame_begin(&RF.campos.x, terrain_max_height());        // terrain occlusion rays start from this eye (occlusion.h)
         occq_frame_begin();                                         // GPU occlusion answers from the last frames (occquery.h)
-        if (!U.in_menu) {
+        if (scene_live) {
             SH = scene_hints_t{ U.sel_fleet_id, U.hover_fleet_id, U.sel_port, U.hover_port, U.route_mode, U.show_lanes, U.show_wind, U.show_regions }; terrain_show_regions = U.show_regions; terrain_map_mode = U.map_mode;
             detailview_frame(dt);                 // transition clock + staged-scene animation (before the shadow pass)
             int dv_on = detailview_mode() != DV_OFF;
@@ -622,10 +634,10 @@ int main(int argc, char **argv) {
         { vec3 skyl = srgb_to_linear3(RF.sky); hdr_begin(screen_w, screen_h, skyl.x, skyl.y, skyl.z); }
         sky_draw();                                       // the background: gradient, sun disc, clouds (sky.c)
         float planes[6][4]; cam_frustum(planes);
-        int dv_on = !U.in_menu && detailview_mode() != DV_OFF;
-        prof_begin(p_terrain); rhi_gpu_begin(g_terrain); if (U.pass_terrain && !dv_on) terrain_draw(planes); rhi_gpu_end(); prof_end(p_terrain);
+        int dv_on = scene_live && detailview_mode() != DV_OFF;
+        prof_begin(p_terrain); rhi_gpu_begin(g_terrain); if (U.pass_terrain && !dv_on && !U.in_menu) terrain_draw(planes); rhi_gpu_end(); prof_end(p_terrain);
         icons_begin();
-        if (!U.in_menu) {
+        if (scene_live) {
             meshes_bind();
             rhi_gpu_begin(g_meshes);
             if (dv_on) { prof_begin(p_ports); detailview_submit(); prof_end(p_ports); }
@@ -643,14 +655,14 @@ int main(int argc, char **argv) {
         // at distance (the staged battle showed it clearly; MARE_SSAO=0 confirmed the source).
         hdr_ao_pass();
         if (U.pass_sea && sea_refract) hdr_capture_scene();   // the frame so far: what the water refracts
-        prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && !U.in_menu && dv_on) detailview_sea(); else if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
-        if (!U.in_menu) sky_draw_overhead();   // the cloud layer from above, over the map (after the water, before the translucent passes)
-        if (!U.in_menu) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
+        prof_begin(p_sea); rhi_gpu_begin(g_sea); if (U.pass_sea && dv_on) detailview_sea(); else if (U.pass_sea) sea_draw(); rhi_gpu_end(); prof_end(p_sea);
+        if (scene_live) sky_draw_overhead();   // the cloud layer from above, over the map (after the water, before the translucent passes)
+        if (scene_live) { meshes_bind_smoke(); if (dv_on) detailview_submit_smoke(); else if (U.pass_ships) scene_submit_smoke(); }   // translucent, after the water
         if (!U.in_menu && !dv_on) {
             prof_begin(p_over); if (U.pass_overlays) { scene_draw_overlays(); streamview_draw_debug(); dd_flush(cam.proj, cam.view); } prof_end(p_over);
             prof_begin(p_icons); if (U.pass_icons) { scene_push_icons(); icons_draw(); } prof_end(p_icons);
         } else if (!U.in_menu && U.pass_overlays) { prof_begin(p_over); detailview_overlays(); dd_flush(cam.proj, cam.view); prof_end(p_over); }   // the battle's wind arrows (0.22.7)
-        rhi_gpu_begin(g_resolve); hdr_bloom_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer (AO was taken before the water); labels/panels draw on top
+        rhi_gpu_begin(g_resolve); hdr_bloom_pass(); hdr_blur_pass(); hdr_resolve(screen_w, screen_h); rhi_gpu_end();   // tonemap to the backbuffer (AO was taken before the water); labels/panels draw on top
         if (!U.in_menu) detailview_clouds();                                        // the transition rolls over the finished frame
         if (!U.in_menu) entities_render(ENT_PHASE_OVERLAY, RF.mapness);             // rain over the finished frame (weather entity)
         if (rec_dir[0] && rec_clock >= rec_warm) {
@@ -693,8 +705,9 @@ int main(int argc, char **argv) {
         prof_begin(p_panels);
         if (U.in_menu) {
             int pick = hud_menu();
-            if (pick > 0) { game_new(pick, seed); scene_reset_caches(); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; U.show_help = 1; }
-            else if (pick < 0) game_load_async(pick == -2 ? "mare_autosave.bin" : "mare_save.bin");   // applied by the poll above; the menu shows "Loading..." meanwhile
+            if (pick > 0) { if (menu_preview) { detailview_abort(); menu_preview = 0; hdr_set_blur(0.f); }
+                            game_new(pick, seed); scene_reset_caches(); int c = G.nations[G.player].capital; cam_reset(G.ports[c].x, G.ports[c].z, 60); U.in_menu = 0; U.show_help = 1; }
+            else if (pick < 0) { if (menu_preview) { detailview_abort(); menu_preview = 0; hdr_set_blur(0.f); } game_load_async(pick == -2 ? "mare_autosave.bin" : "mare_save.bin"); }   // applied by the poll above; the menu shows "Loading..." meanwhile
         } else if (detailview_mode() == DV_BATTLE) { if (U.pass_panels) hud_battle_panel(); dashboard_panel(); }   // the staged battle has its own controls (0.22.9)
         else { if (U.pass_panels) hud_panels(); dashboard_panel(); }
         prof_end(p_panels);

@@ -48,13 +48,18 @@ static inline float gc_height_scale(void) { return gc_height_scale_v; }
 // the lowlands and every coast keep their calibration (the boost is zero below 700 m).
 #define GC_PEAK_FROM_M   700.f
 #define GC_PEAK_FULL_M  2600.f
-#define GC_PEAK_BOOST    0.28f
+#define GC_PEAK_BOOST    0.22f    // 0.22.11: 0.28 -> 0.22 (issue8: the massifs were pointy); the width comes from the knee below
 
 static inline float gc_world(float m) {
     if (m >= 0.f) {
         float t = (m - GC_PEAK_FROM_M) / (GC_PEAK_FULL_M - GC_PEAK_FROM_M);
         t = t <= 0.f ? 0.f : t >= 1.f ? 1.f : t * t * (3.f - 2.f * t);
-        return minf(m / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE * (1.f + GC_PEAK_BOOST * t);
+        // 0.22.11: a soft knee over the summits - above GC_PEAK_FULL_M the extra height comes
+        // on at half rate, so a 4000 m peak stands a little lower and its flanks, which sit
+        // in the full-rate band, catch up: the massif reads thicker and the needle is gone
+        float over = m > GC_PEAK_FULL_M ? (m - GC_PEAK_FULL_M) * 0.5f : 0.f;
+        float me = m - over;
+        return minf(me / GC_LAND_MAX_M, 1.f) * GC_HEIGHT_SCALE * (1.f + GC_PEAK_BOOST * t);
     }
     return -sqrtf(minf(-m / GC_DEPTH_MAX_M, 1.f)) * GC_DEPTH_SCALE;
 }

@@ -28,6 +28,11 @@ void main(){
   float alpha = v_misc.x, seed = v_misc.y, kind = v_misc.z, age = v_misc.w;
   float dist = distance(v_wpos, u_campos);
   vec3 skyl = srgb_to_linear(u_sky);
+  if (kind > 6.5) {                                   // a splinter: a dark chip, hard-edged, tumbling
+    float a = smoothstep(0.9, 0.3, abs(v_uv.x) * 2.2 + abs(v_uv.y) * 0.6) * alpha;
+    vec3 c = srgb_to_linear(v_col) * (u_ambsky * 0.8 + u_suncol * 0.5 * max(u_sun.y, 0.0));
+    fragColor = vec4(fog_apply(c, dist, u_mapness, skyl), a); return;
+  }
   if (kind > 5.5) {                                   // the ring the blast flattens on the water: an annulus of foam, breaking up as it spreads
     float n = vnoise3(vec3(v_uv * 4.0, seed * 7.0 + age * 2.0));
     float ring = exp(-pow((r - (0.55 + 0.3 * age)) / (0.16 + 0.1 * age), 2.0));

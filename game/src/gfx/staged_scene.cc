@@ -38,7 +38,7 @@ extern "C" {
 
 namespace mare::game::view {
 
-#define DV_SEA_AMP      0.45f        // staged wave height, relative to the map's (the sea is stretched x DV_SHIP_SCALE)
+#define DV_SEA_AMP      0.60f        // staged wave height, relative to the map's (the sea is stretched x DV_SHIP_SCALE); 0.22.11: 0.45 -> 0.60 (issue8 "a little bigger amplitude")
 #define DV_SHIP_SCALE   9.f          // world ship mesh -> local units (1 unit ~ 2.8 m: a ship of the line is ~19 units)
 #define DV_COAST_DIST 190.f          // battle: coast this far north (+z is south, so -z)
 #define DV_MAX_SHIPS   50
@@ -98,6 +98,7 @@ public:
     void enter_battle(int fleet_id);
     void enter_city(int port);
     void exit(void);
+    void abort(void);
     void frame(float dt);
     int  submit(void);
     int  submit_shadow(void);
@@ -112,6 +113,7 @@ public:
     int   show_wind(void) { return dv.show_wind; }
     void  toggle_wind(void) { dv.show_wind ^= 1; }
     const char *coast_desc(void) { return dv.coast_desc; }
+    int   hits(void) { return dv.hits; }
     void  overlays(void);
     void  weather(void);
     float eye_floor(void);
@@ -127,6 +129,7 @@ private:
     void battle_form_lines(void);
     void build_battle(int fleet_id);
     void battle_update(float dt);
+    static float dv_surface(float x, float z, void *self);
     void probe_coast(void);
     float shore_wiggle(float u) const;
     float stage_height(float u, float v, float *slope_out) const;
@@ -152,6 +155,7 @@ private:
         float line_s[2], line_v[2], line_gap[2]; int nside[2];   // per side: line head's arc position, line speed, spacing
         float time;
         float timescale;                 // the battle clock (0.22.7): 1 = real time, 0 = stopped; the strategic clock is separate
+        int   hits;                      // round shot that struck a hull this battle (ballistics, 0.22.11)
         int   show_wind;                 // wind arrows over the water
         float wdx, wdz, wstr;            // the wind at the battle's position (world direction it blows towards, strength)
         // the coast read from the world (probe_coast)
@@ -508,7 +512,7 @@ void DetailView::battle_form_lines(void) {
 }
 
 void DetailView::build_battle(int fleet_id) {
-    dv.nships = 0; dv.time = 0;
+    dv.nships = 0; dv.time = 0; dv.hits = 0;
     particles_reset();
     nphys_reset();
     unsigned seed = 1234;
@@ -601,7 +605,7 @@ void DetailView::battle_update(float dt) {
                 // that side, sized by the class (particles.h); the smoke drifts off on the wind
                 float fx = cosf(s->heading), fz = -sinf(s->heading), tx = dv.ship[j].x - s->x, tz = dv.ship[j].z - s->z;
                 float side = (-fz * tx + fx * tz) >= 0.f ? 1.f : -1.f;
-                particles_broadside(dv.cx + s->x, 0.f, dv.cz + s->z, s->heading, side, s->len, maxi(s->guns, 2));
+                particles_broadside(dv.cx + s->x, 0.f, dv.cz + s->z, s->heading, side, s->len, maxi(s->guns, 2), s->body);
                 break;
             }
         }
@@ -613,12 +617,45 @@ void DetailView::battle_update(float dt) {
             nphys_set_coast(dv.cnx * dv.coast_dist, dv.cnz * dv.coast_dist,
                             dv.cnx, dv.cnz, DV_SHORE_AMP, DV_SHORE_FREQ, DV_SHORE_SLOPE, 1);
         else nphys_set_coast(0, 0, 0, -1, 0, 0.01f, 0.15f, 0);
+        // the water the hulls ride (0.22.11, P1.3 buoyancy): the same wave sum the sea draws,
+        // in the staged scene's stretched units; the bodies are in local coordinates
+        nphys_set_surface(dv_surface, this);
         nphys_advance(dt);
         for (int i = 0; i < dv.nships; ++i) { dv_ship_t *s = &dv.ship[i];
             if (s->body < 0) continue;
             nphys_pose(s->body, &s->x, &s->z, &s->heading); }
+        // what the shot did (ballistics, 0.22.11): a splash where a ball went into the sea, a
+        // burst of splinters and dust where one went into a hull
+        nphys_event_t ev[64]; int nev = nphys_poll_events(ev, 64);
+        for (int e = 0; e < nev; ++e) {
+            float sz = 0.7f + 0.004f * ev[e].speed;
+            if (ev[e].kind == NPHYS_EV_SPLASH) particles_splash(dv.cx + ev[e].x, dv.cz + ev[e].z, sz);
+            else if (ev[e].body >= 0) {
+                float bx = 0, bz = 0, bh = 0; nphys_pose(ev[e].body, &bx, &bz, &bh);
+                float dx = ev[e].x - bx, dz = ev[e].z - bz, l = sqrtf(dx * dx + dz * dz); if (l > 1e-4f) { dx /= l; dz /= l; }
+                particles_hit(dv.cx + ev[e].x, ev[e].y + 0.3f, dv.cz + ev[e].z, dx, dz, sz);
+                dv.hits++;
+            }
+        }
+        // weather in the battle (0.22.11, todo 19): in a fresh breeze the stems throw spray
+        // that the wind carries over the decks
+        if (dv.wstr > 0.85f && dt > 0.f) {
+            for (int i = 0; i < dv.nships; ++i) { dv_ship_t *s = &dv.ship[i];
+                if (s->body < 0 || nphys_speed(s->body) < 0.3f) continue;
+                if (rnd_f(&seed) > dt * 3.f * (dv.wstr - 0.7f)) continue;
+                float fx = cosf(s->heading), fz = -sinf(s->heading);
+                particles_spray(dv.cx + s->x + fx * 0.46f * s->len, 0.10f * s->len, dv.cz + s->z + fz * 0.46f * s->len, dv.wdx, dv.wdz, clampf(dv.wstr - 0.6f, 0.2f, 1.f));
+            }
+        }
     }
     particles_update(dt);
+}
+
+// the staged water under a hull, for the rigid bodies (sim/naval_physics.h surface callback):
+// local coordinates in, the wave sum the sea draws (scaled to the staged scene's units) out
+float DetailView::dv_surface(float x, float z, void *self) {
+    DetailView *d = (DetailView *)self;
+    return sea_height_at((d->dv.cx + x) / DV_SHIP_SCALE, (d->dv.cz + z) / DV_SHIP_SCALE) * DV_SHIP_SCALE * DV_SEA_AMP;
 }
 
 // ---------------------------------------------------------------------------
@@ -746,6 +783,11 @@ void DetailView::enter_city(int port) {
     if (port >= 0) dv_begin(DV_CITY, port, 0);
 }
 void DetailView::exit(void) { if (dv.phase == DVP_SHOW) { LOG_INFO("gfx", "detail view: leaving (t=%.1f)", dv.t); dv.phase = DVP_OUT_IN; dv.t = 0; } }
+// drop the scene at once, no clouds, no camera restore (the menu preview, 0.22.11)
+void DetailView::abort(void) {
+    dv.phase = DVP_IDLE; dv.mode = DV_OFF; stage_free(); wake_set_region(0, 0, 0); particles_reset(); nphys_reset();
+    cam_pitch_scale = 1.f; cam.ty = cam.want_ty = 0.f;
+}
 
 float DetailView::dv_cover(void) {   // cloud cover 0..1 for the current phase
     switch (dv.phase) {
@@ -855,7 +897,8 @@ void DetailView::frame(float dt) {
     shipyard_frame_begin();
     for (int i = 0; i < dv.nships; ++i) { const dv_ship_t *s = &dv.ship[i];
         float wx = dv.cx + s->x, wz = dv.cz + s->z, rock = dv.mode == DV_BATTLE ? 0.8f : 0.3f;
-        if (s->body >= 0) rock *= 1.f + 0.9f * nphys_heel(s->body);   // 0.22.9: she leans into her turn
+        if (s->body >= 0) { float hv, pt, rl; nphys_attitude(s->body, &hv, &pt, &rl);
+            rock *= 1.f + 0.9f * nphys_heel(s->body) + 3.0f * fabsf(rl) + 2.0f * fabsf(pt); }   // 0.22.9: she leans into her turn; 0.22.11: and answers the water under her (P1.3 buoyancy)
         // Authored hull, rig and oars at the staged scene's magnification; the procedural hull
         // below stands in while a class is still loading (shipyard.h).
         float dx = wx - cam.pos.x, dz = wz - cam.pos.z;
@@ -1039,6 +1082,8 @@ int  detailview_busy(void) { return mare::game::view::detail_view().busy(); }
 void detailview_enter_battle(int fleet_id) { mare::game::view::detail_view().enter_battle(fleet_id); }
 void detailview_enter_city(int port) { mare::game::view::detail_view().enter_city(port); }
 void detailview_exit(void) { mare::game::view::detail_view().exit(); }
+void detailview_abort(void) { mare::game::view::detail_view().abort(); }
+int  detailview_hits(void) { return mare::game::view::detail_view().hits(); }
 void detailview_frame(float dt) { mare::game::view::detail_view().frame(dt); }
 int  detailview_submit(void) { return mare::game::view::detail_view().submit(); }
 int  detailview_submit_shadow(void) { return mare::game::view::detail_view().submit_shadow(); }

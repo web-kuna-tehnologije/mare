@@ -442,10 +442,10 @@ void Hud::battle(void) {
     const char *wname = compass[(int)((from + 11.25f) / 22.5f) % 16];
     float knots = wstr * 14.f;                                                  // staged_scene.cc DV_WIND_KN
     const char *force = knots < 4 ? "light air" : knots < 7 ? "light breeze" : knots < 11 ? "gentle breeze" : knots < 16 ? "moderate breeze" : knots < 22 ? "fresh breeze" : "strong breeze";
-    const char *line = va("BATTLE   time x%s   |   wind %s %.0f kn, %s%s   |   %s   |   physics %d Hz, %d hulls, %d contacts",
+    const char *line = va("BATTLE   time x%s   |   wind %s %.0f kn, %s%s   |   %s   |   physics %d Hz, %d hulls, %d contacts, %d shot flying, %d hits",
                           ts <= 0.f ? "0" : va("%g", ts), wname, knots, force,
                           detailview_show_wind() ? "" : " (arrows off)", detailview_coast_desc(),
-                          (int)NPHYS_HZ, nphys_count(), nphys_contacts_last());
+                          (int)NPHYS_HZ, nphys_count(), nphys_contacts_last(), nphys_shots(), detailview_hits());
     int tw = ui_text_w(line);
     ui_overlay_rect(W/2 - tw/2 - 10, 40, tw + 20, h + 8, mu_color(20, 20, 30, 170));
     ui_overlay_text(W/2, 40 + h/2 + 4, line, mu_color(235, 228, 205, 255), 1, 0);

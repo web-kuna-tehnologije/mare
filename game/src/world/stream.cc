@@ -58,7 +58,7 @@ private:
     // detail bands per level: amplitude in world units and noise frequency in cycles per degree.
     // L0/L1 are at or below the base map's resolution, so they carry no delta (zero payload): they
     // exist as residency markers and coarse fallbacks, which keeps every code path uniform.
-    static constexpr float lvl_amp[STREAM_LEVELS]  = { 0.f, 0.f, 0.20f, 0.34f };   // 0.22.5: 40% lower; 0.22.6: lower again (issue3)
+    static constexpr float lvl_amp[STREAM_LEVELS]  = { 0.f, 0.f, 0.16f, 0.22f };   // 0.22.5: 40% lower; 0.22.6: lower again (issue3); 0.22.11: the fine level lower still, the Alps were needles
     static constexpr float lvl_freq[STREAM_LEVELS] = { 0.f, 0.f, 3.0f,  6.5f  };
 
     int   grid_w[STREAM_LEVELS] = {}, grid_h[STREAM_LEVELS] = {}, lvl_off[STREAM_LEVELS + 1] = {};
@@ -185,7 +185,10 @@ float *Stream::tile_generate(const stream_tile_t *t) {
             // Ridged detail (0.17): the same crest-and-flank shape as the base relief, one and
             // two octaves finer, plus a little plain fbm so the ridges do not read as a pattern.
             // Grows with the ground's height so high country is the roughest.
-            float r = 1.f - fabsf(2.f * world_fbm(lon * freq, lat * freq, 3, seed) - 1.f); r *= r;
+            // 0.22.11 (issue8 "the Alps look too pointy, thicker in width"): the ridge's crest
+            // was squared, which pinches every ridge into a knife edge; a gentler power keeps
+            // the crest-and-flank shape but gives the crest a shoulder
+            float r = 1.f - fabsf(2.f * world_fbm(lon * freq, lat * freq, 3, seed) - 1.f); r = powf(r, 1.35f);
             float f = world_fbm(lon * freq * 2.1f + 5, lat * freq * 2.1f + 9, 2, seed ^ 0x55u) * 2.f - 1.f;
             v = m * amp * (0.65f * (r * 2.f - 1.f) + 0.35f * f) * (0.5f + 0.5f * clampf(h / 6.f, 0.f, 1.f));
         }

@@ -94,7 +94,9 @@ void texture_size(int handle, int *w, int *h);   // 0x0 until decoded
 // HDR (hdr.c): 3D passes render into an RGBA16F target between hdr_begin and hdr_resolve
 void hdr_begin(int w, int h, float r, float g, float b);   // bind + clear the HDR target (recreated on resize)
 void hdr_resolve(int w, int h);                            // tonemap to the backbuffer; UI draws after this
-void hdr_set_shocks(const float *v, int n);                // up to 16 x (screen u, screen v, ring radius px, strength) the tonemap distorts with this frame (gfx/particles.cc, 0.22.8)
+void hdr_set_shocks(const float *v, int n);
+void hdr_set_blur(float k);                                 // 0..1: how much of the blurred frame the tonemap shows (the menu's battle, 0.22.11)
+void hdr_blur_pass(void);                                   // before hdr_resolve, when the blur is on                // up to 16 x (screen u, screen v, ring radius px, strength) the tonemap distorts with this frame (gfx/particles.cc, 0.22.8)
 extern float hdr_exposure;                                 // tonemap multiplier (1 = neutral)
 
 // lighting & shadows (lighting.c): one directional sun shared by every 3D pass

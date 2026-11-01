@@ -21,7 +21,11 @@ void particles_set_wind(float vx, float vz);             // the air the smoke dr
 // One broadside: `side` is +1 / -1 for the ship's starboard / port (in the heading frame, the
 // convention the staged ships use), `hull_len` the hull length in local units, `guns` the
 // class's total gun count (half fire); puff size and count follow both.
-void particles_broadside(float x, float y, float z, float heading, float side, float hull_len, int guns);
+// `body` is her rigid body (sim/naval_physics.h) for the recoil and the shot, or -1.
+void particles_broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body);
+void particles_splash(float x, float z, float size);                          // a shot into the sea (0.22.11)
+void particles_hit(float x, float y, float z, float dx, float dz, float size); // a shot into a hull: splinters, dust, embers
+void particles_spray(float x, float y, float z, float dx, float dz, float strength);   // spray torn off a bow in a breeze
 void particles_update(float dt);                         // on the battle clock
 int  particles_draw(void);                               // binds its own pipeline; after the sea, before the tonemap. Returns instances drawn
 int  particles_count(void);
