@@ -18,9 +18,9 @@ extern "C" {
 namespace mare::engine::render {
 
 #define WAKE_RES   1024
-#define WAKE_TAU   28.f      // seconds to fall to 1/e: a wake stays visible for a minute or so
+#define WAKE_TAU   20.f      // seconds to fall to 1/e (0.22.13: 28 -> 20, issue10 "fade out")
 #define WAKE_PAINT 3.2f      // how fast a ship paints to full white (per second of exposure)
-#define WAKE_DIFF  0.55f     // texels of spread per second (0.22.11): the trail widens into a cone as it ages and thins as it spreads
+#define WAKE_DIFF  3.5f      // texels of spread per second (0.22.11: 0.55; 0.22.13: 3.5 - issue10 "spread slowly while it fades": at 0.55 the cone never opened)
 
 class Wake {
 public:

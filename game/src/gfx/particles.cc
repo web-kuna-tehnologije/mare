@@ -14,6 +14,7 @@
 
 extern "C" {
 #include "particles.h"
+#include "../assets/asset.h"   // asset_root: the sprite atlases (0.22.13)
 #include "render.h"
 #include "gpu.h"
 #include "glsl.h"
@@ -82,6 +83,7 @@ private:
     float wind_x_ = 0, wind_z_ = 0;
     unsigned rng_ = 0x9e3779b9u;
     rhi_pipeline_t prg_{}; mesh_t quad_{}; int inited_ = 0;
+    int tex_smoke_ = -1, tex_fire_ = -1, tex_foam_ = -1;   // 0.22.13 (issue10): the Meshy sheets as RGBA sprite atlases (tools/fx_sprites.py)
     instlist_t il_{};
     int order_[PTC_MAX]; float dist_[PTC_MAX];
 };
@@ -91,10 +93,18 @@ Particles &particles() { static Particles p; return p; }
 void Particles::init() {
     if (inited_) return;
     static const char *uniforms[] = { "u_vp", "u_cam_right", "u_cam_up", "u_campos", "u_sky", "u_mapness", "u_time",
-                                      "u_scene_depth", "u_zrange", "u_scene_size", "u_soft_on", GLSL_LIGHT_UNIFORMS, 0 };
+                                      "u_scene_depth", "u_zrange", "u_scene_size", "u_soft_on",
+                                      "u_fx_smoke", "u_fx_fire", "u_fx_foam", "u_has_fx", GLSL_LIGHT_UNIFORMS, 0 };
     const rhi_pipeline_desc_t desc{ .vs = shader_source("fx/puff.vert"), .fs = shader_source("fx/puff.frag"), .layout = &mesh_layout,
                                     .uniforms = uniforms, .depth_test = 1, .depth_write = 0, .blend = RHI_BLEND_ALPHA };
     prg_ = rhi_pipeline_make(&desc);
+    // 0.22.13 (issue10 "there are smoke and fire and foam images, use them"): the sheets under
+    // assets/ships/{smoke,fire,foam/masks} cut into RGBA atlases (tools/fx_sprites.py -> <assets>/fx),
+    // 2x2 smoke, 4x2 fire, 2x2 foam; the fragment stage samples them by the particle's seed
+    { char path[600];
+      snprintf(path, sizeof path, "%s/fx/smoke_atlas.png", asset_root()); tex_smoke_ = texture_request(path, RHI_FMT_SRGB8_A8, RHI_FILTER_MIPMAP, RHI_WRAP_CLAMP);
+      snprintf(path, sizeof path, "%s/fx/fire_atlas.png",  asset_root()); tex_fire_  = texture_request(path, RHI_FMT_SRGB8_A8, RHI_FILTER_MIPMAP, RHI_WRAP_CLAMP);
+      snprintf(path, sizeof path, "%s/fx/foam_atlas.png",  asset_root()); tex_foam_  = texture_request(path, RHI_FMT_SRGB8_A8, RHI_FILTER_MIPMAP, RHI_WRAP_CLAMP); }
     // the billboard: a unit quad in the xy plane; the vertex stage reads a_pos.xy as the offset
     mb_t m = {0};
     mb_material(&m, 1.f, 0.f);
@@ -125,7 +135,7 @@ void Particles::blast(float x, float z, float dx, float dz, float L) {
     blast_t *b;
     if (nblast_ < BLAST_MAX) b = &bl_[nblast_++];
     else { b = &bl_[0]; for (int i = 1; i < BLAST_MAX; ++i) if (bl_[i].age / bl_[i].life > b->age / b->life) b = &bl_[i]; }
-    *b = blast_t{ x, z, dx, dz, 0.f, 2.2f, 2.3f * L, 0.42f * L, 0.85f };
+    *b = blast_t{ x, z, dx, dz, 0.f, 2.0f, 1.6f * L, 0.42f * L, 0.85f };   // 0.22.13 (issue10): runs out 1.6 hull lengths, not 2.3
 }
 
 // A broadside along one side. The guns stand along the middle two thirds of the hull on the
@@ -427,6 +437,13 @@ int Particles::draw() {
     { const rhi_texture_t *dp = hdr_depth_captured();   // the opaque scene's depth (taken before the water): soft edges against the hulls
       if (dp) { rhi_set_i1(UNI(prg_, "u_scene_depth"), 7); rhi_texture_bind(7, dp); rhi_set_f1(UNI(prg_, "u_soft_on"), 1.f); }
       else rhi_set_f1(UNI(prg_, "u_soft_on"), 0.f); }
+    {   // the sprite atlases (units 8-10; the shadow map is on 3, the scene depth on 7)
+        const rhi_texture_t *ts = tex_smoke_ >= 0 ? texture_get(tex_smoke_) : 0, *tf = tex_fire_ >= 0 ? texture_get(tex_fire_) : 0, *tw = tex_foam_ >= 0 ? texture_get(tex_foam_) : 0;
+        if (ts) { rhi_set_i1(UNI(prg_, "u_fx_smoke"), 8); rhi_texture_bind(8, ts); }
+        if (tf) { rhi_set_i1(UNI(prg_, "u_fx_fire"), 9);  rhi_texture_bind(9, tf); }
+        if (tw) { rhi_set_i1(UNI(prg_, "u_fx_foam"), 10); rhi_texture_bind(10, tw); }
+        rhi_set_f3(UNI(prg_, "u_has_fx"), ts ? 1.f : 0.f, tf ? 1.f : 0.f, tw ? 1.f : 0.f);
+    }
     light_bind(&prg_);
     mesh_set_instances(&quad_, il_.v, il_.n);
     mesh_draw(&quad_);

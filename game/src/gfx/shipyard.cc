@@ -26,7 +26,7 @@ extern "C" {
 
 // Shared counters (declared extern "C" in shipyard.h): plain globals, defined here outside the namespace.
 int shipyard_enabled = 1;
-int shipyard_oars_drawn, shipyard_ships_drawn, shipyard_fallbacks, shipyard_rigged;
+int shipyard_oars_drawn, shipyard_ships_drawn, shipyard_fallbacks, shipyard_rigged, shipyard_guns_drawn;
 int shipyard_flags_live, shipyard_yards_authored;
 
 namespace mare::game::view {
@@ -49,7 +49,7 @@ namespace mare::game::view {
 
 #define SHIP_MAX_MASTS 4
 
-// What hangs from a mast. The reference sheet (assets/fleet_sails.png) draws a square course
+// What hangs from a mast. The reference sheet (assets/reference/fleet_sails.png) draws a square course
 // with a topsail on the fore and main of every round ship, a third sail on the great carrack's
 // main, one great course on a cog, and a lateen on every mizzen and on every galley mast.
 enum { SAIL_NONE = 0, SAIL_SQUARE1, SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN };
@@ -85,9 +85,11 @@ typedef struct ship_class_t {
     float beam_frac;                    // half-beam at the oar ports, fraction of length
     ship_stats_t st;
     int   sails;                        // 0 mixed (per ship, by her key and nation), 1 always new canvas, 2 always used (ship_classes.json "sails", 0.22.11); last, so the built-in rows need no change
+    const char *gun;                    // 0.22.13 (issue10): the gun asset stood at every port (assets/ships/cannons -> gun_*); NULL = by class (gun_role_for)
+    float gun_m;                        // its length in metres (0 = the asset's default)
 } ship_class_t;
 
-// The Gen I fleet as drawn in assets/fleet_sails.png and the design sheets. Hull and mast
+// The Gen I fleet as drawn in assets/reference/fleet_sails.png and the design sheets. Hull and mast
 // models come in pairs from Meshy except the galiot, which borrows the generic Mediterranean
 // lateen rig, and the great carrack, which sails on the war carrack's model stretched to its
 // own length until its hull is generated.
@@ -131,7 +133,7 @@ static const ship_class_t builtin_classes[] = {
 // retuned, and new classes added, without touching the source. Strings are copied into the
 // store, because a loaded class cannot point at string literals.
 typedef struct class_store_t {
-    char name[32], hull[48], masts[48], oars[48], lib[SHIP_MAX_MASTS][48];
+    char name[32], hull[48], masts[48], oars[48], lib[SHIP_MAX_MASTS][48], gun[48];
 } class_store_t;
 static ship_class_t g_classes[SHIP_CLASS_MAX];
 static class_store_t g_store[SHIP_CLASS_MAX];
@@ -169,7 +171,10 @@ static void classes_init() {
     if (!js) return;
     js[got] = 0;
     gjson_t j;
-    if (!gjson_parse(&j, js, (int)got)) { LOG_WARN("asset", "%s is not valid JSON: the built-in classes stand", path); free(js); return; }
+    // 0.22.13: gjson_parse returns 0 on success and -1 on failure (as gltf.cc and asset.cc read it); this
+    // test had it backwards since 0.22.6, so ship_classes.json was never applied - every run logged
+    // "is not valid JSON" over a valid file and sailed the built-in table. The data file is live now.
+    if (gjson_parse(&j, js, (int)got) < 0) { LOG_WARN("asset", "%s is not valid JSON: the built-in classes stand", path); free(js); return; }
     int arr = jget(&j, 0, "classes");
     int changed = 0, added = 0;
     for (int e = 0, ne = jlen(&j, arr); e < ne; ++e) {
@@ -186,6 +191,8 @@ static void classes_init() {
         c->hull  = store_str(&j, jget(&j, o, "hull"),  st->hull,  sizeof st->hull,  c->hull);
         c->masts = store_str(&j, jget(&j, o, "masts"), st->masts, sizeof st->masts, c->masts);
         c->oars  = store_str(&j, jget(&j, o, "oars"),  st->oars,  sizeof st->oars,  c->oars);
+        c->gun   = store_str(&j, jget(&j, o, "gun"),   st->gun,   sizeof st->gun,   c->gun);
+        c->gun_m = (float)jnum(&j, jget(&j, o, "gun_m"), c->gun_m);
         c->length_m   = (float)jnum(&j, jget(&j, o, "length_m"), c->length_m);
         c->draft      = (float)jnum(&j, jget(&j, o, "draft"), c->draft);
         c->deck       = (float)jnum(&j, jget(&j, o, "deck"), c->deck);
@@ -274,10 +281,19 @@ static const float nrm_x[3] = { 1, 0, 0 }, nrm_z[3] = { 0, 0, 1 };
 // forward, which on a four-master put the fore end of the mizzen's yard among the mainmast's
 // rigging. It is hauled in to 0.30 and carried higher; the peak goes further aft and up, so
 // the spar keeps its length and its rake and the whole sail sits abaft its own mast.
-#define LAT_TACK_X  0.30f           // low forward end (the tack)
-#define LAT_TACK_Y  0.26f
-#define LAT_PEAK_X -0.52f           // high aft end (the peak, above the masthead)
-#define LAT_PEAK_Y  1.12f
+// 0.22.13 (issue10 "lateen and rigging to the top of the mast, not above"): the peak sits AT the
+// masthead (1.0 of the mast standing above the deck - shipyard_push measures the mast from
+// its heel, MAST_STEP below the deck, and hands the visible height here), the tack is carried
+// further forward and lower, so the spar is a tenth longer than before while nothing of it
+// stands over the truck. The clew and foot move with it (LAT_CLEW_*, LAT_FOOT_*).
+#define LAT_TACK_X  0.40f           // low forward end (the tack)
+#define LAT_TACK_Y  0.16f
+#define LAT_PEAK_X -0.62f           // high aft end (the peak, at the masthead)
+#define LAT_PEAK_Y  0.98f
+#define LAT_FOOT_X  0.48f           // the tack corner of the canvas
+#define LAT_FOOT_Y  0.12f
+#define LAT_CLEW_X -0.45f           // the clew, sheeted aft
+#define LAT_CLEW_Y  0.18f
 // The canvas is bent to the spar with robands - short lashings every few feet along the head -
 // and its foot is guided by a rope from tack to clew. Both are drawn in the sail's own mesh
 // (0.22.6, issue3), so they swing with it.
@@ -473,7 +489,7 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
     float P[3] = { ya[0] + (yb[0] - ya[0]) * 0.97f, ya[1] + (yb[1] - ya[1]) * 0.97f - LAT_HEAD_GAP * h, z };
     // the foot: sheeted well above the rail, so a swung sail passes over the deck instead of
     // through it (0.22)
-    float F[3] = { sx + 0.38f * h, dy + 0.21f * h, z }, C[3] = { sx - 0.35f * h, dy + 0.26f * h, z };
+    float F[3] = { sx + LAT_FOOT_X * h, dy + LAT_FOOT_Y * h, z }, C[3] = { sx + LAT_CLEW_X * h, dy + LAT_CLEW_Y * h, z };
     float hw = 0.36f * h;
     for (int i = 0; i < N; ++i) {
         float w0 = i / (float)N, w1 = (i + 1) / (float)N;
@@ -504,9 +520,9 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
     // the foot rope: tack to clew, guiding the bottom of the sail (issue3)
     rig_bar(cord, F, C, roband_w * 1.3f * h, rope_col);
     // the sheet: from the clew down and aft to the rail, and the tack hauled down forward
-    { float sheet[3] = { sx - 0.44f * h, dy + 0.02f * h, z };
+    { float sheet[3] = { sx - 0.54f * h, dy + 0.02f * h, z };
       rig_bar(cord, C, sheet, roband_w * 1.4f * h, rope_col);
-      float tackpt[3] = { sx + 0.34f * h, dy + 0.02f * h, z };
+      float tackpt[3] = { sx + 0.44f * h, dy + 0.02f * h, z };
       rig_bar(cord, F, tackpt, roband_w * 1.4f * h, rope_col); }
 }
 
@@ -520,7 +536,9 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
     int main = 0;
     for (int k = 1; k < nm; ++k) if (c->mast_h[k] > c->mast_h[main]) main = k;
     for (int k = 0; k < nm; ++k) {
-        float top[3] = { sx[k], ty[k], 0 };
+        // 0.22.13 (issue10): ty[] is the real masthead now (shipyard_push measures each station's own
+        // asset from its heel); the standing rigging is made fast at the hounds, a little under it
+        float top[3] = { sx[k], dy + (ty[k] - dy) * 0.965f, 0 };
         // shrouds: three a side from the masthead to the channels, raked a little aft
         for (int i = 0; i < 3; ++i) {
             float f = (i - 1) * 0.055f;
@@ -560,9 +578,9 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
             float mh = ty[k] - dy;
             int code = c->sail[k];
             if (code == SAIL_LATEEN) {
-                float clew[3] = { sx[k] - 0.35f * mh, dy + 0.26f * mh, 0.012f };
+                float clew[3] = { sx[k] + LAT_CLEW_X * mh, dy + LAT_CLEW_Y * mh, 0.012f };
                 for (int side = -1; side <= 1; side += 2) {
-                    float rail[3] = { sx[k] - 0.42f * mh, dy + 0.012f, side * hb * 0.92f };
+                    float rail[3] = { sx[k] - 0.52f * mh, dy + 0.012f, side * hb * 0.92f };
                     rig_rope(rope, clew, rail, RIG_ROPE_W * 1.1f);
                 }
             } else if (code >= SAIL_SQUARE1 && code <= SAIL_SQUARE3) {
@@ -592,7 +610,9 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
         // circles. A spritsail is the opposite shape - a shallow square sail, nearly twice as
         // wide as it is deep, bent to a yard slung *under* the bowsprit (which stands at
         // dy + 0.10, shipyard_push) with its foot well clear of the sea.
-        if (cloth) rig_sail_square(cloth, asset_find("bowsprit") ? NULL : rope, 0.58f, dy + 0.100f, dy + 0.042f, 0.155f);
+        // 0.22.13: it was 0.31 of the hull wide and a twentieth deep - from abeam a white bar lying across
+        // the bow (issue10 battle shots). Half the width, twice the depth: a sail under the spar.
+        if (cloth) rig_sail_square(cloth, asset_find("bowsprit") ? NULL : rope, 0.60f, dy + 0.095f, dy + 0.030f, 0.085f);
     }
     // (the flag is no longer part of this mesh: it is a simulated cloth per ship, flag_push)
 }
@@ -799,6 +819,34 @@ void Shipyard::flag_push(const shipyard_req_t *r, const ship_class_t *c, float s
     shipyard_flags_live++;
 }
 
+// 0.22.13 (issue10 "there are cannons, add them to ships"): which of the imported guns a class
+// carries at her ports (assets/ships/cannons, descriptors gun_*), and how long it is in metres.
+// The carracks mount the long cannon, the northern merchantmen the stone-throwing perrier,
+// the galleys and the small traders swivel guns on the rail. ship_classes.json "gun"/"gun_m"
+// override it per class.
+static const char *gun_role_for(const ship_class_t *c) {
+    if (c->gun && c->gun[0]) return c->gun;
+    if (!c->name) return NULL;
+    if (!strcmp(c->name, "war_carrack") || !strcmp(c->name, "great_carrack")) return "gun_cannon_large";
+    if (!strcmp(c->name, "carrack"))     return "gun_cannon_late15c";
+    if (!strcmp(c->name, "hulk") || !strcmp(c->name, "armed_cog")) return "gun_perrier";
+    if (!strcmp(c->name, "galiot"))      return "gun_swivel_heavy";
+    if (!strcmp(c->name, "fusta") || !strcmp(c->name, "cog") || !strcmp(c->name, "coastal_trader")) return "gun_swivel_light";
+    return c->st.guns >= 16 ? "gun_cannon_large" : "gun_breech_light";
+}
+static float gun_metres_for(const ship_class_t *c, const char *role) {
+    if (c->gun_m > 0.f) return c->gun_m;
+    if (!role) return 2.4f;
+    if (!strcmp(role, "gun_cannon_large")) return 3.2f;
+    if (!strcmp(role, "gun_cannon_late15c")) return 2.8f;
+    if (!strcmp(role, "gun_bombard")) return 3.4f;
+    if (!strcmp(role, "gun_perrier")) return 2.4f;
+    if (!strcmp(role, "gun_breech_light")) return 2.0f;
+    if (!strcmp(role, "gun_swivel_heavy")) return 1.6f;
+    return 1.3f;
+}
+#define GUN_MIN_PX 120.f     // below this the guns are a few pixels and the hull's own gunports carry them
+
 void Shipyard::request_all(void) {
     classes_init();
     for (int i = 0; i < NCLASSES; ++i) {
@@ -812,6 +860,7 @@ void Shipyard::request_all(void) {
             for (int k = 0; k < 3; ++k) { snprintf(role, sizeof role, "%s_m%d", c->masts, k); if ((a = asset_find(role))) asset_request(a); }
         }
         if (c->oars  && (a = asset_find(c->oars)))  asset_request(a);
+        { const char *g = gun_role_for(c); float gm; if (g && (a = asset_find(g))) asset_request(a); (void)gm; }
     }
     // the authored spars: bowsprit, lantina and the split square yards (the sails carry their
     // own procedural stand-in beyond YARD_ASSET_MIN_PX, where a decimated spar is a sliver)
@@ -915,15 +964,25 @@ int Shipyard::push(const shipyard_req_t *r) {
     // stations). Skipped once the ship is small enough that cordage is below a pixel.
     if (lod_px(len * 0.5f, r->camdist) > RIG_MIN_PX) {
         rig_cache_t *rc = &rig_cache[(int)(c - g_classes)];
-        if (!rc->built && mref) {
+        // 0.22.13 (issue10 "rigging to the top of the mast, not above"): the rope tops used the
+        // *main* mast's model height for every station, measured from the deck, while the masts
+        // themselves are each their own model stepped MAST_STEP below it (and lifted on the
+        // castles) - so every shroud and stay ended a fifth of a hull height over its masthead,
+        // and on a mizzen two thirds of the pole over it. Each station is measured from its own
+        // asset now, from the heel, and the mesh is only built once every mast's bounds are in.
+        int masts_ready = mref != NULL;
+        for (int k = 0; k < nm && masts_ready; ++k) { asset_t *mk = mast_asset(c, k); if (!mk || mk->state != ASSET_LOADED || mk->bmax[1] - mk->bmin[1] < 0.05f) masts_ready = 0; }
+        if (!rc->built && masts_ready) {
             float ml = (mref->bmax[0] - mref->bmin[0]) * cscale, ms = MAST_TRIM;
             if (ml > len * MAST_OVERHANG) ms = MAST_TRIM * len * MAST_OVERHANG / ml;
-            float mh = (mref->bmax[1] - mref->bmin[1]) * cscale * ms;   // fitted rig height, world units
+            float mh = (mref->bmax[1] - mref->bmin[1]) * cscale * ms;   // fitted rig height of the main, world units (the log line)
             float sxn[SHIP_MAX_MASTS], tyn[SHIP_MAX_MASTS];
             float dy = (hh * c->deck - water) / len;              // deck above the waterline
             for (int k = 0; k < nm; ++k) {
+                asset_t *mk = mast_asset(c, k);
+                float mhk = (mk->bmax[1] - mk->bmin[1]) * cscale * ms * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);   // this station's pole, heel to truck
                 sxn[k] = c->mast_at[k];
-                tyn[k] = dy + mh * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f) / len;
+                tyn[k] = dy + (mhk - MAST_STEP * hh + stn_lift(k)) / len;   // the truck: the heel is MAST_STEP under the deck
             }
             // half beam from the hull model, but never wider than the class's own beam: a
             // scan with an oar bank or a wide rail would otherwise anchor the shrouds in the sea
@@ -949,9 +1008,9 @@ int Shipyard::push(const shipyard_req_t *r) {
             {
                 float ml = (mref ? (mref->bmax[0] - mref->bmin[0]) * cscale : len), msf = MAST_TRIM;
                 if (ml > len * MAST_OVERHANG) msf = MAST_TRIM * len * MAST_OVERHANG / ml;
-                float mh_main = mref ? (mref->bmax[1] - mref->bmin[1]) * cscale * msf * (c->mast_h[main] > 0.f ? c->mast_h[main] : 1.f) : 0.45f * len;
+                float mh_main = mref ? (mref->bmax[1] - mref->bmin[1]) * cscale * msf * (c->mast_h[main] > 0.f ? c->mast_h[main] : 1.f) - MAST_STEP * hh + stn_lift(main) : 0.45f * len;   // 0.22.13: the truck as it stands, from the heel
                 float dyf = (hh * c->deck - water) / len;
-                float staff_x = c->mast_at[main] - 0.004f, staff_y = dyf + mh_main / len + 0.012f;
+                float staff_x = c->mast_at[main] - 0.004f, staff_y = dyf + mh_main / len + 0.006f;
                 float c_ = cosf(r->heading), s_ = sinf(r->heading);
                 float wwx = wdx * wstr * FLAG_WIND_MS, wwz = wdz * wstr * FLAG_WIND_MS;             // metres per second, world
                 float way = clampf(r->rock, 0.f, 1.2f) * FLAG_WAY_MS;
@@ -997,7 +1056,11 @@ int Shipyard::push(const shipyard_req_t *r) {
             for (int k = 0; k < nm; ++k) {
                 asset_t *mk = mast_asset(c, k);
                 if (!mk) continue;
-                float mh = (mk->bmax[1] - mk->bmin[1]) * msl * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);
+                float mh_full = (mk->bmax[1] - mk->bmin[1]) * msl * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);   // heel to truck
+                // 0.22.13 (issue10): the canvas and the spars are laid out in fractions of the mast
+                // that *stands above the deck* - the heel is MAST_STEP under it - so a layer at 0.96
+                // or a lateen peak at 0.98 is under the truck, where before both stood over it
+                float mh = maxf(mh_full - MAST_STEP * hh, 0.3f * mh_full);
                 float dxk = c->mast_at[k] * len;
                 float bx = r->x + fx * dxk, bz = r->z + fz * dxk;   // the mast axis
                 if (c->sail[k] == SAIL_LATEEN) {
@@ -1024,17 +1087,32 @@ int Shipyard::push(const shipyard_req_t *r) {
                     if (authored) {
                         // the asset's rise is its y extent; scale it to the design line, put its
                         // middle on the line's middle (the model's pivot is its slung point)
-                        float yext = maxf(la->bmax[1] - la->bmin[1], 1e-3f);
-                        float s = (LAT_PEAK_Y - LAT_TACK_Y) * mh / yext * 1.10f;   // 0.22.12: a tenth longer than the design line - the head of the canvas never overhung its ends (issue9 "too small for the sail")
-                        if (s * yext * 1.5f > len * 1.6f) {   // never a spar longer than the hull and a half: log it instead of drawing it
-                            static int warned; if (!warned) { warned = 1; LOG_WARN("gfx", "lateen_yard scale %.2f (extent %.3f, mh %.2f, len %.2f) implausible: spar suppressed", s, yext, mh, len); }
+                        // 0.22.13 (issue10 "the front lateen as wide as the sail and connected to
+                        // it"): the spar was scaled by its *rise* alone (and then a tenth more), so a
+                        // scan raked differently from the design line came out longer or shorter
+                        // than the head it carries, and off it at one end. It is scaled by its true
+                        // length along its own axis to the design line's length, centred on the
+                        // line's middle, and turned in its own plane (inst_t.fx2, the oars' pitch)
+                        // by the difference in rake - so both ends sit on the head's ends, every
+                        // roband is a real lashing, and the canvas is bent to it along its whole length.
+                        float xext = maxf(la->bmax[0] - la->bmin[0], 1e-3f), yext = maxf(la->bmax[1] - la->bmin[1], 1e-3f);
+                        float dline_x = (LAT_TACK_X - LAT_PEAK_X) * mh, dline_y = (LAT_PEAK_Y - LAT_TACK_Y) * mh;
+                        float design_len = sqrtf(dline_x * dline_x + dline_y * dline_y), asset_len = sqrtf(xext * xext + yext * yext);
+                        float s = design_len / asset_len;
+                        if (design_len * 1.1f > len * 1.6f) {   // never a spar longer than the hull and a half: log it instead of drawing it
+                            static int warned; if (!warned) { warned = 1; LOG_WARN("gfx", "lateen_yard scale %.2f (extent %.3f x %.3f, mh %.2f, len %.2f) implausible: spar suppressed", s, xext, yext, mh, len); }
                             continue;
                         }
-                        float acx = (la->bmin[0] + la->bmax[0]) * 0.5f * s, acy = (la->bmin[1] + la->bmax[1]) * 0.5f * s;
+                        // the model's rake (forward is -x: the tack end is +x, the peak -x and up)
+                        float rake_asset = atan2f(yext, xext), rake_design = atan2f(dline_y, dline_x);
+                        float turn = rake_asset - rake_design;
+                        float acx0 = (la->bmin[0] + la->bmax[0]) * 0.5f * s, acy0 = (la->bmin[1] + la->bmax[1]) * 0.5f * s;
+                        float acx = acx0 * cosf(turn) - acy0 * sinf(turn), acy = acx0 * sinf(turn) + acy0 * cosf(turn);   // the box's middle after the turn about the pivot
                         float cx = 0.5f * (LAT_TACK_X + LAT_PEAK_X) * mh - acx, cy = 0.5f * (LAT_TACK_Y + LAT_PEAK_Y) * mh - acy;
                         inst_t yi = in;
                         yi.heading = sw; yi.scale = s;
                         yi.x = bx + sfx * cx; yi.z = bz + sfz * cx; yi.y = deck_y2 + cy + stn_lift(k);
+                        yi.fx2 = turn;   // turned about its own middle to the design rake (meshes.vert rigid pitch); the sign follows -x forward: a steeper model is eased down
                         yi.ax = r->x; yi.az = r->z;
                         yi.r = 1.f; yi.g = 1.f; yi.b = 1.f;
                         scene_asset_instance(la, yi, r->key ^ (unsigned)(0x71A3u + k * 0x53u), r->camdist);
@@ -1097,6 +1175,44 @@ int Shipyard::push(const shipyard_req_t *r) {
                     scene_asset_instance(bs, bi, r->key ^ 0x3B5Au, r->camdist);
                 }
             }
+        }
+    }
+
+    // The guns (0.22.13, issue10): one authored gun at every port on both sides, on the same
+    // stations the broadside's flashes come from (gfx/particles.cc broadside: half the class's
+    // guns a side along the middle two thirds of the hull), pointing outboard, their carriages
+    // on the gun deck a little under the weather deck - the swivel guns of the small craft on
+    // the rail itself. Rigid to the hull like the masts (anchor, roll, pitch). Only while the
+    // ship is large on screen; the hull's own painted ports carry them further off.
+    if (lod_px(len * 0.5f, r->camdist) > GUN_MIN_PX) {
+        const char *grole = gun_role_for(c);
+        asset_t *gun = grole && asset_find(grole) ? asset_get_role(ASSET_SHIP_PART, grole) : NULL;
+        if (gun && gun->state == ASSET_LOADED && gun->bmax[0] - gun->bmin[0] > 0.05f) {
+            int swivel = strstr(grole, "swivel") != NULL;
+            int nside = (int)clampf((float)c->st.guns * 0.5f, 1.f, 18.f);
+            float gm = gun_metres_for(c, grole);
+            float gscale = gm / maxf(c->length_m, 5.f) * len / maxf(gun->bmax[0] - gun->bmin[0], 0.05f);   // the asset is a unit length along the barrel
+            float hbw = minf((hull->bmax[2] - hull->bmin[2]) * cscale * 0.5f, 0.5f * c->st.beam_m / c->length_m * len * 1.05f);   // half beam, world units
+            // MARE_GUN_OUT / MARE_GUN_UP / MARE_GUN_SCALE: tuning knobs for a screenshot run (multipliers)
+            static float k_out = -1.f, k_up = 1.f, k_sc = 1.f;
+            if (k_out < 0.f) { k_out = 1.f; const char *e; if ((e = getenv("MARE_GUN_OUT"))) k_out = (float)atof(e); if ((e = getenv("MARE_GUN_UP"))) k_up = (float)atof(e); if ((e = getenv("MARE_GUN_SCALE"))) k_sc = (float)atof(e); }
+            gscale *= k_sc;
+            float out = (swivel ? hbw * 1.00f : hbw * 0.90f) * k_out;   // a carriage gun stands with its muzzle through the port (the hull models' bulwarks are thick); a swivel on the rail
+            float gy = -water + hh * c->deck * (swivel ? 1.04f : 0.97f) * k_up;
+            float half = 0.34f * len;
+            for (int side = -1; side <= 1; side += 2) {
+                for (int g = 0; g < nside; ++g) {
+                    float along = nside > 1 ? -half + 2.f * half * (float)g / (float)(nside - 1) : 0.f;
+                    inst_t gi = in;
+                    gi.x = r->x + fx * along + sx * out * side; gi.z = r->z + fz * along + sz * out * side; gi.y = gy;
+                    gi.heading = r->heading - side * 1.5708f;    // the barrel outboard (heading 0 = +x forward; starboard is heading - 90 degrees)
+                    gi.scale = gscale; gi.slim = 0.f; gi.sel = 0.f;
+                    gi.r = 1.f; gi.g = 1.f; gi.b = 1.f;
+                    gi.ax = r->x; gi.az = r->z;
+                    scene_asset_instance(gun, gi, r->key ^ (unsigned)(0x6D2Bu + g * 2 + (side > 0)), r->camdist);
+                }
+            }
+            shipyard_guns_drawn += 2 * nside;
         }
     }
 

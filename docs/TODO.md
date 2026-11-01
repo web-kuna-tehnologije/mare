@@ -625,3 +625,24 @@ mizzens; ignore the hull distortion). Both live in `C:\projects\mare\assets`.
 - [ ] The shared `assets/terrain/tiles` folder is contested between sessions (its height.json
       was overwritten mid-session by the other worktree); everything here now reads the
       per-worktree copy, but the shared folder should eventually be retired.
+
+## issue10 (assets/issues/issue10, 0.22.13) - rows 77-98 of docs/todo_list.md
+
+Done: the asset store sorted to one tree (`assets/generated`, `assets/README.md`); the world
+package unpacked, verified and read; `GC_HEIGHT_SCALE` 12; seven cannons imported and stood at
+the ports; the smoke/fire/foam sheets as RGBA atlases in the puff shader; the blast ring smaller,
+higher, less white; the canopy as trees only; the fields back as paint; orchards and vineyards as
+props; hamlets and three farm villages a region; rope tops at the mastheads per station, the
+lateen peak at the truck, the lantina as long as its head; the wake's geometry to 4.4 L and the
+trail fading and spreading; the menu backdrop a soft blur. Found: `ship_classes.json` never
+applied (fixed), HEAD not linking (fixed), foam tiles missing (cut again).
+
+- [ ] **Rivers from the package.** `assets/data_new/mare-world-terrain/chunks/{y}/{x}/waterways.geojsonl`
+      (NDJSON `LineString`s in lon/lat with `from_upstream_m`): read per resident chunk in
+      `world/terrain_chunks.cc`, project with the chunk, hand `world/rivers.cc` the polylines in
+      place of the drainage network, then carving and the navigable reaches (item 5 above).
+- [ ] The terraced ranges at 12: a finer DEM (roadmap 1) or a slope-aware resample of the samples.
+- [ ] Fleet icons at the hinterland zoom (todo 94).
+- [ ] Gun ports from the hull mesh (todo 97); a ray-marched smoke slab (todo 95).
+- [ ] `assets/elm` -> `assets/generated` in `game/docs/*.md` and the older TODO sections above
+      (the code probes both; the docs still say elm).

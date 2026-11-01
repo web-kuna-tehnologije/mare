@@ -19,7 +19,7 @@ typedef struct gjtok_t { unsigned char type; int start, len; int ntok, nchild; }
 typedef struct gjson_t { const char *s; int n; gjtok_t *t; int ntok, cap; } gjson_t;
 
 // The parser is defined once in gjson.cc; these are the names every call site already uses.
-int    gjson_parse(gjson_t *j, const char *s, int n);   // 1 on success; free(j->t) when done
+int    gjson_parse(gjson_t *j, const char *s, int n);   // 0 on success, -1 on failure (test `< 0`); free(j->t) when done
 int    jget(const gjson_t *j, int obj, const char *key);
 int    jlen(const gjson_t *j, int arr);
 int    jat(const gjson_t *j, int arr, int idx);

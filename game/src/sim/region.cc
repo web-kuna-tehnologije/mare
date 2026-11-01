@@ -74,7 +74,12 @@ void RegionSim::setup() {
         R->prosperity = 1; for (int g = 0; g < MAX_GOODS; ++g) { R->export_pool[g] = 0; R->import_need[g] = 0; }
         // initial inland settlements: rare deposits (pins/noise) where the region is at least frontier, plus one farm in settled regions
         for (int g = G_IRON; g <= G_GOLD; ++g) if (R->potential[g] >= 0.8f && R->development >= 1) { int i = found_inland(r, g, INLAND_MINE, -1, 0); if (i >= 0) G.inland[i].pop = 1 + R->potential[g]; }
-        if (R->development >= 2) { int bg = -1; float bp = 0; for (int g = 0; g < G_IRON; ++g) if (is_staple(g) && g != G_FISH && R->potential[g] > bp) { bp = R->potential[g]; bg = g; } if (bg >= 0) found_inland(r, bg, INLAND_FARM, -1, 0); }
+        // 0.22.13 (issue10 "random villages in the hinterlands are missing"): a settled region
+        // founds three farm villages, a frontier one with a port of some size one; inland_spot
+        // keeps them 3 units apart, roads.cc routes each to its port, scatter.cc gives each a mill
+        { int bg = -1; float bp = 0; for (int g = 0; g < G_IRON; ++g) if (is_staple(g) && g != G_FISH && R->potential[g] > bp) { bp = R->potential[g]; bg = g; }
+          int nfarm = R->development >= 2 ? 3 : R->development >= 1 ? 1 : 0;
+          for (int k = 0; k < nfarm && bg >= 0; ++k) if (found_inland(r, bg, INLAND_FARM, -1, 0) < 0) break; }
     }
     regions_refresh_devmap();
     LOG_INFO("regions", "%d regions populated, %d inland settlements", G.nregions, G.ninland);

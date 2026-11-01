@@ -1,5 +1,116 @@
 # Changelog
 
+## 0.22.13 — the tenth issues folder: the asset store sorted, the world package, cannons on the ships, sheets in the smoke, the rig at the mastheads
+
+From `assets/issues/issue10` (`issue.txt`, the menu video "too much blur").
+
+### The asset store (`/assets`, not in git)
+- **Sorted and deduplicated** (`assets/README.md` is the map). One authored tree, `assets/generated/`
+  (the name the other worktree gave the former `assets/elm`; the game probes `assets/generated`,
+  then `assets/elm`, then `game/assets`). Gone: the `oak/`, `elm_lod/` trees (the same assets at an
+  earlier import), `ships_clean/` and the sixteen `Meshy_AI_*` hull folders (three byte-identical
+  copies of every hull GLB; `ships/<name>/<name>.glb` stays with a `source.txt`), `ships/rigging/`
+  (four copies of the sail sheets), the root galley blends (in `ships/light_galley_gen_1`), the
+  `(1)` duplicates of the sea sheets, `oak_terrain/` (an obsolete L2 tile cut), and a 2.8 GB
+  regenerated normal map. `sea/sea__new` is `sea/sheets`; `FOAM/` + `foam/new/` are
+  `ships/foam/{photos,masks}` (the six sheets restored from the Downloads folder after the
+  case-insensitive rename ate them); root images and `example/` are `reference/`. 15 GB from 24.
+- **The terrain package** `mare-world-terrain.zip` (the `new_terrain_data_v2` delivery) is unpacked
+  and SHA-256 verified under `assets/data_new/mare-world-terrain/` - 378 chunks, biomes, splat,
+  normals and, for the first time, **rivers** (`waterways.geojsonl`, 115 chunks). The reader finds
+  it as it is (`mare-terrain-v2`); the zip is gone.
+- **The repo tree.** The WIP merge had re-added the retired `world/geochunks.*` and
+  `gfx/chunkatlas.*` beside their renamed successors, so the CMake build failed to link and the
+  two headless suites that include `world.cc` could not resolve `geochunks_height_scale_rel`.
+  Both pairs are removed; the suites get the ratio as a stub. **MSVC build green, 7/7 suites.**
+
+### The world (issue10 "increase to 12 height of elevation")
+- `GC_HEIGHT_SCALE` 5 -> 12 (`MARE_HEIGHT_SCALE` still overrides). Every threshold follows through
+  `geochunks_height_scale_rel()` as before. At this scale the 2.8 km sample grid shows as terraces
+  on the ranges: the finer DEM is the next data item (roadmap 1).
+
+### The hinterland
+- **The canopy is trees only.** The painted crown noise and its tilted normal are gone from
+  `terrain.frag`; a wood is the instanced trees of `gfx/scatter.cc` on the forest colour, with a
+  faint ground mottle between the trunks.
+- **The fields are back, without props.** The cropland of the open lowland has a floor of 0.55
+  under the settlement halo again (issue9 had confined it to the halo and the roads), and the
+  standing wheat is off (`wheat = 0`); the parcels are paint.
+- **Orchards and vineyards as props.** Orchards ring the villages twice as wide and stand in the
+  open fields in patches; vines take more of the sunny slopes and no longer need a village beside
+  them; the scatter stands them from land-use 70 / 80 (was 90 / 110), ahead of the woods.
+- **Random villages in the hinterland.** Two ways: the land-use bake seeds a hamlet in every few
+  2.2-unit cells of gentle, low, workable ground (a built disc of its own, houses from the scatter,
+  roofs from the shader); and `sim/region.cc` founds three farm villages in a settled region (one
+  in a frontier one) instead of one, so roads and mills come with them.
+
+### The ships
+- **Cannons.** The seven Meshy guns under `assets/ships/cannons` (large naval cannon, late-15th-c.
+  cannon, heavy bombard, naval perrier, light breech-loader, heavy and light swivel) are imported
+  as `gun_*` ship parts (150k-tri LOD 0, six LODs, unit length along the barrel) and stood at
+  every port on both sides - the same stations the broadside's flashes come from - pointing
+  outboard, rigid to the hull. The class picks its gun (`gun_role_for`: carracks the cannon, the
+  northern merchantmen the perrier, galleys and small traders swivels on the rail); the class file
+  can override it (`"gun"`, `"gun_m"`). `GUN_MIN_PX 120`.
+- **The class file is live.** `ship_classes.json` had never been applied: the parse test was
+  inverted (`gjson_parse` returns 0 on success), so every run since 0.22.6 logged "is not valid
+  JSON" over a valid file and sailed the built-in table. Fixed; the per-class `mast_h`, `sails` and
+  the rest now take effect.
+- **The rig at the mastheads** (issue10 "lateen and masts and rigging to go to the top of the
+  mast, not above"). The rope tops used the *main* mast's model height for every station, measured
+  from the deck, while the masts are their own models stepped `MAST_STEP` below it and lifted on
+  the castles - every shroud and stay ended a fifth of a hull height over its truck, a mizzen's
+  two thirds of the pole over it. Each station is measured from its own asset, from the heel; the
+  standing rigging is made fast at the hounds (0.965 of the pole); the cordage mesh waits until
+  every mast's bounds are in; the flag staff follows. The square layers and the lateen are laid
+  out in fractions of the mast *above the deck*, so the 0.96 topgallant and the lateen peak stand
+  under the truck.
+- **The lateen** (issue10 "the front lateen as wide as the sail and connected to it"). The design
+  line is re-cut with the peak at the masthead (`LAT_PEAK_Y` 0.98, tack 0.40 forward and 0.16 up,
+  clew and foot moved with it); the authored lantina is scaled by its true length to the line's
+  length (not by its rise and a tenth more), centred on the line's middle and turned in its own
+  plane to the design rake (`inst_t.fx2`), so both ends sit on the head's ends and every roband is
+  a lashing. The same path serves the galleys' fore lateen.
+- **The spritsail** was 0.31 of the hull wide and a twentieth deep - a white bar across the bow
+  from abeam. Half the width, twice the depth.
+
+### The effects (issue10 "there are smoke, fire and foam images - use them; make volumetric smoke")
+- **Sprite atlases.** `tools/fx_sprites.py` (numpy + Pillow) cuts the Meshy sheets into RGBA atlases:
+  smoke 2x2, fire 4x2, foam masks 2x2 (`<assets>/fx/*_atlas.png`). The sheets are flat grey with a
+  faint checker, so the cover is the pixel's distance from that grey (chroma for the flames, glow
+  for the dark sheets), the background unmixed from the colour, frames centred on their alpha.
+- **The texture loader decodes RGBA** when the format asks for it (`RHI_FMT_SRGB8_A8`).
+- **The puff shader** samples them: the smoke sheet's cover is the puff's shape (the 3D noise still
+  erodes and churns it), its luminance the volume's own light and shade, and the gradient of its
+  cover bends the sphere normal so the billows are lit as billows; the flash carries a fire frame
+  over the procedural core; the ring and the spray are broken up by the foam masks. Units 8-10.
+- **The blast ring** (issue10 "less white, waves bigger, maybe less distance"): runs out 1.6 hull
+  lengths (was 2.3), lifts the water 0.085 (was 0.035), whitens at 0.14 with a 0.16 cap (was 0.30 /
+  0.34) and only where the foam tile breaks.
+- **The shockwave's radial blur** halved (`tonemap.frag`).
+
+### The sea (issue10 "waves like wake.png as an actual 3D wave"; "foam should fade out, be less opaque, spread slowly")
+- The wake's geometry was cut off at 1.55 hull lengths while its foam ran to 5: the arms now run
+  to ~4.4 L (eased out before the early-out), their crests half as high again (0.052 L), the inboard
+  trough deeper, the left trail's chop a little stronger.
+- The wake map: `WAKE_TAU` 28 -> 20 s, `WAKE_DIFF` 0.55 -> 3.5 texels/s with a two-ring diffusion
+  kernel (the cone opens now), the white (R) decays faster than the churn (G); in the fragment stage
+  the trail's white follows the map value (`smoothstep(0.03, 0.90)`) instead of holding at full to
+  0.55, with a 0.42 ceiling (was 0.62).
+- The **foam tiles** are cut again from the restored sheets (`tools/foam_tiles.py`, new paths):
+  `foam_wake/streak/crest/lane.png` in `game/assets/sea` - they had been missing from this tree,
+  so the wake and the blast ring were falling back to constants.
+
+### The menu (the video)
+- The backdrop blur was the HDR frame at a quarter size through eight blur passes: a grey smear.
+  Half size, one pair of passes, mixed at 0.7 and darkened 16% (was 22%).
+
+### Process
+- Mirror `C:\projects\mare_oak_20261101_173707` with a junction `assets -> C:\projects\mare\assets`;
+  `tools/vid_frames.py` decodes the issue videos through Blender; `tools/fx_sprites.py` runs with the
+  Windows Python (numpy). The asset store is shared with the other worktree's session, which renamed
+  `elm` -> `generated` mid-round; both names are probed.
+
 ## 0.22.12 — the ninth issues folder: a gentler world, a working hinterland, the V of the wake, the rig heeling with the hull
 
 From `assets/issues/issue9` (`issue.txt`, two screenshots, the rigging video).

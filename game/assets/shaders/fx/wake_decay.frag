@@ -5,8 +5,12 @@
 in vec2 v_uv; out vec4 fragColor;
 uniform sampler2D u_src; uniform vec2 u_texel; uniform float u_fade;
 void main(){
-  vec4 c = texture(u_src, v_uv) * 0.52;
-  c += texture(u_src, v_uv + vec2(u_texel.x, 0.0)) * 0.12 + texture(u_src, v_uv - vec2(u_texel.x, 0.0)) * 0.12;
-  c += texture(u_src, v_uv + vec2(0.0, u_texel.y)) * 0.12 + texture(u_src, v_uv - vec2(0.0, u_texel.y)) * 0.12;
-  fragColor = c * u_fade;
+// 0.22.13: a wider cross (two texel rings) so the spread is a real diffusion, and the churn
+// (G) outlives the white (R) a little less: the foam goes first, the disturbed water after
+  vec4 c = texture(u_src, v_uv) * 0.40;
+  c += (texture(u_src, v_uv + vec2(u_texel.x, 0.0)) + texture(u_src, v_uv - vec2(u_texel.x, 0.0))
+      + texture(u_src, v_uv + vec2(0.0, u_texel.y)) + texture(u_src, v_uv - vec2(0.0, u_texel.y))) * 0.10;
+  c += (texture(u_src, v_uv + vec2(u_texel.x, u_texel.y)) + texture(u_src, v_uv - vec2(u_texel.x, u_texel.y))
+      + texture(u_src, v_uv + vec2(u_texel.x, -u_texel.y)) + texture(u_src, v_uv - vec2(u_texel.x, -u_texel.y))) * 0.05;
+  fragColor = vec4(c.r * u_fade * u_fade, c.g * u_fade, c.ba * u_fade);
 }

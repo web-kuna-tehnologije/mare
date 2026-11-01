@@ -268,7 +268,7 @@ void SceneBuilder::ship_station(const fleet_t *f, int s, float x, float z, float
 void SceneBuilder::build_ships(void) {
     cam_frustum(frustum);
     scene_culled_ships = scene_occluded_ships = 0;
-    shipyard_oars_drawn = shipyard_ships_drawn = shipyard_fallbacks = 0;
+    shipyard_oars_drawn = shipyard_ships_drawn = shipyard_fallbacks = shipyard_guns_drawn = 0;
     shipyard_frame_begin();
     int occ = occlusion_active();
     int battle_lod0_budget = BATTLE_DETAIL_MAX;

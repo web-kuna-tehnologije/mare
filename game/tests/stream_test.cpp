@@ -19,6 +19,10 @@
 #include "../src/core/diag.h"      // linked from src/core/diag.cc
 #include "../src/data/tables.cc"   // the gameplay tables are defined once (0.21)
 #include "../src/core/log.cc"
+// world.cc scales the procedural relief by the terrain package's height scale (0.22.12); the
+// package reader (world/terrain_chunks.cc) is not part of this headless build, so the ratio is
+// given here as the default the game uses (12 / 16, 0.22.13)
+extern "C" float geochunks_height_scale_rel(void) { return 12.f / 16.f; }
 #include "../src/world/world.cc"
 #include "../src/world/stream.cc"
 

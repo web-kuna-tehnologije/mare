@@ -117,7 +117,10 @@ void Hdr::bloom_pass() {
 // mixed over the sharp frame in the tonemap by `blur_`.
 void Hdr::blur_pass() {
     if (!hdr_target.fbo || blur_ <= 0.001f) return;
-    int w = hdr_target.w / 4 > 0 ? hdr_target.w / 4 : 1, h = hdr_target.h / 4 > 0 ? hdr_target.h / 4 : 1;
+    // 0.22.13 (issue10 video "too much blur"): the backdrop was a quarter-size frame blurred
+    // eight times - a grey smear with nothing of the battle left in it. Half size, one
+    // horizontal + vertical pair, and the tonemap mixes it at 0.7 so hulls and sails read.
+    int w = hdr_target.w / 2 > 0 ? hdr_target.w / 2 : 1, h = hdr_target.h / 2 > 0 ? hdr_target.h / 2 : 1;
     if (menu_a.w != w || menu_a.h != h) {
         if (menu_a.fbo) rhi_target_free(&menu_a);
         if (menu_b.fbo) rhi_target_free(&menu_b);
@@ -126,11 +129,11 @@ void Hdr::blur_pass() {
     }
     rhi_pipeline_bind(&blur_prg);
     const rhi_texture_t *src = &hdr_target.color;
-    for (int pass = 0; pass < 8; ++pass) {           // four horizontal + vertical pairs
+    for (int pass = 0; pass < 2; ++pass) {           // one horizontal + vertical pair (was four, 0.22.11)
         rhi_target_t *dst = (pass & 1) ? &menu_a : &menu_b;
         rhi_target_begin(dst, 0, 0, 0);
         rhi_set_i1(UNI(blur_prg, "u_src"), 0); rhi_texture_bind(0, src);
-        rhi_set_f2(UNI(blur_prg, "u_dir"), (pass & 1) ? 0.f : 1.4f / w, (pass & 1) ? 1.4f / h : 0.f);
+        rhi_set_f2(UNI(blur_prg, "u_dir"), (pass & 1) ? 0.f : 1.0f / w, (pass & 1) ? 1.0f / h : 0.f);
         rhi_draw(&fs_tri, 0);
         src = &dst->color;
     }

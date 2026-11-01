@@ -277,7 +277,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
     for (int j = 1; j + 1 < res && total < SCATTER_MAX; ++j) for (int i = 1; i + 1 < res && total < SCATTER_MAX; ++i) {
         const unsigned char *t = lu + ((size_t)j * res + i) * 4;
         int R = t[0], Gm = t[1], B = t[2], A = t[3], F = forest ? forest[(size_t)j * res + i] : 0;
-        if (B < 90 && Gm < 110 && A < 110 && F < 60 && !(R > 20 && R < 120)) continue;
+        if (B < 70 && Gm < 80 && A < 110 && F < 60 && !(R > 20 && R < 120)) continue;   // 0.22.13: orchards from 70, vines from 80 (were 90 / 110)
         float wx = x0 + i * step, wz = z0 + j * step;
         float lon = x2lon(wx), lat = z2lat(wz);
         float medb = smoothstep_(35.f, 37.f, lat) * (1.f - smoothstep_(45.5f, 47.5f, lat)) * smoothstep_(-10.f, -6.f, lon) * (1.f - smoothstep_(36.f, 40.f, lon));
@@ -299,7 +299,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             }
             continue;
         }
-        if (F >= 60 && B < 90) {   // the woods (0.22.5): a tree on most forest texels, pines high up and in the north
+        if (F >= 60 && B < 70 && Gm < 80) {   // the woods (0.22.5): a tree on most forest texels, pines high up and in the north (0.22.13: never over an orchard or a vineyard)
             float hp = hash2(i * 0.527f + 0.7f, j * 0.911f + 0.3f);
             if (hp < clampf(WOOD_P * scatter_density, 0.f, 1.f) * (F / 255.f)) {
                 float ox = (hash2(i + 21.f, j + 21.f) - 0.5f) * step, oz = (hash2(i + 22.f, j + 22.f) - 0.5f) * step;
@@ -332,7 +332,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
         }
         // Bare steep ground: boulders and scree blocks (0.22.6, TODO 8c). No land use, no wood -
         // a crag or a canyon rim - and the ring's own slope decides.
-        if (R < 20 && Gm < 110 && B < 90 && A < 110 && F < 60) {
+        if (R < 20 && Gm < 80 && B < 70 && A < 110 && F < 60) {
             float hx = ground(wx + step, wz) - ground(wx - step, wz), hz = ground(wx, wz + step) - ground(wx, wz - step);
             float slope = sqrtf(hx * hx + hz * hz) / (2.f * step);
             if (slope > 0.45f && hash2(i * 0.337f + 1.1f, j * 0.713f + 2.3f) < 0.07f) {
@@ -343,7 +343,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             }
             continue;
         }
-        if (B >= 90) {   // orchards and groves: one tree per TREE_CELL of the district grid
+        if (B >= 70) {   // orchards and groves: one tree per TREE_CELL of the district grid (0.22.13: from 70)
             float qx = wx * ca - wz * sa, qz = wx * sa + wz * ca;
             float gx = floorf(qx / TREE_CELL), gz = floorf(qz / TREE_CELL);
             long long key = ((long long)(int)gx * 73856093LL) ^ ((long long)(int)gz * 19349663LL) ^ ((long long)(int)dcx * 83492791LL) ^ ((long long)(int)dcz * 2654435761LL);
@@ -351,7 +351,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                 float jx = (hash2(gx + 1.f, gz + 1.f) - 0.5f) * 0.5f, jz = (hash2(gx + 2.f, gz + 2.f) - 0.5f) * 0.5f;
                 float cqx = (gx + 0.5f + jx) * TREE_CELL, cqz = (gz + 0.5f + jz) * TREE_CELL;
                 float tx = cqx * ca + cqz * sa, tz = -cqx * sa + cqz * ca;
-                if (lu_at(tx, tz, 2) >= 90) {   // the tree stands inside the grove
+                if (lu_at(tx, tz, 2) >= 70) {   // the tree stands inside the grove
                     float h = ground(tx, tz);
                     if (h > 0.04f) {
                         float s = TREE_H * (0.8f + 0.4f * hash2(gx + 3.f, gz + 3.f));
@@ -360,7 +360,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                     }
                 }
             }
-        } else if (Gm >= 110) {   // vineyards (0.22.11): *rows* - bushes at a fixed spacing along
+        } else if (Gm >= 80) {   // vineyards (0.22.11): *rows* - bushes at a fixed spacing along (0.22.13: from 80)
             // lines that follow the contour, one row per VINE_ROW across the slope - not a bush
             // dropped at random on half the texels. The row frame comes from the slope at the
             // texel; the row lines are quantised in that frame so neighbouring texels agree.
@@ -378,7 +378,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                 float along0 = (wx - step * 0.5f) * dx + (wz - step * 0.5f) * dz;
                 for (float aa = ceilf(along0 / VINE_GAP) * VINE_GAP; aa < along0 + step; aa += VINE_GAP) {
                     float vx_ = dx * aa + ux * rr, vz_ = dz * aa + uz * rr;
-                    if (lu_at(vx_, vz_, 1) < 110) continue;
+                    if (lu_at(vx_, vz_, 1) < 80) continue;
                     float h = ground(vx_, vz_);
                     if (h > 0.04f) { *instlist_push(&li_vine) = inst(vx_, h - 0.002f, vz_, heading, VINE_H * (0.9f + 0.2f * hash2(rr * 97.f, aa * 131.f))); total++; }
                 }
@@ -419,7 +419,8 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             // standing grain (0.22.11): the field is *full* of it - a clump every WHEAT_GAP on a
             // jittered grid - not a tuft on one texel in twenty. Only the grain parcels (the
             // shader paints R 60-120 as crops, lower as ploughed/pasture).
-            if (R >= 60) {
+            const int wheat = 0;   // 0.22.13 (issue10 "return fields but without props"): the parcels are paint again; the standing grain of 0.22.11 is kept for the day it comes back
+            if (wheat && R >= 60) {
                 const float WHEAT_GAP = 0.019f;   // 0.22.12: closer (issue9 "reduce crop sizes, increase density")
                 for (float gx_ = ceilf((wx - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gx_ < wx + step * 0.5f && total < SCATTER_MAX; gx_ += WHEAT_GAP)
                     for (float gz_ = ceilf((wz - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gz_ < wz + step * 0.5f && total < SCATTER_MAX; gz_ += WHEAT_GAP) {

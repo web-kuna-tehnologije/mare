@@ -405,8 +405,11 @@ void main(){
       float fw1 = u_has_foamw > 0.5 ? texture(u_foamw, p * 0.55 + u_drift1 * 0.35).r : 0.55;
       float fw2 = u_has_foamw > 0.5 ? texture(u_foamw, p * 1.9 + u_drift2 * 0.6 + vec2(0.31, 0.77)).r : 0.55;
       float brk = smoothstep(0.30, 0.80, mix(fw1, fw2, 0.45) * (0.75 + 0.5 * fw2));
-      float trail = smoothstep(0.10, 0.55, wk.x) * (0.25 + 0.75 * brk) + wk.y * 0.08 * brk;   // 0.22.11: dense where the churn is, nothing where it is faint (issue8 "less foam, more concentrated")
-      shipk *= 1.0 - clamp(trail * 0.62, 0.0, 0.62);
+// 0.22.13 (issue10 "foam from the wake should fade out, be less opaque and spread slowly while
+// it fades"): the trail's white follows the map value itself - a fresh churn is dense, an old one
+// thin - instead of holding at full until the value dropped under 0.55; the ceiling is 0.42
+      float trail = smoothstep(0.03, 0.90, wk.x) * (0.20 + 0.80 * brk) + wk.y * 0.06 * brk;
+      shipk *= 1.0 - clamp(trail * 0.42, 0.0, 0.42);
     }
   }
 // The blast rings (0.22.9, issue6 "a light transparent white circle, more opaque on the side
@@ -422,7 +425,7 @@ void main(){
     float hole = smoothstep(u_blastdir[i].z * 0.6, u_blastdir[i].z, r);
     float ring = exp(-pow((r - R) / w, 2.0));
     float tex = u_has_foamw > 0.5 ? smoothstep(0.25, 0.8, texture(u_foamw, p * 1.3 + vec2(0.13, 0.52)).r) : 0.6;
-    shipk *= 1.0 - clamp(u_blast[i].w * side * hole * ring * (0.45 + 0.75 * tex) * 0.30, 0.0, 0.34);
+    shipk *= 1.0 - clamp(u_blast[i].w * side * hole * ring * (0.25 + 0.95 * tex) * 0.14, 0.0, 0.16);   // 0.22.13 (issue10 "less white"): the ring is mostly the lifted water now; the white only where the foam tile breaks
   }
   float shipf = (1.0 - shipk) * detail;
 // 0.22.11 (issue8 "missing crest and foam on top of waves"): under a fog or a low sun the

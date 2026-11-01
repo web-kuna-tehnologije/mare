@@ -3,16 +3,16 @@
 
     python3 -I tools/foam_tiles.py <ships_dir> <out_dir>
 
-Reads <ships_dir>/foam/new (the masks) and <ships_dir>/FOAM (the photographs) and writes,
+Reads <ships_dir>/foam/masks (the masks) and <ships_dir>/foam/photos (the photographs) and writes,
 into <out_dir> (normally <assets>/sea):
 
-    foam_wake.png    the churn astern and the cut-water      <- foam/new, first mask
-    foam_streak.png  the finer lapping along the hull         <- foam/new, second mask
-    foam_crest.png   the whitecaps and the collapsing crests  <- FOAM, the tileable photograph
-    foam_lane.png    the streaks drawn out along the track    <- FOAM, the labelled sheet's streak panel
+    foam_wake.png    the churn astern and the cut-water      <- foam/masks, first mask
+    foam_streak.png  the finer lapping along the hull         <- foam/masks, second mask
+    foam_crest.png   the whitecaps and the collapsing crests  <- foam/photos, the tileable photograph
+    foam_lane.png    the streaks drawn out along the track    <- foam/photos, the labelled sheet's streak panel
 
 0.22.10 (issue7). The 0.22.9 cut worked from sailcloth sheets that had been dropped into the
-folder by mistake; these are the real thing. The two masks in foam/new are white foam rendered
+folder by mistake; these are the real thing. The two masks in foam/masks are white foam rendered
 over a grey *checkerboard* (an alpha image flattened onto a checker), so the checker has to
 come out first: its period is found by looking for the lattice whose per-phase means vary
 most, that lattice mean is subtracted, and what is left is the foam. The photograph is only
@@ -145,8 +145,8 @@ def main(argv):
     if len(argv) < 3: print(__doc__); return 2
     ships, out = argv[1], argv[2]
     os.makedirs(out, exist_ok=True)
-    new = pngs(os.path.join(ships, 'foam', 'new'))
-    old = pngs(os.path.join(ships, 'FOAM'))
+    new = pngs(os.path.join(ships, 'foam', 'masks'))     # 0.22.13: assets/ships/foam/{masks,photos} (was foam/new and FOAM)
+    old = pngs(os.path.join(ships, 'foam', 'photos'))
     if len(new) >= 1: mask_tile(new[0], os.path.join(out, 'foam_wake.png'), 'foam_wake')
     if len(new) >= 2: mask_tile(new[1], os.path.join(out, 'foam_streak.png'), 'foam_streak')
     # the photographs: the tileable one is the one with the higher mean (white foam on grey

@@ -456,7 +456,11 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             float patch  = world_fbm(lon * 9.f + 2.f, lat * 9.f + 4.f, 2, 0x4C11u);
             float patch2 = world_fbm(lon * 21.f + 6.f, lat * 21.f + 1.f, 2, 0x2E53u);
             // fields: cropland on gentle low ground, thickest round the villages and along the roads
-            float fields = crop * gentle * low * maxf(near_set, 0.55f * near_road * (1.f - smoothstep_(0.25f, 0.45f, rdd))) * (0.72f + 0.28f * smoothstep_(0.35f, 0.6f, patch));
+            // 0.22.13 (issue10 "return fields, but without props"): the open lowland is worked land
+            // again wherever the data calls it crops or grass and the ground is gentle - a floor of
+            // 0.55 under the halo, which still makes the country round a village and along a road
+            // the thickest; the standing wheat is gone from gfx/scatter.cc, so the parcels are paint
+            float fields = crop * gentle * low * maxf(0.55f, maxf(near_set, 0.55f * near_road * (1.f - smoothstep_(0.25f, 0.45f, rdd)))) * (0.72f + 0.28f * smoothstep_(0.35f, 0.6f, patch));
             // the region's goods decide what grows on the slopes
             int reg = region_at(wx, wz);
             float wine_pot = reg >= 0 && reg < G.nregions ? G.regions[reg].potential[G_WINE] : 0.f;
@@ -468,9 +472,9 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             float sunny = clampf(0.45f + 3.0f * aspect_s, 0.f, 1.f);
             float vine = wine * smoothstep_(0.06f, 0.16f, slope) * (1.f - smoothstep_(0.5f, 0.8f, slope)) * sunny
                        * (1.f - smoothstep_(0.9f * hsr, 1.6f * hsr, hgate)) * (crop >= 0.25f ? 1.f : 0.35f)
-                       * smoothstep_(0.52f, 0.62f, patch2) * (0.5f + 0.5f * near_set);
+                       * smoothstep_(0.46f, 0.58f, patch2) * (0.75f + 0.25f * near_set);   // 0.22.13 (issue10 "add vineyards as props"): more of the sunny slopes, not only beside the villages
             // orchards round the villages; olive groves across the Mediterranean belt's slopes
-            float orch  = (1.f - smoothstep_(rs * 1.2f, rs * 1.2f + 0.55f, ds)) * gentle * low * (crop > 0.05f ? 1.f : 0.f) * smoothstep_(0.54f, 0.64f, patch2 * 0.6f + patch * 0.4f);
+            float orch  = maxf(1.f - smoothstep_(rs * 1.2f, rs * 1.2f + 1.1f, ds), 0.45f * smoothstep_(0.60f, 0.68f, patch2)) * gentle * low * (crop > 0.05f ? 1.f : 0.f) * smoothstep_(0.50f, 0.60f, patch2 * 0.6f + patch * 0.4f);   // 0.22.13 (issue10 "add orchards as props"): a wider ring, and stands out in the fields
             float olive = medb * smoothstep_(0.10f, 0.22f, slope) * (1.f - smoothstep_(0.55f, 0.85f, slope)) * (1.f - smoothstep_(1.0f * hsr, 1.6f * hsr, hgate)) * (crop > 0.05f ? 1.f : 0.f)
                         * smoothstep_(0.57f, 0.66f, world_fbm(lon * 13.f + 9.f, lat * 13.f + 3.f, 2, 0x7A21u)) * (0.4f + 0.6f * near_set);
             // roadside hamlets: a few of the 0.9-unit cells along a road get a cluster of houses
@@ -480,6 +484,21 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
                 float hh = world_fbm(cxh * 0.37f + 0.5f, czh * 0.37f + 0.5f, 1, 0x1D5Bu);
                 float dcell = dist2d(wx, wz, (cxh + 0.5f) * 0.9f, (czh + 0.5f) * 0.9f);
                 if (hh > 0.50f) hamlet = (1.f - smoothstep_(0.06f, 0.10f, rdd)) * (1.f - smoothstep_(0.20f, 0.30f, dcell));
+            }
+            // 0.22.13 (issue10 "random villages in the hinterlands are missing"): hamlets that
+            // belong to no settlement and no road - one in every few 2.2-unit cells of gentle,
+            // low, workable ground, jittered off the cell's centre, with a built disc of its own
+            // (gfx/scatter.cc stands the houses on it, the shader paints the roofs and yards)
+            if (crop > 0.3f && gentle * low > 0.5f) {
+                const float HC = 2.2f;
+                float cxh = floorf(wx / HC), czh = floorf(wz / HC);
+                float hsel = world_fbm(cxh * 0.53f + 7.5f, czh * 0.53f + 2.5f, 1, 0x3E7Du);
+                if (hsel > 0.56f) {
+                    float jx = (world_vnoise(cxh * 1.7f + 3.f, czh * 1.7f + 5.f, 0x2B1u) - 0.5f) * HC * 0.6f, jz = (world_vnoise(cxh * 1.7f + 9.f, czh * 1.7f + 1.f, 0x4C7u) - 0.5f) * HC * 0.6f;
+                    float dcell = dist2d(wx, wz, (cxh + 0.5f) * HC + jx, (czh + 0.5f) * HC + jz);
+                    float rad = 0.11f + 0.10f * smoothstep_(0.56f, 0.80f, hsel);
+                    hamlet = maxf(hamlet, (1.f - smoothstep_(rad, rad * 1.5f, dcell)) * gentle * low);
+                }
             }
             float built = maxf(village, hamlet) * (1.f - smoothstep_(0.5f, 0.8f, slope));
             (void)skind;

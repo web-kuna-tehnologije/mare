@@ -3,7 +3,7 @@
 // oars - and submits them through the normal authored-asset path (scene_asset_instance), so
 // they get LOD selection, cross-fades, residency, shadows and wave motion exactly like every
 // other asset. The canvas, cordage and flags are procedural, built per class from the rig the
-// reference sheet gives it (assets/fleet_sails.png), and answer the wind in the mesh shader.
+// reference sheet gives it (assets/reference/fleet_sails.png), and answer the wind in the mesh shader.
 //
 // Every game ship type maps to a Gen I class from the design sheets, with a Mediterranean
 // flavour for Venice, the Ottomans and the pirates (who sail the oared fusta and galiot). When
@@ -65,6 +65,7 @@ int  shipyard_class_stats(int type, int nation, ship_stats_t *out);
 extern int shipyard_enabled;        // MARE_SHIPS=0 forces the procedural hulls (A/B comparison)
 extern int shipyard_oars_drawn;     // oar instances submitted this frame (dashboard)
 extern int shipyard_ships_drawn;    // authored ships submitted this frame
+extern int shipyard_guns_drawn;     // authored guns at the ports this frame (0.22.13)
 extern int shipyard_fallbacks;      // ships that fell back to the procedural hull this frame
 extern int shipyard_rigged;         // ships drawn with rigging and canvas this frame
 
