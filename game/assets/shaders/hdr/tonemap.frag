@@ -23,7 +23,7 @@ void main(){
     float ring = exp(-pow((dist - R) / w, 2.0)) * u_shock[i].w;
     vec2 dir = d / dist;
     uv -= dir * ring * (0.08 * R + 3.0) / u_screen;       // the air lens: pushes the picture outward across the front
-    blur += ring * (0.05 * R + 2.0); bdir += dir * ring; glint += ring;
+    blur += ring * (0.025 * R + 1.0); bdir += dir * ring; glint += ring;   // 0.22.13: half the smear (issue10 "too much blur")
   }
   vec3 c;
   if (blur > 0.3) {
@@ -31,7 +31,7 @@ void main(){
     c = (texture(u_scene, uv - step * 1.5).rgb + texture(u_scene, uv - step * 0.5).rgb + texture(u_scene, uv + step * 0.5).rgb + texture(u_scene, uv + step * 1.5).rgb) * 0.25 * u_exposure;
     c *= 1.0 + 0.10 * min(glint, 1.0);                   // the compressed shell catches the light
   } else c = texture(u_scene, uv).rgb * u_exposure;
-  if (u_blur > 0.001) c = mix(c, texture(u_blurred, uv).rgb * u_exposure, u_blur) * mix(1.0, 0.78, u_blur);   // the menu: soft and a touch darker, so the panel reads
+  if (u_blur > 0.001) c = mix(c, texture(u_blurred, uv).rgb * u_exposure, u_blur) * mix(1.0, 0.84, u_blur);   // the menu: soft and a touch darker, so the panel reads
 // --- volumetric fog. Density falls off exponentially with height, so the integral along the
 // view ray has a closed form: no marching, and a valley fills while a hilltop stays clear.
 // Looking towards the sun through it, the fog scatters his light back - haze glows, a storm

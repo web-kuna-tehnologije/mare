@@ -1,0 +1,54 @@
+{
+  "name": "gun_cannon_large",
+  "type": "ship_part",
+  "role": "gun_cannon_large",
+  "lods": [
+    {
+      "file": "gun_cannon_large_LOD0.glb",
+      "node": "gun_cannon_large_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "gun_cannon_large_LOD1.glb",
+      "node": "gun_cannon_large_LOD1",
+      "px": 220
+    },
+    {
+      "file": "gun_cannon_large_LOD2.glb",
+      "node": "gun_cannon_large_LOD2",
+      "px": 90
+    },
+    {
+      "file": "gun_cannon_large_LOD3.glb",
+      "node": "gun_cannon_large_LOD3",
+      "px": 30
+    },
+    {
+      "file": "gun_cannon_large_LOD4.glb",
+      "node": "gun_cannon_large_LOD4",
+      "px": 12
+    },
+    {
+      "file": "gun_cannon_large_LOD5.glb",
+      "node": "gun_cannon_large_LOD5",
+      "px": 5
+    }
+  ],
+  "scale": {
+    "fit": "length",
+    "size": 1.0
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.55,
+      "metal": 0.35,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "none"
+  }
+}

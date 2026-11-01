@@ -1,11 +1,11 @@
-# Road map after 0.22.12 (worktree oak, 2026-11-01)
+# Road map after 0.22.14 (worktree oak, 2026-11-01)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.12
+## Done to 0.22.14
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -35,10 +35,26 @@ rows and standing wheat, the sail state as class data, bow spray in a breeze. 0.
 settlements and woods over the rest, fuller villages, cattle and flocks, the recoil as a
 centimetre of set and a quarter-degree heel per gun with the body's attitude drawn on every
 part of the ship, the wake as a V of breaking crests rooted at the stem, greyer slower smoke
-and torn clouds, sheets on every sail, the fog no longer leaving silhouettes.
+and torn clouds, sheets on every sail, the fog no longer leaving silhouettes. 0.22.13 (issue10): the asset
+store sorted to one tree, the world package unpacked and read, the relief at 12, seven cannons at
+the ports, the Meshy smoke/fire/foam sheets in the particle shader, a smaller and less white blast
+ring, the canopy as trees only, fields as paint with orchards and vineyards as props, hamlets and
+more farm villages, the rig made fast at the mastheads with the lateen peak at the truck, the
+wake's geometry out to four hull lengths with a trail that spreads and fades, the menu blur
+softened - and the class data file applied for the first time. 0.22.14 (issue11/12): the lantina as the sail's
+own spar, bow waves and spray off every moving stem, whitecaps gated by a random field and no
+longer flickering, dense white-and-grey gunsmoke, oars squared, the standing rigging kept
+aboard, the cannon parts off and round shot drawn, ropes at the foot of the sails, relief 7, the
+package's rivers read in place of the generated network, the 27 authored trees stood by biome,
+fleet icons faded near the ground, the asset names readable and the folder listing.
 
 ## Next, in order
 
+0. **Volumetric smoke and rope physics** (issue12): a ray-marched smoke slab in place of the
+   billboards, and sagging, swinging cordage. Both are renderer items with no data dependency.
+0b. **Rivers, the second half.** The package's rivers are read and painted (0.22.14); carving the
+   great rivers' lower reaches and reopening river navigation on that data is what remains of
+   item 9 below.
 1. **A finer DEM for the Adriatic.** Data only - the reader already takes any `mare-terrain-v2`
    set. 2.8 km is the floor under every "it looks blocky close up" complaint, including the
    remaining spikiness of the ranges. Cut `dalmatia-detail-3x` (0.7 km, already exported) into
@@ -73,7 +89,7 @@ and torn clouds, sheets on every sail, the fog no longer leaving silhouettes.
   delegate.
 - Every height threshold in `terrain.frag` and every prop the scatter places is tied to the
   world's vertical exaggeration. Since 0.22.12 they are all expressed relative to the 0.22.6
-  scale through `geochunks_height_scale_rel()` / `u_hscale`, so `GC_HEIGHT_SCALE` (now 5 per
-  9000 m, `MARE_HEIGHT_SCALE` to tune) can move without the snow line or the tree line moving
+  scale through `geochunks_height_scale_rel()` / `u_hscale`, so `GC_HEIGHT_SCALE` (now 7 per
+  9000 m since 0.22.14 - 5, 6.5 and 8 were compared; `MARE_HEIGHT_SCALE` to tune) can move without the snow line or the tree line moving
   with it - but it is still a global decision, not a per-zoom one.
 - No mass asset import before the automated asset path is exercised end to end (dev.txt P1.6).

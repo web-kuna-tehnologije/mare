@@ -38,10 +38,12 @@ void main(){
              * (1.0 - smoothstep(25.0, 90.0, dist0));
   if (wood > 0.01) {
     vec2 guv = abs(n.y) > 0.6 ? v_wpos.xz : (abs(n.x) > abs(n.z) ? v_wpos.zy : v_wpos.xy);
-    float planks = texture(u_grain, guv * 0.55).g;
-    float streaks = texture(u_grain, guv * vec2(0.9, 3.4)).g;
-    albedo *= mix(1.0, 0.78 + 0.38 * planks + 0.14 * streaks, wood);
-    rough = mix(rough, rough * (1.0 - 0.22 * streaks), wood);
+// 0.22.14 (issue11 "weird texture over" the hull): at the battle scale the broad plank sample
+// read as purple-brown blotches laid over the scan; finer and a third as strong, grain not stains
+    float planks = texture(u_grain, guv * 1.4).g;
+    float streaks = texture(u_grain, guv * vec2(1.2, 6.5)).g;
+    albedo *= mix(1.0, 0.91 + 0.12 * planks + 0.06 * streaks, wood);
+    rough = mix(rough, rough * (1.0 - 0.12 * streaks), wood);
   }
 // The wet band above the waterline (meshes.vert): soaked wood is darker and glossier, which
 // is what seats a hull *in* the water instead of on it.

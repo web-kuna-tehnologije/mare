@@ -38,6 +38,10 @@ extern "C" {
 
 namespace mare::game::view {
 
+// the round shot in the air (0.22.14): one mesh, instanced per ball each frame (frame())
+static mesh_t shot_mesh; static instlist_t shot_il; static int shot_built;
+
+
 #define DV_SEA_AMP      0.60f        // staged wave height, relative to the map's (the sea is stretched x DV_SHIP_SCALE); 0.22.11: 0.45 -> 0.60 (issue8 "a little bigger amplitude")
 #define DV_SHIP_SCALE   9.f          // world ship mesh -> local units (1 unit ~ 2.8 m: a ship of the line is ~19 units)
 #define DV_COAST_DIST 190.f          // battle: coast this far north (+z is south, so -z)
@@ -639,12 +643,16 @@ void DetailView::battle_update(float dt) {
         }
         // weather in the battle (0.22.11, todo 19): in a fresh breeze the stems throw spray
         // that the wind carries over the decks
-        if (dv.wstr > 0.85f && dt > 0.f) {
+        // 0.22.14 (issue11 "add ship waves and splashing"): every stem under way throws spray as she
+        // pitches into the sea, more the faster she goes and the fresher the wind; the breeze adds its own
+        if (dt > 0.f) {
             for (int i = 0; i < dv.nships; ++i) { dv_ship_t *s = &dv.ship[i];
-                if (s->body < 0 || nphys_speed(s->body) < 0.3f) continue;
-                if (rnd_f(&seed) > dt * 3.f * (dv.wstr - 0.7f)) continue;
+                if (s->body < 0) continue;
+                float spd = nphys_speed(s->body); if (spd < 0.3f) continue;
+                float rate = 0.9f * clampf(spd / 2.5f, 0.f, 1.2f) + 3.f * clampf(dv.wstr - 0.7f, 0.f, 1.f);
+                if (rnd_f(&seed) > dt * rate) continue;
                 float fx = cosf(s->heading), fz = -sinf(s->heading);
-                particles_spray(dv.cx + s->x + fx * 0.46f * s->len, 0.10f * s->len, dv.cz + s->z + fz * 0.46f * s->len, dv.wdx, dv.wdz, clampf(dv.wstr - 0.6f, 0.2f, 1.f));
+                particles_spray(dv.cx + s->x + fx * 0.46f * s->len, 0.10f * s->len, dv.cz + s->z + fz * 0.46f * s->len, dv.wdx, dv.wdz, clampf(0.35f + 0.5f * (dv.wstr - 0.6f) + 0.2f * spd / 2.5f, 0.25f, 1.f));
             }
         }
     }
@@ -913,6 +921,38 @@ void DetailView::frame(float dt) {
             ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }
     shipyard_upload();
     for (int t = 0; t < SHIP_COUNT; ++t) mesh_set_instances(&ship_mesh[t][0], dv.ships_il[t].v, dv.ships_il[t].n);
+    // 0.22.14 ("make cannonballs"): the round shot in the air (sim/naval_physics.h nphys_shot_list)
+    // as small dark iron spheres, 0.13 local units (~32 cm, a little over life size so a ball
+    // reads at the battle camera), drawn by the mesh pipeline with the ships
+    {
+        if (!shot_built) {
+            mb_t m = mb_t{}; mb_material(&m, 0.55f, 0.6f);
+            const float ir[3] = { 0.09f, 0.085f, 0.08f };
+            // an octahedron subdivided once (32 faces), pushed onto the unit sphere
+            float oct[6][3] = { {0,1,0},{0,-1,0},{1,0,0},{-1,0,0},{0,0,1},{0,0,-1} };
+            int tri[8][3] = { {0,2,4},{0,4,3},{0,3,5},{0,5,2},{1,4,2},{1,3,4},{1,5,3},{1,2,5} };
+            for (int f = 0; f < 8; ++f) {
+                float *a = oct[tri[f][0]], *b = oct[tri[f][1]], *c = oct[tri[f][2]];
+                float ab[3], bc[3], ca[3];
+                for (int k = 0; k < 3; ++k) { ab[k] = a[k] + b[k]; bc[k] = b[k] + c[k]; ca[k] = c[k] + a[k]; }
+                auto nz = [](float *v) { float l = sqrtf(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]); v[0] /= l; v[1] /= l; v[2] /= l; };
+                nz(ab); nz(bc); nz(ca);
+                mb_tri(&m, a[0],a[1],a[2], ab[0],ab[1],ab[2], ca[0],ca[1],ca[2], ir[0], ir[1], ir[2], 0.f);
+                mb_tri(&m, ab[0],ab[1],ab[2], b[0],b[1],b[2], bc[0],bc[1],bc[2], ir[0], ir[1], ir[2], 0.f);
+                mb_tri(&m, ca[0],ca[1],ca[2], bc[0],bc[1],bc[2], c[0],c[1],c[2], ir[0], ir[1], ir[2], 0.f);
+                mb_tri(&m, ab[0],ab[1],ab[2], bc[0],bc[1],bc[2], ca[0],ca[1],ca[2], ir[0], ir[1], ir[2], 0.f);
+            }
+            shot_mesh = mesh_upload(&m); shot_built = 1;
+        }
+        float xyz[3 * 256]; int ns = nphys_shot_list(xyz, 256);
+        instlist_clear(&shot_il);
+        for (int i = 0; i < ns; ++i) {
+            inst_t si = inst_t{}; si.x = dv.cx + xyz[i*3]; si.y = xyz[i*3+1]; si.z = dv.cz + xyz[i*3+2];
+            si.scale = 0.13f; si.r = si.g = si.b = 1.f; si.bob = 0.f; si.sway = 0.f;   // no swell on a ball in flight
+            *instlist_push(&shot_il) = si;
+        }
+        mesh_set_instances(&shot_mesh, shot_il.v, shot_il.n);
+    }
     { float fv[24 * 4], fl[24]; int n = 0;                 // the staged ships foam too (sea_set_ships)
       for (int i = 0; i < dv.nships && n < 24; ++i) { const dv_ship_t *s = &dv.ship[i];
           fv[n*4] = dv.cx + s->x; fv[n*4+1] = dv.cz + s->z; fv[n*4+2] = s->heading; fv[n*4+3] = s->speed / s->len; fl[n] = s->len; n++; }   // speed in hull lengths/s
@@ -957,6 +997,7 @@ int DetailView::submit(void) {
     int n = 0;
     mesh_draw(&dv.stage); n++;
     for (int t = 0; t < SHIP_COUNT; ++t) { mesh_draw(&ship_mesh[t][0]); n += ship_mesh[t][0].ninst; }
+    if (shot_built && shot_il.n) { mesh_draw(&shot_mesh); n += shot_il.n; }   // the round shot (0.22.14)
     if (dv.mode == DV_CITY) {
         mesh_draw(&mesh_house); mesh_draw(&mesh_roof); mesh_draw(&mesh_tower);
         mesh_draw(&mesh_wall); mesh_draw(&mesh_pier); mesh_draw(&mesh_flagpole);

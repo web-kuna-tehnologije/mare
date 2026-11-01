@@ -1,0 +1,14 @@
+{
+  "name": "gun_perrier",
+  "kind": "ship_part",
+  "source": "gun_perrier",
+  "lod_budgets": [
+    150000,
+    50000,
+    16000,
+    5000,
+    1500,
+    400
+  ],
+  "tex_px": 512
+}

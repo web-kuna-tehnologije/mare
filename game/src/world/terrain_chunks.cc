@@ -38,7 +38,7 @@ namespace mare::game::world {
 // in. So the whole world is 20% lower instead, which leaves the Po plain flat and takes the
 // worst of the spikes off the ranges. MARE_HEIGHT_SCALE overrides it for a look without a build.
 #define GC_HEIGHT_SCALE   gc_height_scale()
-static float gc_height_scale_v = 5.f;   // 0.22.12: 16 -> 5, the 70% less relief issue9 asks for (MARE_HEIGHT_SCALE overrides)
+static float gc_height_scale_v = 7.f;   // 0.22.14: 12 -> 7 ("reduce to 5-8, see what fits": 5, 6.5 and 8 compared, 7 keeps the Alps readable without terracing the Dinarics); 0.22.13 had 12, 0.22.12 5 (MARE_HEIGHT_SCALE overrides)
 static int   gc_height_scale_read = 0;
 static inline float gc_height_scale(void) {
     // read the override on first use (0.22.12): the procedural base world and the overview

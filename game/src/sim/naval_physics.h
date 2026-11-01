@@ -99,6 +99,7 @@ int   nphys_poll_events(nphys_event_t *out, int max);
 int   nphys_steps_last(void);           // fixed steps run by the last advance()
 int   nphys_contacts_last(void);        // ship-ship contacts resolved in the last step
 int   nphys_shots(void);                // shot in the air
+int   nphys_shot_list(float *xyz, int max);   // their positions (x, y, z per shot, this frame's integrated state); returns the count written (0.22.14: drawn as round shot)
 float nphys_alpha(void);                // interpolation fraction, 0..1
 int   nphys_count(void);
 

@@ -1,0 +1,14 @@
+{
+  "name": "tree_sugar_maple",
+  "kind": "prop",
+  "source": "tree_sugar_maple",
+  "lod_budgets": [
+    60000,
+    20000,
+    6000,
+    2000,
+    700,
+    200
+  ],
+  "tex_px": 512
+}

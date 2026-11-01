@@ -1,0 +1,2503 @@
+# Folder structure
+
+Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in bold with their file count and size; folders with many same-shaped files are summarised as patterns (`#` = digits). `build/`, `tmp/`, logs and `.git` are left out.
+
+## The repository (`/home/nevenjovi/.cache/claude-hfi/-mnt-c-projects-mare/oak`)
+
+- `.git` (48 B)
+- `.gitattributes` (147 B)
+- `.gitignore` (413 B)
+- `Build.bat` (262 B)
+- `LICENSE` (1.0 KB)
+- `Play.bat` (330 B)
+- `README.md` (3.0 KB)
+- **.github/** - 1 files, 1.0 KB
+  - **workflows/** - 1 files, 1.0 KB
+    - `build.yml` (1.0 KB)
+- **.vscode/** - 1 files, 100 B
+  - `settings.json` (100 B)
+- **docs/** - 148 files, 65.4 MB
+  - `CPP_CONVERSION.md` (3.9 KB)
+  - `FOLDER_STRUCTURE.md` (90.4 KB)
+  - `LICENSE` (3.8 KB)
+  - `MARE_MASTER_PRODUCTION_PLAN.md` (16.4 KB)
+  - `README.md` (7.5 KB)
+  - `RECOVERY.md` (2.2 KB)
+  - `REWRITE_PLAN.md` (8.0 KB)
+  - `ROADMAP.md` (13.4 KB)
+  - `ROADMAP_0.23.md` (7.3 KB)
+  - `TODO.md` (50.1 KB)
+  - `index` (15 B)
+  - `todo_list.md` (32.5 KB)
+  - **design/** - 2 files, 17.9 KB
+    - `MARE_3D_Art_Asset_Production_Summary.md` (10.5 KB)
+    - `MARE_Naval_Cities_Asset_Plan.md` (7.4 KB)
+  - **dev/** - 11 files, 54.5 KB
+    - `dev_oak_20261031_133805.txt` (17.1 KB)
+    - `summary_oak_20261031_133805.md` (2.6 KB)
+    - `summary_oak_20261031_160023.md` (2.8 KB)
+    - `summary_oak_20261031_171857.md` (2.7 KB)
+    - `summary_oak_20261031_180609.md` (4.1 KB)
+    - `summary_oak_20261031_192904.md` (4.8 KB)
+    - `summary_oak_20261031_192904_issue7.md` (4.7 KB)
+    - `summary_oak_20261101_issue10.md` (3.8 KB)
+    - `summary_oak_20261101_issue11.md` (3.2 KB)
+    - `summary_oak_20261101_issue8.md` (5.5 KB)
+    - `summary_oak_20261101_issue9.md` (3.1 KB)
+  - **screenshots/** - 123 files, 65.1 MB
+    - `asset-church-lod#.png` x4
+    - `issue#_oak_alps_h#.png` x2
+    - `issue#_oak_dalmatia_h#.png` x2
+    - `ao-city-off.png`
+    - `ao-city.png`
+    - `ao-staged-city.png`
+    - `asset-church-towns.png`
+    - `battle-lines.png`
+    - `city-view.png`
+    - `detail-battle.png`
+    - `detail-city.png`
+    - `islands-aegean.png`
+    - `islands-dalmatia.png`
+    - `issue10_oak_alps_scale12.png`
+    - `issue10_oak_battle_textured_smoke.png`
+    - `issue10_oak_fusta_lateens.png`
+    - `issue10_oak_hinterland_trees_only.png`
+    - `issue10_oak_menu_soft_backdrop.png`
+    - `issue10_oak_po_plain_fields.png`
+    - `issue10_oak_rig_to_mastheads.png`
+    - `issue11_oak_alps_h6.5.png`
+    - `issue11_oak_dalmatia_h6.5.png`
+    - `issue11_oak_galley_lateens.png`
+    - `issue11_oak_hinterland_relief7.png`
+    - `issue11_oak_lateen_on_its_spar.png`
+    - `issue11_oak_po_plain_authored_rivers.png`
+    - `issue11_oak_smoke_dense_white.png`
+    - `issue11_oak_smoke_flash_close.png`
+    - `issue4_oak_desert_shore.png`
+    - `issue4_oak_open_sea.png`
+    - `issue4_oak_venice_coast.png`
+    - `issue5_oak_alps_pines.png`
+    - `issue5_oak_broadside_smoke.png`
+    - `issue5_oak_dalmatia_coast.png`
+    - `issue5_oak_hull_800k.png`
+    - `issue5_oak_masts_girth.png`
+    - `issue5_oak_venice_lowland.png`
+    - `issue6_oak_near_camera.png`
+    - `issue6_oak_physics_battle.png`
+    - `issue6_oak_smoke_layers.png`
+    - `issue6_oak_wake_trails.png`
+    - `issue7_oak_rig_foam.png`
+    - `issue7_oak_rolling_broadside.png`
+    - `issue7_oak_trailer_fog_fleet.png`
+    - `issue7_oak_trailer_galleys.png`
+    - `issue8_oak_alps_wide.png`
+    - `issue8_oak_battle_splash_wake.png`
+    - `issue8_oak_broadside_recoil.png`
+    - `issue8_oak_fenced_fields_wheat.png`
+    - `issue8_oak_menu_blurred_battle.png`
+    - `issue8_oak_oars_fleet.png`
+    - `issue8_oak_oars_outboard.png`
+    - `issue8_oak_wake_cone.png`
+    - `issue9_oak_alps_70pct_lower.png`
+    - `issue9_oak_battle_vwakes_smoke.png`
+    - `issue9_oak_fields_round_town.png`
+    - `issue9_oak_grey_smoke_hides_hull.png`
+    - `issue9_oak_venice_hinterland.png`
+    - `issue9_oak_wakes_wide.png`
+    - `map-chunk-reference.png`
+    - `sails-battle-beam.png`
+    - `sails-battle.png`
+    - `sea-battle-final.png`
+    - `sea-battle-swell.png`
+    - `sea-bluegrey-open.png`
+    - `sea-bluegrey-waterlevel.png`
+    - `sea-doldrums.png`
+    - `sea-grid-aliasing.png`
+    - `sea-open-refraction.png`
+    - `sea-pan-anchored.png`
+    - `sea-ship-wakes.png`
+    - `sea-shore-refraction.png`
+    - `sea-surf.png`
+    - `sea-tessellated-close.png`
+    - `sea-tessellated-whitecaps.png`
+    - `sea-transparency.png`
+    - `sea-warped-grid-fallback.png`
+    - `sea-water-level-before.png`
+    - `sea-water-level.png`
+    - `sea-wind-driven.png`
+    - `shadows-coarse-casters.png`
+    - `shadows-fixed-lowsun.png`
+    - `shadows-fixed.png`
+    - `shadows-full-radius.png`
+    - `ships-2x-world.png`
+    - `ships-battle-closeup.png`
+    - `ships-battle-splash.png`
+    - `ships-galiot-oars.png`
+    - `ships-galiot-three-masts.png`
+    - `ships-harbour-stations.png`
+    - `ships-harbour.png`
+    - `ships-hull-plan-sheet.png`
+    - `ships-lod0-battle.png`
+    - `ships-rig-sheet.png`
+    - `ships-rigging-lateen.png`
+    - `ships-rigging-square.png`
+    - `ships-split-masts-lateen.png`
+    - `ships-split-masts-rigging.png`
+    - `sky-cloud-shadows.png`
+    - `sky-clouds-overhead.png`
+    - `sky-sun-bloom.png`
+    - `streaming-detail-normals.png`
+    - `streaming-terrain-detail.png`
+    - `streaming-tiles-overlay.png`
+    - `terrain-aegean-2x.png`
+    - `terrain-close-cliffs.png`
+    - `terrain-dalmatia-2x.png`
+    - `terrain-hills-textured.png`
+    - `terrain-source-heightmap.png`
+    - `town-placement-fixed.png`
+    - `town-placement-issue.png`
+    - `weather-calm.png`
+    - `weather-clear.png`
+    - `weather-dawn-mist.png`
+    - `weather-storm.png`
+    - `weather-volumetric-mist.png`
+    - `windows-3d.png`
+    - `world-2x-coast.png`
+- **ext/** - 617 files, 20.4 MB
+  - `EXT.bat` (5.8 KB)
+  - `ext-demos.c` (4.3 KB)
+  - `ext-tests.c` (950 B)
+  - `ext.cc` (173 B)
+  - `ext.h` (11.4 KB)
+  - `ext.hh` (178 B)
+  - **ext-3rd/** - 107 files, 4.5 MB
+    - **ext-0/** - 33 files, 2.0 MB
+      - **ext-3rd/** - 5 files, 1.9 MB
+        - **ext-glad/** - 2 files, 793.9 KB
+          - `api.h` (675 B)
+          - **3rd/** - 1 files, 793.2 KB
+            - `glad.h` (793.2 KB)
+        - **ext-vecmath/** - 3 files, 1.1 MB
+          - `api.h` (1.7 KB)
+          - `vecmath().h` (104 B)
+          - **3rd/** - 1 files, 1.1 MB
+            - `vecmath.h` (1.1 MB)
+      - **ext-string/** - 6 files, 62.6 KB
+        - **ext-strsplit/** - 1 files, 1.6 KB
+          - `api.h` (1.6 KB)
+        - **ext-strstri/** - 1 files, 1.9 KB
+          - `api.h` (1.9 KB)
+        - **ext-strvalid/** - 1 files, 189 B
+          - `api.h` (189 B)
+        - **ext-va/** - 3 files, 59.0 KB
+          - `api.h` (215 B)
+          - `va(stb).h` (1.0 KB)
+          - **3rd/** - 1 files, 57.7 KB
+            - `stb_sprintf.h` (57.7 KB)
+      - **ext-system/** - 18 files, 14.8 KB
+        - **ext-alert/** - 2 files, 1.4 KB
+          - `alert().h` (907 B)
+          - `api.h` (540 B)
+        - **ext-arg/** - 1 files, 1.2 KB
+          - `api.h` (1.2 KB)
+        - **ext-breakpoint/** - 3 files, 3.1 KB
+          - `api.h` (171 B)
+          - `breakpoint().h` (599 B)
+          - `breakpoint2.h` (2.3 KB)
+        - **ext-die/** - 3 files, 1002 B
+          - `api.h` (561 B)
+          - `demo.c` (124 B)
+          - `die().h` (317 B)
+        - **ext-macro/** - 7 files, 1.7 KB
+          - **ext-autorun/** - 1 files, 1.0 KB
+            - `api.h` (1.0 KB)
+          - **ext-cast/** - 1 files, 63 B
+            - `api.h` (63 B)
+          - **ext-countof/** - 1 files, 117 B
+            - `api.h` (117 B)
+          - **ext-join/** - 1 files, 107 B
+            - `api.h` (107 B)
+          - **ext-macro/** - 1 files, 105 B
+            - `api.h` (105 B)
+          - **ext-once/** - 1 files, 164 B
+            - `api.h` (164 B)
+          - **ext-unique/** - 1 files, 126 B
+            - `api.h` (126 B)
+        - **ext-trace/** - 2 files, 6.4 KB
+          - `api.h` (468 B)
+          - `trace().h` (6.0 KB)
+      - **ext-test/** - 4 files, 1.0 KB
+        - `api.h` (457 B)
+        - `test(null).h` (104 B)
+        - `test(stdio).h` (364 B)
+        - `test.c` (104 B)
+    - **ext-glfw3/** - 67 files, 1.6 MB
+      - `LICENSE.md` (904 B)
+      - `api.h` (1.1 KB)
+      - `demo.c` (922 B)
+      - `glob.c` (1.3 KB)
+      - **include/** - 2 files, 256.9 KB
+        - **GLFW/** - 2 files, 256.9 KB
+          - `glfw3.h` (236.2 KB)
+          - `glfw3native.h` (20.7 KB)
+      - **src/** - 61 files, 1.4 MB
+        - `cocoa_init.m`
+        - `cocoa_joystick.h`
+        - `cocoa_joystick.m`
+        - `cocoa_monitor.m`
+        - `cocoa_platform.h`
+        - `cocoa_time.c`
+        - `cocoa_time.h`
+        - `cocoa_window.m`
+        - `context.c`
+        - `egl_context.c`
+        - `glfw.rc.in`
+        - `glx_context.c`
+        - `init.c`
+        - `input.c`
+        - `internal.h`
+        - `linux_joystick.c`
+        - `linux_joystick.h`
+        - `mappings.h`
+        - `mappings.h.in`
+        - `monitor.c`
+        - `nsgl_context.m`
+        - `null_init.c`
+        - `null_joystick.c`
+        - `null_joystick.h`
+        - `null_monitor.c`
+        - `null_platform.h`
+        - `null_window.c`
+        - `osmesa_context.c`
+        - `platform.c`
+        - `platform.h`
+        - `posix_module.c`
+        - `posix_poll.c`
+        - `posix_poll.h`
+        - `posix_thread.c`
+        - `posix_thread.h`
+        - `posix_time.c`
+        - `posix_time.h`
+        - `vulkan.c`
+        - `wgl_context.c`
+        - `win32_init.c`
+        - `win32_joystick.c`
+        - `win32_joystick.h`
+        - `win32_module.c`
+        - `win32_monitor.c`
+        - `win32_platform.h`
+        - `win32_thread.c`
+        - `win32_thread.h`
+        - `win32_time.c`
+        - `win32_time.h`
+        - `win32_window.c`
+        - `window.c`
+        - `wl_init.c`
+        - `wl_monitor.c`
+        - `wl_platform.h`
+        - `wl_window.c`
+        - `x11_init.c`
+        - `x11_monitor.c`
+        - `x11_platform.h`
+        - `x11_window.c`
+        - `xkb_unicode.c`
+        - `xkb_unicode.h`
+    - **ext-lua/** - 3 files, 849.0 KB
+      - `api.h` (351 B)
+      - `demo.c` (629 B)
+      - **3rd/** - 1 files, 848.1 KB
+        - `minilua.h` (848.1 KB)
+    - **ext-minithread/** - 2 files, 3.4 KB
+      - `api.h` (28 B)
+      - **3rd/** - 1 files, 3.4 KB
+        - `minithread.h` (3.4 KB)
+    - **ext-sokolaudio/** - 2 files, 89.5 KB
+      - `api.h` (84 B)
+      - **3rd/** - 1 files, 89.4 KB
+        - `sokol_audio.h` (89.4 KB)
+  - **ext-app/** - 10 files, 15.3 KB
+    - **ext-app/** - 5 files, 10.9 KB
+      - `api.h` (2.6 KB)
+      - `app(glfw3).h` (7.3 KB)
+      - `demo-gl2.c` (714 B)
+      - `demo-transp.c` (170 B)
+      - `demo.c` (150 B)
+    - **ext-fps/** - 5 files, 4.4 KB
+      - `api.h` (973 B)
+      - `fps(30).h` (120 B)
+      - `fps(auto).h` (120 B)
+      - `fps(limit).h` (3.1 KB)
+      - `fps(max).h` (119 B)
+  - **ext-asset/** - 26 files, 68.6 KB
+    - **ext-asset/** - 2 files, 959 B
+      - `api.h` (271 B)
+      - `asset().h` (688 B)
+    - **ext-blob/** - 1 files, 229 B
+      - `api.h` (229 B)
+    - **ext-cook/** - 4 files, 6.1 KB
+      - `api.h` (586 B)
+      - `cook().h` (3.7 KB)
+      - `cook(null).h` (145 B)
+      - `demo.c` (1.7 KB)
+    - **ext-dir/** - 4 files, 9.0 KB
+      - `api.h` (636 B)
+      - `ls().h` (957 B)
+      - `test.c` (250 B)
+      - **3rd/** - 1 files, 7.2 KB
+        - `dir.h` (7.2 KB)
+    - **ext-file/** - 3 files, 4.3 KB
+      - `api.h` (2.6 KB)
+      - `file(null).h` (378 B)
+      - `file(stdio).h` (1.3 KB)
+    - **ext-lookup/** - 2 files, 2.3 KB
+      - `api.h` (193 B)
+      - `lookup().h` (2.2 KB)
+    - **ext-path/** - 2 files, 4.3 KB
+      - `api.h` (1.8 KB)
+      - `path(stat).h` (2.5 KB)
+    - **ext-url/** - 3 files, 3.7 KB
+      - `api.h` (441 B)
+      - `url().h` (608 B)
+      - **3rd/** - 1 files, 2.7 KB
+        - `download.h` (2.7 KB)
+    - **ext-vfs/** - 3 files, 1.6 KB
+      - `api.h` (242 B)
+      - `vfs(null).h` (53 B)
+      - `vfs(zip).h` (1.3 KB)
+    - **ext-zip/** - 2 files, 36.1 KB
+      - `api.h` (3.0 KB)
+      - **3rd/** - 1 files, 33.0 KB
+        - `zip.h` (33.0 KB)
+  - **ext-audio/** - 12 files, 956.9 KB
+    - `api.h` (1.9 KB)
+    - `audio().h` (4.1 KB)
+    - `audio(null).h` (438 B)
+    - `audio_convert.h` (5.9 KB)
+    - `audio_decoder.h` (3.6 KB)
+    - `demo.c` (1.1 KB)
+    - **3rd/** - 4 files, 779.5 KB
+      - `dr_mp3.h` (200.1 KB)
+      - `dr_wav.h` (353.0 KB)
+      - `stb_vorbis.h` (188.3 KB)
+      - `tmixer.h` (38.2 KB)
+    - **art/** - 2 files, 160.3 KB
+      - `coin.wav` (3.8 KB)
+      - `the_entertainer.ogg` (156.5 KB)
+  - **ext-editor/** - 10 files, 21.9 KB
+    - `api.h` (138 B)
+    - `demo.c` (2.8 KB)
+    - `editor.h` (5.2 KB)
+    - `editor_app.h` (1.6 KB)
+    - `editor_app_enums.h` (1.3 KB)
+    - `editor_app_messages.h` (723 B)
+    - `editor_class.h` (3.9 KB)
+    - `editor_class_enums.h` (939 B)
+    - `editor_class_types.h` (3.1 KB)
+    - `editor_compositor.h` (2.2 KB)
+  - **ext-embed/** - 6 files, 13.1 KB
+    - `README.md` (49 B)
+    - `api.h` (585 B)
+    - `demo.c` (412 B)
+    - **3rd/** - 1 files, 11.7 KB
+      - `xincbin.h` (11.7 KB)
+    - **embed/** - 2 files, 446 B
+      - `; files in this folder are embedded automatically` (0 B)
+      - `test.txt` (446 B)
+  - **ext-game/** - 24 files, 134.6 KB
+    - `demo99-node.c` (1.1 KB)
+    - **ext-ds/** - 8 files, 76.7 KB
+      - `api.h` (393 B)
+      - `array.h` (1.8 KB)
+      - `demo.c` (2.7 KB)
+      - `map.h` (1.2 KB)
+      - `quark.h` (2.0 KB)
+      - `set.h` (410 B)
+      - `test.c` (856 B)
+      - **3rd/** - 1 files, 67.4 KB
+        - `stb_ds.h` (67.4 KB)
+    - **ext-eval/** - 4 files, 14.6 KB
+      - `api.h` (139 B)
+      - `eval(stoop).h` (119 B)
+      - `test.c` (136 B)
+      - **3rd/** - 1 files, 14.3 KB
+        - `eval.c` (14.3 KB)
+    - **ext-ini/** - 3 files, 8.3 KB
+      - `api.h` (1.5 KB)
+      - `demo.c` (513 B)
+      - `ini().h` (6.2 KB)
+    - **ext-json/** - 4 files, 17.6 KB
+      - `api.h` (921 B)
+      - `json().h` (2.4 KB)
+      - `test.c` (982 B)
+      - **3rd/** - 1 files, 13.3 KB
+        - `json5.h` (13.3 KB)
+    - **ext-xml/** - 4 files, 16.2 KB
+      - `api.h` (513 B)
+      - `test.c` (746 B)
+      - `xml().h` (2.9 KB)
+      - **3rd/** - 1 files, 12.1 KB
+        - `xml.h` (12.1 KB)
+  - **ext-image/** - 9 files, 920.9 KB
+    - **ext-image/** - 6 files, 726.1 KB
+      - `api.h` (1.1 KB)
+      - `demo.c` (899 B)
+      - `image(stb).h` (3.9 KB)
+      - **3rd/** - 2 files, 719.1 KB
+        - `stb_image.h` (276.4 KB)
+        - `stb_image_resize2.h` (442.7 KB)
+      - **art/** - 1 files, 1.0 KB
+        - `brick.jpg` (1.0 KB)
+    - **ext-image-webp/** - 3 files, 194.8 KB
+      - `README.md` (86 B)
+      - `api.h` (3.4 KB)
+      - **3rd/** - 1 files, 191.3 KB
+        - `tiny_webp.h` (191.3 KB)
+  - **ext-input/** - 14 files, 31.8 KB
+    - **ext-gamepad/** - 5 files, 18.0 KB
+      - `api.h` (3.9 KB)
+      - `demo.c` (576 B)
+      - `gamepad(glfw3).h` (8.7 KB)
+      - `gamepad(mg).h` (4.6 KB)
+      - `gamepad(null).h` (327 B)
+    - **ext-keyboard/** - 5 files, 7.7 KB
+      - `api.h` (2.4 KB)
+      - `demo.c` (289 B)
+      - `keyboard(glfw3).h` (3.6 KB)
+      - `keyboard(null).h` (202 B)
+      - `keyboard(rgfw).h` (1.3 KB)
+    - **ext-mouse/** - 4 files, 6.1 KB
+      - `api.h` (651 B)
+      - `mouse(glfw3).h` (2.9 KB)
+      - `mouse(null).h` (81 B)
+      - `mouse(rgfw).h` (2.4 KB)
+  - **ext-lab/** - 199 files, 7.9 MB
+    - **ext-glfast/** - 27 files, 1.7 MB
+      - `bob.c` (12.7 KB)
+      - `bob.h` (9.2 KB)
+      - `bob.md` (2.2 KB)
+      - `demo-instancingMRT.c` (10.0 KB)
+      - `demo-triangle.c` (1.7 KB)
+      - `glfast.h` (21.2 KB)
+      - `make.bat` (158 B)
+      - `qfpc.h` (5.9 KB)
+      - `stb_image_write.h` (69.6 KB)
+      - **art/** - 18 files, 1.6 MB
+        - **meshes/** - 2 files, 1.6 MB
+          - `monkey.bob` (803.1 KB)
+          - `teapot.bob` (799.6 KB)
+        - **shaders/** - 6 files, 8.2 KB
+          - `cubemap.frag` (561 B)
+          - `cubemap.vert` (1.8 KB)
+          - `mesh.frag` (2.0 KB)
+          - `mesh.vert` (1.9 KB)
+          - `quad.frag` (1.3 KB)
+          - `quad.vert` (651 B)
+        - **textures/** - 10 files, 48.2 KB
+          - `credits.txt` (160 B)
+          - `cubemap_back.webp` (3.2 KB)
+          - `cubemap_bottom.webp` (1.1 KB)
+          - `cubemap_front.webp` (2.9 KB)
+          - `cubemap_left.webp` (3.4 KB)
+          - `cubemap_right.webp` (3.8 KB)
+          - `cubemap_top.webp` (3.6 KB)
+          - `texture_1.webp` (9.5 KB)
+          - `texture_2.webp` (7.4 KB)
+          - `texture_3.webp` (13.1 KB)
+    - **ext-nanosvg/** - 5 files, 122.6 KB
+      - `api.h` (86 B)
+      - **3rd/** - 3 files, 119.7 KB
+        - `LICENSE.txt` (862 B)
+        - `nanosvg.h` (81.3 KB)
+        - `nanosvgrast.h` (37.6 KB)
+      - **art/** - 1 files, 2.8 KB
+        - **nanosvg/** - 1 files, 2.8 KB
+          - `nano.svg` (2.8 KB)
+    - **ext-object/** - 3 files, 3.8 KB
+      - `api.h` (1.6 KB)
+      - `demo.c` (1.2 KB)
+      - `object().h` (1009 B)
+    - **ext-rendertarget/** - 3 files, 2.9 KB
+      - `api.h` (17 B)
+      - `demo.c` (1.1 KB)
+      - `fbo.h` (1.8 KB)
+    - **ext-sokolgfx/** - 23 files, 1.9 MB
+      - `api.h` (276 B)
+      - `demo-fx.c` (6.9 KB)
+      - `demo-lines.c` (5.3 KB)
+      - `demo-quad.c` (6.4 KB)
+      - `demo-scene.c` (12.0 KB)
+      - `glue.h` (2.0 KB)
+      - **3rd/** - 4 files, 1.3 MB
+        - `microui_sgl.h` (8.5 KB)
+        - `pico_gfx.h` (67.7 KB)
+        - `sokol_gfx.h` (990.7 KB)
+        - `sokol_gl.h` (220.5 KB)
+      - **art/** - 13 files, 613.1 KB
+        - `boomer.license` (99 B)
+        - `boomer.webp` (42.9 KB)
+        - `circle.webp` (110 B)
+        - `jet.webp` (1.2 KB)
+        - `particle.glsl` (703 B)
+        - `particle_shader.h` (55.0 KB)
+        - `pico_math.h` (28.0 KB)
+        - `shaders.h` (399 B)
+        - `ship.webp` (2.1 KB)
+        - `space.webp` (370.1 KB)
+        - `sprite.glsl` (639 B)
+        - `sprite_shader.h` (51.8 KB)
+        - `star.webp` (60.2 KB)
+    - **ext-spine/** - 94 files, 686.7 KB
+      - `LICENSE` (1.4 KB)
+      - `README.md` (4.2 KB)
+      - `api.h` (3.8 KB)
+      - `make.bat` (170 B)
+      - **3rd/** - 90 files, 677.1 KB
+        - **spine/** - 47 files, 162.7 KB
+          - `Animation.h`
+          - `AnimationState.h`
+          - `AnimationStateData.h`
+          - `Array.h`
+          - `Atlas.h`
+          - `AtlasAttachmentLoader.h`
+          - `Attachment.h`
+          - `AttachmentLoader.h`
+          - `Bone.h`
+          - `BoneData.h`
+          - `BoundingBoxAttachment.h`
+          - `ClippingAttachment.h`
+          - `Color.h`
+          - `Debug.h`
+          - `Event.h`
+          - `EventData.h`
+          - `IkConstraint.h`
+          - `IkConstraintData.h`
+          - `MeshAttachment.h`
+          - `PathAttachment.h`
+          - `PathConstraint.h`
+          - `PathConstraintData.h`
+          - `Physics.h`
+          - `PhysicsConstraint.h`
+          - `PhysicsConstraintData.h`
+          - `PointAttachment.h`
+          - `RegionAttachment.h`
+          - `Sequence.h`
+          - `Skeleton.h`
+          - `SkeletonBinary.h`
+          - `SkeletonBounds.h`
+          - `SkeletonClipping.h`
+          - `SkeletonData.h`
+          - `SkeletonJson.h`
+          - `Skin.h`
+          - `Slot.h`
+          - `SlotData.h`
+          - `TextureRegion.h`
+          - `TransformConstraint.h`
+          - `TransformConstraintData.h`
+          - `Triangulator.h`
+          - `Version.h`
+          - `VertexAttachment.h`
+          - `dll.h`
+          - `extension.h`
+          - `k.txt`
+          - `spine.h`
+        - **src/** - 43 files, 514.3 KB
+          - `Animation.c`
+          - `AnimationState.c`
+          - `AnimationStateData.c`
+          - `Array.c`
+          - `Atlas.c`
+          - `AtlasAttachmentLoader.c`
+          - `Attachment.c`
+          - `AttachmentLoader.c`
+          - `Bone.c`
+          - `BoneData.c`
+          - `BoundingBoxAttachment.c`
+          - `ClippingAttachment.c`
+          - `Color.c`
+          - `Debug.c`
+          - `Event.c`
+          - `EventData.c`
+          - `IkConstraint.c`
+          - `IkConstraintData.c`
+          - `Json.c`
+          - `Json.h`
+          - `MeshAttachment.c`
+          - `PathAttachment.c`
+          - `PathConstraint.c`
+          - `PathConstraintData.c`
+          - `PhysicsConstraint.c`
+          - `PhysicsConstraintData.c`
+          - `PointAttachment.c`
+          - `RegionAttachment.c`
+          - `Sequence.c`
+          - `Skeleton.c`
+          - `SkeletonBinary.c`
+          - `SkeletonBounds.c`
+          - `SkeletonClipping.c`
+          - `SkeletonData.c`
+          - `SkeletonJson.c`
+          - `Skin.c`
+          - `Slot.c`
+          - `SlotData.c`
+          - `TransformConstraint.c`
+          - `TransformConstraintData.c`
+          - `Triangulator.c`
+          - `VertexAttachment.c`
+          - `extension.c`
+    - **ext-spine-sokol/** - 12 files, 1.2 MB
+      - `api.h` (113 B)
+      - `demo0.c` (10.3 KB)
+      - `demo1.c` (7.4 KB)
+      - **3rd/** - 2 files, 306.6 KB
+        - `sokol_spine.c` (246.3 KB)
+        - `sokol_spine.h` (60.2 KB)
+      - **art/** - 7 files, 888.5 KB
+        - `LICENSE.txt` (378 B)
+        - `mix-and-match-pma.atlas` (8.0 KB)
+        - `mix-and-match-pma.webp` (274.0 KB)
+        - `mix-and-match-pro.skel` (253.8 KB)
+        - `raptor-pma.atlas` (1.7 KB)
+        - `raptor-pma.webp` (273.8 KB)
+        - `raptor-pro.skel` (76.9 KB)
+    - **ext-sprite/** - 3 files, 3.8 KB
+      - `api.h` (20 B)
+      - `demo.c` (507 B)
+      - `sprite.h` (3.3 KB)
+    - **ext-sprite2/** - 2 files, 48.1 KB
+      - `sprite.c` (8.0 KB)
+      - `spritesheet.h` (40.1 KB)
+    - **ext-tray/** - 9 files, 749.2 KB
+      - `LICENSE` (1.0 KB)
+      - `README.md` (3.5 KB)
+      - `example.c` (2.9 KB)
+      - `tray.h` (1.9 KB)
+      - `tray_darwin.m` (2.7 KB)
+      - `tray_linux.c` (5.7 KB)
+      - `tray_windows.c` (8.6 KB)
+      - **icons/** - 2 files, 722.8 KB
+        - `icon.ico` (361.4 KB)
+        - `icon.png` (361.4 KB)
+    - **ext-ui2/** - 18 files, 1.5 MB
+      - `3rd_icon_ms.h` (198.7 KB)
+      - `B612.license` (4.3 KB)
+      - `B612BoldItalic.ttf` (106.6 KB)
+      - `B612Regular.ttf` (149.6 KB)
+      - `MaterialSymbols.license` (11.1 KB)
+      - `MaterialSymbolsRounded_28pt-Regular.ttf` (1.0 MB)
+      - `game_ui2.h` (50.1 KB)
+      - `glfw3findmonitor.h` (2.7 KB)
+      - `glfw3fullscreen.h` (1.4 KB)
+      - `glfw3mouse.h` (1.1 KB)
+      - `glfw3undecorated.h` (6.4 KB)
+      - `imgui.ini` (1.5 KB)
+      - `less.bat` (120 B)
+      - `less.c` (8.7 KB)
+      - `resize.c` (881 B)
+      - `ui2.bat` (118 B)
+      - `ui2.c` (3.9 KB)
+      - `ui3.h` (4.7 KB)
+  - **ext-monitor/** - 4 files, 3.0 KB
+    - `api.h` (744 B)
+    - `monitor(glfw3).h` (1.1 KB)
+    - `monitor(null).h` (269 B)
+    - `monitor(rgfw).h` (956 B)
+  - **ext-render/** - 39 files, 89.6 KB
+    - **ext-camera/** - 4 files, 4.3 KB
+      - `api.h` (60 B)
+      - `camera.h` (1.8 KB)
+      - `proj44.h` (2.1 KB)
+      - `view44.h` (303 B)
+    - **ext-color/** - 1 files, 478 B
+      - `api.h` (478 B)
+    - **ext-dd/** - 17 files, 53.1 KB
+      - `api.h` (22.0 KB)
+      - `dd(common).h` (2.2 KB)
+      - `dd(gl3).h` (7.5 KB)
+      - `dd_axis.h` (540 B)
+      - `dd_camera.h` (2.8 KB)
+      - `dd_frustum.h` (2.1 KB)
+      - `dd_grid.h` (828 B)
+      - `dd_plane.h` (744 B)
+      - `dd_sphere.h` (1.1 KB)
+      - `demo-nanosvg.c` (6.6 KB)
+      - `demo.c` (1.6 KB)
+      - **ext-dd-gridinf/** - 6 files, 5.0 KB
+        - `LICENSE.md` (1.1 KB)
+        - `api.h` (123 B)
+        - `dd_grid.frag` (1.1 KB)
+        - `dd_grid.h` (1.7 KB)
+        - `dd_grid.vert` (634 B)
+        - `demo.c` (467 B)
+    - **ext-gl3/** - 2 files, 13.4 KB
+      - `api.h` (11.7 KB)
+      - `demo-gl3.c` (1.7 KB)
+    - **ext-gldebug/** - 3 files, 3.2 KB
+      - `api.h` (57 B)
+      - `gldebug().h` (3.2 KB)
+      - `gldebug(null).h` (0 B)
+    - **ext-msaa/** - 3 files, 9.0 KB
+      - `api.h` (328 B)
+      - `demo.c` (1.6 KB)
+      - `msaa_fbo.h` (7.1 KB)
+    - **ext-palette/** - 5 files, 2.0 KB
+      - `api.h` (579 B)
+      - **ext-palette-v3/** - 4 files, 1.4 KB
+        - `api.h` (922 B)
+        - `v3.pal` (64 B)
+        - `v3.png` (262 B)
+        - `v3.txt` (219 B)
+    - **ext-profiler/** - 4 files, 4.2 KB
+      - `api.h` (479 B)
+      - `demo.c` (789 B)
+      - `profiler_cpu.h` (1.2 KB)
+      - `profiler_gpu.h` (1.7 KB)
+  - **ext-renderer/** - 3 files, 18.2 KB
+    - `demo99-renderer.c` (14.7 KB)
+    - `demo99-renderer.h` (3.4 KB)
+    - `renderer.h` (0 B)
+  - **ext-script/** - 5 files, 2.4 KB
+    - `api.h` (752 B)
+    - `demo.c` (220 B)
+    - `script(lua548).h` (1.0 KB)
+    - `script(null).h` (285 B)
+    - **art/** - 1 files, 87 B
+      - `hello.lua` (87 B)
+  - **ext-string/** - 12 files, 89.6 KB
+    - **ext-compress/** - 2 files, 83.7 KB
+      - `api.h` (98 B)
+      - **3rd/** - 1 files, 83.6 KB
+        - `deflate.h` (83.6 KB)
+    - **ext-fnv1a/** - 1 files, 442 B
+      - `api.h` (442 B)
+    - **ext-hash/** - 1 files, 709 B
+      - `api.h` (709 B)
+    - **ext-replace/** - 1 files, 636 B
+      - `api.h` (636 B)
+    - **ext-stradd/** - 1 files, 579 B
+      - `api.h` (579 B)
+    - **ext-strcmpq/** - 1 files, 864 B
+      - `api.h` (864 B)
+    - **ext-strcnt/** - 1 files, 251 B
+      - `api.h` (251 B)
+    - **ext-stringize/** - 1 files, 132 B
+      - `api.h` (132 B)
+    - **ext-strmatch/** - 1 files, 918 B
+      - `api.h` (918 B)
+    - **ext-strwide/** - 2 files, 1.4 KB
+      - `api.h` (372 B)
+      - `text(widen).h` (1.1 KB)
+  - **ext-system/** - 32 files, 29.9 KB
+    - **ext-assert/** - 1 files, 322 B
+      - `api.h` (322 B)
+    - **ext-battery/** - 2 files, 2.7 KB
+      - `api.h` (168 B)
+      - `battery(rabia).h` (2.6 KB)
+    - **ext-beep/** - 2 files, 1.3 KB
+      - `api.h` (111 B)
+      - `beep().h` (1.2 KB)
+    - **ext-cwd/** - 1 files, 1.3 KB
+      - `api.h` (1.3 KB)
+    - **ext-dll/** - 2 files, 1.1 KB
+      - `api.h` (181 B)
+      - `dll().h` (954 B)
+    - **ext-error/** - 2 files, 815 B
+      - `api.h` (453 B)
+      - `test.c` (362 B)
+    - **ext-flag/** - 2 files, 1.3 KB
+      - `api.h` (571 B)
+      - `flag().h` (742 B)
+    - **ext-hexdump/** - 2 files, 1.2 KB
+      - `api.h` (341 B)
+      - `hexdump().h` (906 B)
+    - **ext-log/** - 3 files, 1.8 KB
+      - `api.h` (649 B)
+      - `log(ansi).h` (1.1 KB)
+      - `log(null).h` (42 B)
+    - **ext-macro/** - 4 files, 2.7 KB
+      - **ext-enum/** - 2 files, 1.9 KB
+        - `api.h` (1.4 KB)
+        - `demo.c` (475 B)
+      - **ext-fileline/** - 1 files, 74 B
+        - `api.h` (74 B)
+      - **ext-from/** - 1 files, 696 B
+        - `api.h` (696 B)
+    - **ext-resize/** - 6 files, 4.2 KB
+      - `api.h` (1.3 KB)
+      - `resize(realloc).h` (719 B)
+      - **ext-memleak/** - 4 files, 2.2 KB
+        - `api.h` (298 B)
+        - `demo.c` (168 B)
+        - `memleaks(file).h` (1.6 KB)
+        - `memleaks(null).h` (100 B)
+    - **ext-retail/** - 1 files, 4.5 KB
+      - `api.h` (4.5 KB)
+    - **ext-stream/** - 3 files, 5.4 KB
+      - `api.h` (2.4 KB)
+      - `stream().h` (1.6 KB)
+      - `test.c` (1.4 KB)
+    - **ext-zrealloc/** - 1 files, 1.4 KB
+      - `api.h` (1.4 KB)
+  - **ext-thread/** - 9 files, 9.2 KB
+    - **ext-callback/** - 2 files, 527 B
+      - `api.h` (397 B)
+      - `callback().h` (130 B)
+    - **ext-event/** - 1 files, 813 B
+      - `api.h` (813 B)
+    - **ext-thread/** - 3 files, 2.6 KB
+      - `api.h` (1.0 KB)
+      - `demo.c` (241 B)
+      - `thread(mt).h` (1.4 KB)
+    - **ext-time/** - 3 files, 5.3 KB
+      - `api.h` (1.4 KB)
+      - `time().h` (3.4 KB)
+      - `time(null).h` (526 B)
+  - **ext-ui/** - 90 files, 5.5 MB
+    - **ext-cimgui/** - 75 files, 5.3 MB
+      - `api.h` (256 B)
+      - `api.hh` (17.4 KB)
+      - `example.c` (5.2 KB)
+      - `glob.cc` (1.2 KB)
+      - **3rd/** - 71 files, 5.3 MB
+        - `CMakeLists.txt` (2.2 KB)
+        - `LICENSE` (1.1 KB)
+        - `Makefile` (1.3 KB)
+        - `README.md` (9.8 KB)
+        - `TODO.txt` (341 B)
+        - `cimconfig.h` (13 B)
+        - `cimgui.cpp` (200.4 KB)
+        - `cimgui.h` (251.6 KB)
+        - `cimgui_impl.cpp` (883 B)
+        - `cimgui_impl.h` (10.0 KB)
+        - **imgui/** - 61 files, 4.8 MB
+          - `imgui_impl_dx#.cpp` x4
+          - `imgui_impl_dx#.h` x4
+          - `imgui_impl_opengl#.cpp` x2
+          - `imgui_impl_opengl#.h` x2
+          - `imgui_impl_sdl#.cpp` x2
+          - `imgui_impl_sdl#.h` x2
+          - `imgui_impl_sdlrenderer#.cpp` x2
+          - `imgui_impl_sdlrenderer#.h` x2
+          - `LICENSE.txt`
+          - `imconfig.h`
+          - `imgui.cpp`
+          - `imgui.h`
+          - `imgui_demo.cpp`
+          - `imgui_draw.cpp`
+          - `imgui_impl_allegro5.cpp`
+          - `imgui_impl_allegro5.h`
+          - `imgui_impl_android.cpp`
+          - `imgui_impl_android.h`
+          - `imgui_impl_glfw.cpp`
+          - `imgui_impl_glfw.h`
+          - `imgui_impl_glut.cpp`
+          - `imgui_impl_glut.h`
+          - `imgui_impl_metal.h`
+          - `imgui_impl_metal.mm`
+          - `imgui_impl_opengl3_loader.h`
+          - `imgui_impl_osx.h`
+          - `imgui_impl_osx.mm`
+          - `imgui_impl_sdlgpu3.cpp`
+          - `imgui_impl_sdlgpu3.h`
+          - `imgui_impl_sdlgpu3_shaders.h`
+          - `imgui_impl_vulkan.cpp`
+          - `imgui_impl_vulkan.h`
+          - `imgui_impl_wgpu.cpp`
+          - `imgui_impl_wgpu.h`
+          - `imgui_impl_win32.cpp`
+          - `imgui_impl_win32.h`
+          - `imgui_internal.h`
+          - `imgui_tables.cpp`
+          - `imgui_widgets.cpp`
+          - `imstb_rectpack.h`
+          - `imstb_textedit.h`
+          - `imstb_truetype.h`
+          - **sdlgpu3/** - 3 files, 2.1 KB
+            - `build_instructions.txt` (1.4 KB)
+            - `shader.frag` (249 B)
+            - `shader.vert` (432 B)
+          - **vulkan/** - 4 files, 1.1 KB
+            - `build_instructions.txt` (134 B)
+            - `generate_spv.sh` (254 B)
+            - `glsl_shader.frag` (249 B)
+            - `glsl_shader.vert` (454 B)
+    - **ext-microui/** - 10 files, 152.7 KB
+      - `api.h` (745 B)
+      - `demo99-microui.c` (7.3 KB)
+      - **3rd/** - 8 files, 144.7 KB
+        - `microui.c` (41.0 KB)
+        - `microui.h` (9.9 KB)
+        - `microui_atlas.inl` (68.2 KB)
+        - `microui_renderer.c` (1.4 KB)
+        - `microui_renderer.h` (639 B)
+        - `microui_renderer2.c` (4.8 KB)
+        - `microui_renderer3.c` (9.4 KB)
+        - `usage.md` (9.5 KB)
+    - **ext-ui/** - 5 files, 23.3 KB
+      - `api.h` (3.2 KB)
+      - `demo.c` (567 B)
+      - `gui(microui)(rgfw).h` (9.2 KB)
+      - `gui(microui).h` (9.6 KB)
+      - `gui(null).h` (695 B)
+- **game/** - 145 files, 1.9 MB
+  - `CMakeLists.txt` (3.8 KB)
+  - `README.md` (19.4 KB)
+  - `build.bat` (4.2 KB)
+  - `build.sh` (2.8 KB)
+  - **docs/** - 16 files, 394.1 KB
+    - `BLENDER_LOD.md` (6.6 KB)
+    - `CHANGELOG.md` (169.5 KB)
+    - `DESIGN_HINTERLAND.md` (18.5 KB)
+    - `DESIGN_JOBS.md` (19.5 KB)
+    - `DESIGN_LOD.md` (10.1 KB)
+    - `DESIGN_MAP_DETAIL.md` (3.5 KB)
+    - `DESIGN_RENDERER.md` (15.8 KB)
+    - `DESIGN_SHIPS.md` (18.7 KB)
+    - `DESIGN_STREAMING.md` (13.1 KB)
+    - `DESIGN_TERRAIN.md` (22.3 KB)
+    - `DESIGN_UI_TOOLKIT.md` (3.7 KB)
+    - `DESIGN_VISUAL.md` (26.5 KB)
+    - `DESIGN_VISUAL_TARGET.md` (5.7 KB)
+    - `FEATURES.md` (21.3 KB)
+    - `KNOWN_ISSUES.md` (25.3 KB)
+    - `ONBOARDING.md` (14.0 KB)
+  - **src/** - 118 files, 1.4 MB
+    - `main.cc` (54.5 KB)
+    - **core/** - 13 files, 94.9 KB
+      - `balance.h` (8.0 KB)
+      - `diag.cc` (19.2 KB)
+      - `diag.h` (5.9 KB)
+      - `diag.hh` (8.1 KB)
+      - `jobs.h` (5.3 KB)
+      - `log.cc` (2.1 KB)
+      - `log.h` (1.2 KB)
+      - `math.hh` (2.6 KB)
+      - `types.h` (12.5 KB)
+      - `util.h` (3.5 KB)
+      - `util.hh` (5.1 KB)
+      - `worker_pool.cc` (15.5 KB)
+      - `worker_pool.hh` (6.0 KB)
+    - **data/** - 4 files, 43.3 KB
+      - `geo_coast.h` (27.1 KB)
+      - `geo_ports.h` (10.8 KB)
+      - `tables.cc` (4.3 KB)
+      - `tables.h` (1.2 KB)
+    - **engine/** - 7 files, 15.7 KB
+      - `entities.h` (948 B)
+      - `entity.hh` (3.0 KB)
+      - `entity_manager.cc` (4.3 KB)
+      - `entity_manager.hh` (1.7 KB)
+      - `shader_library.cc` (3.6 KB)
+      - `shader_library.hh` (1.8 KB)
+      - `shaders.h` (467 B)
+    - **game/** - 2 files, 7.9 KB
+      - `game_entities.cc` (1.1 KB)
+      - `weather.cc` (6.7 KB)
+    - **gfx/** - 44 files, 698.4 KB
+      - `camera.cc`
+      - `camera.h`
+      - `detail.cc`
+      - `glsl.h`
+      - `gpu.cc`
+      - `gpu.h`
+      - `hdr.cc`
+      - `icons.cc`
+      - `lighting.cc`
+      - `lod.cc`
+      - `lod.h`
+      - `meshes.cc`
+      - `occlusion.cc`
+      - `occlusion.h`
+      - `occquery.cc`
+      - `occquery.h`
+      - `particles.cc`
+      - `particles.h`
+      - `render.h`
+      - `rhi.cc`
+      - `rhi.h`
+      - `rhi_device.hh`
+      - `rhi_dx12.cc`
+      - `rhi_gl.cc`
+      - `rhi_vk.cc`
+      - `scatter.cc`
+      - `scatter.h`
+      - `scene.cc`
+      - `scene.h`
+      - `sea.cc`
+      - `shipyard.cc`
+      - `shipyard.h`
+      - `sky.cc`
+      - `staged_scene.cc`
+      - `staged_scene.h`
+      - `terrain.cc`
+      - `terrain_atlas.cc`
+      - `terrain_atlas.h`
+      - `terrain_rings.cc`
+      - `textures.cc`
+      - `vk_selftest_spv.h`
+      - `wake.cc`
+      - `wake.h`
+      - `weather.h`
+    - **platform/** - 4 files, 18.9 KB
+      - `v3.c` (3.7 KB)
+      - `v3.h` (11.9 KB)
+      - `v3_impl.c` (311 B)
+      - `v3cpp.hh` (3.0 KB)
+    - **sim/** - 18 files, 189.4 KB
+      - `ai.cc` (25.8 KB)
+      - `ai.h` (2.5 KB)
+      - `combat.cc` (8.1 KB)
+      - `combat.h` (1.2 KB)
+      - `economy.cc` (23.8 KB)
+      - `economy.h` (5.0 KB)
+      - `events.cc` (12.3 KB)
+      - `events.h` (1.3 KB)
+      - `fleet.cc` (18.9 KB)
+      - `fleet.h` (3.0 KB)
+      - `game.cc` (18.0 KB)
+      - `game.h` (2.6 KB)
+      - `naval_physics.cc` (22.6 KB)
+      - `naval_physics.h` (6.3 KB)
+      - `region.cc` (11.2 KB)
+      - `region.h` (917 B)
+      - `settlement.cc` (23.2 KB)
+      - `settlement.h` (2.7 KB)
+    - **ui/** - 7 files, 115.7 KB
+      - `dashboard.cc` (36.3 KB)
+      - `hud.cc` (38.8 KB)
+      - `input.cc` (16.1 KB)
+      - `options.cc` (9.8 KB)
+      - `options.h` (2.5 KB)
+      - `ui.h` (5.5 KB)
+      - `uikit.cc` (6.7 KB)
+    - **world/** - 18 files, 211.8 KB
+      - `nav.cc` (18.5 KB)
+      - `nav.h` (3.0 KB)
+      - `regions.cc` (12.6 KB)
+      - `regions.h` (1.1 KB)
+      - `rivers.cc` (19.8 KB)
+      - `rivers.h` (4.2 KB)
+      - `roads.cc` (14.0 KB)
+      - `roads.h` (2.7 KB)
+      - `stream.cc` (26.8 KB)
+      - `stream.h` (6.1 KB)
+      - `terrain_chunks.cc` (49.8 KB)
+      - `terrain_chunks.h` (8.6 KB)
+      - `terrain_overview.cc` (12.3 KB)
+      - `terrain_overview.h` (4.9 KB)
+      - `wind.cc` (3.2 KB)
+      - `wind.h` (557 B)
+      - `world.cc` (21.1 KB)
+      - `world.h` (2.7 KB)
+  - **tests/** - 7 files, 94.3 KB
+    - `asset_test.cpp` (33.4 KB)
+    - `diag_test.c` (6.9 KB)
+    - `entity_test.cpp` (6.6 KB)
+    - `jobs_test.cpp` (12.3 KB)
+    - `physics_test.cpp` (9.2 KB)
+    - `sim_test.cpp` (16.7 KB)
+    - `stream_test.cpp` (9.1 KB)
+- **skills/** - 1 files, 434 B
+  - `session_skill.md` (434 B)
+- **tools/** - 24 files, 112.7 KB
+  - `blender_encode_mp4.py` (2.8 KB)
+  - `blender_export_glb.py` (7.2 KB)
+  - `blender_prepare_part.py` (3.5 KB)
+  - `blender_split_masts.py` (6.1 KB)
+  - `export_assets.py` (9.4 KB)
+  - `foam_tiles.py` (7.6 KB)
+  - `fx_sprites.py` (7.1 KB)
+  - `gen_asset_descriptors.py` (10.2 KB)
+  - `meshy_import.py` (12.1 KB)
+  - `metrics_summary.py` (3.1 KB)
+  - `occ_probe.c` (5.8 KB)
+  - `ppm2png.py` (2.2 KB)
+  - `rivers_pack.py` (2.9 KB)
+  - `sea_textures.py` (5.6 KB)
+  - `sea_tiles.py` (7.3 KB)
+  - `ship_textures.py` (2.8 KB)
+  - `tree_listing.py` (4.4 KB)
+  - `v3_framework.sh` (7.3 KB)
+  - `vid_frames.py` (1.5 KB)
+  - **vk/** - 5 files, 4.0 KB
+    - `selftest.frag` (128 B)
+    - `selftest.frag.spv` (492 B)
+    - `selftest.vert` (403 B)
+    - `selftest.vert.spv` (1.3 KB)
+    - `spv2h.py` (1.7 KB)
+
+## The asset store (`/mnt/c/projects/mare/assets`, not in git) - 5106 files, 13.9 GB
+
+- `README.md` (4.5 KB)
+- `RENAMES.md` (14.2 KB)
+- `dev.txt` (17.7 KB)
+- **buildings/** - 39 files, 9.2 GB
+  - **city/** - 39 files, 9.2 GB
+    - **commercial_and_civic/** - 11 files, 2.5 GB
+      - `church.blend` (47.8 MB)
+      - `church_LOD0.glb` (35.9 MB)
+      - `church_LOD1.glb` (33.2 MB)
+      - `church_LOD2.glb` (32.3 MB)
+      - `church_LOD3.glb` (31.9 MB)
+      - `inn.blend` (280.7 MB)
+      - `market_hall.blend` (662.3 MB)
+      - `market_stall.blend` (238.7 MB)
+      - `shop.blend` (279.0 MB)
+      - `town_hall.blend` (339.7 MB)
+      - `warehouse.blend` (567.6 MB)
+    - **crafts_and_production/** - 3 files, 940.2 MB
+      - `bakery.blend` (351.0 MB)
+      - `blacksmith.blend` (345.4 MB)
+      - `windmill.blend` (243.8 MB)
+    - **defensive_and_military/** - 5 files, 1.1 GB
+      - `city_gate.blend` (299.0 MB)
+      - `defensive_tower.blend` (221.7 MB)
+      - `guard_house.blend` (214.6 MB)
+      - `stone_wall.blend` (136.7 MB)
+      - `watchtower.blend` (224.5 MB)
+    - **harbor_and_coastal/** - 6 files, 1.3 GB
+      - `customs_house.blend` (418.8 MB)
+      - `harbor_crane.blend` (197.2 MB)
+      - `harbor_warehouse.blend` (287.3 MB)
+      - `lighthouse.blend` (130.7 MB)
+      - `stone_quay.blend` (138.5 MB)
+      - `wooden_pier.blend` (181.3 MB)
+    - **infrastructure_and_props/** - 6 files, 927.4 MB
+      - `cobblestone_road.blend` (99.3 MB)
+      - `dirt_road.blend` (286.4 MB)
+      - `fountain.blend` (98.7 MB)
+      - `stone_plaza.blend` (89.1 MB)
+      - `well.blend` (293.7 MB)
+      - `wooden_fence.blend` (60.3 MB)
+    - **residential/** - 8 files, 2.5 GB
+      - `artisan_house.blend` (390.6 MB)
+      - `merchant_house.blend` (441.4 MB)
+      - `poor_house.blend` (247.4 MB)
+      - `small_stone_house.blend` (363.4 MB)
+      - `small_wooden_house.blend` (220.6 MB)
+      - `three_story_townhouse.blend` (260.5 MB)
+      - `two_story_townhouse.blend` (257.4 MB)
+      - `wealthy_townhouse.blend` (393.1 MB)
+- **data_new/** - 3963 files, 1.3 GB
+  - **mare-world-terrain/** - 3963 files, 1.3 GB
+    - `ATTRIBUTION.txt` (710 B)
+    - `MARE_INTEGRATION.md` (19.9 KB)
+    - `README.md` (8.7 KB)
+    - `SHA256SUMS.txt` (339.9 KB)
+    - `manifest.json` (5.8 KB)
+    - **chunks/** - 3958 files, 1.3 GB
+      - rows `0` .. `9` (14), each with the columns `0`..`26`; one chunk listed:
+        - `biome.png` (1.3 KB)
+        - `biome.r8` (257.0 KB)
+        - `biome_source.r8` (257.0 KB)
+        - `coverage.r8` (257.0 KB)
+        - `height.png` (205.6 KB)
+        - `height.r32` (1.0 MB)
+        - `normal.png` (111.0 KB)
+        - `splat.png` (1.1 KB)
+        - `texture.png` (1.8 KB)
+        - `tile.json` (767 B)
+- **generated/** - 833 files, 977.7 MB
+  - `README.md` (903 B)
+  - `manifest.json` (4.7 KB)
+  - **armed_cog_hull/** - 8 files, 19.7 MB
+    - `armed_cog_hull.asset.json` (910 B)
+    - `armed_cog_hull.import.json` (171 B)
+    - `armed_cog_hull_LOD0.glb` (12.6 MB)
+    - `armed_cog_hull_LOD1.glb` (4.6 MB)
+    - `armed_cog_hull_LOD2.glb` (1.3 MB)
+    - `armed_cog_hull_LOD3.glb` (607.7 KB)
+    - `armed_cog_hull_LOD4.glb` (356.4 KB)
+    - `armed_cog_hull_LOD5.glb` (277.1 KB)
+  - **armed_cog_masts/** - 8 files, 15.1 MB
+    - `armed_cog_masts.asset.json` (927 B)
+    - `armed_cog_masts.import.json` (173 B)
+    - `armed_cog_masts_LOD0.glb` (9.0 MB)
+    - `armed_cog_masts_LOD1.glb` (3.9 MB)
+    - `armed_cog_masts_LOD2.glb` (1.2 MB)
+    - `armed_cog_masts_LOD3.glb` (521.5 KB)
+    - `armed_cog_masts_LOD4.glb` (297.1 KB)
+    - `armed_cog_masts_LOD5.glb` (230.1 KB)
+  - **armed_cog_masts_m0/** - 7 files, 6.1 MB
+    - `armed_cog_masts_m0.asset.json` (1.1 KB)
+    - `armed_cog_masts_m0_LOD0.glb` (3.8 MB)
+    - `armed_cog_masts_m0_LOD1.glb` (1.3 MB)
+    - `armed_cog_masts_m0_LOD2.glb` (526.0 KB)
+    - `armed_cog_masts_m0_LOD3.glb` (240.3 KB)
+    - `armed_cog_masts_m0_LOD4.glb` (126.0 KB)
+    - `armed_cog_masts_m0_LOD5.glb` (79.8 KB)
+  - **artisan_house/** - 5 files, 6.3 MB
+    - `artisan_house.asset.json` (775 B)
+    - `artisan_house_LOD0.glb` (3.5 MB)
+    - `artisan_house_LOD1.glb` (1.4 MB)
+    - `artisan_house_LOD2.glb` (969.9 KB)
+    - `artisan_house_LOD3.glb` (472.1 KB)
+  - **bowsprit/** - 8 files, 12.8 MB
+    - `bowsprit.asset.json` (935 B)
+    - `bowsprit.import.json` (134 B)
+    - `bowsprit_LOD0.glb` (5.5 MB)
+    - `bowsprit_LOD1.glb` (5.0 MB)
+    - `bowsprit_LOD2.glb` (1.5 MB)
+    - `bowsprit_LOD3.glb` (505.2 KB)
+    - `bowsprit_LOD4.glb` (172.3 KB)
+    - `bowsprit_LOD5.glb` (76.6 KB)
+  - **carrack_hull/** - 8 files, 20.0 MB
+    - `carrack_hull.asset.json` (886 B)
+    - `carrack_hull.import.json` (167 B)
+    - `carrack_hull_LOD0.glb` (12.9 MB)
+    - `carrack_hull_LOD1.glb` (4.7 MB)
+    - `carrack_hull_LOD2.glb` (1.3 MB)
+    - `carrack_hull_LOD3.glb` (599.7 KB)
+    - `carrack_hull_LOD4.glb` (353.1 KB)
+    - `carrack_hull_LOD5.glb` (273.2 KB)
+  - **carrack_mast/** - 8 files, 23.6 MB
+    - `carrack_mast.asset.json` (991 B)
+    - `carrack_mast.import.json` (142 B)
+    - `carrack_mast_LOD0.glb` (15.5 MB)
+    - `carrack_mast_LOD1.glb` (5.2 MB)
+    - `carrack_mast_LOD2.glb` (1.6 MB)
+    - `carrack_mast_LOD3.glb` (657.2 KB)
+    - `carrack_mast_LOD4.glb` (358.7 KB)
+    - `carrack_mast_LOD5.glb` (310.8 KB)
+  - **carrack_masts/** - 8 files, 16.1 MB
+    - `carrack_masts.asset.json` (904 B)
+    - `carrack_masts.import.json` (169 B)
+    - `carrack_masts_LOD0.glb` (9.9 MB)
+    - `carrack_masts_LOD1.glb` (3.9 MB)
+    - `carrack_masts_LOD2.glb` (1.2 MB)
+    - `carrack_masts_LOD3.glb` (518.8 KB)
+    - `carrack_masts_LOD4.glb` (307.2 KB)
+    - `carrack_masts_LOD5.glb` (249.5 KB)
+  - **carrack_masts_m0/** - 8 files, 3.3 MB
+    - `carrack_masts_m0.asset.json` (1.0 KB)
+    - `carrack_masts_m0.import.json` (190 B)
+    - `carrack_masts_m0_LOD0.glb` (1.5 MB)
+    - `carrack_masts_m0_LOD1.glb` (1021.1 KB)
+    - `carrack_masts_m0_LOD2.glb` (410.5 KB)
+    - `carrack_masts_m0_LOD3.glb` (201.7 KB)
+    - `carrack_masts_m0_LOD4.glb` (108.0 KB)
+    - `carrack_masts_m0_LOD5.glb` (77.0 KB)
+  - **carrack_masts_m1/** - 8 files, 5.6 MB
+    - `carrack_masts_m1.asset.json` (1.0 KB)
+    - `carrack_masts_m1.import.json` (190 B)
+    - `carrack_masts_m1_LOD0.glb` (3.6 MB)
+    - `carrack_masts_m1_LOD1.glb` (1.2 MB)
+    - `carrack_masts_m1_LOD2.glb` (476.4 KB)
+    - `carrack_masts_m1_LOD3.glb` (215.1 KB)
+    - `carrack_masts_m1_LOD4.glb` (116.4 KB)
+    - `carrack_masts_m1_LOD5.glb` (81.9 KB)
+  - **carrack_masts_m2/** - 8 files, 3.7 MB
+    - `carrack_masts_m2.asset.json` (1.0 KB)
+    - `carrack_masts_m2.import.json` (190 B)
+    - `carrack_masts_m2_LOD0.glb` (1.9 MB)
+    - `carrack_masts_m2_LOD1.glb` (1.0 MB)
+    - `carrack_masts_m2_LOD2.glb` (428.3 KB)
+    - `carrack_masts_m2_LOD3.glb` (205.1 KB)
+    - `carrack_masts_m2_LOD4.glb` (109.8 KB)
+    - `carrack_masts_m2_LOD5.glb` (77.3 KB)
+  - **church/** - 5 files, 133.3 MB
+    - `church.asset.json` (579 B)
+    - `church_LOD0.glb` (35.9 MB)
+    - `church_LOD1.glb` (33.2 MB)
+    - `church_LOD2.glb` (32.3 MB)
+    - `church_LOD3.glb` (31.9 MB)
+  - **coastal_trader_hull/** - 8 files, 19.4 MB
+    - `coastal_trader_hull.asset.json` (971 B)
+    - `coastal_trader_hull.import.json` (181 B)
+    - `coastal_trader_hull_LOD0.glb` (12.3 MB)
+    - `coastal_trader_hull_LOD1.glb` (4.5 MB)
+    - `coastal_trader_hull_LOD2.glb` (1.3 MB)
+    - `coastal_trader_hull_LOD3.glb` (605.7 KB)
+    - `coastal_trader_hull_LOD4.glb` (362.7 KB)
+    - `coastal_trader_hull_LOD5.glb` (285.5 KB)
+  - **coastal_trader_masts/** - 8 files, 15.5 MB
+    - `coastal_trader_masts.asset.json` (986 B)
+    - `coastal_trader_masts.import.json` (183 B)
+    - `coastal_trader_masts_LOD0.glb` (8.9 MB)
+    - `coastal_trader_masts_LOD1.glb` (4.1 MB)
+    - `coastal_trader_masts_LOD2.glb` (1.3 MB)
+    - `coastal_trader_masts_LOD3.glb` (578.6 KB)
+    - `coastal_trader_masts_LOD4.glb` (320.0 KB)
+    - `coastal_trader_masts_LOD5.glb` (248.4 KB)
+  - **coastal_trader_masts_m0/** - 8 files, 3.6 MB
+    - `coastal_trader_masts_m0.asset.json` (1.1 KB)
+    - `coastal_trader_masts_m0.import.json` (204 B)
+    - `coastal_trader_masts_m0_LOD0.glb` (1.6 MB)
+    - `coastal_trader_masts_m0_LOD1.glb` (1.1 MB)
+    - `coastal_trader_masts_m0_LOD2.glb` (464.0 KB)
+    - `coastal_trader_masts_m0_LOD3.glb` (228.2 KB)
+    - `coastal_trader_masts_m0_LOD4.glb` (117.7 KB)
+    - `coastal_trader_masts_m0_LOD5.glb` (80.1 KB)
+  - **coastal_trader_masts_m1/** - 8 files, 5.9 MB
+    - `coastal_trader_masts_m1.asset.json` (1.1 KB)
+    - `coastal_trader_masts_m1.import.json` (204 B)
+    - `coastal_trader_masts_m1_LOD0.glb` (3.7 MB)
+    - `coastal_trader_masts_m1_LOD1.glb` (1.3 MB)
+    - `coastal_trader_masts_m1_LOD2.glb` (538.8 KB)
+    - `coastal_trader_masts_m1_LOD3.glb` (245.4 KB)
+    - `coastal_trader_masts_m1_LOD4.glb` (126.9 KB)
+    - `coastal_trader_masts_m1_LOD5.glb` (84.1 KB)
+  - **coastal_trader_masts_m2/** - 8 files, 3.6 MB
+    - `coastal_trader_masts_m2.asset.json` (1.1 KB)
+    - `coastal_trader_masts_m2.import.json` (204 B)
+    - `coastal_trader_masts_m2_LOD0.glb` (1.7 MB)
+    - `coastal_trader_masts_m2_LOD1.glb` (1.1 MB)
+    - `coastal_trader_masts_m2_LOD2.glb` (473.0 KB)
+    - `coastal_trader_masts_m2_LOD3.glb` (229.7 KB)
+    - `coastal_trader_masts_m2_LOD4.glb` (119.0 KB)
+    - `coastal_trader_masts_m2_LOD5.glb` (79.5 KB)
+  - **cog_hull/** - 8 files, 18.8 MB
+    - `cog_hull.asset.json` (839 B)
+    - `cog_hull.import.json` (159 B)
+    - `cog_hull_LOD0.glb` (12.0 MB)
+    - `cog_hull_LOD1.glb` (4.4 MB)
+    - `cog_hull_LOD2.glb` (1.3 MB)
+    - `cog_hull_LOD3.glb` (556.4 KB)
+    - `cog_hull_LOD4.glb` (319.5 KB)
+    - `cog_hull_LOD5.glb` (241.5 KB)
+  - **cog_masts/** - 8 files, 13.6 MB
+    - `cog_masts.asset.json` (856 B)
+    - `cog_masts.import.json` (161 B)
+    - `cog_masts_LOD0.glb` (7.6 MB)
+    - `cog_masts_LOD1.glb` (3.8 MB)
+    - `cog_masts_LOD2.glb` (1.2 MB)
+    - `cog_masts_LOD3.glb` (519.0 KB)
+    - `cog_masts_LOD4.glb` (306.8 KB)
+    - `cog_masts_LOD5.glb` (248.0 KB)
+  - **cog_masts_m0/** - 7 files, 5.9 MB
+    - `cog_masts_m0.asset.json` (994 B)
+    - `cog_masts_m0_LOD0.glb` (3.7 MB)
+    - `cog_masts_m0_LOD1.glb` (1.3 MB)
+    - `cog_masts_m0_LOD2.glb` (507.2 KB)
+    - `cog_masts_m0_LOD3.glb` (231.9 KB)
+    - `cog_masts_m0_LOD4.glb` (127.9 KB)
+    - `cog_masts_m0_LOD5.glb` (86.9 KB)
+  - **cog_two_yards_mast/** - 8 files, 18.3 MB
+    - `cog_two_yards_mast.asset.json` (1.0 KB)
+    - `cog_two_yards_mast.import.json` (149 B)
+    - `cog_two_yards_mast_LOD0.glb` (10.3 MB)
+    - `cog_two_yards_mast_LOD1.glb` (5.2 MB)
+    - `cog_two_yards_mast_LOD2.glb` (1.6 MB)
+    - `cog_two_yards_mast_LOD3.glb` (645.4 KB)
+    - `cog_two_yards_mast_LOD4.glb` (346.5 KB)
+    - `cog_two_yards_mast_LOD5.glb` (213.5 KB)
+  - **cog_yard_mast/** - 8 files, 14.7 MB
+    - `cog_yard_mast.asset.json` (1005 B)
+    - `cog_yard_mast.import.json` (77 B)
+    - `cog_yard_mast_LOD0.glb` (6.8 MB)
+    - `cog_yard_mast_LOD1.glb` (5.2 MB)
+    - `cog_yard_mast_LOD2.glb` (1.6 MB)
+    - `cog_yard_mast_LOD3.glb` (643.0 KB)
+    - `cog_yard_mast_LOD4.glb` (344.2 KB)
+    - `cog_yard_mast_LOD5.glb` (164.9 KB)
+  - **fusta_hull/** - 8 files, 18.6 MB
+    - `fusta_hull.asset.json` (863 B)
+    - `fusta_hull.import.json` (163 B)
+    - `fusta_hull_LOD0.glb` (12.0 MB)
+    - `fusta_hull_LOD1.glb` (4.3 MB)
+    - `fusta_hull_LOD2.glb` (1.3 MB)
+    - `fusta_hull_LOD3.glb` (559.2 KB)
+    - `fusta_hull_LOD4.glb` (325.6 KB)
+    - `fusta_hull_LOD5.glb` (253.0 KB)
+  - **fusta_masts/** - 8 files, 14.3 MB
+    - `fusta_masts.asset.json` (878 B)
+    - `fusta_masts.import.json` (165 B)
+    - `fusta_masts_LOD0.glb` (8.1 MB)
+    - `fusta_masts_LOD1.glb` (3.9 MB)
+    - `fusta_masts_LOD2.glb` (1.2 MB)
+    - `fusta_masts_LOD3.glb` (544.6 KB)
+    - `fusta_masts_LOD4.glb` (319.8 KB)
+    - `fusta_masts_LOD5.glb` (255.3 KB)
+  - **fusta_masts_m0/** - 8 files, 3.6 MB
+    - `fusta_masts_m0.asset.json` (1020 B)
+    - `fusta_masts_m0.import.json` (186 B)
+    - `fusta_masts_m0_LOD0.glb` (1.7 MB)
+    - `fusta_masts_m0_LOD1.glb` (1.0 MB)
+    - `fusta_masts_m0_LOD2.glb` (434.8 KB)
+    - `fusta_masts_m0_LOD3.glb` (217.1 KB)
+    - `fusta_masts_m0_LOD4.glb` (119.3 KB)
+    - `fusta_masts_m0_LOD5.glb` (86.4 KB)
+  - **fusta_masts_m1/** - 8 files, 5.7 MB
+    - `fusta_masts_m1.asset.json` (1020 B)
+    - `fusta_masts_m1.import.json` (186 B)
+    - `fusta_masts_m1_LOD0.glb` (3.6 MB)
+    - `fusta_masts_m1_LOD1.glb` (1.2 MB)
+    - `fusta_masts_m1_LOD2.glb` (514.4 KB)
+    - `fusta_masts_m1_LOD3.glb` (239.7 KB)
+    - `fusta_masts_m1_LOD4.glb` (131.7 KB)
+    - `fusta_masts_m1_LOD5.glb` (91.3 KB)
+  - **fusta_masts_m2/** - 8 files, 1.8 MB
+    - `fusta_masts_m2.asset.json` (1020 B)
+    - `fusta_masts_m2.import.json` (186 B)
+    - `fusta_masts_m2_LOD0.glb` (534.5 KB)
+    - `fusta_masts_m2_LOD1.glb` (534.5 KB)
+    - `fusta_masts_m2_LOD2.glb` (362.8 KB)
+    - `fusta_masts_m2_LOD3.glb` (189.3 KB)
+    - `fusta_masts_m2_LOD4.glb` (115.0 KB)
+    - `fusta_masts_m2_LOD5.glb` (83.9 KB)
+  - **fx/** - 3 files, 5.1 MB
+    - `fire_atlas.png` (2.3 MB)
+    - `foam_atlas.png` (1.9 MB)
+    - `smoke_atlas.png` (935.0 KB)
+  - **galiot_hull/** - 8 files, 19.1 MB
+    - `galiot_hull.asset.json` (874 B)
+    - `galiot_hull.import.json` (165 B)
+    - `galiot_hull_LOD0.glb` (12.3 MB)
+    - `galiot_hull_LOD1.glb` (4.5 MB)
+    - `galiot_hull_LOD2.glb` (1.3 MB)
+    - `galiot_hull_LOD3.glb` (562.7 KB)
+    - `galiot_hull_LOD4.glb` (316.0 KB)
+    - `galiot_hull_LOD5.glb` (235.2 KB)
+  - **galley_oar/** - 7 files, 3.4 MB
+    - `galley_oar.asset.json` (866 B)
+    - `galley_oar_LOD0.glb` (1.5 MB)
+    - `galley_oar_LOD1.glb` (1.1 MB)
+    - `galley_oar_LOD2.glb` (436.8 KB)
+    - `galley_oar_LOD3.glb` (222.2 KB)
+    - `galley_oar_LOD4.glb` (131.2 KB)
+    - `galley_oar_LOD5.glb` (93.5 KB)
+  - **great_carrack_mast/** - 8 files, 23.6 MB
+    - `great_carrack_mast.asset.json` (1.0 KB)
+    - `great_carrack_mast.import.json` (154 B)
+    - `great_carrack_mast_LOD0.glb` (15.5 MB)
+    - `great_carrack_mast_LOD1.glb` (5.2 MB)
+    - `great_carrack_mast_LOD2.glb` (1.6 MB)
+    - `great_carrack_mast_LOD3.glb` (650.5 KB)
+    - `great_carrack_mast_LOD4.glb` (352.1 KB)
+    - `great_carrack_mast_LOD5.glb` (297.4 KB)
+  - **gun_bombard/** - 8 files, 8.1 MB
+    - `gun_bombard.asset.json` (956 B)
+    - `gun_bombard.import.json` (180 B)
+    - `gun_bombard_LOD0.glb` (5.1 MB)
+    - `gun_bombard_LOD1.glb` (1.7 MB)
+    - `gun_bombard_LOD2.glb` (699.9 KB)
+    - `gun_bombard_LOD3.glb` (302.4 KB)
+    - `gun_bombard_LOD4.glb` (147.2 KB)
+    - `gun_bombard_LOD5.glb` (82.9 KB)
+  - **gun_breech_light/** - 8 files, 7.4 MB
+    - `gun_breech_light.asset.json` (1.0 KB)
+    - `gun_breech_light.import.json` (190 B)
+    - `gun_breech_light_LOD0.glb` (4.7 MB)
+    - `gun_breech_light_LOD1.glb` (1.6 MB)
+    - `gun_breech_light_LOD2.glb` (659.1 KB)
+    - `gun_breech_light_LOD3.glb` (274.7 KB)
+    - `gun_breech_light_LOD4.glb` (131.4 KB)
+    - `gun_breech_light_LOD5.glb` (72.6 KB)
+  - **gun_cannon_large/** - 8 files, 8.2 MB
+    - `gun_cannon_large.asset.json` (1.0 KB)
+    - `gun_cannon_large.import.json` (190 B)
+    - `gun_cannon_large_LOD0.glb` (5.2 MB)
+    - `gun_cannon_large_LOD1.glb` (1.8 MB)
+    - `gun_cannon_large_LOD2.glb` (722.0 KB)
+    - `gun_cannon_large_LOD3.glb` (310.6 KB)
+    - `gun_cannon_large_LOD4.glb` (147.6 KB)
+    - `gun_cannon_large_LOD5.glb` (82.1 KB)
+  - **gun_cannon_late15c/** - 8 files, 7.7 MB
+    - `gun_cannon_late15c.asset.json` (1.0 KB)
+    - `gun_cannon_late15c.import.json` (194 B)
+    - `gun_cannon_late15c_LOD0.glb` (4.8 MB)
+    - `gun_cannon_late15c_LOD1.glb` (1.7 MB)
+    - `gun_cannon_late15c_LOD2.glb` (664.3 KB)
+    - `gun_cannon_late15c_LOD3.glb` (283.4 KB)
+    - `gun_cannon_late15c_LOD4.glb` (141.4 KB)
+    - `gun_cannon_late15c_LOD5.glb` (82.1 KB)
+  - **gun_perrier/** - 8 files, 7.8 MB
+    - `gun_perrier.asset.json` (956 B)
+    - `gun_perrier.import.json` (180 B)
+    - `gun_perrier_LOD0.glb` (4.9 MB)
+    - `gun_perrier_LOD1.glb` (1.7 MB)
+    - `gun_perrier_LOD2.glb` (673.8 KB)
+    - `gun_perrier_LOD3.glb` (290.9 KB)
+    - `gun_perrier_LOD4.glb` (146.2 KB)
+    - `gun_perrier_LOD5.glb` (85.2 KB)
+  - **gun_swivel_heavy/** - 8 files, 7.5 MB
+    - `gun_swivel_heavy.asset.json` (1.0 KB)
+    - `gun_swivel_heavy.import.json` (190 B)
+    - `gun_swivel_heavy_LOD0.glb` (4.8 MB)
+    - `gun_swivel_heavy_LOD1.glb` (1.7 MB)
+    - `gun_swivel_heavy_LOD2.glb` (662.6 KB)
+    - `gun_swivel_heavy_LOD3.glb` (272.1 KB)
+    - `gun_swivel_heavy_LOD4.glb` (132.4 KB)
+    - `gun_swivel_heavy_LOD5.glb` (75.5 KB)
+  - **gun_swivel_light/** - 8 files, 6.9 MB
+    - `gun_swivel_light.asset.json` (1.0 KB)
+    - `gun_swivel_light.import.json` (190 B)
+    - `gun_swivel_light_LOD0.glb` (4.4 MB)
+    - `gun_swivel_light_LOD1.glb` (1.4 MB)
+    - `gun_swivel_light_LOD2.glb` (630.0 KB)
+    - `gun_swivel_light_LOD3.glb` (254.7 KB)
+    - `gun_swivel_light_LOD4.glb` (123.3 KB)
+    - `gun_swivel_light_LOD5.glb` (71.6 KB)
+  - **hulk_hull/** - 8 files, 19.6 MB
+    - `hulk_hull.asset.json` (851 B)
+    - `hulk_hull.import.json` (161 B)
+    - `hulk_hull_LOD0.glb` (12.7 MB)
+    - `hulk_hull_LOD1.glb` (4.5 MB)
+    - `hulk_hull_LOD2.glb` (1.2 MB)
+    - `hulk_hull_LOD3.glb` (558.6 KB)
+    - `hulk_hull_LOD4.glb` (318.5 KB)
+    - `hulk_hull_LOD5.glb` (243.0 KB)
+  - **hulk_masts/** - 8 files, 18.2 MB
+    - `hulk_masts.asset.json` (868 B)
+    - `hulk_masts.import.json` (163 B)
+    - `hulk_masts_LOD0.glb` (11.8 MB)
+    - `hulk_masts_LOD1.glb` (4.2 MB)
+    - `hulk_masts_LOD2.glb` (1.2 MB)
+    - `hulk_masts_LOD3.glb` (520.1 KB)
+    - `hulk_masts_LOD4.glb` (300.1 KB)
+    - `hulk_masts_LOD5.glb` (231.5 KB)
+  - **hulk_masts_m0/** - 8 files, 5.5 MB
+    - `hulk_masts_m0.asset.json` (1008 B)
+    - `hulk_masts_m0.import.json` (184 B)
+    - `hulk_masts_m0_LOD0.glb` (3.5 MB)
+    - `hulk_masts_m0_LOD1.glb` (1.1 MB)
+    - `hulk_masts_m0_LOD2.glb` (473.3 KB)
+    - `hulk_masts_m0_LOD3.glb` (210.9 KB)
+    - `hulk_masts_m0_LOD4.glb` (113.7 KB)
+    - `hulk_masts_m0_LOD5.glb` (76.7 KB)
+  - **hulk_masts_m1/** - 8 files, 5.6 MB
+    - `hulk_masts_m1.asset.json` (1008 B)
+    - `hulk_masts_m1.import.json` (184 B)
+    - `hulk_masts_m1_LOD0.glb` (3.6 MB)
+    - `hulk_masts_m1_LOD1.glb` (1.2 MB)
+    - `hulk_masts_m1_LOD2.glb` (468.6 KB)
+    - `hulk_masts_m1_LOD3.glb` (210.3 KB)
+    - `hulk_masts_m1_LOD4.glb` (113.7 KB)
+    - `hulk_masts_m1_LOD5.glb` (76.1 KB)
+  - **hulk_masts_m2/** - 8 files, 5.5 MB
+    - `hulk_masts_m2.asset.json` (1008 B)
+    - `hulk_masts_m2.import.json` (184 B)
+    - `hulk_masts_m2_LOD0.glb` (3.5 MB)
+    - `hulk_masts_m2_LOD1.glb` (1.1 MB)
+    - `hulk_masts_m2_LOD2.glb` (469.9 KB)
+    - `hulk_masts_m2_LOD3.glb` (209.1 KB)
+    - `hulk_masts_m2_LOD4.glb` (113.0 KB)
+    - `hulk_masts_m2_LOD5.glb` (76.8 KB)
+  - **lateen_yard/** - 7 files, 2.2 MB
+    - `lateen_yard.asset.json` (1004 B)
+    - `lateen_yard_LOD0.glb` (630.6 KB)
+    - `lateen_yard_LOD1.glb` (630.6 KB)
+    - `lateen_yard_LOD2.glb` (550.3 KB)
+    - `lateen_yard_LOD3.glb` (280.9 KB)
+    - `lateen_yard_LOD4.glb` (127.5 KB)
+    - `lateen_yard_LOD5.glb` (70.8 KB)
+  - **mast_carrack/** - 7 files, 22.8 MB
+    - `mast_carrack.asset.json` (1.0 KB)
+    - `mast_carrack_LOD0.glb` (15.3 MB)
+    - `mast_carrack_LOD1.glb` (5.1 MB)
+    - `mast_carrack_LOD2.glb` (1.6 MB)
+    - `mast_carrack_LOD3.glb` (526.2 KB)
+    - `mast_carrack_LOD4.glb` (191.2 KB)
+    - `mast_carrack_LOD5.glb` (101.1 KB)
+  - **mast_cog_single/** - 7 files, 10.9 MB
+    - `mast_cog_single.asset.json` (1.0 KB)
+    - `mast_cog_single_LOD0.glb` (4.2 MB)
+    - `mast_cog_single_LOD1.glb` (4.2 MB)
+    - `mast_cog_single_LOD2.glb` (1.6 MB)
+    - `mast_cog_single_LOD3.glb` (542.2 KB)
+    - `mast_cog_single_LOD4.glb` (194.1 KB)
+    - `mast_cog_single_LOD5.glb` (84.7 KB)
+  - **mast_cog_two/** - 7 files, 12.9 MB
+    - `mast_cog_two.asset.json` (1.0 KB)
+    - `mast_cog_two_LOD0.glb` (5.4 MB)
+    - `mast_cog_two_LOD1.glb` (5.1 MB)
+    - `mast_cog_two_LOD2.glb` (1.6 MB)
+    - `mast_cog_two_LOD3.glb` (533.1 KB)
+    - `mast_cog_two_LOD4.glb` (190.5 KB)
+    - `mast_cog_two_LOD5.glb` (84.2 KB)
+  - **mast_great_carrack/** - 7 files, 22.6 MB
+    - `mast_great_carrack.asset.json` (1.1 KB)
+    - `mast_great_carrack_LOD0.glb` (15.3 MB)
+    - `mast_great_carrack_LOD1.glb` (5.0 MB)
+    - `mast_great_carrack_LOD2.glb` (1.5 MB)
+    - `mast_great_carrack_LOD3.glb` (475.9 KB)
+    - `mast_great_carrack_LOD4.glb` (165.7 KB)
+    - `mast_great_carrack_LOD5.glb` (153.0 KB)
+  - **mast_lateen_tall/** - 7 files, 13.4 MB
+    - `mast_lateen_tall.asset.json` (1.1 KB)
+    - `mast_lateen_tall_LOD0.glb` (6.0 MB)
+    - `mast_lateen_tall_LOD1.glb` (5.1 MB)
+    - `mast_lateen_tall_LOD2.glb` (1.5 MB)
+    - `mast_lateen_tall_LOD3.glb` (520.8 KB)
+    - `mast_lateen_tall_LOD4.glb` (182.8 KB)
+    - `mast_lateen_tall_LOD5.glb` (80.2 KB)
+  - **mast_mizzen/** - 7 files, 21.0 MB
+    - `mast_mizzen.asset.json` (1011 B)
+    - `mast_mizzen_LOD0.glb` (13.8 MB)
+    - `mast_mizzen_LOD1.glb` (4.8 MB)
+    - `mast_mizzen_LOD2.glb` (1.4 MB)
+    - `mast_mizzen_LOD3.glb` (477.4 KB)
+    - `mast_mizzen_LOD4.glb` (263.3 KB)
+    - `mast_mizzen_LOD5.glb` (263.3 KB)
+  - **mediterranean_masts/** - 8 files, 15.8 MB
+    - `mediterranean_masts.asset.json` (975 B)
+    - `mediterranean_masts.import.json` (181 B)
+    - `mediterranean_masts_LOD0.glb` (9.4 MB)
+    - `mediterranean_masts_LOD1.glb` (4.0 MB)
+    - `mediterranean_masts_LOD2.glb` (1.2 MB)
+    - `mediterranean_masts_LOD3.glb` (536.6 KB)
+    - `mediterranean_masts_LOD4.glb` (319.8 KB)
+    - `mediterranean_masts_LOD5.glb` (256.9 KB)
+  - **mediterranean_masts_m0/** - 7 files, 6.2 MB
+    - `mediterranean_masts_m0.asset.json` (1.1 KB)
+    - `mediterranean_masts_m0_LOD0.glb` (3.8 MB)
+    - `mediterranean_masts_m0_LOD1.glb` (1.4 MB)
+    - `mediterranean_masts_m0_LOD2.glb` (521.2 KB)
+    - `mediterranean_masts_m0_LOD3.glb` (240.8 KB)
+    - `mediterranean_masts_m0_LOD4.glb` (131.6 KB)
+    - `mediterranean_masts_m0_LOD5.glb` (87.8 KB)
+  - **merchant_house/** - 5 files, 6.5 MB
+    - `merchant_house.asset.json` (785 B)
+    - `merchant_house_LOD0.glb` (3.6 MB)
+    - `merchant_house_LOD1.glb` (1.4 MB)
+    - `merchant_house_LOD2.glb` (1000.8 KB)
+    - `merchant_house_LOD3.glb` (502.8 KB)
+  - **mizzen_mast/** - 8 files, 22.9 MB
+    - `mizzen_mast.asset.json` (1.1 KB)
+    - `mizzen_mast.import.json` (140 B)
+    - `mizzen_mast_LOD0.glb` (15.0 MB)
+    - `mizzen_mast_LOD1.glb` (5.1 MB)
+    - `mizzen_mast_LOD2.glb` (1.6 MB)
+    - `mizzen_mast_LOD3.glb` (644.8 KB)
+    - `mizzen_mast_LOD4.glb` (346.6 KB)
+    - `mizzen_mast_LOD5.glb` (234.9 KB)
+  - **poor_house/** - 5 files, 5.3 MB
+    - `poor_house.asset.json` (745 B)
+    - `poor_house_LOD0.glb` (2.7 MB)
+    - `poor_house_LOD1.glb` (1.2 MB)
+    - `poor_house_LOD2.glb` (974.1 KB)
+    - `poor_house_LOD3.glb` (475.8 KB)
+  - **sea/** - 7 files, 7.4 MB
+    - `foam_crest.png` (333.1 KB)
+    - `foam_lane.png` (295.7 KB)
+    - `foam_streak.png` (284.7 KB)
+    - `foam_wake.png` (265.3 KB)
+    - `sea_albedo.png` (2.2 MB)
+    - `sea_displacement.png` (2.1 MB)
+    - `sea_normal.png` (1.9 MB)
+  - **shaders/** - 50 files, 166.1 KB
+    - **common/** - 10 files, 17.7 KB
+      - `clouds.glsl` (2.8 KB)
+      - `color.glsl` (320 B)
+      - `dither.glsl` (1.2 KB)
+      - `fog.glsl` (568 B)
+      - `fullscreen.vert` (108 B)
+      - `light.glsl` (3.1 KB)
+      - `mapmode.glsl` (3.7 KB)
+      - `nmap.glsl` (932 B)
+      - `pbr.glsl` (1.1 KB)
+      - `waves.glsl` (4.0 KB)
+    - **detailview/** - 1 files, 836 B
+      - `clouds.frag` (836 B)
+    - **fx/** - 5 files, 12.5 KB
+      - `puff.frag` (6.5 KB)
+      - `puff.vert` (1.4 KB)
+      - `wake_decay.frag` (782 B)
+      - `wake_stamp.frag` (3.0 KB)
+      - `wake_stamp.vert` (786 B)
+    - **hdr/** - 4 files, 6.4 KB
+      - `ao.frag` (1.7 KB)
+      - `blur.frag` (429 B)
+      - `bright.frag` (317 B)
+      - `tonemap.frag` (4.0 KB)
+    - **icons/** - 2 files, 1.6 KB
+      - `icons.frag` (1.0 KB)
+      - `icons.vert` (538 B)
+    - **meshes/** - 8 files, 28.3 KB
+      - `cloth.glsl` (3.5 KB)
+      - `depth.frag` (130 B)
+      - `depth.vert` (3.9 KB)
+      - `meshes.frag` (7.7 KB)
+      - `meshes.vert` (5.8 KB)
+      - `rope.geom` (2.7 KB)
+      - `rope.vert` (3.7 KB)
+      - `smoke.frag` (902 B)
+    - **occquery/** - 2 files, 433 B
+      - `proxy.frag` (58 B)
+      - `proxy.vert` (375 B)
+    - **sea/** - 7 files, 48.4 KB
+      - `sea.frag` (33.0 KB)
+      - `sea.tesc` (818 B)
+      - `sea.tese` (3.8 KB)
+      - `sea.vert` (282 B)
+      - `sea_detail.vert` (1.8 KB)
+      - `sea_tess.vert` (205 B)
+      - `vs_common.glsl` (8.5 KB)
+    - **sky/** - 2 files, 2.8 KB
+      - `overhead.frag` (1.2 KB)
+      - `sky.frag` (1.6 KB)
+    - **terrain/** - 8 files, 46.2 KB
+      - `chunks.glsl` (3.8 KB)
+      - `detail.glsl` (3.4 KB)
+      - `rings.glsl` (4.7 KB)
+      - `terrain.frag` (31.2 KB)
+      - `terrain.tesc` (1.1 KB)
+      - `terrain.tese` (1.1 KB)
+      - `terrain.vert` (689 B)
+      - `terrain_tess.vert` (285 B)
+    - **weather/** - 1 files, 954 B
+      - `rain.frag` (954 B)
+  - **ships/** - 7 files, 16.1 MB
+    - `rope_premium.png` (2.9 MB)
+    - `rope_used.png` (2.9 MB)
+    - `sail_premium_albedo.png` (2.3 MB)
+    - `sail_premium_normal.png` (2.4 MB)
+    - `sail_used_albedo.png` (2.8 MB)
+    - `sail_used_normal.png` (2.8 MB)
+    - `ship_classes.json` (5.9 KB)
+  - **small_stone_house/** - 5 files, 6.2 MB
+    - `small_stone_house.asset.json` (815 B)
+    - `small_stone_house_LOD0.glb` (3.4 MB)
+    - `small_stone_house_LOD1.glb` (1.4 MB)
+    - `small_stone_house_LOD2.glb` (954.2 KB)
+    - `small_stone_house_LOD3.glb` (456.5 KB)
+  - **small_wooden_house/** - 5 files, 6.0 MB
+    - `small_wooden_house.asset.json` (825 B)
+    - `small_wooden_house_LOD0.glb` (3.3 MB)
+    - `small_wooden_house_LOD1.glb` (1.3 MB)
+    - `small_wooden_house_LOD2.glb` (972.8 KB)
+    - `small_wooden_house_LOD3.glb` (475.1 KB)
+  - **square_yard/** - 7 files, 7.4 MB
+    - `square_yard.asset.json` (950 B)
+    - `square_yard_LOD0.glb` (2.5 MB)
+    - `square_yard_LOD1.glb` (2.5 MB)
+    - `square_yard_LOD2.glb` (1.6 MB)
+    - `square_yard_LOD3.glb` (546.0 KB)
+    - `square_yard_LOD4.glb` (197.4 KB)
+    - `square_yard_LOD5.glb` (87.8 KB)
+  - **tall_lateen_mast/** - 8 files, 17.3 MB
+    - `tall_lateen_mast.asset.json` (1.2 KB)
+    - `tall_lateen_mast.import.json` (150 B)
+    - `tall_lateen_mast_LOD0.glb` (9.5 MB)
+    - `tall_lateen_mast_LOD1.glb` (5.1 MB)
+    - `tall_lateen_mast_LOD2.glb` (1.6 MB)
+    - `tall_lateen_mast_LOD3.glb` (643.3 KB)
+    - `tall_lateen_mast_LOD4.glb` (344.6 KB)
+    - `tall_lateen_mast_LOD5.glb` (170.0 KB)
+  - **terrain/** - 3 files, 5.1 MB
+    - `depth_map_terrain.png` (1.2 MB)
+    - `normal_map_terrain.png` (1.5 MB)
+    - `terrain_textures.png` (2.4 MB)
+  - **three_story_townhouse/** - 5 files, 5.9 MB
+    - `three_story_townhouse.asset.json` (855 B)
+    - `three_story_townhouse_LOD0.glb` (3.2 MB)
+    - `three_story_townhouse_LOD1.glb` (1.3 MB)
+    - `three_story_townhouse_LOD2.glb` (999.7 KB)
+    - `three_story_townhouse_LOD3.glb` (501.9 KB)
+  - **tree_african_oil_palm/** - 8 files, 1.4 MB
+    - `tree_african_oil_palm.asset.json` (1.1 KB)
+    - `tree_african_oil_palm.meshy.json` (192 B)
+    - `tree_african_oil_palm_LOD0.glb` (345.3 KB)
+    - `tree_african_oil_palm_LOD1.glb` (345.3 KB)
+    - `tree_african_oil_palm_LOD2.glb` (336.8 KB)
+    - `tree_african_oil_palm_LOD3.glb` (184.8 KB)
+    - `tree_african_oil_palm_LOD4.glb` (109.7 KB)
+    - `tree_african_oil_palm_LOD5.glb` (82.5 KB)
+  - **tree_bald_cypress/** - 8 files, 1.9 MB
+    - `tree_bald_cypress.asset.json` (1.0 KB)
+    - `tree_bald_cypress.meshy.json` (184 B)
+    - `tree_bald_cypress_LOD0.glb` (551.1 KB)
+    - `tree_bald_cypress_LOD1.glb` (551.1 KB)
+    - `tree_bald_cypress_LOD2.glb` (427.9 KB)
+    - `tree_bald_cypress_LOD3.glb` (227.1 KB)
+    - `tree_bald_cypress_LOD4.glb` (126.2 KB)
+    - `tree_bald_cypress_LOD5.glb` (83.6 KB)
+  - **tree_baobab_tree/** - 8 files, 1.6 MB
+    - `tree_baobab_tree.asset.json` (1018 B)
+    - `tree_baobab_tree.meshy.json` (182 B)
+    - `tree_baobab_tree_LOD0.glb` (476.8 KB)
+    - `tree_baobab_tree_LOD1.glb` (476.8 KB)
+    - `tree_baobab_tree_LOD2.glb` (333.5 KB)
+    - `tree_baobab_tree_LOD3.glb` (186.5 KB)
+    - `tree_baobab_tree_LOD4.glb` (106.9 KB)
+    - `tree_baobab_tree_LOD5.glb` (75.3 KB)
+  - **tree_brazil_nut/** - 8 files, 1.7 MB
+    - `tree_brazil_nut.asset.json` (1004 B)
+    - `tree_brazil_nut.meshy.json` (180 B)
+    - `tree_brazil_nut_LOD0.glb` (468.6 KB)
+    - `tree_brazil_nut_LOD1.glb` (468.6 KB)
+    - `tree_brazil_nut_LOD2.glb` (394.2 KB)
+    - `tree_brazil_nut_LOD3.glb` (216.9 KB)
+    - `tree_brazil_nut_LOD4.glb` (116.0 KB)
+    - `tree_brazil_nut_LOD5.glb` (73.5 KB)
+  - **tree_camel_thorn/** - 8 files, 1.5 MB
+    - `tree_camel_thorn.asset.json` (1018 B)
+    - `tree_camel_thorn.meshy.json` (182 B)
+    - `tree_camel_thorn_LOD0.glb` (400.3 KB)
+    - `tree_camel_thorn_LOD1.glb` (400.3 KB)
+    - `tree_camel_thorn_LOD2.glb` (314.1 KB)
+    - `tree_camel_thorn_LOD3.glb` (181.8 KB)
+    - `tree_camel_thorn_LOD4.glb` (116.9 KB)
+    - `tree_camel_thorn_LOD5.glb` (78.5 KB)
+  - **tree_douglas_fir/** - 8 files, 1.9 MB
+    - `tree_douglas_fir.asset.json` (1018 B)
+    - `tree_douglas_fir.meshy.json` (182 B)
+    - `tree_douglas_fir_LOD0.glb` (503.6 KB)
+    - `tree_douglas_fir_LOD1.glb` (503.6 KB)
+    - `tree_douglas_fir_LOD2.glb` (452.0 KB)
+    - `tree_douglas_fir_LOD3.glb` (237.1 KB)
+    - `tree_douglas_fir_LOD4.glb` (131.9 KB)
+    - `tree_douglas_fir_LOD5.glb` (86.0 KB)
+  - **tree_dragons_blood/** - 8 files, 1.5 MB
+    - `tree_dragons_blood.asset.json` (1.0 KB)
+    - `tree_dragons_blood.meshy.json` (186 B)
+    - `tree_dragons_blood_LOD0.glb` (409.3 KB)
+    - `tree_dragons_blood_LOD1.glb` (409.3 KB)
+    - `tree_dragons_blood_LOD2.glb` (318.0 KB)
+    - `tree_dragons_blood_LOD3.glb` (180.7 KB)
+    - `tree_dragons_blood_LOD4.glb` (117.1 KB)
+    - `tree_dragons_blood_LOD5.glb` (79.2 KB)
+  - **tree_eastern_white_pine/** - 8 files, 1.6 MB
+    - `tree_eastern_white_pine.asset.json` (1.1 KB)
+    - `tree_eastern_white_pine.meshy.json` (196 B)
+    - `tree_eastern_white_pine_LOD0.glb` (447.0 KB)
+    - `tree_eastern_white_pine_LOD1.glb` (447.0 KB)
+    - `tree_eastern_white_pine_LOD2.glb` (380.9 KB)
+    - `tree_eastern_white_pine_LOD3.glb` (207.7 KB)
+    - `tree_eastern_white_pine_LOD4.glb` (110.8 KB)
+    - `tree_eastern_white_pine_LOD5.glb` (70.4 KB)
+  - **tree_english_oak/** - 8 files, 1.8 MB
+    - `tree_english_oak.asset.json` (1018 B)
+    - `tree_english_oak.meshy.json` (182 B)
+    - `tree_english_oak_LOD0.glb` (530.9 KB)
+    - `tree_english_oak_LOD1.glb` (530.9 KB)
+    - `tree_english_oak_LOD2.glb` (372.0 KB)
+    - `tree_english_oak_LOD3.glb` (209.3 KB)
+    - `tree_english_oak_LOD4.glb` (121.1 KB)
+    - `tree_english_oak_LOD5.glb` (79.3 KB)
+  - **tree_european_beech/** - 8 files, 1.8 MB
+    - `tree_european_beech.asset.json` (1.0 KB)
+    - `tree_european_beech.meshy.json` (188 B)
+    - `tree_european_beech_LOD0.glb` (504.8 KB)
+    - `tree_european_beech_LOD1.glb` (504.8 KB)
+    - `tree_european_beech_LOD2.glb` (393.8 KB)
+    - `tree_european_beech_LOD3.glb` (228.8 KB)
+    - `tree_european_beech_LOD4.glb` (132.1 KB)
+    - `tree_european_beech_LOD5.glb` (89.3 KB)
+  - **tree_fever_tree/** - 8 files, 1.8 MB
+    - `tree_fever_tree.asset.json` (1004 B)
+    - `tree_fever_tree.meshy.json` (180 B)
+    - `tree_fever_tree_LOD0.glb` (483.0 KB)
+    - `tree_fever_tree_LOD1.glb` (483.0 KB)
+    - `tree_fever_tree_LOD2.glb` (393.0 KB)
+    - `tree_fever_tree_LOD3.glb` (227.5 KB)
+    - `tree_fever_tree_LOD4.glb` (133.2 KB)
+    - `tree_fever_tree_LOD5.glb` (90.5 KB)
+  - **tree_giant_sequoia/** - 8 files, 1.7 MB
+    - `tree_giant_sequoia.asset.json` (1.0 KB)
+    - `tree_giant_sequoia.meshy.json` (186 B)
+    - `tree_giant_sequoia_LOD0.glb` (458.6 KB)
+    - `tree_giant_sequoia_LOD1.glb` (458.6 KB)
+    - `tree_giant_sequoia_LOD2.glb` (405.1 KB)
+    - `tree_giant_sequoia_LOD3.glb` (219.9 KB)
+    - `tree_giant_sequoia_LOD4.glb` (119.0 KB)
+    - `tree_giant_sequoia_LOD5.glb` (78.1 KB)
+  - **tree_jacaranda/** - 8 files, 1.7 MB
+    - `tree_jacaranda.asset.json` (990 B)
+    - `tree_jacaranda.meshy.json` (178 B)
+    - `tree_jacaranda_LOD0.glb` (505.3 KB)
+    - `tree_jacaranda_LOD1.glb` (505.3 KB)
+    - `tree_jacaranda_LOD2.glb` (356.1 KB)
+    - `tree_jacaranda_LOD3.glb` (207.7 KB)
+    - `tree_jacaranda_LOD4.glb` (125.7 KB)
+    - `tree_jacaranda_LOD5.glb` (84.6 KB)
+  - **tree_joshua_tree/** - 8 files, 1.9 MB
+    - `tree_joshua_tree.asset.json` (1018 B)
+    - `tree_joshua_tree.meshy.json` (182 B)
+    - `tree_joshua_tree_LOD0.glb` (540.6 KB)
+    - `tree_joshua_tree_LOD1.glb` (540.6 KB)
+    - `tree_joshua_tree_LOD2.glb` (448.4 KB)
+    - `tree_joshua_tree_LOD3.glb` (218.7 KB)
+    - `tree_joshua_tree_LOD4.glb` (117.4 KB)
+    - `tree_joshua_tree_LOD5.glb` (85.3 KB)
+  - **tree_kapok_tree/** - 8 files, 1.7 MB
+    - `tree_kapok_tree.asset.json` (1004 B)
+    - `tree_kapok_tree.meshy.json` (180 B)
+    - `tree_kapok_tree_LOD0.glb` (504.6 KB)
+    - `tree_kapok_tree_LOD1.glb` (504.6 KB)
+    - `tree_kapok_tree_LOD2.glb` (353.8 KB)
+    - `tree_kapok_tree_LOD3.glb` (197.6 KB)
+    - `tree_kapok_tree_LOD4.glb` (122.6 KB)
+    - `tree_kapok_tree_LOD5.glb` (85.4 KB)
+  - **tree_marula_tree/** - 8 files, 1.7 MB
+    - `tree_marula_tree.asset.json` (1018 B)
+    - `tree_marula_tree.meshy.json` (182 B)
+    - `tree_marula_tree_LOD0.glb` (470.6 KB)
+    - `tree_marula_tree_LOD1.glb` (470.6 KB)
+    - `tree_marula_tree_LOD2.glb` (350.3 KB)
+    - `tree_marula_tree_LOD3.glb` (199.5 KB)
+    - `tree_marula_tree_LOD4.glb` (120.4 KB)
+    - `tree_marula_tree_LOD5.glb` (79.4 KB)
+  - **tree_mopane_tree/** - 8 files, 1.9 MB
+    - `tree_mopane_tree.asset.json` (1018 B)
+    - `tree_mopane_tree.meshy.json` (182 B)
+    - `tree_mopane_tree_LOD0.glb` (523.4 KB)
+    - `tree_mopane_tree_LOD1.glb` (523.4 KB)
+    - `tree_mopane_tree_LOD2.glb` (460.1 KB)
+    - `tree_mopane_tree_LOD3.glb` (239.5 KB)
+    - `tree_mopane_tree_LOD4.glb` (140.9 KB)
+    - `tree_mopane_tree_LOD5.glb` (96.7 KB)
+  - **tree_norway_spruce/** - 8 files, 1.4 MB
+    - `tree_norway_spruce.asset.json` (1.0 KB)
+    - `tree_norway_spruce.meshy.json` (186 B)
+    - `tree_norway_spruce_LOD0.glb` (372.8 KB)
+    - `tree_norway_spruce_LOD1.glb` (372.8 KB)
+    - `tree_norway_spruce_LOD2.glb` (345.0 KB)
+    - `tree_norway_spruce_LOD3.glb` (183.2 KB)
+    - `tree_norway_spruce_LOD4.glb` (106.8 KB)
+    - `tree_norway_spruce_LOD5.glb` (75.1 KB)
+  - **tree_olive_tree/** - 8 files, 1.6 MB
+    - `tree_olive_tree.asset.json` (1004 B)
+    - `tree_olive_tree.meshy.json` (180 B)
+    - `tree_olive_tree_LOD0.glb` (469.2 KB)
+    - `tree_olive_tree_LOD1.glb` (469.2 KB)
+    - `tree_olive_tree_LOD2.glb` (326.9 KB)
+    - `tree_olive_tree_LOD3.glb` (186.2 KB)
+    - `tree_olive_tree_LOD4.glb` (117.4 KB)
+    - `tree_olive_tree_LOD5.glb` (79.0 KB)
+  - **tree_parana_pine/** - 8 files, 1.7 MB
+    - `tree_parana_pine.asset.json` (1018 B)
+    - `tree_parana_pine.meshy.json` (182 B)
+    - `tree_parana_pine_LOD0.glb` (454.5 KB)
+    - `tree_parana_pine_LOD1.glb` (454.5 KB)
+    - `tree_parana_pine_LOD2.glb` (376.1 KB)
+    - `tree_parana_pine_LOD3.glb` (214.5 KB)
+    - `tree_parana_pine_LOD4.glb` (126.3 KB)
+    - `tree_parana_pine_LOD5.glb` (82.0 KB)
+  - **tree_quebracho/** - 8 files, 1.5 MB
+    - `tree_quebracho.asset.json` (990 B)
+    - `tree_quebracho.meshy.json` (178 B)
+    - `tree_quebracho_LOD0.glb` (411.8 KB)
+    - `tree_quebracho_LOD1.glb` (411.8 KB)
+    - `tree_quebracho_LOD2.glb` (327.1 KB)
+    - `tree_quebracho_LOD3.glb` (190.3 KB)
+    - `tree_quebracho_LOD4.glb` (118.6 KB)
+    - `tree_quebracho_LOD5.glb` (79.1 KB)
+  - **tree_sausage_tree/** - 8 files, 1.8 MB
+    - `tree_sausage_tree.asset.json` (1.0 KB)
+    - `tree_sausage_tree.meshy.json` (184 B)
+    - `tree_sausage_tree_LOD0.glb` (505.8 KB)
+    - `tree_sausage_tree_LOD1.glb` (505.8 KB)
+    - `tree_sausage_tree_LOD2.glb` (378.5 KB)
+    - `tree_sausage_tree_LOD3.glb` (221.4 KB)
+    - `tree_sausage_tree_LOD4.glb` (125.6 KB)
+    - `tree_sausage_tree_LOD5.glb` (82.6 KB)
+  - **tree_scots_pine/** - 8 files, 1.7 MB
+    - `tree_scots_pine.asset.json` (1004 B)
+    - `tree_scots_pine.meshy.json` (180 B)
+    - `tree_scots_pine_LOD0.glb` (450.6 KB)
+    - `tree_scots_pine_LOD1.glb` (450.6 KB)
+    - `tree_scots_pine_LOD2.glb` (376.3 KB)
+    - `tree_scots_pine_LOD3.glb` (216.0 KB)
+    - `tree_scots_pine_LOD4.glb` (122.3 KB)
+    - `tree_scots_pine_LOD5.glb` (83.0 KB)
+  - **tree_silver_birch/** - 8 files, 1.8 MB
+    - `tree_silver_birch.asset.json` (1.0 KB)
+    - `tree_silver_birch.meshy.json` (184 B)
+    - `tree_silver_birch_LOD0.glb` (477.8 KB)
+    - `tree_silver_birch_LOD1.glb` (477.8 KB)
+    - `tree_silver_birch_LOD2.glb` (417.8 KB)
+    - `tree_silver_birch_LOD3.glb` (236.5 KB)
+    - `tree_silver_birch_LOD4.glb` (134.5 KB)
+    - `tree_silver_birch_LOD5.glb` (91.7 KB)
+  - **tree_sugar_maple/** - 8 files, 1.8 MB
+    - `tree_sugar_maple.asset.json` (1018 B)
+    - `tree_sugar_maple.meshy.json` (182 B)
+    - `tree_sugar_maple_LOD0.glb` (539.1 KB)
+    - `tree_sugar_maple_LOD1.glb` (539.1 KB)
+    - `tree_sugar_maple_LOD2.glb` (392.0 KB)
+    - `tree_sugar_maple_LOD3.glb` (213.8 KB)
+    - `tree_sugar_maple_LOD4.glb` (121.5 KB)
+    - `tree_sugar_maple_LOD5.glb` (78.7 KB)
+  - **tree_umbrella_acacia/** - 8 files, 1.5 MB
+    - `tree_umbrella_acacia.asset.json` (1.0 KB)
+    - `tree_umbrella_acacia.meshy.json` (190 B)
+    - `tree_umbrella_acacia_LOD0.glb` (396.5 KB)
+    - `tree_umbrella_acacia_LOD1.glb` (396.5 KB)
+    - `tree_umbrella_acacia_LOD2.glb` (341.1 KB)
+    - `tree_umbrella_acacia_LOD3.glb` (202.8 KB)
+    - `tree_umbrella_acacia_LOD4.glb` (123.8 KB)
+    - `tree_umbrella_acacia_LOD5.glb` (83.1 KB)
+  - **tree_wax_palm/** - 8 files, 1.3 MB
+    - `tree_wax_palm.asset.json` (976 B)
+    - `tree_wax_palm.meshy.json` (176 B)
+    - `tree_wax_palm_LOD0.glb` (320.4 KB)
+    - `tree_wax_palm_LOD1.glb` (320.4 KB)
+    - `tree_wax_palm_LOD2.glb` (313.2 KB)
+    - `tree_wax_palm_LOD3.glb` (161.9 KB)
+    - `tree_wax_palm_LOD4.glb` (93.4 KB)
+    - `tree_wax_palm_LOD5.glb` (69.5 KB)
+  - **two_story_townhouse/** - 5 files, 6.0 MB
+    - `two_story_townhouse.asset.json` (835 B)
+    - `two_story_townhouse_LOD0.glb` (3.3 MB)
+    - `two_story_townhouse_LOD1.glb` (1.3 MB)
+    - `two_story_townhouse_LOD2.glb` (981.5 KB)
+    - `two_story_townhouse_LOD3.glb` (483.4 KB)
+  - **war_carrack_hull/** - 8 files, 20.8 MB
+    - `war_carrack_hull.asset.json` (935 B)
+    - `war_carrack_hull.import.json` (175 B)
+    - `war_carrack_hull_LOD0.glb` (13.4 MB)
+    - `war_carrack_hull_LOD1.glb` (4.8 MB)
+    - `war_carrack_hull_LOD2.glb` (1.4 MB)
+    - `war_carrack_hull_LOD3.glb` (623.8 KB)
+    - `war_carrack_hull_LOD4.glb` (343.1 KB)
+    - `war_carrack_hull_LOD5.glb` (261.6 KB)
+  - **war_carrack_masts/** - 8 files, 17.8 MB
+    - `war_carrack_masts.asset.json` (952 B)
+    - `war_carrack_masts.import.json` (177 B)
+    - `war_carrack_masts_LOD0.glb` (11.6 MB)
+    - `war_carrack_masts_LOD1.glb` (4.0 MB)
+    - `war_carrack_masts_LOD2.glb` (1.2 MB)
+    - `war_carrack_masts_LOD3.glb` (498.1 KB)
+    - `war_carrack_masts_LOD4.glb` (290.5 KB)
+    - `war_carrack_masts_LOD5.glb` (230.8 KB)
+  - **war_carrack_masts_m0/** - 8 files, 5.4 MB
+    - `war_carrack_masts_m0.asset.json` (1.1 KB)
+    - `war_carrack_masts_m0.import.json` (198 B)
+    - `war_carrack_masts_m0_LOD0.glb` (3.5 MB)
+    - `war_carrack_masts_m0_LOD1.glb` (1.1 MB)
+    - `war_carrack_masts_m0_LOD2.glb` (451.9 KB)
+    - `war_carrack_masts_m0_LOD3.glb` (201.6 KB)
+    - `war_carrack_masts_m0_LOD4.glb` (106.7 KB)
+    - `war_carrack_masts_m0_LOD5.glb` (73.6 KB)
+  - **war_carrack_masts_m1/** - 8 files, 5.5 MB
+    - `war_carrack_masts_m1.asset.json` (1.1 KB)
+    - `war_carrack_masts_m1.import.json` (198 B)
+    - `war_carrack_masts_m1_LOD0.glb` (3.5 MB)
+    - `war_carrack_masts_m1_LOD1.glb` (1.1 MB)
+    - `war_carrack_masts_m1_LOD2.glb` (460.6 KB)
+    - `war_carrack_masts_m1_LOD3.glb` (203.5 KB)
+    - `war_carrack_masts_m1_LOD4.glb` (108.2 KB)
+    - `war_carrack_masts_m1_LOD5.glb` (74.5 KB)
+  - **war_carrack_masts_m2/** - 8 files, 5.3 MB
+    - `war_carrack_masts_m2.asset.json` (1.1 KB)
+    - `war_carrack_masts_m2.import.json` (198 B)
+    - `war_carrack_masts_m2_LOD0.glb` (3.4 MB)
+    - `war_carrack_masts_m2_LOD1.glb` (1.1 MB)
+    - `war_carrack_masts_m2_LOD2.glb` (442.8 KB)
+    - `war_carrack_masts_m2_LOD3.glb` (197.0 KB)
+    - `war_carrack_masts_m2_LOD4.glb` (103.3 KB)
+    - `war_carrack_masts_m2_LOD5.glb` (73.2 KB)
+  - **wealthy_townhouse/** - 5 files, 6.4 MB
+    - `wealthy_townhouse.asset.json` (815 B)
+    - `wealthy_townhouse_LOD0.glb` (3.5 MB)
+    - `wealthy_townhouse_LOD1.glb` (1.4 MB)
+    - `wealthy_townhouse_LOD2.glb` (1009.9 KB)
+    - `wealthy_townhouse_LOD3.glb` (511.8 KB)
+  - **yard_carrack_course/** - 7 files, 7.6 MB
+    - `yard_carrack_course.asset.json` (1.0 KB)
+    - `yard_carrack_course_LOD0.glb` (4.5 MB)
+    - `yard_carrack_course_LOD1.glb` (2.0 MB)
+    - `yard_carrack_course_LOD2.glb` (639.4 KB)
+    - `yard_carrack_course_LOD3.glb` (251.5 KB)
+    - `yard_carrack_course_LOD4.glb` (124.4 KB)
+    - `yard_carrack_course_LOD5.glb` (81.8 KB)
+  - **yard_carrack_top/** - 7 files, 4.2 MB
+    - `yard_carrack_top.asset.json` (1020 B)
+    - `yard_carrack_top_LOD0.glb` (1.5 MB)
+    - `yard_carrack_top_LOD1.glb` (1.5 MB)
+    - `yard_carrack_top_LOD2.glb` (657.5 KB)
+    - `yard_carrack_top_LOD3.glb` (258.9 KB)
+    - `yard_carrack_top_LOD4.glb` (129.6 KB)
+    - `yard_carrack_top_LOD5.glb` (84.7 KB)
+  - **yard_cog_course/** - 7 files, 5.5 MB
+    - `yard_cog_course.asset.json` (1006 B)
+    - `yard_cog_course_LOD0.glb` (2.6 MB)
+    - `yard_cog_course_LOD1.glb` (1.9 MB)
+    - `yard_cog_course_LOD2.glb` (612.1 KB)
+    - `yard_cog_course_LOD3.glb` (232.9 KB)
+    - `yard_cog_course_LOD4.glb` (109.8 KB)
+    - `yard_cog_course_LOD5.glb` (69.6 KB)
+  - **yard_cog_single/** - 7 files, 5.7 MB
+    - `yard_cog_single.asset.json` (1006 B)
+    - `yard_cog_single_LOD0.glb` (2.6 MB)
+    - `yard_cog_single_LOD1.glb` (2.0 MB)
+    - `yard_cog_single_LOD2.glb` (642.4 KB)
+    - `yard_cog_single_LOD3.glb` (244.3 KB)
+    - `yard_cog_single_LOD4.glb` (115.0 KB)
+    - `yard_cog_single_LOD5.glb` (70.1 KB)
+  - **yard_cog_top/** - 7 files, 5.5 MB
+    - `yard_cog_top.asset.json` (964 B)
+    - `yard_cog_top_LOD0.glb` (2.5 MB)
+    - `yard_cog_top_LOD1.glb` (2.0 MB)
+    - `yard_cog_top_LOD2.glb` (645.6 KB)
+    - `yard_cog_top_LOD3.glb` (247.2 KB)
+    - `yard_cog_top_LOD4.glb` (117.7 KB)
+    - `yard_cog_top_LOD5.glb` (72.9 KB)
+  - **yard_great_course/** - 7 files, 5.4 MB
+    - `yard_great_course.asset.json` (1.0 KB)
+    - `yard_great_course_LOD0.glb` (2.3 MB)
+    - `yard_great_course_LOD1.glb` (2.0 MB)
+    - `yard_great_course_LOD2.glb` (650.4 KB)
+    - `yard_great_course_LOD3.glb` (252.3 KB)
+    - `yard_great_course_LOD4.glb` (122.9 KB)
+    - `yard_great_course_LOD5.glb` (78.1 KB)
+  - **yard_great_main/** - 7 files, 5.6 MB
+    - `yard_great_main.asset.json` (1006 B)
+    - `yard_great_main_LOD0.glb` (2.5 MB)
+    - `yard_great_main_LOD1.glb` (2.0 MB)
+    - `yard_great_main_LOD2.glb` (650.5 KB)
+    - `yard_great_main_LOD3.glb` (252.3 KB)
+    - `yard_great_main_LOD4.glb` (122.9 KB)
+    - `yard_great_main_LOD5.glb` (78.1 KB)
+  - **yard_great_top/** - 7 files, 3.7 MB
+    - `yard_great_top.asset.json` (992 B)
+    - `yard_great_top_LOD0.glb` (1.3 MB)
+    - `yard_great_top_LOD1.glb` (1.3 MB)
+    - `yard_great_top_LOD2.glb` (650.8 KB)
+    - `yard_great_top_LOD3.glb` (252.3 KB)
+    - `yard_great_top_LOD4.glb` (122.9 KB)
+    - `yard_great_top_LOD5.glb` (78.0 KB)
+- **issues/** - 62 files, 72.0 MB
+  - **issue1/** - 5 files, 4.0 MB
+    - `close-by-camera-shaking.png` (1.6 MB)
+    - `issue-3 what is that ugly circle.png` (915.7 KB)
+    - `issues-1.txt` (1.2 KB)
+    - `sea-issue.png` (845.1 KB)
+    - `sea-issue2.png` (715.5 KB)
+  - **issue10/** - 2 files, 4.7 MB
+    - `issue.txt` (1.1 KB)
+    - `too much blur fixx issues.mp4` (4.7 MB)
+  - **issue11/** - 11 files, 16.7 MB
+    - `Snimka zaslona 2026-11-01 185153.png` (432.0 KB)
+    - `add ship waves and splashing.png` (432.0 KB)
+    - `continous_flicker.mp4` (3.0 MB)
+    - `crests are too uniform make randomnes somehow.png` (1.4 MB)
+    - `fix this lanteen and sail.png` (896.9 KB)
+    - `fix this shading wrong.mp4` (2.9 MB)
+    - `issue-oars  need to be rotated.png` (1.1 MB)
+    - `make more dense smoke and grey and white and remove ugly particles for prety ones if you think its alright.mp4` (1.3 MB)
+    - `remove external riggings.png` (613.3 KB)
+    - `sea flickers too much slow it down or something.mp4` (2.1 MB)
+    - `wierd texture over.mp4` (2.6 MB)
+  - **issue12/** - 1 files, 291 B
+    - `issue.txt` (291 B)
+  - **issue2/** - 9 files, 9.0 MB
+    - `issue1.png` (1.1 MB)
+    - `issue2-flickering.png` (1.8 MB)
+    - `issues.txt` (920 B)
+    - `make texture more blended.png` (1.0 MB)
+    - `masts missing and sails to low.png` (1.1 MB)
+    - `next feature.txt` (438 B)
+    - `this foam is for coast also fix border invisible trim them.png` (1.7 MB)
+    - `wierd bug.png` (868.8 KB)
+    - `wierd texture moving through ship hull like sandpaper and its not static.png` (1.4 MB)
+  - **issue3/** - 4 files, 2.3 MB
+    - `add foam and crest on top of collapsing wave.png` (273.3 KB)
+    - `divide lanteen from froni mast.png` (888.9 KB)
+    - `issue.txt` (1.6 KB)
+    - `resucr waves along the coasat ass foam and waves crushing.png` (1.2 MB)
+  - **issue4/** - 5 files, 2.2 MB
+    - `check rigging and masts increase height and thickness to be proportional.png` (667.9 KB)
+    - `coast battle.png` (288.6 KB)
+    - `fix coast to be realistic lowlands.png` (734.5 KB)
+    - `issue sails.png` (574.6 KB)
+    - `issues.txt` (4.2 KB)
+  - **issue5/** - 5 files, 4.4 MB
+    - `cannon_fire_shockwave_effect.png` (1.9 MB)
+    - `issue5.png` (923.2 KB)
+    - `issue6.png` (892.2 KB)
+    - `issue7 - fix size of riggin and masta an lanteen thickness.png` (768.4 KB)
+    - `issues.txt` (417 B)
+  - **issue6/** - 2 files, 385.0 KB
+    - `front lantent issue sail.png` (383.9 KB)
+    - `issue6.txt` (1.0 KB)
+  - **issue7/** - 2 files, 931.3 KB
+    - `issue.txt` (546 B)
+    - `wierd texture over ship rolling.png` (930.7 KB)
+  - **issue8/** - 12 files, 15.2 MB
+    - `add littile igger wave amplitute bu less boam ( more dense and concentrated this looks artificial.png` (861.5 KB)
+    - `add ship battle as start menu but blurred.png` (87.1 KB)
+    - `alps look to  pointy then need to be thicked in width and less pintiy bu good start.png` (1.5 MB)
+    - `good start bu add fading out and cone spreading and dissapearing also add real generated waves from stern and bow.png` (433.7 KB)
+    - `missing crest and foam oin top of waves.png` (595.3 KB)
+    - `oars-wrong-side.png` (793.7 KB)
+    - `water looks wierd add to look more realisting not like oil spill and resolve flickering.mp4` (4.3 MB)
+    - `what has happened to north italy.png` (1.5 MB)
+    - `what is lightete semi cricle , remove it everything nees lighting, also other part of usero is right on flat - fix it.png` (2.2 MB)
+    - `wierd bug when close to ship.png` (1.5 MB)
+    - `wierd isssue with mast and riggings.png` (811.7 KB)
+    - `wierd terxture issue.mp4` (668.3 KB)
+  - **issue9/** - 4 files, 12.2 MB
+    - `add foam to crest like in strategic map.png` (542.9 KB)
+    - `issue.txt` (1.8 KB)
+    - `look at the masts rigging and lanteen fron not aligning middle mast is okay.mp4` (10.3 MB)
+    - `wake.png` (1.3 MB)
+- **map_chunk_refs/** - 15 files, 3.2 MB
+  - `tile_l3_11_10.png` (286.7 KB)
+  - `tile_l3_15_2.png` (195.7 KB)
+  - `tile_l3_15_3.png` (153.2 KB)
+  - `tile_l3_15_4.png` (242.5 KB)
+  - `tile_l3_16_2.png` (248.9 KB)
+  - `tile_l3_16_3.png` (271.0 KB)
+  - `tile_l3_16_4.png` (220.5 KB)
+  - `tile_l3_17_2.png` (215.8 KB)
+  - `tile_l3_17_3.png` (219.2 KB)
+  - `tile_l3_17_4.png` (212.8 KB)
+  - `tile_l3_18_3.png` (296.7 KB)
+  - `tile_l3_19_3.png` (237.4 KB)
+  - `tile_l3_6_7.png` (130.7 KB)
+  - `tile_l3_7_3.png` (208.0 KB)
+  - `tile_l3_7_6.png` (113.2 KB)
+- **reference/** - 14 files, 27.9 MB
+  - `cannon_fire_shockwave_effect.png` (1.9 MB)
+  - `city_view.png` (2.2 MB)
+  - `city_view2.png` (1.8 MB)
+  - `concept_frame_01.png` (2.4 MB)
+  - `concept_frame_02.png` (1.8 MB)
+  - `concept_frame_03.png` (2.4 MB)
+  - `designer_13.png` (2.7 MB)
+  - `designer_14.png` (3.0 MB)
+  - `fleet_sails.png` (3.0 MB)
+  - `fleet_sails_2.png` (2.9 MB)
+  - `issue-1.png` (497.1 KB)
+  - `montague_dawson_wind_in_her_sails.webp` (170.6 KB)
+  - `ship_battle.png` (1.6 MB)
+  - `ship_battle2.png` (1.6 MB)
+- **sea/** - 11 files, 16.5 MB
+  - `displacement_map.png` (1.3 MB)
+  - `sea_texture_normals.png` (1.5 MB)
+  - `tesselation_texture.png` (1.8 MB)
+  - **sheets/** - 8 files, 11.8 MB
+    - `sea_sheet_01.png` (1.3 MB)
+    - `sea_sheet_02.png` (1.9 MB)
+    - `sea_sheet_03.png` (1.9 MB)
+    - `sea_sheet_04.png` (955.5 KB)
+    - `sea_sheet_05.png` (601.8 KB)
+    - `sea_sheet_06.png` (1.5 MB)
+    - `sea_sheet_07.png` (2.0 MB)
+    - `sea_sheet_08.png` (1.7 MB)
+- **ships/** - 101 files, 1.8 GB
+  - **armed_cog_hull/** - 2 files, 67.5 MB
+    - `armed_cog_hull.glb` (67.5 MB)
+    - `source.txt` (79 B)
+  - **armed_cog_masts/** - 2 files, 33.5 MB
+    - `armed_cog_masts.glb` (33.5 MB)
+    - `source.txt` (71 B)
+  - **cannons/** - 14 files, 296.2 MB
+    - **gun_bombard/** - 2 files, 58.2 MB
+      - `gun_bombard.glb` (58.2 MB)
+      - `source.txt` (73 B)
+    - **gun_breech_light/** - 2 files, 36.5 MB
+      - `gun_breech_light.glb` (36.5 MB)
+      - `source.txt` (78 B)
+    - **gun_cannon_large/** - 2 files, 46.1 MB
+      - `gun_cannon_large.glb` (46.1 MB)
+      - `source.txt` (72 B)
+    - **gun_cannon_late15c/** - 2 files, 44.9 MB
+      - `Late_15th_C_Naval_Can.glb` (44.9 MB)
+      - `source.txt` (49 B)
+    - **gun_perrier/** - 2 files, 48.2 MB
+      - `gun_perrier.glb` (48.2 MB)
+      - `source.txt` (67 B)
+    - **gun_swivel_heavy/** - 2 files, 34.3 MB
+      - `gun_swivel_heavy.glb` (34.3 MB)
+      - `source.txt` (70 B)
+    - **gun_swivel_light/** - 2 files, 28.0 MB
+      - `gun_swivel_light.glb` (28.0 MB)
+      - `source.txt` (70 B)
+  - **carrack_hull/** - 2 files, 78.7 MB
+    - `carrack_hull.glb` (78.7 MB)
+    - `source.txt` (72 B)
+  - **carrack_masts/** - 2 files, 35.4 MB
+    - `carrack_masts.glb` (35.4 MB)
+    - `source.txt` (69 B)
+  - **coastal_trader_hull/** - 2 files, 60.3 MB
+    - `coastal_trader_hull.glb` (60.3 MB)
+    - `source.txt` (79 B)
+  - **coastal_trader_masts/** - 2 files, 34.1 MB
+    - `coastal_trader_masts.glb` (34.1 MB)
+    - `source.txt` (76 B)
+  - **cog_hull/** - 2 files, 53.6 MB
+    - `cog_hull.glb` (53.6 MB)
+    - `source.txt` (73 B)
+  - **cog_masts/** - 2 files, 32.0 MB
+    - `cog_masts.glb` (32.0 MB)
+    - `source.txt` (64 B)
+  - **design/** - 10 files, 13.9 MB
+    - `design_sheet_01.jpg` (1.3 MB)
+    - `design_sheet_02.jpg` (1.2 MB)
+    - `design_sheet_03.jpg` (1.2 MB)
+    - `design_sheet_04.png` (1.5 MB)
+    - `design_sheet_05.png` (1.6 MB)
+    - `design_sheet_06.png` (1.6 MB)
+    - `design_sheet_07.png` (1.6 MB)
+    - `design_sheet_08.png` (1.5 MB)
+    - `design_sheet_09.jpg` (1.2 MB)
+    - `design_sheet_10.jpg` (1.2 MB)
+  - **fire/** - 8 files, 8.0 MB
+    - `fire_01.png` (1.2 MB)
+    - `fire_02.png` (913.5 KB)
+    - `fire_03.png` (943.5 KB)
+    - `fire_04.png` (1.0 MB)
+    - `fire_05.png` (890.9 KB)
+    - `fire_06.png` (1.1 MB)
+    - `fire_07.png` (917.7 KB)
+    - `fire_08.png` (1.1 MB)
+  - **foam/** - 6 files, 12.0 MB
+    - **masks/** - 2 files, 3.9 MB
+      - `foam_mask_01.png` (1.8 MB)
+      - `foam_mask_02.png` (2.1 MB)
+    - **photos/** - 4 files, 8.1 MB
+      - `foam_photo_01.png` (1.9 MB)
+      - `foam_photo_02.png` (1.4 MB)
+      - `foam_photo_03.png` (2.1 MB)
+      - `foam_photo_04.png` (2.7 MB)
+  - **fusta_hull/** - 2 files, 49.0 MB
+    - `fusta_hull.glb` (49.0 MB)
+    - `source.txt` (70 B)
+  - **fusta_masts/** - 2 files, 33.1 MB
+    - `fusta_masts.glb` (33.1 MB)
+    - `source.txt` (79 B)
+  - **galiot_hull/** - 2 files, 51.6 MB
+    - `galiot_hull.glb` (51.6 MB)
+    - `source.txt` (71 B)
+  - **hulk_hull/** - 2 files, 83.4 MB
+    - `hulk_hull.glb` (83.4 MB)
+    - `source.txt` (69 B)
+  - **hulk_masts/** - 2 files, 40.2 MB
+    - `hulk_masts.glb` (40.2 MB)
+    - `source.txt` (66 B)
+  - **light_galley_gen_1/** - 4 files, 372.5 MB
+    - `galley_hull.blend` (180.9 MB)
+    - `galley_mainmast.blend` (84.2 MB)
+    - `galley_mizzenmast.blend` (77.8 MB)
+    - `galley_oar.blend` (29.7 MB)
+  - **mediterranean_masts/** - 2 files, 35.6 MB
+    - `mediterranean_masts.glb` (35.6 MB)
+    - `source.txt` (77 B)
+  - **new_masts/** - 15 files, 324.0 MB
+    - `explanation.txt` (3.2 KB)
+    - `separated_lateen_yard.glb` (21.1 MB)
+    - `single_yard_cog_split_parts.glb` (45.2 MB)
+    - **bowsprit_split/** - 2 files, 38.2 MB
+      - `bowsprit_split.glb` (38.2 MB)
+      - `source.txt` (72 B)
+    - **carrack_mast_split/** - 2 files, 48.2 MB
+      - `carrack_mast_split.glb` (48.2 MB)
+      - `source.txt` (76 B)
+    - **cog_two_yards_split/** - 2 files, 38.6 MB
+      - `cog_two_yards_split.glb` (38.6 MB)
+      - `source.txt` (77 B)
+    - **great_carrack_mast_split/** - 2 files, 47.9 MB
+      - `great_carrack_mast_split.glb` (47.9 MB)
+      - `source.txt` (82 B)
+    - **mizzen_mast_split/** - 2 files, 43.7 MB
+      - `mizzen_mast_split.glb` (43.7 MB)
+      - `source.txt` (75 B)
+    - **tall_lateen_mast_split/** - 2 files, 41.1 MB
+      - `source.txt` (80 B)
+      - `tall_lateen_mast_split.glb` (41.1 MB)
+  - **sails/** - 9 files, 24.4 MB
+    - `rope_premium.png` (3.0 MB)
+    - `rope_used.png` (3.0 MB)
+    - `sail_premium_albedo.png` (2.6 MB)
+    - `sail_premium_new_sheet.png` (2.6 MB)
+    - `sail_premium_normal.png` (2.1 MB)
+    - `sail_sheet_01.png` (3.0 MB)
+    - `sail_sheet_02.png` (2.9 MB)
+    - `sail_used_albedo.png` (2.8 MB)
+    - `sail_used_normal.png` (2.3 MB)
+  - **smoke/** - 3 files, 2.6 MB
+    - `smoke_01.png` (883.4 KB)
+    - `smoke_02.png` (956.9 KB)
+    - `smoke_03.png` (839.1 KB)
+  - **war_carrack_hull/** - 2 files, 90.0 MB
+    - `source.txt` (76 B)
+    - `war_carrack_hull.glb` (90.0 MB)
+  - **war_carrack_masts/** - 2 files, 39.1 MB
+    - `source.txt` (73 B)
+    - `war_carrack_masts.glb` (39.1 MB)
+- **terrain/** - 11 files, 322.3 MB
+  - `base_land.bin` (1.4 MB)
+  - `base_land.json` (191 B)
+  - `depth_map_terrain.png` (1.2 MB)
+  - `landmask.pgm` (1.4 MB)
+  - `normal_map_terrain.png` (1.5 MB)
+  - `sealevel.bin` (22.3 KB)
+  - `sealevel.json` (184 B)
+  - `terrain_textures.png` (2.4 MB)
+  - `warp.bin` (44.7 KB)
+  - `warp.json` (259 B)
+  - `world-heightmap.png` (314.3 MB)
+- **trees/** - 54 files, 131.6 MB
+  - **tree_african_oil_palm/** - 2 files, 4.4 MB
+    - `source.txt` (60 B)
+    - `tree_african_oil_palm.glb` (4.4 MB)
+  - **tree_bald_cypress/** - 2 files, 5.0 MB
+    - `source.txt` (56 B)
+    - `tree_bald_cypress.glb` (5.0 MB)
+  - **tree_baobab_tree/** - 2 files, 4.3 MB
+    - `source.txt` (55 B)
+    - `tree_baobab_tree.glb` (4.3 MB)
+  - **tree_brazil_nut/** - 2 files, 4.9 MB
+    - `source.txt` (54 B)
+    - `tree_brazil_nut.glb` (4.9 MB)
+  - **tree_camel_thorn/** - 2 files, 4.2 MB
+    - `source.txt` (55 B)
+    - `tree_camel_thorn.glb` (4.2 MB)
+  - **tree_douglas_fir/** - 2 files, 5.5 MB
+    - `source.txt` (55 B)
+    - `tree_douglas_fir.glb` (5.5 MB)
+  - **tree_dragons_blood/** - 2 files, 4.6 MB
+    - `source.txt` (57 B)
+    - `tree_dragons_blood.glb` (4.6 MB)
+  - **tree_eastern_white_pine/** - 2 files, 4.3 MB
+    - `source.txt` (62 B)
+    - `tree_eastern_white_pine.glb` (4.3 MB)
+  - **tree_english_oak/** - 2 files, 5.2 MB
+    - `source.txt` (55 B)
+    - `tree_english_oak.glb` (5.2 MB)
+  - **tree_european_beech/** - 2 files, 5.4 MB
+    - `source.txt` (58 B)
+    - `tree_european_beech.glb` (5.4 MB)
+  - **tree_fever_tree/** - 2 files, 5.5 MB
+    - `source.txt` (54 B)
+    - `tree_fever_tree.glb` (5.5 MB)
+  - **tree_giant_sequoia/** - 2 files, 4.8 MB
+    - `source.txt` (57 B)
+    - `tree_giant_sequoia.glb` (4.8 MB)
+  - **tree_jacaranda/** - 2 files, 5.8 MB
+    - `source.txt` (53 B)
+    - `tree_jacaranda.glb` (5.8 MB)
+  - **tree_joshua_tree/** - 2 files, 5.3 MB
+    - `source.txt` (55 B)
+    - `tree_joshua_tree.glb` (5.3 MB)
+  - **tree_kapok_tree/** - 2 files, 5.0 MB
+    - `source.txt` (54 B)
+    - `tree_kapok_tree.glb` (5.0 MB)
+  - **tree_marula_tree/** - 2 files, 5.3 MB
+    - `source.txt` (55 B)
+    - `tree_marula_tree.glb` (5.3 MB)
+  - **tree_mopane_tree/** - 2 files, 5.3 MB
+    - `source.txt` (55 B)
+    - `tree_mopane_tree.glb` (5.3 MB)
+  - **tree_norway_spruce/** - 2 files, 4.0 MB
+    - `source.txt` (57 B)
+    - `tree_norway_spruce.glb` (4.0 MB)
+  - **tree_olive_tree/** - 2 files, 4.4 MB
+    - `source.txt` (54 B)
+    - `tree_olive_tree.glb` (4.4 MB)
+  - **tree_parana_pine/** - 2 files, 4.8 MB
+    - `source.txt` (55 B)
+    - `tree_parana_pine.glb` (4.8 MB)
+  - **tree_quebracho/** - 2 files, 4.4 MB
+    - `source.txt` (53 B)
+    - `tree_quebracho.glb` (4.4 MB)
+  - **tree_sausage_tree/** - 2 files, 5.3 MB
+    - `source.txt` (56 B)
+    - `tree_sausage_tree.glb` (5.3 MB)
+  - **tree_scots_pine/** - 2 files, 5.1 MB
+    - `source.txt` (54 B)
+    - `tree_scots_pine.glb` (5.1 MB)
+  - **tree_silver_birch/** - 2 files, 5.6 MB
+    - `source.txt` (56 B)
+    - `tree_silver_birch.glb` (5.6 MB)
+  - **tree_sugar_maple/** - 2 files, 4.7 MB
+    - `source.txt` (55 B)
+    - `tree_sugar_maple.glb` (4.7 MB)
+  - **tree_umbrella_acacia/** - 2 files, 4.9 MB
+    - `source.txt` (59 B)
+    - `tree_umbrella_acacia.glb` (4.9 MB)
+  - **tree_wax_palm/** - 2 files, 3.4 MB
+    - `source.txt` (52 B)
+    - `tree_wax_palm.glb` (3.4 MB)

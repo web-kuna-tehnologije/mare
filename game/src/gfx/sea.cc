@@ -327,9 +327,10 @@ void Sea::update_waves(float day, float dt) {
     sea_wind_amp = lerpf(sea_set[0].amp, sea_set[1].valid ? sea_set[1].amp : sea_set[0].amp, sea_blend);
     // the drift follows the *shown* set's wind, so the texture direction changes only with a set
     // change - and as an offset, so even then nothing jumps
-    sea_drift1[0] += shown->wdx * 0.030f * dt; sea_drift1[1] += shown->wdz * 0.030f * dt;
+    float dk = sea_local_depth > 0.f ? 0.5f : 1.f;   // 0.22.14 (issue11 "sea flickers too much, slow it down"): the staged scenes' ripple layers drift at half the rate
+    sea_drift1[0] += shown->wdx * 0.030f * dk * dt; sea_drift1[1] += shown->wdz * 0.030f * dk * dt;
     float sx = shown->wdx * 0.91f - shown->wdz * 0.42f, sz = shown->wdx * 0.42f + shown->wdz * 0.91f;   // 25 degrees off the wind
-    sea_drift2[0] += sx * 0.058f * dt; sea_drift2[1] += sz * 0.058f * dt;
+    sea_drift2[0] += sx * 0.058f * dk * dt; sea_drift2[1] += sz * 0.058f * dk * dt;
 }
 
 // Height of the wave surface at a world point, the same sum the shaders evaluate (no shallows

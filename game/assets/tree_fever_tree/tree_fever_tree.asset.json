@@ -1,0 +1,54 @@
+{
+  "name": "tree_fever_tree",
+  "type": "prop",
+  "role": "tree_fever_tree",
+  "lods": [
+    {
+      "file": "tree_fever_tree_LOD0.glb",
+      "node": "tree_fever_tree_LOD0",
+      "dist": 0
+    },
+    {
+      "file": "tree_fever_tree_LOD1.glb",
+      "node": "tree_fever_tree_LOD1",
+      "px": 160
+    },
+    {
+      "file": "tree_fever_tree_LOD2.glb",
+      "node": "tree_fever_tree_LOD2",
+      "px": 70
+    },
+    {
+      "file": "tree_fever_tree_LOD3.glb",
+      "node": "tree_fever_tree_LOD3",
+      "px": 28
+    },
+    {
+      "file": "tree_fever_tree_LOD4.glb",
+      "node": "tree_fever_tree_LOD4",
+      "px": 12
+    },
+    {
+      "file": "tree_fever_tree_LOD5.glb",
+      "node": "tree_fever_tree_LOD5",
+      "px": 5
+    }
+  ],
+  "scale": {
+    "fit": "height",
+    "size": 1.0
+  },
+  "pivot": "base_center",
+  "forward": "+x",
+  "materials": [
+    {
+      "match": "*",
+      "rough": 0.92,
+      "metal": 0,
+      "bake_texture": true
+    }
+  ],
+  "collision": {
+    "type": "none"
+  }
+}

@@ -16,6 +16,7 @@ extern "C" {
 #include "../core/diag.h"
 #include "../world/world.h"
 #include "../world/terrain_chunks.h"
+#include "../assets/asset.h"
 }
 
 int scatter_enabled = 1;
@@ -63,6 +64,29 @@ private:
     static void cone(mb_t *m, float cy, float r, float h, const float *ca, const float *cb);
     mesh_t tree = {}, olive = {}, vine = {}, sheep = {}, pine = {}, oak = {}, house = {}, cow = {}; int built = 0;
     mesh_t card_broad = {}, card_pine = {}, fence = {}, wheat = {}, mill = {}, mine = {}, rock = {};
+    // 0.22.14 (issue12 "trees in assets/trees: add them, set them up by biome"): the 27 authored
+    // trees (assets/generated/tree_*, unit height), one GPU copy each of LOD 4 (~700 tris) made
+    // from the asset's CPU vertices the first time it is resident, instanced from the woods and
+    // the groves within PROP_LOD1; the procedural trees stand in until a species is resident.
+    enum { SP_OAK, SP_BEECH, SP_BIRCH, SP_MAPLE, SP_SCOTS, SP_SPRUCE, SP_DOUGLAS, SP_WPINE, SP_SEQUOIA, SP_CYPRESS,
+           SP_OLIVE, SP_UMBRELLA, SP_BAOBAB, SP_KAPOK, SP_OILPALM, SP_WAXPALM, SP_ACACIA_CAMEL, SP_FEVER, SP_MARULA, SP_MOPANE,
+           SP_SAUSAGE, SP_JACARANDA, SP_BRAZIL, SP_PARANA, SP_QUEBRACHO, SP_JOSHUA, SP_DRAGON, SP_COUNT };
+    struct species_t { const char *role; float height; mesh_t mesh; instlist_t il; int ready, requested; };
+    species_t sp[SP_COUNT] = {
+        { "tree_english_oak", 0.13f }, { "tree_european_beech", 0.14f }, { "tree_silver_birch", 0.12f }, { "tree_sugar_maple", 0.13f },
+        { "tree_scots_pine", 0.16f }, { "tree_norway_spruce", 0.17f }, { "tree_douglas_fir", 0.19f }, { "tree_eastern_white_pine", 0.17f },
+        { "tree_giant_sequoia", 0.24f }, { "tree_bald_cypress", 0.15f },
+        { "tree_olive_tree", 0.075f }, { "tree_umbrella_acacia", 0.10f }, { "tree_baobab_tree", 0.13f }, { "tree_kapok_tree", 0.20f },
+        { "tree_african_oil_palm", 0.13f }, { "tree_wax_palm", 0.17f }, { "tree_camel_thorn", 0.10f }, { "tree_fever_tree", 0.11f },
+        { "tree_marula_tree", 0.11f }, { "tree_mopane_tree", 0.10f }, { "tree_sausage_tree", 0.11f }, { "tree_jacaranda", 0.12f },
+        { "tree_brazil_nut", 0.20f }, { "tree_parana_pine", 0.17f }, { "tree_quebracho", 0.12f }, { "tree_joshua_tree", 0.07f }, { "tree_dragons_blood", 0.08f },
+    };
+    int  species_resident();   // uploads newly resident species; returns how many became ready
+    int  species_pick(float lat, float lon, int conifer, float medb, float h01);
+    // the last rebuild's inputs (the ring's own buffers, alive until it recomposes), so the props can be
+    // laid again when a species arrives after the ring was composed
+    struct { const unsigned char *lu, *forest; const float *delta; int res; float x0, z0, step; const float *sets; int nsets; int valid; } last = {};
+    int relay_pending = 0;
     instlist_t li_tree = {}, li_olive = {}, li_vine = {}, li_sheep = {}, li_pine = {}, li_oak = {}, li_house = {}, li_cow = {};
     instlist_t li_card_b = {}, li_card_p = {}, li_fence = {}, li_wheat = {}, li_mill = {}, li_mine = {}, li_rock = {};
 };
@@ -91,6 +115,7 @@ void Scatter::cone(mb_t *m, float cy, float r, float h, const float *ca, const f
 }
 
 void Scatter::build_meshes() {
+    for (int i = 0; i < SP_COUNT; ++i) { asset_t *a = asset_find(sp[i].role); if (a && a->state == ASSET_UNLOADED) { asset_request(a); sp[i].requested = 1; } }   // 0.22.14: the authored trees, ahead of the first ring
     const float trunk[3] = { 0.36f, 0.26f, 0.16f }, crown_hi[3] = { 0.24f, 0.42f, 0.17f }, crown_lo[3] = { 0.16f, 0.30f, 0.12f };
     const float olive_hi[3] = { 0.50f, 0.56f, 0.40f }, olive_lo[3] = { 0.40f, 0.46f, 0.33f }, gnarl[3] = { 0.42f, 0.36f, 0.28f };
     const float post[3] = { 0.30f, 0.22f, 0.14f }, leaf[3] = { 0.25f, 0.41f, 0.18f };
@@ -243,10 +268,55 @@ void Scatter::build_meshes() {
     built = 1;
 }
 
+// Make a GPU copy of each authored tree's LOD 4 once the asset is resident. The asset's CPU
+// vertices are in the mesh builder's layout (12 floats), so they upload as they are; the copy
+// is the scatter's own and outlives the asset's residency.
+int Scatter::species_resident() {
+    int newly = 0;
+    for (int i = 0; i < SP_COUNT; ++i) {
+        species_t *s = &sp[i]; if (s->ready) continue;
+        asset_t *a = asset_find(s->role); if (!a) continue;
+        if (a->state == ASSET_UNLOADED && !s->requested) { asset_request(a); s->requested = 1; continue; }
+        if (a->state != ASSET_LOADED || a->nlods < 1) continue;
+        int li = a->nlods > 4 ? 4 : a->nlods - 1;
+        const asset_lod_t *L = &a->lod[li];
+        if (!L->verts || !L->idx || L->nverts <= 0) continue;
+        s->mesh = mesh_upload_indexed(L->verts, L->nverts, L->idx, L->nidx);
+        s->ready = 1; newly++;
+        LOG_DEBUG("gfx", "scatter: authored tree '%s' LOD %d (%d tris) ready", s->role, li, L->nidx / 3);
+    }
+    return newly;
+}
+// Which tree stands here: by latitude band and hemisphere of the Old World / the Americas, conifer
+// or broadleaf as the old rule decided, the Mediterranean belt its olives, and a hash so a wood is
+// a mix of two or three species rather than one copy repeated.
+int Scatter::species_pick(float lat, float lon, int conifer, float medb, float h01) {
+    int americas = lon < -30.f;
+    float alat = fabsf(lat);
+    if (alat < 23.f) {                                   // the tropics
+        if (americas) return h01 < 0.35f ? SP_KAPOK : h01 < 0.6f ? SP_BRAZIL : h01 < 0.8f ? SP_WAXPALM : SP_JACARANDA;
+        return h01 < 0.25f ? SP_BAOBAB : h01 < 0.45f ? SP_UMBRELLA : h01 < 0.6f ? SP_OILPALM : h01 < 0.72f ? SP_MARULA : h01 < 0.84f ? SP_SAUSAGE : h01 < 0.93f ? SP_FEVER : SP_MOPANE;
+    }
+    if (alat < 36.f) {                                   // the dry belts
+        if (americas) return lat < 0.f ? (h01 < 0.5f ? SP_QUEBRACHO : SP_PARANA) : (h01 < 0.5f ? SP_JOSHUA : SP_CYPRESS);
+        return h01 < 0.35f ? SP_UMBRELLA : h01 < 0.6f ? SP_ACACIA_CAMEL : h01 < 0.8f ? SP_DRAGON : SP_OLIVE;
+    }
+    if (medb > 0.5f && !conifer) return h01 < 0.6f ? SP_OLIVE : h01 < 0.85f ? SP_OAK : SP_UMBRELLA;   // the Mediterranean belt
+    if (conifer) {
+        if (americas) return h01 < 0.4f ? SP_DOUGLAS : h01 < 0.7f ? SP_WPINE : h01 < 0.9f ? SP_SPRUCE : SP_SEQUOIA;
+        return alat > 58.f ? (h01 < 0.6f ? SP_SPRUCE : SP_SCOTS) : (h01 < 0.55f ? SP_SCOTS : h01 < 0.85f ? SP_SPRUCE : SP_DOUGLAS);
+    }
+    if (americas) return h01 < 0.5f ? SP_MAPLE : h01 < 0.8f ? SP_OAK : SP_BIRCH;
+    return alat > 55.f ? (h01 < 0.6f ? SP_BIRCH : SP_SPRUCE) : (h01 < 0.45f ? SP_OAK : h01 < 0.8f ? SP_BEECH : SP_BIRCH);
+}
+
 void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, const float *delta, int res, float x0, float z0, float step,
                       const float *sets, int nsets) {
     if (!scatter_enabled) return;
     if (!built) build_meshes();
+    species_resident();
+    last.lu = lu; last.forest = forest; last.delta = delta; last.res = res; last.x0 = x0; last.z0 = z0; last.step = step; last.sets = sets; last.nsets = nsets; last.valid = 1; relay_pending = 0;
+    for (int i = 0; i < SP_COUNT; ++i) instlist_clear(&sp[i].il);
     instlist_clear(&li_tree); instlist_clear(&li_olive); instlist_clear(&li_vine); instlist_clear(&li_sheep); instlist_clear(&li_cow);
     instlist_clear(&li_pine); instlist_clear(&li_oak); instlist_clear(&li_house);
     instlist_clear(&li_card_b); instlist_clear(&li_card_p); instlist_clear(&li_fence);
@@ -277,7 +347,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
     for (int j = 1; j + 1 < res && total < SCATTER_MAX; ++j) for (int i = 1; i + 1 < res && total < SCATTER_MAX; ++i) {
         const unsigned char *t = lu + ((size_t)j * res + i) * 4;
         int R = t[0], Gm = t[1], B = t[2], A = t[3], F = forest ? forest[(size_t)j * res + i] : 0;
-        if (B < 90 && Gm < 110 && A < 110 && F < 60 && !(R > 20 && R < 120)) continue;
+        if (B < 70 && Gm < 100 && A < 110 && F < 60 && !(R > 20 && R < 120)) continue;   // 0.22.13: orchards from 70, vines from 80 (were 90 / 110); 0.22.14: vines from 100
         float wx = x0 + i * step, wz = z0 + j * step;
         float lon = x2lon(wx), lat = z2lat(wz);
         float medb = smoothstep_(35.f, 37.f, lat) * (1.f - smoothstep_(45.5f, 47.5f, lat)) * smoothstep_(-10.f, -6.f, lon) * (1.f - smoothstep_(36.f, 40.f, lon));
@@ -299,7 +369,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             }
             continue;
         }
-        if (F >= 60 && B < 90) {   // the woods (0.22.5): a tree on most forest texels, pines high up and in the north
+        if (F >= 60 && B < 70 && Gm < 100) {   // the woods (0.22.5): a tree on most forest texels, pines high up and in the north (0.22.13: never over an orchard or a vineyard)
             float hp = hash2(i * 0.527f + 0.7f, j * 0.911f + 0.3f);
             if (hp < clampf(WOOD_P * scatter_density, 0.f, 1.f) * (F / 255.f)) {
                 float ox = (hash2(i + 21.f, j + 21.f) - 0.5f) * step, oz = (hash2(i + 22.f, j + 22.f) - 0.5f) * step;
@@ -310,7 +380,9 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                     float sz = (conifer ? WOOD_H * 1.35f : WOOD_H) * (0.75f + 0.5f * hash2(i + 24.f, j + 24.f));   // 0.22.8: pines taller (1.15 -> 1.35)
                     inst_t ti = inst(wx + ox, h - 0.015f, wz + oz, hash2(i + 25.f, j + 25.f) * 6.2832f, sz);
                     int faraway = dist2d(wx, wz, ringcx, ringcz) > PROP_LOD1;   // the card LOD beyond PROP_LOD1 (`far` is a reserved word on MSVC)
-                    *instlist_push(faraway ? (conifer ? &li_card_p : &li_card_b) : (conifer ? &li_pine : &li_oak)) = ti;
+                    int spk = species_pick(lat, lon, conifer, medb, hash2(i + 41.f, j + 43.f));
+                    if (!faraway && sp[spk].ready) { ti.scale = sp[spk].height * (0.75f + 0.5f * hash2(i + 24.f, j + 24.f)); *instlist_push(&sp[spk].il) = ti; }   // 0.22.14: the authored tree
+                    else *instlist_push(faraway ? (conifer ? &li_card_p : &li_card_b) : (conifer ? &li_pine : &li_oak)) = ti;
                     total++;
                     // 0.22.11 (issue8 / "real forests"): a wood is a *canopy*, not a tree per
                     // texel. On full cover every texel gets up to WOOD_EXTRA more trees, each on
@@ -324,7 +396,10 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                         int con2 = conifer || hash2(i + 35.f + e, j + 35.f) < 0.25f;
                         float sz2 = (con2 ? WOOD_H * 1.35f : WOOD_H) * (0.7f + 0.5f * hash2(i + 30.f + e, j + 30.f));
                         inst_t t2 = inst(wx + ox2, h2 - 0.015f, wz + oz2, hash2(i + 29.f + e, j + 29.f) * 6.2832f, sz2);
-                        *instlist_push(faraway ? (con2 ? &li_card_p : &li_card_b) : (con2 ? &li_pine : &li_oak)) = t2; total++;
+                        int sp2 = species_pick(lat, lon, con2, medb, hash2(i + 47.f + e, j + 53.f));
+                        if (!faraway && sp[sp2].ready) { t2.scale = sp[sp2].height * (0.7f + 0.5f * hash2(i + 30.f + e, j + 30.f)); *instlist_push(&sp[sp2].il) = t2; }
+                        else *instlist_push(faraway ? (con2 ? &li_card_p : &li_card_b) : (con2 ? &li_pine : &li_oak)) = t2;
+                        total++;
                     }
                 }
             }
@@ -332,7 +407,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
         }
         // Bare steep ground: boulders and scree blocks (0.22.6, TODO 8c). No land use, no wood -
         // a crag or a canyon rim - and the ring's own slope decides.
-        if (R < 20 && Gm < 110 && B < 90 && A < 110 && F < 60) {
+        if (R < 20 && Gm < 100 && B < 70 && A < 110 && F < 60) {
             float hx = ground(wx + step, wz) - ground(wx - step, wz), hz = ground(wx, wz + step) - ground(wx, wz - step);
             float slope = sqrtf(hx * hx + hz * hz) / (2.f * step);
             if (slope > 0.45f && hash2(i * 0.337f + 1.1f, j * 0.713f + 2.3f) < 0.07f) {
@@ -343,7 +418,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             }
             continue;
         }
-        if (B >= 90) {   // orchards and groves: one tree per TREE_CELL of the district grid
+        if (B >= 70) {   // orchards and groves: one tree per TREE_CELL of the district grid (0.22.13: from 70)
             float qx = wx * ca - wz * sa, qz = wx * sa + wz * ca;
             float gx = floorf(qx / TREE_CELL), gz = floorf(qz / TREE_CELL);
             long long key = ((long long)(int)gx * 73856093LL) ^ ((long long)(int)gz * 19349663LL) ^ ((long long)(int)dcx * 83492791LL) ^ ((long long)(int)dcz * 2654435761LL);
@@ -351,16 +426,19 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                 float jx = (hash2(gx + 1.f, gz + 1.f) - 0.5f) * 0.5f, jz = (hash2(gx + 2.f, gz + 2.f) - 0.5f) * 0.5f;
                 float cqx = (gx + 0.5f + jx) * TREE_CELL, cqz = (gz + 0.5f + jz) * TREE_CELL;
                 float tx = cqx * ca + cqz * sa, tz = -cqx * sa + cqz * ca;
-                if (lu_at(tx, tz, 2) >= 90) {   // the tree stands inside the grove
+                if (lu_at(tx, tz, 2) >= 70) {   // the tree stands inside the grove
                     float h = ground(tx, tz);
                     if (h > 0.04f) {
                         float s = TREE_H * (0.8f + 0.4f * hash2(gx + 3.f, gz + 3.f));
                         inst_t in = inst(tx, h - 0.004f, tz, hash2(gx + 4.f, gz + 4.f) * 6.2832f, s);
-                        *instlist_push(medb > 0.5f ? &li_olive : &li_tree) = in; total++;
+                        int spo = medb > 0.5f ? SP_OLIVE : (hash2(gx + 7.f, gz + 7.f) < 0.5f ? SP_OAK : SP_MAPLE);   // 0.22.14: authored olives and orchard trees
+                        if (sp[spo].ready && dist2d(tx, tz, ringcx, ringcz) <= PROP_LOD1) { in.scale = (medb > 0.5f ? 0.075f : 0.085f) * (0.8f + 0.4f * hash2(gx + 3.f, gz + 3.f)); *instlist_push(&sp[spo].il) = in; }
+                        else *instlist_push(medb > 0.5f ? &li_olive : &li_tree) = in;
+                        total++;
                     }
                 }
             }
-        } else if (Gm >= 110) {   // vineyards (0.22.11): *rows* - bushes at a fixed spacing along
+        } else if (Gm >= 100) {   // vineyards (0.22.11): *rows* - bushes at a fixed spacing along (0.22.13: from 80; 0.22.14: 100 - 59k bushes in one ring was a carpet)
             // lines that follow the contour, one row per VINE_ROW across the slope - not a bush
             // dropped at random on half the texels. The row frame comes from the slope at the
             // texel; the row lines are quantised in that frame so neighbouring texels agree.
@@ -378,7 +456,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                 float along0 = (wx - step * 0.5f) * dx + (wz - step * 0.5f) * dz;
                 for (float aa = ceilf(along0 / VINE_GAP) * VINE_GAP; aa < along0 + step; aa += VINE_GAP) {
                     float vx_ = dx * aa + ux * rr, vz_ = dz * aa + uz * rr;
-                    if (lu_at(vx_, vz_, 1) < 110) continue;
+                    if (lu_at(vx_, vz_, 1) < 100) continue;
                     float h = ground(vx_, vz_);
                     if (h > 0.04f) { *instlist_push(&li_vine) = inst(vx_, h - 0.002f, vz_, heading, VINE_H * (0.9f + 0.2f * hash2(rr * 97.f, aa * 131.f))); total++; }
                 }
@@ -419,7 +497,8 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             // standing grain (0.22.11): the field is *full* of it - a clump every WHEAT_GAP on a
             // jittered grid - not a tuft on one texel in twenty. Only the grain parcels (the
             // shader paints R 60-120 as crops, lower as ploughed/pasture).
-            if (R >= 60) {
+            const int wheat = 0;   // 0.22.13 (issue10 "return fields but without props"): the parcels are paint again; the standing grain of 0.22.11 is kept for the day it comes back
+            if (wheat && R >= 60) {
                 const float WHEAT_GAP = 0.019f;   // 0.22.12: closer (issue9 "reduce crop sizes, increase density")
                 for (float gx_ = ceilf((wx - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gx_ < wx + step * 0.5f && total < SCATTER_MAX; gx_ += WHEAT_GAP)
                     for (float gz_ = ceilf((wz - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gz_ < wz + step * 0.5f && total < SCATTER_MAX; gz_ += WHEAT_GAP) {
@@ -458,6 +537,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
         if (kind == 1)      { *instlist_push(&li_mine) = inst(px, h, pz, a, MINE_H); total++; }
         else if (kind == 0) { *instlist_push(&li_mill) = inst(px, h, pz, a, MILL_H); total++; }
     }
+    for (int i = 0; i < SP_COUNT; ++i) if (sp[i].ready) mesh_set_instances(&sp[i].mesh, sp[i].il.v, sp[i].il.n);
     mesh_set_instances(&tree, li_tree.v, li_tree.n);
     mesh_set_instances(&olive, li_olive.v, li_olive.n);
     mesh_set_instances(&vine, li_vine.v, li_vine.n);
@@ -474,11 +554,18 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
     mesh_set_instances(&mine, li_mine.v, li_mine.n);
     mesh_set_instances(&rock, li_rock.v, li_rock.n);
     scatter_count = total;
-    LOG_DEBUG("stream", "hinterland props: %d orchard, %d olive, %d vine, %d sheep, %d broadleaf, %d pine (+%d cards), %d house, %d fence, %d corn, %d mill, %d pithead, %d rock in %.1f ms",
-              li_tree.n, li_olive.n, li_vine.n, li_sheep.n, li_oak.n, li_pine.n, li_card_b.n + li_card_p.n, li_house.n, li_fence.n, li_wheat.n, li_mill.n, li_mine.n, li_rock.n, (diag_now() - t0) * 1000);
+    int nauth = 0; for (int i = 0; i < SP_COUNT; ++i) nauth += sp[i].il.n;
+    LOG_DEBUG("stream", "hinterland props: %d orchard, %d olive, %d vine, %d sheep, %d broadleaf, %d pine (+%d cards), %d authored trees, %d house, %d fence, %d corn, %d mill, %d pithead, %d rock in %.1f ms",
+              li_tree.n, li_olive.n, li_vine.n, li_sheep.n, li_oak.n, li_pine.n, li_card_b.n + li_card_p.n, nauth, li_house.n, li_fence.n, li_wheat.n, li_mill.n, li_mine.n, li_rock.n, (diag_now() - t0) * 1000);
 }
 
 int Scatter::submit() {
+    // species that arrived since the ring was composed: lay the props again, once, with the ring's
+    // buffers as they still stand (0.22.14)
+    if (built && last.valid) {
+        if (species_resident() > 0) relay_pending = 1;
+        if (relay_pending) { relay_pending = 0; auto L = last; rebuild(L.lu, L.forest, L.delta, L.res, L.x0, L.z0, L.step, L.sets, L.nsets); }
+    }
     if (!scatter_enabled || !built || cam.mapness > 0.5f || cam.dist > HOUSE_FAR) return 0;
     int n = 0;
     if (li_house.n) { mesh_draw(&house); n += li_house.n; }
@@ -487,6 +574,7 @@ int Scatter::submit() {
     if (cam.dist < HOUSE_FAR * 0.7f) {
         if (li_oak.n)    { mesh_draw(&oak);  n += li_oak.n; }
         if (li_pine.n)   { mesh_draw(&pine); n += li_pine.n; }
+        for (int i = 0; i < SP_COUNT; ++i) if (sp[i].ready && sp[i].il.n) { mesh_draw(&sp[i].mesh); n += sp[i].il.n; }   // the authored trees (0.22.14)
         if (li_card_b.n) { mesh_draw(&card_broad); n += li_card_b.n; }
         if (li_card_p.n) { mesh_draw(&card_pine);  n += li_card_p.n; }
         if (li_rock.n)   { mesh_draw(&rock); n += li_rock.n; }

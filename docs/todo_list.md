@@ -1,4 +1,4 @@
-# Todo list - issue folders 4 to 9 (assets/issues/issue4-9; 2026-10-31/11-01, worktree oak, 0.22.7-0.22.12)
+# Todo list - issue folders 4 to 12 (assets/issues/issue4-12; 2026-10-31/11-01, worktree oak, 0.22.7-0.22.14)
 
 Every line of the `issues.txt` files and every screenshot in the folders, as written, with a priority.
 P0 = this round, in order; P1 = next round; P2 = after the physics foundation exists;
@@ -148,7 +148,59 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | - | Strategic simulation remains discrete: 1 day = 1 tick | [x] |
 | P1 | Strategic state includes hull integrity, crew/morale, guns, sails, flooding, fire, sinking | [~] hull/crew/guns exist; flooding/fire/sinking do not |
 
-## Order of work (updated 0.22.12)
+## issue10 (assets/issues/issue10, 0.22.13) - and what was found on the way
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 77 | P0 | Sort the asset folders and names, one copy of everything, elm/oak: keep the better | [x] 0.22.13: `assets/generated` is the one tree (the other worktree's name for `elm`); `oak`, `elm_lod`, `ships_clean`, the `Meshy_AI_*` hull copies, `rigging`, `oak_terrain`, the 2.8 GB normal map gone; `sea/sheets`, `ships/foam/{photos,masks}`, `reference/`; `assets/README.md`. 24 -> 15 GB |
+| 78 | P0 | Increase the elevation to 12 | [x] `GC_HEIGHT_SCALE` 5 -> 12; the ranges show the 2.8 km grid as terraces (row 93) |
+| 79 | P0 | Cannons and smoke/fire/foam particle images: add them to the ships and the effects, make volumetric smoke | [x] seven `gun_*` parts at every port of every class (`gun_role_for`, `"gun"` in the class file); RGBA atlases from the sheets (`tools/fx_sprites.py`) sampled by the puff shader - cover, luminance, cover-gradient normal; fire on the flash, foam on the rings and spray. [~] "volumetric" is still lit billboards: a ray-marched slab is row 95 |
+| 80 | P0 | The new terrain data (`new_terrain_data_v2`): use it, generate realistic terrain | [x] unpacked and SHA-verified under `assets/data_new/mare-world-terrain`, read as `terrain-v2` (378 chunks). [ ] its rivers (`waterways.geojsonl`) are not wired: row 91 |
+| 81 | P0 | The shock from the cannons: less white, waves bigger, maybe less distance | [x] ring to 1.6 L (2.3), lift 0.085 (0.035), white 0.14/0.16 (0.30/0.34) and only in the foam tile's breaks; the tonemap's radial blur halved |
+| 82 | P0 | Fix the canopy to be trees only | [x] the painted crowns and their normal gone; woods are instanced trees over the forest colour |
+| 83 | P0 | Return the fields, but without props | [x] cropland floor 0.55 over the gentle lowland; wheat off |
+| 84 | P0 | Add orchards and vineyards as props | [x] wider orchard rings + patches in the open fields, vines on more of the sunny slopes, scatter from 70/80 (was 90/110), ahead of the woods. [ ] authored trees for them: row 96 |
+| 85 | P0 | Lateen and masts and rigging to the top of the mast, not above; the front lateen as wide as the sail and connected to it | [x] rope tops per station from the heel (they ended 0.2 hull heights over every truck, a mizzen's 2/3 of the pole); peak at the masthead; the lantina scaled by its true length to the head and turned to the design rake; square layers under the truck |
+| 86 | P0 | Waves like wake.png, as an actual 3D wave | [x] the arms' geometry to 4.4 L (was cut at 1.55 L), crests 0.052 L (0.034), deeper trough, the trail's chop |
+| 87 | P0 | The wake's foam should fade out, be less opaque, spread slowly while it fades | [x] `WAKE_TAU` 20 s, `WAKE_DIFF` 3.5 texels/s with a two-ring kernel, white decays before churn; the trail's white follows the map value, ceiling 0.42 (0.62) |
+| 88 | P0 | Random villages in the hinterland are missing | [x] hashed hamlets on the workable lowland (2.2-unit cells) with their own built disc; three farm villages per settled region (one per frontier region) |
+| 89 | P0 | The video: too much blur | [x] the menu backdrop: half size, one blur pair (was quarter size, four), mixed at 0.7 |
+| 90 | P0 | (found) `ship_classes.json` was never applied: `!gjson_parse` on a 0-on-success function | [x] fixed; "9 overridden" in the log, the class data is live |
+| 91 | P1 | **Rivers from the package** (`waterways.geojsonl`, 115 chunks): replace the generated network, carve, open the reaches (TODO item 5, roadmap 9) | [ ] the data is in the store now; the reader does not read it yet |
+| 92 | P1 | (found) HEAD did not link: `world/geochunks.*` and `gfx/chunkatlas.*` re-added by the WIP merge beside their successors; the two suites including `world.cc` unresolved | [x] removed; stub ratio in the suites; 7/7 |
+| 93 | P1 | The ranges at 12 read as terraces (the 2.8 km samples) | [ ] a finer DEM for the home seas (roadmap 1), or a slope-aware interpolation of the chunk samples |
+| 94 | P1 | A fleet icon is drawn at the hinterland zoom (po_plain shot: a white ship the size of a village on the plain) | [ ] fade the fleet icons out below the map's icon tier, or draw the hull |
+| 95 | P2 | Volumetric smoke proper: a ray-marched density slab per broadside instead of lit billboards | [ ] |
+| 96 | P2 | Authored orchard and vine props (Meshy), the mill and the well as assets (TODO 7c) | [ ] |
+| 97 | P2 | The guns' muzzles through the hull's *painted* ports: the port positions from the hull mesh, not the class's gun count spread along two thirds of the hull | [ ] |
+| 98 | P1 | (found) the spritsail was a 0.31-hull-wide bar across the bow from abeam | [x] half the width, twice the depth |
+
+## issue11 + issue12 (assets/issues/issue11, issue12, 0.22.14)
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 99 | P0 | issue11 "fix this lateen and sail" (the yard horizontal, far above the canvas) | [x] the lantina is a tapered prism built in the sail's mesh on the head's own line (`rig_spar`); the scanned `lateen_yard` is not placed (`MARE_LATEEN_ASSET=1`) |
+| 100 | P0 | issue11 "add ship waves and splashing"; "add real waves forming from ships moving" | [x] bow wave 0.030 L (0.012), hull pile-up 0.022 L, wider foam collar; spray from every stem under way, scaling with speed |
+| 101 | P0 | issue11 "crests are too uniform, make randomness"; "sea flickers too much, slow it down"; the menu video "continuous flicker" | [x] `capvar` noise field gates caps, collapsing crests and the staged peaks; wider thresholds; staged ripple drift at half rate |
+| 102 | P0 | issue11 "make more dense smoke, grey and white, remove ugly particles" | [x] 6 white cores + 6 grey plumes a gun, denser and longer; embers and the gun spout removed. [ ] issue12 "remove the particles, add 3D volumetric smoke with shaders": row 95 |
+| 103 | P0 | issue11 "oars need to be rotated"; issue12 "fix oars positions" | [x] squared to the hull (10 degrees aft), sweep 4-13 degrees, blade 0.60 rad down |
+| 104 | P0 | issue11 "remove external riggings" (stays running down into the sea) | [x] stays end at the hull model's own bow and stern; the aft stations' shroud and stay feet on the castle |
+| 105 | P0 | issue11 "fix this shading wrong" (the lateen canvas: diagonal seams, flat and dark) | [~] the canvas now hangs from its real spar and the seams run with the head as a lateen's cloths do; the dark flat look under a low sun is the two-sided flip on a single quad - a proper back-face material for the sails is open |
+| 106 | P0 | issue11 "weird texture over" the hull (purple-brown blotches) | [x] plank modulation finer and a third as strong (`meshes.frag`) |
+| 107 | P0 | Reduce the relief to 5-8, see what fits | [x] 5 / 6.5 / 8 compared (Alps, Dalmatia); 7 kept (`GC_HEIGHT_SCALE`) |
+| 108 | P0 | Remove the cannons from the ships for now | [x] off by default; `MARE_GUNS=1` stands the parts again; assets kept |
+| 109 | P0 | Make cannonballs | [x] `nphys_shot_list`; the staged scene draws every ball in flight as an iron sphere |
+| 110 | P0 | Add ropes to the bottom of the sails | [x] bolt-rope along the foot, a sheet from each clew, a clew-line up the leech, in the sail's mesh |
+| 111 | P0 | Rename all assets (no "Meshy_AI_..."); a file listing the whole folder structure | [x] renames audited (`assets/RENAMES.md`, by the other session); `tools/tree_listing.py` -> `docs/FOLDER_STRUCTURE.md` |
+| 112 | P0 | issue12 "trees in assets/trees: rename, add them, optimise, set up by biome" (todo 96) | [x] 27 `tree_*` props, six LODs; the scatter stands them by latitude band, hemisphere, conifer/broadleaf and the Mediterranean belt; LOD 4 within `PROP_LOD1`, cards beyond |
+| 113 | P1 | Rivers from the package (row 91) | [x] `tools/rivers_pack.py` -> `rivers.bin` per chunk; `world/rivers.cc` reads them (1.3M points, 63 chunks) in place of the drainage network; painted, not carved |
+| 114 | P1 | Fleet icons at the hinterland zoom (row 94) | [x] fade under 7 units, gone at 4 |
+| 115 | P1 | issue12 "rope behaviour to be flexible and physics based" | [ ] the cordage is straight segments in a per-class mesh; a catenary sag per rope and a verlet per sheet is the next rig item |
+| 116 | P2 | The guns through the hull's painted ports (row 97) | [-] superseded: the hulls will be re-made without guns and the parts stood then |
+| 117 | P1 | Authored trees: LOD 5 ring out to 14 units (cards start at 7 now); the oak/maple in the orchards are the forest species scaled down - a fruit tree set | [ ] |
+| 118 | P1 | The rivers: carve the great rivers' lower reaches and reopen navigation on the authored data (`MARE_RIVER_CARVE`); the half-width from the upstream length is a guess | [ ] |
+
+## Order of work (updated 0.22.14)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -160,7 +212,9 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 8. issue7 items 44-51 and the trailer. **Done 0.22.10.**
 9. issue8 items 52-62, todo 15/17/19/21/26, physics buoyancy + ballistics. **Done 0.22.11.**
 10. issue9 items 63-76. **Done 0.22.12.** (The body attitude into the shader came with it.)
-11. Next, in this order:
+11. issue10 items 77-90, 92, 98. **Done 0.22.13.** Open from it: 91 (rivers), 93-97.
+12. issue11/12 items 99-114. **Done 0.22.14** (105 partly). Rows 91 and 94 closed with it; 95 (volumetric smoke) and 115 (rope physics) are the open issue12 items.
+13. Next, in this order (95 and 115 first, then the list below):
    1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
    2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy knows the waterline), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
    3. **Heave into the shader**: the body's heave is computed but the hull still rides the shader's own wave sample; with the attitude channel in place the heave is one more float.

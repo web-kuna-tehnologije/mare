@@ -277,8 +277,8 @@ void main(){
   float sc = u_wave_scale;
   float sb = sc * u_shorescale;   // the shore bands' scale
   float ws = clamp(v_amp, 0.0, 1.4);
-  float fold = smoothstep(0.93 - 0.05 * ws, 0.62 - 0.05 * ws, v_jac);
-  float steep = smoothstep(0.04, 0.12, v_slope) * 0.7;
+  float fold = smoothstep(0.95 - 0.05 * ws, 0.55 - 0.05 * ws, v_jac);
+  float steep = smoothstep(0.04, 0.16, v_slope) * 0.7;
 // 0.22.3: whitecaps only where a wave is a wave on screen. From the regional zoom the strategic
 // swell's folds smeared into kilometre-long white diagonals across every bay; past ~30 units
 // the caps fade and the sea keeps its glitter alone.
@@ -287,7 +287,11 @@ void main(){
 // them alone is a block the size of the cell and a line along every patch border (the staged
 // battle's sea was tiled with them); through the texture's bright tenth it is a patch of foam
 // at texel resolution, and the cells never show.
-  float capmask = smoothstep(0.05, 0.40, lum2);
+// 0.22.14 (issue11 "crests are too uniform", "sea flickers"): a slow, large random field gates
+// the caps - only some crests break, in patches that wander - and every threshold below is
+// wider, so a cap grows and fades over a few frames instead of switching with the tessellation
+  float capvar = smoothstep(0.28, 0.72, snoise(p * 0.018 + u_drift1 * 0.12 + vec2(3.1, 7.7)) * 0.6 + snoise(p * 0.055 + u_drift2 * 0.2) * 0.4);
+  float capmask = smoothstep(0.08, 0.55, lum2) * (0.25 + 0.75 * capvar);
 // 0.22.10 (issue7 "foam on top of the collapsing waves"): the caps and the crests are textured
 // by the real foam photograph now - two scales, the coarser drifting with the swell - so a
 // breaking crest is a ragged sheet of bubbles and not a tint over the cell the fold found
@@ -302,11 +306,11 @@ void main(){
 // Gerstner displacement is folding it over: where a lifted fragment is also folding, the water
 // is spilling down the face, and that is where the white sits. Drawn as a band *at* the crest
 // rather than over the whole wave, so a swell reads as a line of white running along its top.
-  float collapse = smoothstep(0.45, 0.92, lift) * smoothstep(0.92, 0.66, v_jac);
+  float collapse = smoothstep(0.40, 0.95, lift) * smoothstep(0.94, 0.60, v_jac) * (0.3 + 0.7 * capvar);
   float crestfoam = collapse * (0.30 + 0.90 * capmask) * smoothstep(0.12, 0.65, ws) * detail * (0.7 + 0.6 * smoothstep(0.3, 0.9, fc));
 // the staged scenes want white on every tessellated crest ("white foam on peaks"), the map
 // only where the fold says the wave is breaking
-  float peak = u_local_depth > 0.0 ? smoothstep(0.05, 0.8, lift) * smoothstep(0.008, 0.045, v_slope) * 1.0 : 0.0;   // 0.22.12: the staged crests carry foam like the map's (issue9)
+  float peak = u_local_depth > 0.0 ? smoothstep(0.10, 0.9, lift) * smoothstep(0.012, 0.09, v_slope) * (0.2 + 0.8 * capvar) : 0.0;   // 0.22.12: the staged crests carry foam like the map's (issue9); 0.22.14: softer and gated by capvar
   float caps = max(max(fold, steep), peak) * smoothstep(0.12, 0.7, ws) * capmask * detail * u_capzoom;   // 0.22.11: on from a smaller swell
 // Surf: in the shoaling band the steepened waves break into a foam sheet that runs up the
 // beach. The shore direction is the depth gradient; the sheet's texture scrolls along it.
@@ -391,7 +395,7 @@ void main(){
                * smoothstep(0.34, 0.70, lum2) * 0.55;
     shipk *= 1.0 - clamp(armk * 0.9 + lane, 0.0, 0.8);
   }
-  float shipcrest = smoothstep(0.009, 0.015, v_shipw / max(sc, 1e-3)) * smoothstep(0.30, 0.58, lum2) * 0.8;
+  float shipcrest = smoothstep(0.006, 0.020, v_shipw / max(sc, 1e-3)) * smoothstep(0.25, 0.65, lum2) * 0.9;   // 0.22.14: wider band, bigger bow waves
   shipk *= 1.0 - clamp(shipcrest, 0.0, 0.8);
 // The trail (0.22.9, issue6). Everything above is attached to a hull and turns with her; this
 // is what she *left*: the wake map, written where she actually was and fading over a minute or
@@ -405,8 +409,11 @@ void main(){
       float fw1 = u_has_foamw > 0.5 ? texture(u_foamw, p * 0.55 + u_drift1 * 0.35).r : 0.55;
       float fw2 = u_has_foamw > 0.5 ? texture(u_foamw, p * 1.9 + u_drift2 * 0.6 + vec2(0.31, 0.77)).r : 0.55;
       float brk = smoothstep(0.30, 0.80, mix(fw1, fw2, 0.45) * (0.75 + 0.5 * fw2));
-      float trail = smoothstep(0.10, 0.55, wk.x) * (0.25 + 0.75 * brk) + wk.y * 0.08 * brk;   // 0.22.11: dense where the churn is, nothing where it is faint (issue8 "less foam, more concentrated")
-      shipk *= 1.0 - clamp(trail * 0.62, 0.0, 0.62);
+// 0.22.13 (issue10 "foam from the wake should fade out, be less opaque and spread slowly while
+// it fades"): the trail's white follows the map value itself - a fresh churn is dense, an old one
+// thin - instead of holding at full until the value dropped under 0.55; the ceiling is 0.42
+      float trail = smoothstep(0.03, 0.90, wk.x) * (0.20 + 0.80 * brk) + wk.y * 0.06 * brk;
+      shipk *= 1.0 - clamp(trail * 0.42, 0.0, 0.42);
     }
   }
 // The blast rings (0.22.9, issue6 "a light transparent white circle, more opaque on the side
@@ -422,7 +429,7 @@ void main(){
     float hole = smoothstep(u_blastdir[i].z * 0.6, u_blastdir[i].z, r);
     float ring = exp(-pow((r - R) / w, 2.0));
     float tex = u_has_foamw > 0.5 ? smoothstep(0.25, 0.8, texture(u_foamw, p * 1.3 + vec2(0.13, 0.52)).r) : 0.6;
-    shipk *= 1.0 - clamp(u_blast[i].w * side * hole * ring * (0.45 + 0.75 * tex) * 0.30, 0.0, 0.34);
+    shipk *= 1.0 - clamp(u_blast[i].w * side * hole * ring * (0.25 + 0.95 * tex) * 0.14, 0.0, 0.16);   // 0.22.13 (issue10 "less white"): the ring is mostly the lifted water now; the white only where the foam tile breaks
   }
   float shipf = (1.0 - shipk) * detail;
 // 0.22.11 (issue8 "missing crest and foam on top of waves"): under a fog or a low sun the

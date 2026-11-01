@@ -14,6 +14,7 @@ extern "C" {
 #include "../core/types.h"
 #include "../core/util.h"
 #include "../core/diag.h"
+#include "terrain_chunks.h"
 }
 
 float *river_px, *river_pz, *river_hw, *river_dx, *river_dz;
@@ -29,6 +30,7 @@ public:
     void generate();
     void shutdown();
 private:
+    int  load_package();   // the authored rivers of the terrain package (rivers.bin per chunk, tools/rivers_pack.py); 1 when they were taken
     // a binary heap of (height, cell) for the priority flood
     struct heap_t { std::vector<float> key; std::vector<int> idx;
         void push(float k, int i) { key.push_back(k); idx.push_back(i); int c = (int)key.size() - 1;
@@ -48,8 +50,63 @@ void Rivers::shutdown() {
     river_px = river_pz = river_hw = river_dx = river_dz = nullptr; river_cls = nullptr; rivers = nullptr; river_npts = river_n = 0;
 }
 
+// The package's rivers (0.22.14, todo 91 / TODO item 5): every chunk under the dataset root may
+// carry a rivers.bin - the waterwaymap segments with their upstream length, packed by
+// tools/rivers_pack.py from waterways.geojsonl. Each segment becomes a river polyline of its own
+// (they are 2-3 km long; the grid the rings query does not care), its half-width from the
+// upstream length: a stream at the threshold, the Danube's lower course a quarter of a unit.
+// Painted only, like the generated network; carving and navigation still wait (MARE_RIVER_CARVE).
+int Rivers::load_package() {
+    { const char *e = getenv("MARE_RIVER_DATA"); if (e && !atoi(e)) return 0; }
+    gc_dataset_t d; if (!geochunks_dataset_count() || !geochunks_dataset(0, &d)) return 0;
+    int nseg = 0, nread = 0; size_t total_pts = 0;
+    for (int cy = 0; cy < d.chunks_y; ++cy) for (int cx = 0; cx < d.chunks_x; ++cx) {
+        char path[640]; snprintf(path, sizeof path, "%s/%schunks/%d/%d/rivers.bin", d.root, d.subdir, cy, cx);
+        FILE *f = fopen(path, "rb"); if (!f) continue;
+        char magic[4]; unsigned count = 0;
+        if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "MRV1", 4) || fread(&count, 4, 1, f) != 1) { fclose(f); continue; }
+        nread++;
+        for (unsigned k = 0; k < count && px.size() < RIVER_MAX_POINTS; ++k) {
+            float up; unsigned short np;
+            if (fread(&up, 4, 1, f) != 1 || fread(&np, 2, 1, f) != 1) break;
+            std::vector<float> ll(2 * np); if (np && fread(ll.data(), 4, 2 * np, f) != (size_t)(2 * np)) break;
+            if (np < 2) continue;
+            // inside the world and on the land mask (the data draws into estuaries; the paint stops at the coast)
+            int inside = 0; for (int i = 0; i < np; ++i) if (ll[2*i] > LON0 && ll[2*i] < LON1 && ll[2*i+1] > LAT0 && ll[2*i+1] < LAT1) inside = 1;
+            if (!inside) continue;
+            float hwv = clampf(0.012f + 0.020f * log10f(maxf(up / 1.5e7f, 1.f)), 0.012f, 0.09f);   // half-width, world units (7 km = 1 unit): a mapped stream to a great river's lower course
+            river_t r; r.first = (int)px.size(); r.cells = (int)(up / 1e6f); r.navigable = 0;
+            for (int i = 0; i < np; ++i) {
+                float wx = lon2x(ll[2*i]), wz = lat2z(ll[2*i+1]);
+                int i0 = i > 0 ? i - 1 : i, i1 = i + 1 < np ? i + 1 : i;
+                float tx = lon2x(ll[2*i1]) - lon2x(ll[2*i0]), tz = lat2z(ll[2*i1+1]) - lat2z(ll[2*i0+1]);
+                float tl = sqrtf(tx * tx + tz * tz); if (tl < 1e-6f) { tx = 1; tz = 0; } else { tx /= tl; tz /= tl; }
+                px.push_back(wx); pz.push_back(wz); hw.push_back(hwv); dx.push_back(tx); dz.push_back(tz); cls.push_back(0);
+            }
+            r.count = (int)px.size() - r.first;
+            if (r.count >= 2) list.push_back(r); else { px.resize(r.first); pz.resize(r.first); hw.resize(r.first); dx.resize(r.first); dz.resize(r.first); cls.resize(r.first); }
+            nseg++; total_pts += np;
+        }
+        fclose(f);
+    }
+    if (!nread) return 0;
+    river_npts = (int)px.size(); river_n = (int)list.size();
+    river_px = (float *)malloc(river_npts * sizeof(float)); river_pz = (float *)malloc(river_npts * sizeof(float));
+    river_hw = (float *)malloc(river_npts * sizeof(float)); river_dx = (float *)malloc(river_npts * sizeof(float)); river_dz = (float *)malloc(river_npts * sizeof(float));
+    river_cls = (unsigned char *)malloc(river_npts ? river_npts : 1);
+    memcpy(river_px, px.data(), river_npts * sizeof(float)); memcpy(river_pz, pz.data(), river_npts * sizeof(float));
+    memcpy(river_hw, hw.data(), river_npts * sizeof(float)); memcpy(river_dx, dx.data(), river_npts * sizeof(float)); memcpy(river_dz, dz.data(), river_npts * sizeof(float));
+    memcpy(river_cls, cls.data(), river_npts);
+    rivers = (river_t *)malloc((river_n ? river_n : 1) * sizeof(river_t)); memcpy(rivers, list.data(), river_n * sizeof(river_t));
+    if (!navriver) navriver = (unsigned char *)calloc(NAV_W * NAV_H, 1);
+    LOG_INFO("rivers", "authored rivers from the terrain package: %d segments (%d points) from %d chunks' rivers.bin; the drainage network is not generated", river_n, river_npts, nread);
+    return 1;
+}
+
 void Rivers::generate() {
     shutdown();
+    px.clear(); pz.clear(); hw.clear(); dx.clear(); dz.clear(); cls.clear(); list.clear();
+    if (load_package()) return;
     if (!heightmap || !landmask) return;
     double t0 = diag_now();
     const int W = LM_W, H = LM_H, N = W * H;

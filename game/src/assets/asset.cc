@@ -295,10 +295,12 @@ const char *AssetRegistry::root(void) {
     if (asset_root_path[0]) return asset_root_path;
     const char *env = getenv("MARE_ASSETS");
     // This worktree's generated assets (every hull, mast part, oar and building with all six
-    // LODs) are consolidated under assets/elm (docs/TODO.md): prefer that tree wherever the
+    // LODs) are consolidated under assets/generated (assets/README.md): prefer that tree wherever the
     // game is started from - the repo root, a build dir, or a staged copy under tmp/<name>/ -
     // and fall back to the git-tracked game/assets. MARE_ASSETS still overrides everything.
-    static const char *candidates[] = { "assets/elm", "../assets/elm", "../../assets/elm", "../../../assets/elm", "../../../../assets/elm",
+    // 0.22.13: the store's tree is `assets/generated` (the sorted asset store, assets/README.md); `assets/elm` is the name it had
+    static const char *candidates[] = { "assets/generated", "../assets/generated", "../../assets/generated", "../../../assets/generated", "../../../../assets/generated",
+                                        "assets/elm", "../assets/elm", "../../assets/elm", "../../../assets/elm", "../../../../assets/elm",
                                         "game/assets", "../game/assets", "../../game/assets", "../../../game/assets", "assets" };
     char probe[ASSET_PATH];
     if (env) { snprintf(asset_root_path, sizeof asset_root_path, "%s", env); return asset_root_path; }

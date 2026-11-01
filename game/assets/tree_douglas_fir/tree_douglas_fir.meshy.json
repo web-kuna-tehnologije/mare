@@ -1,0 +1,14 @@
+{
+  "name": "tree_douglas_fir",
+  "kind": "prop",
+  "source": "tree_douglas_fir",
+  "lod_budgets": [
+    60000,
+    20000,
+    6000,
+    2000,
+    700,
+    200
+  ],
+  "tex_px": 512
+}

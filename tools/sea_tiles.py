@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Turn the Meshy sea sheets (assets/sea/sea__new) into the three seamless tiles the sea pass
+"""Turn the Meshy sea sheets (assets/sea/sheets, formerly sea__new) into the three seamless tiles the sea pass
 reads - pure stdlib (zlib), no PIL.
 
     python3 -I tools/sea_tiles.py <normal.png> <displacement.png> <albedo.png> <out_dir> [--size 1024]

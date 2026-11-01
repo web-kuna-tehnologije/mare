@@ -8,6 +8,9 @@ in vec2 v_uv; in vec3 v_col; in vec4 v_misc; in vec3 v_wpos; in float v_size; in
 uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform float u_time;
 uniform vec3 u_cam_right; uniform vec3 u_cam_up;
 uniform sampler2D u_scene_depth; uniform vec2 u_zrange; uniform vec2 u_scene_size; uniform float u_soft_on;
+// 0.22.13 (issue10): the Meshy sheets as sprite atlases - smoke 2x2, fire 4x2, foam 2x2 frames (tools/fx_sprites.py)
+uniform sampler2D u_fx_smoke; uniform sampler2D u_fx_fire; uniform sampler2D u_fx_foam; uniform vec3 u_has_fx;
+vec2 atlas_uv(vec2 uv, float seed, float cols, float rows) { float n = cols * rows; float f = floor(fract(seed * 7.31) * n); vec2 cell = vec2(mod(f, cols), floor(f / cols)); return (uv * 0.5 + 0.5 + cell) / vec2(cols, rows); }
 out vec4 fragColor;
 #include "common/color.glsl"
 #include "common/pbr.glsl"
@@ -37,12 +40,14 @@ void main(){
     float n = vnoise3(vec3(v_uv * 4.0, seed * 7.0 + age * 2.0));
     float ring = exp(-pow((r - (0.55 + 0.3 * age)) / (0.16 + 0.1 * age), 2.0));
     float a = ring * alpha * (0.55 + 0.45 * n) * (1.0 - smoothstep(0.85, 1.0, r));
+    if (u_has_fx.z > 0.5) a *= 0.35 + 1.1 * texture(u_fx_foam, atlas_uv(v_uv * 0.9, seed, 2.0, 2.0)).a;   // the foam sheet's torn structure
     vec3 c = srgb_to_linear(v_col) * (u_ambsky * 0.8 + u_ambgnd * 0.3 + u_suncol * 0.5 * max(u_sun.y, 0.0));
     fragColor = vec4(fog_apply(c, dist, u_mapness, skyl), a); return;
   }
   if (kind > 4.5) {                                   // spray: a soft white droplet cloud
     float n = vnoise3(vec3(v_uv * 3.0, seed * 5.0 + age * 3.0));
     float a = smoothstep(1.0, 0.1, r) * (0.5 + 0.5 * n) * alpha;
+    if (u_has_fx.z > 0.5) a *= 0.4 + 1.0 * texture(u_fx_foam, atlas_uv(v_uv, seed + 0.37, 2.0, 2.0)).a;
     vec3 c = srgb_to_linear(v_col) * (u_ambsky * 0.9 + u_suncol * 0.55 * max(u_sun.y, 0.0));
     fragColor = vec4(fog_apply(c, dist, u_mapness, skyl), a * 0.8); return;
   }
@@ -54,7 +59,14 @@ void main(){
     float n = vnoise3(vec3(v_uv * 3.0, seed * 9.0));
     float core = exp(-r * r * 7.0) * (0.8 + 0.4 * n), halo = exp(-r * r * 1.8) * 0.35;
     vec3 c = srgb_to_linear(v_col) * (core * 9.0 + halo * 2.5);
-    fragColor = vec4(fog_apply(c, dist, u_mapness, skyl), clamp((core + halo) * alpha, 0.0, 1.0)); return;
+    float a = clamp((core + halo) * alpha, 0.0, 1.0);
+    if (u_has_fx.y > 0.5) {   // the fire sheet: flame and sparks over the procedural core, so a flash has tongues and embers in it
+      vec4 fx = texture(u_fx_fire, atlas_uv(v_uv, seed, 4.0, 2.0));
+      fx.a *= smoothstep(1.0, 0.25, r) * (1.0 - age);   // 0.22.14: held inside the flash's own disc and gone with it - the sheet's smoke was reading as an orange cloud a hull long
+      vec3 fc = srgb_to_linear(fx.rgb) * fx.a * 4.0;
+      c = c * 0.7 + fc; a = clamp(a * 0.75 + fx.a * alpha * 0.6, 0.0, 1.0);
+    }
+    fragColor = vec4(fog_apply(c, dist, u_mapness, skyl), a); return;
   }
   // smoke, in three layers (kind 3 core, 0 plume, 4 haze). The noise is sampled in the
   // billboard plane plus the seed as a third axis, and it scrolls upward with age so the puff
@@ -70,13 +82,23 @@ void main(){
   n = clamp(n + warp * 0.55, 0.0, 1.6);
   float rr = r * (1.0 + 0.30 * warp);                 // the disc itself is dented in and out
   float disc = smoothstep(1.0, 0.05 + 0.25 * haze, rr) * (1.0 - 0.35 * rr);
+  float spr = 1.0, sprlum = 0.5; vec2 sgrad = vec2(0.0);
+  if (u_has_fx.x > 0.5 && haze < 0.5) {   // 0.22.13: the smoke sheet's cover is the puff's shape, its shading the volume
+    vec2 suv = atlas_uv(v_uv * (1.0 + 0.25 * core), seed, 2.0, 2.0);
+    vec4 sx = texture(u_fx_smoke, suv);
+    spr = sx.a; sprlum = dot(sx.rgb, vec3(0.33));
+    float du = 0.012;
+    sgrad = vec2(texture(u_fx_smoke, suv + vec2(du, 0.0)).a - texture(u_fx_smoke, suv - vec2(du, 0.0)).a,
+                 texture(u_fx_smoke, suv + vec2(0.0, du)).a - texture(u_fx_smoke, suv - vec2(0.0, du)).a);
+    disc = disc * (0.25 + 0.95 * spr);
+  }
   float thr = (0.30 - 0.12 * core + 0.05 * haze) + (0.45 - 0.2 * core) * age;   // erosion: ragged from birth, dissolving as the puff ages
   float dens = clamp((disc * (0.30 + 0.2 * core + 1.35 * n) - thr) * (2.2 + 1.0 * core - 1.2 * haze), 0.0, 1.0);
   if (dens <= 0.002) discard;
   // sphere normal in world space: the sun side is lit, the lee side falls to the ambient
   float nz = sqrt(max(1.0 - r * r, 0.0));
   vec3 tocam = normalize(u_campos - v_wpos);
-  vec3 N = normalize(u_cam_right * v_uv.x + u_cam_up * v_uv.y + tocam * nz);
+  vec3 N = normalize(u_cam_right * (v_uv.x - sgrad.x * 2.5) + u_cam_up * (v_uv.y - sgrad.y * 2.5) + tocam * nz);   // the sheet's cover gradient bends the sphere normal: the billows of the sprite are lit as billows
   float wrap = dot(N, u_sun) * 0.5 + 0.5;
   float sh = shadow_at(v_wpos, N, max(dot(N, u_sun), 0.0), dist);
   vec3 albedo = srgb_to_linear(v_col);
@@ -86,6 +108,7 @@ void main(){
   c += u_suncol * albedo * back * (1.0 - dens) * 0.5 * smoothstep(0.4, 1.0, r);
   // self-shadow of the thick core: the noise's dark pockets read as depth (the haze has none)
   c *= mix(0.58 + 0.42 * smoothstep(0.0, 1.0, n * 1.4), 0.95, haze);
+  if (u_has_fx.x > 0.5 && haze < 0.5) c *= 0.70 + 0.75 * sprlum;   // the sheet's own light and shade
   // the core is lit hard: a white cumulus in the sun with a bright crown (the reference frame)
   c += u_suncol * albedo * core * 0.45 * pow(wrap, 3.0) * sh * (0.6 + 0.4 * n);
   // soft particles: fade where the disc cuts through a hull or the shore

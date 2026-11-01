@@ -22,7 +22,7 @@ extern "C" {
 #define RIVER_MIN_CELLS   45      // land-mask cells (49 km^2 each) a river needs to drain to exist
 #define RIVER_NAV_CELLS  420      // ... to be navigable by anything (class 2: shallow draught)
 #define RIVER_DEEP_CELLS 1400     // ... to take a merchantman (class 1: the great rivers' estuaries)
-#define RIVER_MAX_POINTS 1200000   // every river of the world after one Chaikin pass is ~360k; the cap only guards memory
+#define RIVER_MAX_POINTS 2000000   // 0.22.14: the package's segments (tools/rivers_pack.py at 15,000 km upstream) are ~1.3M points   // every river of the world after one Chaikin pass is ~360k; the cap only guards memory
 
 typedef struct river_t { int first, count; int cells; int navigable; } river_t;   // points first..first+count-1, drainage at the mouth, nav class
 

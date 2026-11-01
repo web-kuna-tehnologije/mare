@@ -29,7 +29,7 @@ float blast_lift(vec2 p, float t) {
     float side = 0.35 + 0.65 * clamp(dot(normalize(d + vec2(1e-5)), u_blastdir[i].xy), 0.0, 1.0);
     float hole = smoothstep(u_blastdir[i].z * 0.6, u_blastdir[i].z, r);   // nothing right under the guns
     float ring = exp(-pow((r - R) / w, 2.0));
-    h += u_blast[i].w * side * hole * ring * cos((r - R) / w * 2.2) * 0.035;
+    h += u_blast[i].w * side * hole * ring * cos((r - R) / w * 2.2) * 0.085;   // 0.22.13 (issue10 "waves bigger"): 0.035 -> 0.085
   }
   return h;
 }
@@ -46,7 +46,7 @@ float ship_wave(vec2 pp, float t) {
   if (u_shipwave < 0.5) return 0.0;
   for (int i = 0; i < u_nships; ++i) {
     vec2 dxz = pp - u_ships[i].xy; float L = max(u_shiplen[i], 0.2);
-    if (dot(dxz, dxz) > 2.4 * L * L) continue;
+    if (dot(dxz, dxz) > 20.0 * L * L) continue;   // 0.22.13 (issue10 "actual 3D wave"): the arms used to be cut at 1.55 L while their foam ran to 5 L; the geometry now runs out as far as the white does
     float spd = clamp(u_ships[i].w * 10.0, 0.0, 1.0);
     if (spd < 0.05) continue;
     float ch = cos(u_ships[i].z), sh = -sin(u_ships[i].z);
@@ -56,10 +56,10 @@ float ship_wave(vec2 pp, float t) {
     float side = 1.0 - smoothstep(0.30 * L, 0.70 * L, abs(across));
     float env = exp(-r / (0.35 * L)) * ahead * side * (1.0 - smoothstep(0.9 * L, 1.3 * L, r));
     float ph = 6.28318 / (0.30 * L) * r - t * (2.0 + 4.0 * spd);
-    hgt += 0.012 * L * spd * env * (0.7 * cos(ph) + 0.3);   // 0.22.5: a bigger bow wave; 0.22.12: smaller - the water goes into the arms below, not a ring ahead (issue9 "waves should be directional")
+    hgt += 0.030 * L * spd * env * (0.7 * cos(ph) + 0.3);   // 0.22.14 (issue11 "add ship waves and splashing"): the bow wave heaps up again, 0.012 -> 0.030 L at full speed
     float hull = smoothstep(-0.05 * L, 0.25 * L, along) * (1.0 - smoothstep(0.40 * L, 0.50 * L, along))
                * exp(-abs(abs(across) - 0.19 * L) / (0.08 * L));
-    hgt += 0.012 * L * spd * hull;
+    hgt += 0.022 * L * spd * hull;   // 0.22.14: the pile-up along the forward hull
 // The trailing wake (0.22.6, issue3 "ship wakes ... in 3D with foaming"). A real hull leaves a
 // Kelvin pattern: two diverging crests at about 19.5 degrees either side of the track, and the
 // flat turbulent lane between them. Both are *geometry* here, not paint - the arms are a wave
@@ -68,7 +68,7 @@ float ship_wave(vec2 pp, float t) {
 // becoming the scar across the ocean the old V wake was (0.19).
     float astern = 0.46 * L - along;              // how far behind her stem (0.22.12: measured from the stem, so the arms root at the cutwater)
     if (astern > 0.0) {
-      float fade = exp(-astern / (3.2 * L)) * spd;
+      float fade = exp(-astern / (3.2 * L)) * spd * (1.0 - smoothstep(3.6 * L, 4.4 * L, length(dxz)));   // 0.22.13: eased to nothing before the early-out radius, so the mesh never steps
 // 0.22.12 (issue9, wake.png): the diverging arms are the wake. They start at the stem (the
 // bow wave *is* their root), run out at 19.5 degrees as a steep, breaking crest with a
 // trough inboard of it, and carry a wave train along their length - twice the height they
@@ -77,8 +77,8 @@ float ship_wave(vec2 pp, float t) {
       float armw = 0.10 * L + 0.035 * astern;     // the arm broadens as it runs out
       float armk = exp(-(arm * arm) / (armw * armw)) * fade;
       float aph = 6.28318 / (0.42 * L) * (astern * 1.06 + abs(across) * 0.35) - t * 1.4;
-      hgt += 0.034 * L * armk * (0.55 + 0.45 * cos(aph));
-      hgt -= 0.012 * L * exp(-pow((arm + 0.9 * armw) / armw, 2.0)) * fade;   // the trough just inboard of the crest
+      hgt += 0.052 * L * armk * (0.55 + 0.45 * cos(aph));   // 0.22.13 (issue10, wake.png as a 3D wave): the V's crests half as high again
+      hgt -= 0.018 * L * exp(-pow((arm + 0.9 * armw) / armw, 2.0)) * fade;   // the trough just inboard of the crest (0.22.13: deeper with the crest)
       float lane = (1.0 - smoothstep(0.0, 0.30 * L + 0.22 * astern, abs(across))) * fade;
       hgt -= 0.010 * L * lane;                    // the flattened, dragged-down lane astern
 // the stern wave (0.22.11, issue8 "real generated waves from stern and bow"): the water closing
@@ -95,7 +95,7 @@ float ship_wave(vec2 pp, float t) {
   if (wk.y > 0.002) {
     float L0 = u_wave_scale;
     hgt -= 0.010 * L0 * wk.y;
-    hgt += 0.004 * L0 * wk.y * sin(pp.x * (11.0 / L0) + pp.y * (7.0 / L0) - t * 3.1);
+    hgt += 0.007 * L0 * wk.y * sin(pp.x * (11.0 / L0) + pp.y * (7.0 / L0) - t * 3.1);   // 0.22.13: the left trail keeps a visible chop
   }
   hgt += blast_lift(pp, t) * u_wave_scale;
   return hgt;

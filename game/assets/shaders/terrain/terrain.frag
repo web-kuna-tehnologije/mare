@@ -342,15 +342,14 @@ void main(){
 // --- the woods as a canopy (0.22.3): the forest colour was one flat dark green; close in, the
 // crowns are drawn as a bumpy noise - brighter on their sun side, dark between - and the
 // normal tilts with them, so a wood reads as a mass of trees rather than paint.
-  float canopy = wforest * (1.0 - smoothstep(22.0, 60.0, dref)) * (1.0 - u_mapness) * (1.0 - under) * (1.0 - wsnow);
+// 0.22.13 (issue10 "fix the canopy to be trees only"): the painted crowns are gone - the woods are
+// the instanced trees of gfx/scatter.cc standing on the forest colour, and the ground under them
+// keeps its own normal. The noise stays as a faint mottle so a wood is not one flat green.
+  float canopy = wforest * (1.0 - smoothstep(22.0, 60.0, dref)) * (1.0 - u_mapness) * (1.0 - under) * (1.0 - wsnow) * 0.35;
   if (canopy > 0.02) {
     vec2 cp = v_wpos.xz * 46.0; float e = 0.35;
     float c0 = noise(cp) * 0.62 + noise(cp * 2.3 + 17.0) * 0.38;
-    float cx1 = noise(cp + vec2(e, 0.0)) * 0.62 + noise((cp + vec2(e, 0.0)) * 2.3 + 17.0) * 0.38;
-    float cz1 = noise(cp + vec2(0.0, e)) * 0.62 + noise((cp + vec2(0.0, e)) * 2.3 + 17.0) * 0.38;
-    c *= 1.0 + (c0 - 0.5) * 0.38 * canopy;
-    vec3 cn = normalize(vec3(-(cx1 - c0) / e * 0.9, 1.0, -(cz1 - c0) / e * 0.9));
-    n = normalize(mix(n, normalize(n + cn - vec3(0.0, 1.0, 0.0)), canopy * 0.8));
+    c *= 1.0 + (c0 - 0.5) * 0.38 * canopy;   // a mottle of lighter and darker ground between the trunks; no crown relief, no tilted normal (0.22.13)
   }
   c *= stratk;
 // The cliff's foot (0.22): each set's wave bursts on the rock and throws spray up the face -

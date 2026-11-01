@@ -70,8 +70,8 @@ void Textures::tex_stage_upload(void *p) {     // MAIN
 void Textures::tex_stage_decode(void *p) {     // DECODE
     texstream_t *t = (texstream_t *)p;
     if (t->bytes) {
-        int n;
-        t->px = stbi_load_from_memory(t->bytes, (int)t->size, &t->w, &t->h, &n, 3);
+        int n, want = (t->fmt == RHI_FMT_RGBA8 || t->fmt == RHI_FMT_SRGB8_A8) ? 4 : 3;   // 0.22.13: the sprite atlases carry alpha
+        t->px = stbi_load_from_memory(t->bytes, (int)t->size, &t->w, &t->h, &n, want);
         if (!t->px) LOG_WARN("gfx", "texture %s: %s", t->path, stbi_failure_reason());
         free(t->bytes); t->bytes = NULL; t->size = 0;
     }

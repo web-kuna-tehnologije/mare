@@ -70,6 +70,7 @@ public:
         return n;
     }
     int shots() const { return nshot_; }
+    int shot_list(float *xyz, int max) const { int n = 0; for (int i = 0; i < nshot_ && n < max; ++i) { xyz[n*3] = sh_[i].x; xyz[n*3+1] = sh_[i].y; xyz[n*3+2] = sh_[i].z; n++; } return n; }
     int  add(float x, float z, float h, float len, float beam, float draft, float tonnes);
     void drive(int id, float v, float h, float turn) {
         if (!valid(id)) return;
@@ -402,6 +403,7 @@ void  nphys_fire(int owner, float x, float y, float z, float dx, float dy, float
 void  nphys_attitude(int id, float *heave, float *pitch, float *roll) { mare::game::sim::physics().attitude(id, heave, pitch, roll); }
 int   nphys_poll_events(nphys_event_t *out, int max) { return mare::game::sim::physics().poll_events(out, max); }
 int   nphys_shots(void) { return mare::game::sim::physics().shots(); }
+int   nphys_shot_list(float *xyz, int max) { return mare::game::sim::physics().shot_list(xyz, max); }
 int   nphys_steps_last(void) { return mare::game::sim::physics().steps_last(); }
 int   nphys_contacts_last(void) { return mare::game::sim::physics().contacts_last(); }
 float nphys_alpha(void) { return mare::game::sim::physics().alpha(); }

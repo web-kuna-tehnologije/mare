@@ -268,7 +268,7 @@ void SceneBuilder::ship_station(const fleet_t *f, int s, float x, float z, float
 void SceneBuilder::build_ships(void) {
     cam_frustum(frustum);
     scene_culled_ships = scene_occluded_ships = 0;
-    shipyard_oars_drawn = shipyard_ships_drawn = shipyard_fallbacks = 0;
+    shipyard_oars_drawn = shipyard_ships_drawn = shipyard_fallbacks = shipyard_guns_drawn = 0;
     shipyard_frame_begin();
     int occ = occlusion_active();
     int battle_lod0_budget = BATTLE_DETAIL_MAX;
@@ -902,8 +902,11 @@ void SceneBuilder::push_icons(void) {
         if (important) icon(p->x, p->z, 0, sz + 10, ICON_RING, 0.9f * w, 0, rgb(255,240,128));
     }
     int port_groups = n_icon_groups;   // fleets cluster among themselves, never into a town
+    // 0.22.14 (todo 94): close to the ground in the 3D view the arrow icons are the size of a village;
+    // they fade out under 7 units of camera distance and are gone at 4 (the hull meshes carry the fleet)
+    float near_fade = cam.mapness < 0.5f ? clampf((cam.dist - 4.f) / 3.f, 0.f, 1.f) : 1.f;
     for (int i = 0; i < G.nfleets; ++i) { const fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
-        float w = fresh ? fleet_icon_w[i] : 1.f;
+        float w = (fresh ? fleet_icon_w[i] : 1.f) * near_fade;
         if (w <= 0.002f) continue;
         float x, z, heading; fleet_pos(f, &x, &z, &heading);
         int sel = f->id == SH.sel_fleet_id, hov = f->id == SH.hover_fleet_id;

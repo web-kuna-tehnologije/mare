@@ -610,7 +610,7 @@ int main(int argc, char **argv) {
         prof_begin(p_gfx);
         const int scene_live = !U.in_menu || menu_preview;   // the menu's battle renders like any other (0.22.11)
         if (U.in_menu && menu_preview) { static float menu_t = 0.f; menu_t += dt; detailview_trailer(fmodf(menu_t, 45.f) - 7.f); cam_update(dt); }   // the menu has no input pass, so the camera is stepped here
-        hdr_set_blur(U.in_menu && menu_preview ? 1.f : 0.f);
+        hdr_set_blur(U.in_menu && menu_preview ? 0.7f : 0.f);   // 0.22.13: a soft backdrop, not a smear (issue10 video)
         // scene geometry is built once, then submitted to the shadow cascades and the main passes
         lod_frame_begin((float)screen_h, 45.f * 0.0174533f, dt);   // screen-space LOD metric for this frame (camera.c: 45 degree vertical FOV)
         lod_set_tier(cam.dist, cam.mapness);                       // which kind of scene this is, and its triangle budget
