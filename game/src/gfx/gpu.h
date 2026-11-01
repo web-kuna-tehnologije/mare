@@ -60,6 +60,7 @@ void mb_box (mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz
 // expanded on the GPU by meshes/rope.geom. `halfw` is the rope's physical half-width in model
 // units and travels in the roughness channel.
 void mb_line(mb_t *m, const float a[3], const float b[3], float halfw, float r, float g, float b_);
+void mb_line_rope(mb_t *m, const float a[3], const float b[3], float halfw, float slack, float kind, int segs, float r, float g, float b_);   // 0.22.15: a sagging, swinging rope (meshes/rope.vert reads t/slack/kind from the normal)
 
 // instancing. inst_t = position + heading (radians, 0 = +x), uniform scale + rgb, misc:
 //   sway (roll animation 0/1), sel (highlight 0..1), bob (vertical bobbing 0/1), xlen (>0: stretch along x, for walls/piers)

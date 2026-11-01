@@ -68,6 +68,8 @@ typedef struct dv_ship_t {
     int   oared;                     // under oars: the wind does not set her pace
     int   body;                      // her rigid body in the tactical world (sim/naval_physics.h, 0.22.9); -1 in the harbour
     float beam, tonnes;              // what that body is built from
+    float oar_speed;                 // 0.22.15: under oars, local units per second (0 = no oars)
+    float furl;                      // 0.22.15: 0..1, how far the sails are taken in (an oared ship pulling into the wind)
 } dv_ship_t;
 
 // Metres per local unit: the authored hulls are fitted at SHIP_M_PER_UNIT (0.045 world units
@@ -437,7 +439,8 @@ void DetailView::battle_add_ship(int type, int side, float x, float z, float hea
                       col_r(col), col_g(col), col_b(col), 3.f + rnd_f(seed) * 6.f, nation,
                       heading, st.turn_dps * 0.0174533f, st.length_m / DV_M_PER_UNIT, 0,
                       st.guns, st.oar_knots > 0.5f * st.knots, -1,
-                      st.beam_m / DV_M_PER_UNIT, st.tonnes };
+                      st.beam_m / DV_M_PER_UNIT, st.tonnes,
+                      st.oar_knots * DV_KNOT, 0.f };
     // Her rigid body (0.22.9, P1.3): the battle is stepped at a fixed rate and the hulls
     // collide, so from here on the formation code only *asks* for a course and a speed.
     if (dv.mode == DV_BATTLE || dv.want_mode == DV_BATTLE)
@@ -584,6 +587,24 @@ void DetailView::battle_update(float dt) {
             float stx, stz, sth; dv_line_point(s->side, sarc, &stx, &stz, &sth);
             float err = (stx - s->x) * cosf(sth) + (stz - s->z) * -sinf(sth);   // along-track: + = station ahead
             float v = minf(dv.line_v[s->side] * clampf(1.f + err / 22.f, 0.6f, 1.4f), s->speed);
+            // 0.22.15 (issue12 "wind direction and sail direction for the speed"; "sails only and
+            // the wind against her: move her backwards; with oars, oar speed and roll the sails
+            // down"): every ship's own heading against the wind sets what her canvas gives
+            // (wind_factor, the point-of-sail curve). In the eye of the wind a sailing ship's
+            // canvas is aback and she makes sternway at a quarter of her speed; an oared ship
+            // takes in her sails (furl -> 1, the shipyard draws no canvas) and pulls at her oar
+            // speed instead, letting them fall again once the wind draws abaft the beam.
+            {
+                float hx = cosf(s->heading), hz = -sinf(s->heading);
+                float wf = wind_factor(hx, hz, dv.wdx, dv.wdz, dv.wstr);
+                float into = -(hx * dv.wdx + hz * dv.wdz);                 // 1 = dead into the wind
+                int in_eye = into > 0.72f && dv.wstr > 0.25f;
+                float want_furl = 0.f;
+                if (s->oar_speed > 0.05f && (in_eye || wf < 0.45f)) { want_furl = 1.f; v = minf(v, s->oar_speed); }   // under oars, canvas in
+                else if (in_eye) v = -0.25f * s->speed * clampf((into - 0.72f) / 0.28f, 0.f, 1.f) * clampf(dv.wstr, 0.3f, 1.2f);   // aback: sternway
+                else v *= clampf(wf / 1.0f, 0.3f, 1.3f);
+                s->furl += clampf(want_furl - s->furl, -dt * 0.5f, dt * 0.5f);   // sails come in or are set over two seconds
+            }
             // 0.22.9 (P1.3): the helm, not the position. The body is integrated below at the
             // fixed tactical sub-step and may be shouldered off station by a collision or
             // brought up all standing by the ground; the formation only ever asks.
@@ -915,7 +936,7 @@ void DetailView::frame(float dt) {
         float dx = wx - cam.pos.x, dz = wz - cam.pos.z;
         shipyard_req_t sr = { s->type, s->nation, ROLE_WARSHIP, wx, wz, s->heading, DV_SHIP_SCALE,
                               rock, 0.f, 0.f, s->r, s->g, s->b,
-                              sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y), lod_key(LODK_MISC, 7, i), broll, bpitch };
+                              sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y), lod_key(LODK_MISC, 7, i), broll, bpitch, s->furl };
         if (shipyard_push(&sr)) continue;
         *instlist_push(&dv.ships_il[s->type]) = inst_t{ wx, 0, wz, s->heading,
             ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }

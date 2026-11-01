@@ -46,6 +46,7 @@ namespace mare::game::view {
 // the near ring. The split is made when the ring recomposes - which is whenever the camera
 // leaves the inner quarter of it - so an instance never flips LOD while the view is still.
 #define PROP_LOD1   7.0f
+#define PROP_LOD2   14.0f        // 0.22.15: the authored trees' far LOD ring; the cards take over past it
 #define FENCE_L     0.055f       // one fence panel, post to post
 #define MILL_H      0.075f       // a windmill, ground to the cap
 #define MINE_H      0.045f       // a pithead frame
@@ -71,7 +72,7 @@ private:
     enum { SP_OAK, SP_BEECH, SP_BIRCH, SP_MAPLE, SP_SCOTS, SP_SPRUCE, SP_DOUGLAS, SP_WPINE, SP_SEQUOIA, SP_CYPRESS,
            SP_OLIVE, SP_UMBRELLA, SP_BAOBAB, SP_KAPOK, SP_OILPALM, SP_WAXPALM, SP_ACACIA_CAMEL, SP_FEVER, SP_MARULA, SP_MOPANE,
            SP_SAUSAGE, SP_JACARANDA, SP_BRAZIL, SP_PARANA, SP_QUEBRACHO, SP_JOSHUA, SP_DRAGON, SP_COUNT };
-    struct species_t { const char *role; float height; mesh_t mesh; instlist_t il; int ready, requested; };
+    struct species_t { const char *role; float height; mesh_t mesh; instlist_t il; int ready, requested; mesh_t mesh_far; instlist_t il_far; int ready_far; };   // 0.22.15 (todo 117): LOD 5 (~200 tris) out to PROP_LOD2
     species_t sp[SP_COUNT] = {
         { "tree_english_oak", 0.13f }, { "tree_european_beech", 0.14f }, { "tree_silver_birch", 0.12f }, { "tree_sugar_maple", 0.13f },
         { "tree_scots_pine", 0.16f }, { "tree_norway_spruce", 0.17f }, { "tree_douglas_fir", 0.19f }, { "tree_eastern_white_pine", 0.17f },
@@ -282,6 +283,7 @@ int Scatter::species_resident() {
         const asset_lod_t *L = &a->lod[li];
         if (!L->verts || !L->idx || L->nverts <= 0) continue;
         s->mesh = mesh_upload_indexed(L->verts, L->nverts, L->idx, L->nidx);
+        if (a->nlods > 5 && a->lod[5].verts && a->lod[5].idx) { s->mesh_far = mesh_upload_indexed(a->lod[5].verts, a->lod[5].nverts, a->lod[5].idx, a->lod[5].nidx); s->ready_far = 1; }
         s->ready = 1; newly++;
         LOG_DEBUG("gfx", "scatter: authored tree '%s' LOD %d (%d tris) ready", s->role, li, L->nidx / 3);
     }
@@ -316,7 +318,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
     if (!built) build_meshes();
     species_resident();
     last.lu = lu; last.forest = forest; last.delta = delta; last.res = res; last.x0 = x0; last.z0 = z0; last.step = step; last.sets = sets; last.nsets = nsets; last.valid = 1; relay_pending = 0;
-    for (int i = 0; i < SP_COUNT; ++i) instlist_clear(&sp[i].il);
+    for (int i = 0; i < SP_COUNT; ++i) { instlist_clear(&sp[i].il); instlist_clear(&sp[i].il_far); }
     instlist_clear(&li_tree); instlist_clear(&li_olive); instlist_clear(&li_vine); instlist_clear(&li_sheep); instlist_clear(&li_cow);
     instlist_clear(&li_pine); instlist_clear(&li_oak); instlist_clear(&li_house);
     instlist_clear(&li_card_b); instlist_clear(&li_card_p); instlist_clear(&li_fence);
@@ -381,7 +383,9 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                     inst_t ti = inst(wx + ox, h - 0.015f, wz + oz, hash2(i + 25.f, j + 25.f) * 6.2832f, sz);
                     int faraway = dist2d(wx, wz, ringcx, ringcz) > PROP_LOD1;   // the card LOD beyond PROP_LOD1 (`far` is a reserved word on MSVC)
                     int spk = species_pick(lat, lon, conifer, medb, hash2(i + 41.f, j + 43.f));
+                    float dring = dist2d(wx, wz, ringcx, ringcz);
                     if (!faraway && sp[spk].ready) { ti.scale = sp[spk].height * (0.75f + 0.5f * hash2(i + 24.f, j + 24.f)); *instlist_push(&sp[spk].il) = ti; }   // 0.22.14: the authored tree
+                    else if (faraway && dring < PROP_LOD2 && sp[spk].ready_far) { ti.scale = sp[spk].height * (0.75f + 0.5f * hash2(i + 24.f, j + 24.f)); *instlist_push(&sp[spk].il_far) = ti; }   // 0.22.15: its far LOD
                     else *instlist_push(faraway ? (conifer ? &li_card_p : &li_card_b) : (conifer ? &li_pine : &li_oak)) = ti;
                     total++;
                     // 0.22.11 (issue8 / "real forests"): a wood is a *canopy*, not a tree per
@@ -398,6 +402,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                         inst_t t2 = inst(wx + ox2, h2 - 0.015f, wz + oz2, hash2(i + 29.f + e, j + 29.f) * 6.2832f, sz2);
                         int sp2 = species_pick(lat, lon, con2, medb, hash2(i + 47.f + e, j + 53.f));
                         if (!faraway && sp[sp2].ready) { t2.scale = sp[sp2].height * (0.7f + 0.5f * hash2(i + 30.f + e, j + 30.f)); *instlist_push(&sp[sp2].il) = t2; }
+                        else if (faraway && dring < PROP_LOD2 && sp[sp2].ready_far) { t2.scale = sp[sp2].height * (0.7f + 0.5f * hash2(i + 30.f + e, j + 30.f)); *instlist_push(&sp[sp2].il_far) = t2; }
                         else *instlist_push(faraway ? (con2 ? &li_card_p : &li_card_b) : (con2 ? &li_pine : &li_oak)) = t2;
                         total++;
                     }
@@ -537,7 +542,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
         if (kind == 1)      { *instlist_push(&li_mine) = inst(px, h, pz, a, MINE_H); total++; }
         else if (kind == 0) { *instlist_push(&li_mill) = inst(px, h, pz, a, MILL_H); total++; }
     }
-    for (int i = 0; i < SP_COUNT; ++i) if (sp[i].ready) mesh_set_instances(&sp[i].mesh, sp[i].il.v, sp[i].il.n);
+    for (int i = 0; i < SP_COUNT; ++i) if (sp[i].ready) { mesh_set_instances(&sp[i].mesh, sp[i].il.v, sp[i].il.n); if (sp[i].ready_far) mesh_set_instances(&sp[i].mesh_far, sp[i].il_far.v, sp[i].il_far.n); }
     mesh_set_instances(&tree, li_tree.v, li_tree.n);
     mesh_set_instances(&olive, li_olive.v, li_olive.n);
     mesh_set_instances(&vine, li_vine.v, li_vine.n);
@@ -574,7 +579,7 @@ int Scatter::submit() {
     if (cam.dist < HOUSE_FAR * 0.7f) {
         if (li_oak.n)    { mesh_draw(&oak);  n += li_oak.n; }
         if (li_pine.n)   { mesh_draw(&pine); n += li_pine.n; }
-        for (int i = 0; i < SP_COUNT; ++i) if (sp[i].ready && sp[i].il.n) { mesh_draw(&sp[i].mesh); n += sp[i].il.n; }   // the authored trees (0.22.14)
+        for (int i = 0; i < SP_COUNT; ++i) { if (sp[i].ready && sp[i].il.n) { mesh_draw(&sp[i].mesh); n += sp[i].il.n; } if (sp[i].ready_far && sp[i].il_far.n) { mesh_draw(&sp[i].mesh_far); n += sp[i].il_far.n; } }   // the authored trees (0.22.14), far LOD (0.22.15)
         if (li_card_b.n) { mesh_draw(&card_broad); n += li_card_b.n; }
         if (li_card_p.n) { mesh_draw(&card_pine);  n += li_card_p.n; }
         if (li_rock.n)   { mesh_draw(&rock); n += li_rock.n; }

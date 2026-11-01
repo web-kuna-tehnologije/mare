@@ -22,6 +22,9 @@ void main(){
 // stage uses, evaluated at this vertex, is continuous across the lattice.
   float dcam = max(distance(vec3(p.x, 0.0, p.y), u_campos), 1.0);
   float cell = u_patch / clamp(u_tess.x * u_patch / dcam, 1.0, u_tess.y);
+// 0.22.15 (issue12 "in battle mode don't change wave length based on zoom"): the staged scenes use the
+// finest cell everywhere, so the set of wavelengths drawn is the wind's and does not change as the camera moves
+  if (u_local_depth > 0.0) cell = u_patch / u_tess.y;
   if (u_detail.y > 0.5) {
 // inner lattice: towards its rim, pretend to be as coarse as the outer lattice is there
     float ocell = u_detail.z / clamp(u_tess.x * u_detail.z / dcam, 1.0, u_tess.y);

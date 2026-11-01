@@ -42,3 +42,10 @@ vec3 sun_shade_ao(vec3 albedo, vec3 N, vec3 V, vec3 wpos, float rough, float met
        + pbr_ambient(albedo, N, metal, u_ambsky, u_ambgnd) * ao;
 }
 vec3 sun_shade(vec3 albedo, vec3 N, vec3 V, vec3 wpos, float rough, float metal, float viewdist) { return sun_shade_ao(albedo, N, V, wpos, rough, metal, viewdist, 1.0); }
+// 0.22.15 (issue12 "wood, sails and rope: reflectiveness 0"): the matte shade - Lambert under the
+// sun with the shadow, the hemispheric ambient, no specular lobe at all
+vec3 sun_shade_matte(vec3 albedo, vec3 N, vec3 V, vec3 wpos, float viewdist) {
+  float NdotL = max(dot(N, u_sun), 0.0);
+  float sh = shadow_at(wpos, N, NdotL, viewdist) * cloud_shadow(wpos, u_sun) * g_sun_occ;
+  return albedo / PBR_PI * u_suncol * NdotL * sh + pbr_ambient(albedo, N, 0.0, u_ambsky, u_ambgnd);
+}

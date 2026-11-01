@@ -655,12 +655,20 @@ inside the hull; the cannon parts off; round shot drawn; ropes at the foot of th
 the package's rivers read; the 27 authored trees by biome; fleet icons faded near the ground; the
 names audited and the folder listing.
 
-- [ ] **Volumetric smoke with shaders** (issue12, todo 95): a ray-marched density slab per
-      broadside (a few ellipsoid puffs advected by the wind, marched in the fragment stage against
-      the scene depth), lit by the sun with single scattering; the billboards go when it lands.
-- [ ] **Rope physics** (issue12, todo 115): a catenary per standing rope (sag from its length and
-      the heel), a verlet chain per sheet and brace so the running rigging follows the swung sail.
-- [ ] Trees: a LOD 5 ring to 14 units, a fruit-tree set for the orchards, the species table into a
-      data file (todo 117).
+- [x] **Volumetric smoke with shaders** (issue12, todo 95) - 0.22.15: `fx/volsmoke.frag`, blobs in `gfx/particles.cc`.
+- [~] **Rope physics** (issue12, todo 115) - 0.22.15: the catenary with wind and heel lag (`rope.vert`); the verlet chain is open (todo 121b).
+- [~] Trees: the LOD 5 ring to 14 units is in (0.22.15); a fruit-tree set and the species table as a data file are open (todo 117).
 - [ ] Rivers: carving and navigation on the authored data; widths from a real source (todo 118).
 - [ ] The lateen canvas' back face (todo 105).
+
+## issue12, the rest (0.22.15) - rows 119-129 of docs/todo_list.md
+
+Done: volumetric gunsmoke (ray-marched blobs), sagging cordage, sternway and oars with furled
+sails, per-ship wind factor, the sun in delta time, battle wavelength by wind, matte wood/canvas/
+rope, sails never hidden in battle, the trees' far LOD ring.
+
+- [ ] A verlet rope for the running rigging (todo 121b).
+- [ ] The lateen canvas' back face (todo 105); a fruit-tree set (todo 117b); river carving (118).
+- [ ] The volumetric smoke's cost: six samples x two sun taps per blob a pixel's ray crosses, up to
+      128 blobs tested per pixel; the test runs stayed at the frame cap. A half-resolution target with
+      an upsample if a 40-ship broadside shows it.

@@ -251,8 +251,8 @@ void NavalPhysics::integrate(body_t &b) {
     float rx = -s, rz = c;                               // starboard
     float vf = b.vx * c + b.vz * s;                      // through the water, forward
     float vl = b.vx * rx + b.vz * rz;                    // and sideways
-    // thrust towards the commanded speed; a ship cannot be driven astern by her sails, so the
-    // command is never negative here - the caller asks for a speed she can make
+    // thrust towards the commanded speed. 0.22.15: a negative command is sternway - a ship
+    // caught in the eye of the wind with her canvas aback (staged_scene.cc) - and is driven as asked
     float thrust = (b.cmd_v - vf) * NP_THRUST_K;
     // drag: linear plus quadratic, much harder across than along
     float df = -(NP_DRAG_FWD * vf + 0.28f * vf * fabsf(vf));

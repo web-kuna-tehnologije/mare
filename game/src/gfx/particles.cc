@@ -54,11 +54,17 @@ typedef struct blast_t { float x, z, dx, dz, age, life, rmax, inner, strength; }
 // than one wall. The gun's geometry is fixed when it is queued; only the moment is deferred.
 typedef struct gun_t { float gx, gy, gz, sx, sz, fx, fz, gs, deck; float t; int ring; int body; float cx, cz, side; } gun_t;
 #define GUN_MAX 768
+// A blob of the volumetric smoke (0.22.15, issue12 "3D volumetric smoke with shaders"): a sphere
+// of density that grows from r0 to r1 (fast at first), drifts on the wind and thins with age; the
+// fullscreen ray-march in fx/volsmoke.frag draws the set. Replaces the smoke billboards
+// (MARE_SMOKE_BILLBOARDS=1 brings those back).
+typedef struct blob_t { float x, y, z, vx, vy, vz, age, life, r0, r1, dens, seed, shade; int kind; } blob_t;
+#define BLOB_MAX 128
 
 class Particles {
 public:
     void init();
-    void reset() { n_ = 0; nshock_ = 0; nblast_ = 0; ngun_ = 0; sea_set_blasts(0, 0, 0); }
+    void reset() { n_ = 0; nshock_ = 0; nblast_ = 0; ngun_ = 0; nblob_ = 0; sea_set_blasts(0, 0, 0); }
     void set_wind(float vx, float vz) { wind_x_ = vx; wind_z_ = vz; }
     void broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body);
     void splash(float x, float z, float size);
@@ -80,6 +86,10 @@ private:
     shock_t sh_[SHOCK_MAX]; int nshock_ = 0;
     blast_t bl_[BLAST_MAX]; int nblast_ = 0;
     gun_t  gq_[GUN_MAX]; int ngun_ = 0;
+    blob_t vb_[BLOB_MAX]; int nblob_ = 0; int vol_on_ = 1;
+    rhi_pipeline_t vol_prg_{}; rhi_geometry_t vol_tri_{}; int vol_inited_ = 0;
+    blob_t *blob_spawn();
+    void   vol_draw();
     float wind_x_ = 0, wind_z_ = 0;
     unsigned rng_ = 0x9e3779b9u;
     rhi_pipeline_t prg_{}; mesh_t quad_{}; int inited_ = 0;
@@ -105,6 +115,19 @@ void Particles::init() {
       snprintf(path, sizeof path, "%s/fx/smoke_atlas.png", asset_root()); tex_smoke_ = texture_request(path, RHI_FMT_SRGB8_A8, RHI_FILTER_MIPMAP, RHI_WRAP_CLAMP);
       snprintf(path, sizeof path, "%s/fx/fire_atlas.png",  asset_root()); tex_fire_  = texture_request(path, RHI_FMT_SRGB8_A8, RHI_FILTER_MIPMAP, RHI_WRAP_CLAMP);
       snprintf(path, sizeof path, "%s/fx/foam_atlas.png",  asset_root()); tex_foam_  = texture_request(path, RHI_FMT_SRGB8_A8, RHI_FILTER_MIPMAP, RHI_WRAP_CLAMP); }
+    {   // the volumetric pass (0.22.15): a fullscreen triangle, the blobs as uniforms
+        { const char *e = getenv("MARE_SMOKE_BILLBOARDS"); if (e && atoi(e)) vol_on_ = 0; }
+        static const rhi_attr_t vattrs[] = { { "a_pos", 0, 2, 0, 0 } };
+        static const rhi_layout_t vlayout = { vattrs, 1, { 2 * sizeof(float), 0 } };
+        static const char *vuniforms[] = { "u_inv_vp", "u_campos", "u_scene_depth", "u_soft_on", "u_blob", "u_blobp", "u_nblob", "u_time", "u_sky", "u_mapness", "u_wind", "u_debug", GLSL_LIGHT_UNIFORMS, 0 };
+        const rhi_pipeline_desc_t vdesc{ .vs = shader_source("common/fullscreen.vert"), .fs = shader_source("fx/volsmoke.frag"), .layout = &vlayout,
+                                         .uniforms = vuniforms, .depth_test = 0, .depth_write = 0, .blend = RHI_BLEND_ALPHA };
+        vol_prg_ = rhi_pipeline_make(&vdesc);
+        float tri[] = { -1,-1, 3,-1, -1,3 };
+        vol_tri_ = rhi_geometry_make(&vlayout, tri, 3, 0, 0);
+        vol_inited_ = 1;
+        LOG_INFO("gfx", "volumetric gunsmoke: %s (fx/volsmoke.frag, up to %d blobs)", vol_on_ ? "on" : "off - billboards (MARE_SMOKE_BILLBOARDS)", BLOB_MAX);
+    }
     // the billboard: a unit quad in the xy plane; the vertex stage reads a_pos.xy as the offset
     mb_t m = {0};
     mb_material(&m, 1.f, 0.f);
@@ -122,6 +145,15 @@ ptc_t *Particles::spawn() {
         return &p_[worst];
     }
     return &p_[n_++];
+}
+
+blob_t *Particles::blob_spawn() {
+    if (nblob_ >= BLOB_MAX) {   // recycle the most spent
+        int worst = 0; float wa = -1.f;
+        for (int i = 0; i < nblob_; ++i) { float a = vb_[i].age / maxf(vb_[i].life, 0.01f); if (a > wa) { wa = a; worst = i; } }
+        return &vb_[worst];
+    }
+    return &vb_[nblob_++];
 }
 
 void Particles::shock(float x, float y, float z, float r1, float strength) {
@@ -214,11 +246,33 @@ void Particles::fire_gun(const gun_t &g) {
           p->x = gx + sx * (1.6f + 0.9f * k); p->y = gy - 0.25f * k; p->z = gz + sz * (1.6f + 0.9f * k);
           p->vx = sx * (14.f - 4.f * k); p->vz = sz * (14.f - 4.f * k); p->vy = -0.4f * k;
           p->life = 0.12f + rnd_f(&rng_) * 0.08f; p->size0 = 0.55f * gs; p->size1 = (1.6f + 0.4f * k) * gs; p->alpha = 0.9f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; }
+        // 0.22.15: the volumetric smoke - a white core that races out and swells, a grey plume
+        // behind it and a thin haze that outlives both (issue12 "faster smoke expansion from
+        // cannon fire and longer stay in the air": the growth is cubic-eased, the lives 12-30 s)
+        if (vol_on_) {
+            for (int k = 0; k < 3; ++k) { blob_t *b = blob_spawn(); *b = blob_t{};
+                float spd = (9.f - 2.5f * k) * (0.85f + 0.3f * rnd_f(&rng_)), off = (rnd_f(&rng_) - 0.5f) * 1.2f * gs;
+                b->x = gx + sx * (0.8f + 1.1f * k) + fx * off; b->y = gy + 0.25f + 0.35f * k; b->z = gz + sz * (0.8f + 1.1f * k) + fz * off;
+                b->vx = sx * spd + fx * (rnd_f(&rng_) - 0.5f) * 1.5f; b->vz = sz * spd + fz * (rnd_f(&rng_) - 0.5f) * 1.5f; b->vy = 0.7f + 0.6f * rnd_f(&rng_);
+                b->life = 12.f + 4.f * rnd_f(&rng_); b->r0 = 0.8f * gs; b->r1 = (6.5f + 1.5f * k + 1.5f * rnd_f(&rng_)) * gs;   // 0.22.15: half as big again - the first cut read as beads beside a 19-unit hull
+                b->dens = 2.0f; b->shade = 0.86f - 0.05f * k + 0.06f * rnd_f(&rng_); b->seed = rnd_f(&rng_); b->kind = 0; }
+            { blob_t *b = blob_spawn(); *b = blob_t{};
+                float spd = 5.f * (0.85f + 0.3f * rnd_f(&rng_));
+                b->x = gx + sx * 0.6f; b->y = gy + 0.3f; b->z = gz + sz * 0.6f;
+                b->vx = sx * spd; b->vz = sz * spd; b->vy = 0.5f + 0.5f * rnd_f(&rng_);
+                b->life = 18.f + 6.f * rnd_f(&rng_); b->r0 = 0.7f * gs; b->r1 = (9.5f + 2.f * rnd_f(&rng_)) * gs;
+                b->dens = 1.3f; b->shade = 0.58f + 0.08f * rnd_f(&rng_); b->seed = rnd_f(&rng_); b->kind = 1; }
+            if (rnd_f(&rng_) < 0.5f) { blob_t *b = blob_spawn(); *b = blob_t{};
+                b->x = gx + sx * 1.5f; b->y = gy + 0.8f; b->z = gz + sz * 1.5f;
+                b->vx = sx * 2.0f; b->vz = sz * 2.0f; b->vy = 0.35f;
+                b->life = 24.f + 6.f * rnd_f(&rng_); b->r0 = 2.0f * gs; b->r1 = (11.f + 3.f * rnd_f(&rng_)) * gs;
+                b->dens = 0.40f; b->shade = 0.52f; b->seed = rnd_f(&rng_); b->kind = 2; }
+        }
         // layer 1 - the core: four dense cumulus balls, fast, slow to thin, big enough to
         // swallow the gun deck the way the reference frame's do. 0.22.9 (issue6): powder
         // smoke is grey, not white - the shade comes down and the count goes up, and each
         // ball is thrown off the gun's own line so the cloud is never a tidy row of spheres.
-        for (int k = 0; k < 6; ++k) {   // 0.22.14 (issue11 "more dense smoke, grey and white"): six, whiter, longer
+        for (int k = 0; k < (vol_on_ ? 0 : 6); ++k) {   // 0.22.14 (issue11 "more dense smoke, grey and white"): six, whiter, longer; 0.22.15: the billboards only without the volume
             ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_CORE;
             float spd = (k == 0 ? 14.f : 10.f - 2.f * k) * (0.85f + 0.3f * rnd_f(&rng_));
             float jx = (rnd_f(&rng_) - 0.5f), jz = (rnd_f(&rng_) - 0.5f);
@@ -231,7 +285,7 @@ void Particles::fire_gun(const gun_t &g) {
             p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.9f;
         }
         // layer 2 - the plume: four darker grey puffs trailing the core
-        for (int k = 0; k < 6; ++k) {   // 0.22.14: six grey plumes
+        for (int k = 0; k < (vol_on_ ? 0 : 6); ++k) {   // 0.22.14: six grey plumes
             ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_SMOKE;
             float spd = (8.f - 2.f * k) * (0.85f + 0.3f * rnd_f(&rng_));
             float jx = (rnd_f(&rng_) - 0.5f), jz = (rnd_f(&rng_) - 0.5f);
@@ -243,7 +297,7 @@ void Particles::fire_gun(const gun_t &g) {
             p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.6f;
         }
         // layer 3 - the haze: one big thin veil that hangs about and drifts off on the wind
-        { ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_HAZE;
+        if (!vol_on_) { ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_HAZE;
           p->x = gx + sx * 1.5f; p->y = gy + 0.6f; p->z = gz + sz * 1.5f;
           p->vx = sx * 2.5f; p->vz = sz * 2.5f; p->vy = 0.25f;
           p->life = 16.f + rnd_f(&rng_) * 8.f;
@@ -376,10 +430,48 @@ void Particles::update(float dt) {
         if ((p->kind == PK_EMBER || p->kind == PK_SPRAY || p->kind == PK_SPLINTER) && p->y < 0.02f) { *p = p_[--n_]; continue; }   // quenched / back in the sea
         ++i;
     }
+    static int freeze = -1; if (freeze < 0) { const char *e = getenv("MARE_VOLSMOKE_DEBUG"); freeze = e && atoi(e) == 5 ? 1 : 0; }   // =5: the blobs never age (a screenshot always holds smoke)
+    for (int i = 0; i < nblob_; ) {   // the volume: drag towards half the wind, a little buoyancy, gone at its life
+        blob_t *b = &vb_[i]; if (!freeze || b->age < 0.35f * b->life) b->age += dt;
+        if (b->age >= b->life) { *b = vb_[--nblob_]; continue; }
+        float t = b->age / b->life, d = expf(-dt * 0.55f);
+        b->vx = wind_x_ * 0.5f + (b->vx - wind_x_ * 0.5f) * d; b->vz = wind_z_ * 0.5f + (b->vz - wind_z_ * 0.5f) * d;
+        b->vy = b->vy * expf(-dt * 0.8f) + (0.45f * (1.f - t) * (1.f - t) + 0.04f) * dt;
+        b->x += b->vx * dt; b->y += b->vy * dt; b->z += b->vz * dt;
+        ++i;
+    }
     for (int i = 0; i < nshock_; ) { sh_[i].age += dt; if (sh_[i].age >= sh_[i].life) sh_[i] = sh_[--nshock_]; else ++i; }
     for (int i = 0; i < nblast_; ) { bl_[i].age += dt; if (bl_[i].age >= bl_[i].life) bl_[i] = bl_[--nblast_]; else ++i; }
     for (int i = 0; i < ngun_; ) { gq_[i].t -= dt; if (gq_[i].t <= 0.f) { gun_t g = gq_[i]; gq_[i] = gq_[--ngun_]; fire_gun(g); } else ++i; }
     push_blasts();
+}
+
+void Particles::vol_draw() {
+    if (!vol_inited_) return;
+    float b4[BLOB_MAX * 4], p4[BLOB_MAX * 4];
+    for (int i = 0; i < nblob_; ++i) { const blob_t *b = &vb_[i];
+        float t = clampf(b->age / maxf(b->life, 0.01f), 0.f, 1.f), g = 1.f - (1.f - t) * (1.f - t) * (1.f - t);   // fast early growth
+        float R = lerpf(b->r0, b->r1, g);
+        float dens = b->dens * (1.f - t * t) * (b->kind == 0 ? 1.f : 1.f) / maxf(R / b->r1, 0.15f);   // the same smoke in a bigger ball is thinner
+        b4[i*4] = b->x; b4[i*4+1] = b->y; b4[i*4+2] = b->z; b4[i*4+3] = R;
+        p4[i*4] = dens; p4[i*4+1] = t; p4[i*4+2] = b->seed; p4[i*4+3] = lerpf(b->shade, 0.55f, t * 0.7f); }
+    rhi_pipeline_bind(&vol_prg_);
+    rhi_set_mat4(UNI(vol_prg_, "u_inv_vp"), &cam.inv_vp.x.x);
+    rhi_set_f3(UNI(vol_prg_, "u_campos"), RF.campos.x, RF.campos.y, RF.campos.z);
+    rhi_set_f3(UNI(vol_prg_, "u_sky"), RF.sky.x, RF.sky.y, RF.sky.z);
+    rhi_set_f1(UNI(vol_prg_, "u_mapness"), RF.mapness);
+    rhi_set_f1(UNI(vol_prg_, "u_time"), RF.anim_time);
+    rhi_set_f3(UNI(vol_prg_, "u_wind"), wind_x_, 0.f, wind_z_);
+    rhi_set_f4v(UNI(vol_prg_, "u_blob"), b4, nblob_);
+    rhi_set_f4v(UNI(vol_prg_, "u_blobp"), p4, nblob_);
+    rhi_set_i1(UNI(vol_prg_, "u_nblob"), nblob_);
+    { static int dbg = -1; if (dbg < 0) { const char *e = getenv("MARE_VOLSMOKE_DEBUG"); dbg = e ? atoi(e) : 0; } rhi_set_f1(UNI(vol_prg_, "u_debug"), (float)dbg); }
+    { static double last_log; if (RF.time - last_log > 2.0) { last_log = RF.time; LOG_DEBUG("gfx", "volsmoke: %d blobs, first at %.1f %.1f %.1f r %.2f dens %.2f, cam %.1f %.1f %.1f", nblob_, b4[0], b4[1], b4[2], b4[3], p4[0], RF.campos.x, RF.campos.y, RF.campos.z); } }
+    { const rhi_texture_t *dp = hdr_depth_captured();
+      if (dp) { rhi_set_i1(UNI(vol_prg_, "u_scene_depth"), 7); rhi_texture_bind(7, dp); rhi_set_f1(UNI(vol_prg_, "u_soft_on"), 1.f); }
+      else rhi_set_f1(UNI(vol_prg_, "u_soft_on"), 0.f); }
+    light_bind(&vol_prg_);
+    rhi_draw(&vol_tri_, 0);
 }
 
 int Particles::draw() {
@@ -396,7 +488,8 @@ int Particles::draw() {
           if (rpx < 2.f || str < 0.01f) continue;
           v[n*4] = sx / maxf((float)screen_w, 1.f); v[n*4+1] = 1.f - sy / maxf((float)screen_h, 1.f); v[n*4+2] = rpx; v[n*4+3] = str; n++; }
       hdr_set_shocks(v, n); }
-    if (n_ == 0) return 0;
+    if (vol_on_ && nblob_) vol_draw();   // the volumetric smoke (0.22.15)
+    if (n_ == 0) return nblob_;
     // back to front: alpha-blended discs without depth writes
     for (int i = 0; i < n_; ++i) { order_[i] = i; float dx = p_[i].x - RF.campos.x, dy = p_[i].y - RF.campos.y, dz = p_[i].z - RF.campos.z; dist_[i] = dx*dx + dy*dy + dz*dz; }
     // insertion sort on nearly-sorted data (the order barely changes between frames); the pool is small

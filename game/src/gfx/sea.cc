@@ -261,7 +261,7 @@ void Sea::sea_set_build(sea_set_t *set, float wdx, float wdz, float str) {
     float s = clampf(str, 0.f, 1.6f);
     float spread = lerpf(SEA_SPREAD_MAX, SEA_SPREAD_MIN, clampf((s - 0.3f) / 0.9f, 0.f, 1.f));
     float base = atan2f(wdz, wdx);
-    float len0 = SEA_LEN0 * (0.70f + 0.45f * s);
+    float len0 = SEA_LEN0 * (sea_local_depth > 0.f ? 0.50f + 0.80f * s : 0.70f + 0.45f * s);   // 0.22.15 (issue12): in the staged scenes the wavelength follows the wind strength harder
     for (int i = 0; i < SEA_WAVES; ++i) {
         float t = (float)i / (SEA_WAVES - 1) * 2.f - 1.f;                  // -1 .. +1 across the fan
         float ang = base + (t * 0.8f + sea_wave_jit[i][0] * 0.7f) * spread;
@@ -289,6 +289,11 @@ void Sea::update_waves(float day, float dt) {
     float wdx, wdz, str;
     wind_at(RF.sea_center.x, RF.sea_center.z, day, &wdx, &wdz, &str);
     sea_wind_now_str = str;
+    // 0.22.15: the staged scenes build their wave set from the wind alone (sea_set_build); when a
+    // scene opens or closes the current set was built for the other rule, so it is rebuilt
+    { static int last_local = -1; int loc = sea_local_depth > 0.f ? 1 : 0;
+      if (last_local >= 0 && loc != last_local) { sea_set[0].valid = 0; sea_set[1].valid = 0; sea_blend = 0; }
+      last_local = loc; }
     if (!sea_set[0].valid) { sea_set_build(&sea_set[0], wdx, wdz, str); sea_blend = 0; sea_set_changes++; }
     // Has the wind at the look-at point left the band the current set was built for? Only ask
     // while no change is in progress: a pan across several wind cells produces a few discrete

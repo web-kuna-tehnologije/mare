@@ -465,7 +465,16 @@ void Shipyard::rig_spar(mb_t *m, const float a[3], const float b[3], float w, co
 // standing rigging: a line pair for the geometry stage, or the old cross quads without one.
 // `w` is the physical half-width in hull fractions (the fallback uses its own, visible width).
 void Shipyard::rig_rope(mb_t *m, const float a[3], const float b[3], float w) {
-    if (meshes_rope_available()) mb_line(m, a, b, w, g_rope_col[0], g_rope_col[1], g_rope_col[2]);
+    // 0.22.15 (issue12 "rope behaviour flexible and physics based"): eight segments with a slack
+    // that grows with the rope's length and how level it lies - a stay hauled taut sags a little,
+    // a long near-horizontal sheet a lot; rope.vert hangs the catenary and swings it with the
+    // wind and against the heel
+    if (meshes_rope_available()) {
+        float dx = b[0]-a[0], dy = b[1]-a[1], dz = b[2]-a[2], L = sqrtf(dx*dx + dy*dy + dz*dz);
+        float level = L > 1e-5f ? 1.f - fabsf(dy) / L : 0.f;              // 1 = horizontal
+        float slack = L * (0.012f + 0.085f * level * level);
+        mb_line_rope(m, a, b, w, slack, 1.f, 8, g_rope_col[0], g_rope_col[1], g_rope_col[2]);
+    }
     else rig_bar(m, a, b, RIG_ROPE_W_FALLBACK * (w / RIG_ROPE_W), g_rope_col);
 }
 
@@ -1010,7 +1019,8 @@ int Shipyard::push(const shipyard_req_t *r) {
     // Rigging and canvas: one instance each of the class's procedural rope and cloth meshes,
     // built the first time both the hull and the rig are resident (their sizes set the mast
     // stations). Skipped once the ship is small enough that cordage is below a pixel.
-    if (lod_px(len * 0.5f, r->camdist) > RIG_MIN_PX) {
+    // 0.22.15 (issue12 "don't hide sails with distance in battle view"): the staged scenes (scale > 1) keep every rig and sail at any distance
+    if (r->scale > 1.5f || lod_px(len * 0.5f, r->camdist) > RIG_MIN_PX) {
         rig_cache_t *rc = &rig_cache[(int)(c - g_classes)];
         // 0.22.13 (issue10 "rigging to the top of the mast, not above"): the rope tops used the
         // *main* mast's model height for every station, measured from the deck, while the masts
@@ -1045,7 +1055,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             inst_t ri = in;
             ri.y = 0.f;                       // the rig mesh is modelled from the waterline
             ri.scale = len;                   // and in fractions of hull length
-            ri.fx1 = cloth_q; ri.fx2 = 0.f; ri.fx3 = 0.f;   // 0.22.8: the rope pipeline reads the quality for its texture (meshes/rope.geom)
+            ri.fx1 = cloth_q; ri.fx2 = wdx * wstr; ri.fx3 = wdz * wstr;   // 0.22.8: the rope pipeline reads the quality for its texture (meshes/rope.geom); 0.22.15: and the wind, for the sag's swing
             *instlist_push(qual ? &rig_inst[(int)(c - g_classes)] : &rig_worn_inst[(int)(c - g_classes)]) = ri;
             inst_t ci = ri; ci.fx1 = cloth_q;   // cloth: the wind model in meshes.c, and the suit of sails
             ci.fx2 = wdx * wstr; ci.fx3 = wdz * wstr;
@@ -1133,7 +1143,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2 + stn_lift(k); li.scale = mh;
                     li.fx1 = cloth_q; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
                     li.ax = r->x; li.az = r->z;
-                    *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;
+                    if (r->furl < 0.5f) *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;   // 0.22.15: furled = no canvas
                     if (authored) {
                         // the asset's rise is its y extent; scale it to the design line, put its
                         // middle on the line's middle (the model's pivot is its slung point)
@@ -1189,7 +1199,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     qi.y = top_w; qi.scale = hw_w;
                     qi.fx1 = cloth_q; qi.fx2 = wdx * wstr; qi.fx3 = wdz * wstr;
                     qi.ax = r->x; qi.az = r->z;
-                    *instlist_push(&sq_cloth_inst[(int)ly->l[l].kind][authored ? 0 : 1]) = qi;
+                    if (r->furl < 0.5f) *instlist_push(&sq_cloth_inst[(int)ly->l[l].kind][authored ? 0 : 1]) = qi;
                     if (authored) {
                         // the yard lies across the ship (descriptor forward +z): its z extent is
                         // the spar; scale that to the sail's head and centre it on the mast line

@@ -598,7 +598,7 @@ int main(int argc, char **argv) {
         // ---- 3d
         RF.vp = cam.vp; RF.campos = cam.pos; RF.mapness = cam.mapness; RF.flatten = cam.mapness;
         RF.sea_center = vec3(cam.tx, 0, cam.tz);          // the sea's wave grid follows the look-at point
-        render_sun_update(G.day);                         // sun direction, daylight and sky colour (day/night cycle)
+        render_sun_update(G.day + sim_acc);               // sun direction, daylight and sky colour (day/night cycle); 0.22.15 (issue12): the days not yet ticked are added, so the sun moves every frame and not once a tick
         { static int freeze = -1; if (freeze < 0) { const char *e = getenv("MARE_SEA_FREEZE"); freeze = e ? atoi(e) != 0 : 0; if (freeze) LOG_INFO("gpu", "sea clocks frozen (MARE_SEA_FREEZE)"); }
           sea_update_waves(G.day, freeze ? 0.f : dt * detailview_clock_scale()); }   // the wave set follows the wind at the look-at point; the battle clock scales it (0.22.7)
         entities_update(ENT_PHASE_FRAME, dt);             // weather (src/game/weather.cc): calm / haze / mist / storm from the wind, the storms and the hour

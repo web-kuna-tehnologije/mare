@@ -92,6 +92,19 @@ void line(mb_t *m, const float a[3], const float b[3], float halfw, float r, flo
     push(m, a, n, r, g, b_, 0.f); push(m, b, n, r, g, b_, 0.f);
     m->rough = keep_r;
 }
+// 0.22.15: a rope as a chain of segments whose vertices carry (t along the rope, slack, kind) in
+// the normal slot, so the vertex stage can hang a catenary and swing it (meshes/rope.vert)
+void line_rope(mb_t *m, const float a[3], const float b[3], float halfw, float slack, float kind, int segs, float r, float g, float b_) {
+    float keep_r = m->rough; m->rough = halfw > 0.f ? halfw : 0.001f;
+    for (int i = 0; i < segs; ++i) {
+        float t0 = (float)i / segs, t1 = (float)(i + 1) / segs;
+        float p0[3] = { a[0] + (b[0]-a[0]) * t0, a[1] + (b[1]-a[1]) * t0, a[2] + (b[2]-a[2]) * t0 };
+        float p1[3] = { a[0] + (b[0]-a[0]) * t1, a[1] + (b[1]-a[1]) * t1, a[2] + (b[2]-a[2]) * t1 };
+        float n0[3] = { t0, slack, kind }, n1[3] = { t1, slack, kind };
+        push(m, p0, n0, r, g, b_, 0.f); push(m, p1, n1, r, g, b_, 0.f);
+    }
+    m->rough = keep_r;
+}
 
 void box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat) {
     float p[8][3]; for (int i = 0; i < 8; ++i) { p[i][0] = cx + (i&1 ? hx : -hx); p[i][1] = cy + (i&2 ? hy : -hy); p[i][2] = cz + (i&4 ? hz : -hz); }
@@ -138,6 +151,7 @@ void mb_quad_grad(mb_t *m, const float a[3], const float b[3], const float c[3],
 void mb_quad_cloth(mb_t *m, const float a[3], const float b[3], const float c[3], const float d[3], const float n[3], float code_a, float code_b, float code_c, float code_d, float halfw, float r, float g, float b_, float mat) { mesh_kit().quad_cloth(m, a, b, c, d, n, code_a, code_b, code_c, code_d, halfw, r, g, b_, mat); }
 void mb_box(mb_t *m, float cx, float cy, float cz, float hx, float hy, float hz, float r, float g, float b, float mat) { mesh_kit().box(m, cx, cy, cz, hx, hy, hz, r, g, b, mat); }
 void mb_line(mb_t *m, const float a[3], const float b[3], float halfw, float r, float g, float b_) { mesh_kit().line(m, a, b, halfw, r, g, b_); }
+void mb_line_rope(mb_t *m, const float a[3], const float b[3], float halfw, float slack, float kind, int segs, float r, float g, float b_) { mesh_kit().line_rope(m, a, b, halfw, slack, kind, segs, r, g, b_); }
 mesh_t mesh_upload(mb_t *m) { return mesh_kit().upload(m); }
 mesh_t mesh_upload_indexed(const float *verts, int nverts, const unsigned *idx, int nidx) { return mesh_kit().upload_indexed(verts, nverts, idx, nidx); }
 void mesh_set_instances(mesh_t *m, const inst_t *inst, int n) { mesh_kit().set_instances(m, inst, n); }

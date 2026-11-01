@@ -120,7 +120,9 @@ void main(){
 // fuzz: the loose fibres catch light at a grazing view
     trans += albedo * (u_ambsky * 0.5 + u_suncol * 0.12) * pow(1.0 - max(dot(n, vdir), 0.0), 3.0) * 0.10;
   }
-  vec3 c = sun_shade(albedo, n, vdir, v_wpos, rough, v_rm.y, dist) + trans;
+// 0.22.15 (issue12): wood, canvas and cordage are matte - no specular - the painted trim, metal and stone keep theirs
+  float matte = max(max(wood, canvas), rope);
+  vec3 c = mix(sun_shade(albedo, n, vdir, v_wpos, rough, v_rm.y, dist), sun_shade_matte(albedo, n, vdir, v_wpos, dist), matte) + trans;
   c = mix(c, srgb_to_linear(vec3(1.0,0.95,0.6)) * 1.6, v_sel * 0.35);
 // selection tint
   c = fog_apply(c, dist, u_mapness, srgb_to_linear(u_sky));

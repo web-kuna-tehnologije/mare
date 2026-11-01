@@ -15,6 +15,18 @@ void main(){
   gv_dither = i_fx.x;
   float h = i_pos.w; float c = cos(h), s = sin(h);
   vec3 p = a_pos * i_scol.x; if (i_misc.w > 0.0) p.x *= i_misc.w;
+// 0.22.15 (issue12 "rope behaviour flexible and physics based"): a rope hangs. a_nrm carries
+// (t along the rope, slack, kind) from gpu.cc line_rope; the sag is a parabola 4t(1-t) of the
+// slack, pulled down by gravity and blown to leeward by the wind in the ship's frame, and it
+// lags the heel: as the hull rolls to starboard the bight swings a little the other way, as a
+// hanging rope does. Static instances (kind 0) are straight.
+  if (a_nrm.z > 0.5) {
+    float t = a_nrm.x, bight = 4.0 * t * (1.0 - t) * a_nrm.y * i_scol.x;
+    float wxs = i_fx.z * c - i_fx.w * s, wzs = i_fx.z * s + i_fx.w * c;   // the wind in the ship's frame (along, across)
+    float ph = u_time * 1.9 + a_pos.x * 7.0 + a_pos.z * 5.0;
+    p.y -= bight * (0.85 + 0.08 * sin(ph));
+    p.x += bight * 0.35 * wxs; p.z += bight * (0.35 * wzs - 0.9 * i_anchor.z + 0.06 * sin(ph * 1.3));
+  }
 // the rope's physical half-width rides in the roughness channel (model units: fractions of
 // the hull length), scaled to world units by the instance
   gv_hw = a_rm.x * i_scol.x;

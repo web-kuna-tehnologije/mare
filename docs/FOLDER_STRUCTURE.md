@@ -1,8 +1,8 @@
 # Folder structure
 
-Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in bold with their file count and size; folders with many same-shaped files are summarised as patterns (`#` = digits). `build/`, `tmp/`, logs and `.git` are left out.
+Generated 2026-11-01 23:19 by `tools/tree_listing.py` (0.22.14). Directories in bold with their file count and size; folders with many same-shaped files are summarised as patterns (`#` = digits). `build/`, `tmp/`, logs and `.git` are left out.
 
-## The repository (`/home/nevenjovi/.cache/claude-hfi/-mnt-c-projects-mare/oak`)
+## The repository (`/home/nevenjovi/.cache/claude-hfi/-mnt-c-projects-mare/elm`)
 
 - `.git` (48 B)
 - `.gitattributes` (147 B)
@@ -11,40 +11,31 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
 - `LICENSE` (1.0 KB)
 - `Play.bat` (330 B)
 - `README.md` (3.0 KB)
-- **.github/** - 1 files, 1.0 KB
-  - **workflows/** - 1 files, 1.0 KB
-    - `build.yml` (1.0 KB)
-- **.vscode/** - 1 files, 100 B
-  - `settings.json` (100 B)
-- **docs/** - 148 files, 65.4 MB
+- **.github/** - 0 files, 0 B
+  - **workflows/** - 0 files, 0 B
+- **.vscode/** - 1 files, 121 B
+  - `settings.json` (121 B)
+- **docs/** - 147 files, 68.8 MB
   - `CPP_CONVERSION.md` (3.9 KB)
-  - `FOLDER_STRUCTURE.md` (90.4 KB)
+  - `FOLDER_STRUCTURE.md` (90.9 KB)
   - `LICENSE` (3.8 KB)
   - `MARE_MASTER_PRODUCTION_PLAN.md` (16.4 KB)
   - `README.md` (7.5 KB)
   - `RECOVERY.md` (2.2 KB)
   - `REWRITE_PLAN.md` (8.0 KB)
   - `ROADMAP.md` (13.4 KB)
-  - `ROADMAP_0.23.md` (7.3 KB)
-  - `TODO.md` (50.1 KB)
+  - `ROADMAP_0.23.md` (7.6 KB)
+  - `TODO.md` (50.5 KB)
   - `index` (15 B)
-  - `todo_list.md` (32.5 KB)
+  - `todo_list.md` (34.6 KB)
   - **design/** - 2 files, 17.9 KB
     - `MARE_3D_Art_Asset_Production_Summary.md` (10.5 KB)
     - `MARE_Naval_Cities_Asset_Plan.md` (7.4 KB)
-  - **dev/** - 11 files, 54.5 KB
-    - `dev_oak_20261031_133805.txt` (17.1 KB)
-    - `summary_oak_20261031_133805.md` (2.6 KB)
-    - `summary_oak_20261031_160023.md` (2.8 KB)
-    - `summary_oak_20261031_171857.md` (2.7 KB)
-    - `summary_oak_20261031_180609.md` (4.1 KB)
-    - `summary_oak_20261031_192904.md` (4.8 KB)
-    - `summary_oak_20261031_192904_issue7.md` (4.7 KB)
+  - **dev/** - 3 files, 7.9 KB
     - `summary_oak_20261101_issue10.md` (3.8 KB)
-    - `summary_oak_20261101_issue11.md` (3.2 KB)
-    - `summary_oak_20261101_issue8.md` (5.5 KB)
-    - `summary_oak_20261101_issue9.md` (3.1 KB)
-  - **screenshots/** - 123 files, 65.1 MB
+    - `summary_oak_20261101_issue11.md` (1021 B)
+    - `summary_oak_20261101_issue12.md` (3.1 KB)
+  - **screenshots/** - 130 files, 68.6 MB
     - `asset-church-lod#.png` x4
     - `issue#_oak_alps_h#.png` x2
     - `issue#_oak_dalmatia_h#.png` x2
@@ -66,13 +57,20 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
     - `issue10_oak_po_plain_fields.png`
     - `issue10_oak_rig_to_mastheads.png`
     - `issue11_oak_alps_h6.5.png`
+    - `issue11_oak_authored_trees_inland.png`
+    - `issue11_oak_battle_smoke_waves.png`
     - `issue11_oak_dalmatia_h6.5.png`
     - `issue11_oak_galley_lateens.png`
+    - `issue11_oak_galleys_oars.png`
     - `issue11_oak_hinterland_relief7.png`
     - `issue11_oak_lateen_on_its_spar.png`
     - `issue11_oak_po_plain_authored_rivers.png`
     - `issue11_oak_smoke_dense_white.png`
     - `issue11_oak_smoke_flash_close.png`
+    - `issue12_oak_cordage_sag_sails_far.png`
+    - `issue12_oak_galleys_sails_distance.png`
+    - `issue12_oak_trees_far_lod.png`
+    - `issue12_oak_volsmoke_debug_spheres.png`
     - `issue4_oak_desert_shore.png`
     - `issue4_oak_open_sea.png`
     - `issue4_oak_venice_coast.png`
@@ -941,11 +939,11 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
 - **game/** - 145 files, 1.9 MB
   - `CMakeLists.txt` (3.8 KB)
   - `README.md` (19.4 KB)
-  - `build.bat` (4.2 KB)
+  - `build.bat` (4.3 KB)
   - `build.sh` (2.8 KB)
-  - **docs/** - 16 files, 394.1 KB
+  - **docs/** - 16 files, 398.5 KB
     - `BLENDER_LOD.md` (6.6 KB)
-    - `CHANGELOG.md` (169.5 KB)
+    - `CHANGELOG.md` (173.8 KB)
     - `DESIGN_HINTERLAND.md` (18.5 KB)
     - `DESIGN_JOBS.md` (19.5 KB)
     - `DESIGN_LOD.md` (10.1 KB)
@@ -961,7 +959,7 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
     - `KNOWN_ISSUES.md` (25.3 KB)
     - `ONBOARDING.md` (14.0 KB)
   - **src/** - 118 files, 1.4 MB
-    - `main.cc` (54.5 KB)
+    - `main.cc` (54.6 KB)
     - **core/** - 13 files, 94.9 KB
       - `balance.h` (8.0 KB)
       - `diag.cc` (19.2 KB)
@@ -992,7 +990,7 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
     - **game/** - 2 files, 7.9 KB
       - `game_entities.cc` (1.1 KB)
       - `weather.cc` (6.7 KB)
-    - **gfx/** - 44 files, 698.4 KB
+    - **gfx/** - 44 files, 711.1 KB
       - `camera.cc`
       - `camera.h`
       - `detail.cc`
@@ -1125,7 +1123,7 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
     - `selftest.vert.spv` (1.3 KB)
     - `spv2h.py` (1.7 KB)
 
-## The asset store (`/mnt/c/projects/mare/assets`, not in git) - 5106 files, 13.9 GB
+## The asset store (`/mnt/c/projects/mare/assets`, not in git) - 5108 files, 13.9 GB
 
 - `README.md` (4.5 KB)
 - `RENAMES.md` (14.2 KB)
@@ -2147,7 +2145,7 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
     - `yard_great_top_LOD3.glb` (252.3 KB)
     - `yard_great_top_LOD4.glb` (122.9 KB)
     - `yard_great_top_LOD5.glb` (78.0 KB)
-- **issues/** - 62 files, 72.0 MB
+- **issues/** - 64 files, 72.6 MB
   - **issue1/** - 5 files, 4.0 MB
     - `close-by-camera-shaking.png` (1.6 MB)
     - `issue-3 what is that ugly circle.png` (915.7 KB)
@@ -2169,8 +2167,11 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
     - `remove external riggings.png` (613.3 KB)
     - `sea flickers too much slow it down or something.mp4` (2.1 MB)
     - `wierd texture over.mp4` (2.6 MB)
-  - **issue12/** - 1 files, 291 B
-    - `issue.txt` (291 B)
+  - **issue12/** - 1 files, 969 B
+    - `issue.txt` (969 B)
+  - **issue13/** - 2 files, 677.5 KB
+    - `additions.txt` (450 B)
+    - `oars.png` (677.1 KB)
   - **issue2/** - 9 files, 9.0 MB
     - `issue1.png` (1.1 MB)
     - `issue2-flickering.png` (1.8 MB)
@@ -2219,7 +2220,7 @@ Generated 2026-11-01 21:40 by `tools/tree_listing.py` (0.22.14). Directories in 
     - `wierd terxture issue.mp4` (668.3 KB)
   - **issue9/** - 4 files, 12.2 MB
     - `add foam to crest like in strategic map.png` (542.9 KB)
-    - `issue.txt` (1.8 KB)
+    - `issue.txt` (2.1 KB)
     - `look at the masts rigging and lanteen fron not aligning middle mast is okay.mp4` (10.3 MB)
     - `wake.png` (1.3 MB)
 - **map_chunk_refs/** - 15 files, 3.2 MB

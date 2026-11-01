@@ -1,4 +1,4 @@
-# Todo list - issue folders 4 to 12 (assets/issues/issue4-12; 2026-10-31/11-01, worktree oak, 0.22.7-0.22.14)
+# Todo list - issue folders 4 to 12 (assets/issues/issue4-12; 2026-10-31/11-01, worktree oak, 0.22.7-0.22.15)
 
 Every line of the `issues.txt` files and every screenshot in the folders, as written, with a priority.
 P0 = this round, in order; P1 = next round; P2 = after the physics foundation exists;
@@ -200,7 +200,23 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 117 | P1 | Authored trees: LOD 5 ring out to 14 units (cards start at 7 now); the oak/maple in the orchards are the forest species scaled down - a fruit tree set | [ ] |
 | 118 | P1 | The rivers: carve the great rivers' lower reaches and reopen navigation on the authored data (`MARE_RIVER_CARVE`); the half-width from the upstream length is a guess | [ ] |
 
-## Order of work (updated 0.22.14)
+## issue12, the rest (assets/issues/issue12, 0.22.15) - and the todo rows picked up
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 119 | P0 | issue12 "remove the smoke particles; add 3D volumetric smoke with shaders" (row 95) | [x] density blobs + `fx/volsmoke.frag` fullscreen ray-march with self-shadowing; billboards behind `MARE_SMOKE_BILLBOARDS=1` |
+| 120 | P0 | issue12 "faster smoke expansion from cannon fire and longer stay in the air" | [x] cubic-eased growth, lives 12-30 s (blobs) |
+| 121 | P0 | issue12 "rope behaviour flexible and physics based" (row 115) | [x] eight-segment ropes with a catenary of their slack, blown by the wind, lagging the heel (`rope.vert`). [ ] a verlet chain if the look is wanted closer |
+| 122 | P0 | issue12 "sails only and the wind against her: move backwards; with oars, oar speed and roll the sails down" | [x] sternway in the eye of the wind (negative drive); oared ships furl (`furl`) and pull at oar speed |
+| 123 | P0 | issue12 "wind direction and sail direction for the movement speed" | [x] per-ship `wind_factor` on her own heading in the staged battle |
+| 124 | P0 | issue12 "animate the sun in delta time, not in ticks" | [x] `render_sun_update(G.day + sim_acc)` |
+| 125 | P0 | issue12 "in battle mode the wave length by wind strength, not zoom" | [x] fixed Nyquist cell in the staged scenes; wavelength 0.50 + 0.80 s; set rebuilt on scene change |
+| 126 | P0 | issue12 "wood, sails, rope: reflectiveness 0" | [x] `sun_shade_matte` for wood, canvas, cordage |
+| 127 | P0 | issue12 "don't hide sails with distance in battle view" | [x] the rig's pixel gate bypassed at the staged scale |
+| 128 | P1 | Authored trees' far LOD ring to 14 units (row 117, first half) | [x] LOD 5 from 7 to 14 units. [ ] the fruit-tree set for the orchards |
+| 129 | P1 | issue12 "add waves like wake.png"; "create waves continuously with the ship moving" | [x] done in 0.22.13/14 (rows 86, 100); nothing further this round |
+
+## Order of work (updated 0.22.15)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -214,7 +230,8 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 10. issue9 items 63-76. **Done 0.22.12.** (The body attitude into the shader came with it.)
 11. issue10 items 77-90, 92, 98. **Done 0.22.13.** Open from it: 91 (rivers), 93-97.
 12. issue11/12 items 99-114. **Done 0.22.14** (105 partly). Rows 91 and 94 closed with it; 95 (volumetric smoke) and 115 (rope physics) are the open issue12 items.
-13. Next, in this order (95 and 115 first, then the list below):
+13. issue12's rest, rows 119-129. **Done 0.22.15.** Rows 95, 115 and half of 117 closed with it.
+14. Next, in this order: 105 (the lateen canvas' back face), 117b (a fruit-tree set), 118 (river carving and navigation on the authored data), 121b (a verlet rope), then the list below:
    1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
    2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy knows the waterline), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
    3. **Heave into the shader**: the body's heave is computed but the hull still rides the shader's own wave sample; with the attitude channel in place the heave is one more float.

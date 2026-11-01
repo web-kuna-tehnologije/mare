@@ -1,11 +1,11 @@
-# Road map after 0.22.14 (worktree oak, 2026-11-01)
+# Road map after 0.22.15 (worktree oak, 2026-11-01)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.14
+## Done to 0.22.15
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -46,12 +46,15 @@ own spar, bow waves and spray off every moving stem, whitecaps gated by a random
 longer flickering, dense white-and-grey gunsmoke, oars squared, the standing rigging kept
 aboard, the cannon parts off and round shot drawn, ropes at the foot of the sails, relief 7, the
 package's rivers read in place of the generated network, the 27 authored trees stood by biome,
-fleet icons faded near the ground, the asset names readable and the folder listing.
+fleet icons faded near the ground, the asset names readable and the folder listing. 0.22.15 (issue12's rest): volumetric gunsmoke ray-marched from density blobs, cordage that
+sags and swings, sternway in the eye of the wind and oared ships furling to pull, the point of
+sail on every staged ship, the sun moving in delta time, battle wavelengths from the wind, matte
+wood, canvas and rope, sails kept at every distance in battle, the trees' far LOD ring.
 
 ## Next, in order
 
-0. **Volumetric smoke and rope physics** (issue12): a ray-marched smoke slab in place of the
-   billboards, and sagging, swinging cordage. Both are renderer items with no data dependency.
+0. **Rope verlet and the lateen back face** (todo 121b, 105): the cordage sags now; a chain per
+   sheet and brace that follows the swung sail, and a proper two-sided canvas material.
 0b. **Rivers, the second half.** The package's rivers are read and painted (0.22.14); carving the
    great rivers' lower reaches and reopening river navigation on that data is what remains of
    item 9 below.

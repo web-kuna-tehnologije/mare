@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.22.15 — the twelfth issues folder: volumetric gunsmoke, sagging cordage, sternway and oars, a sun that moves, matte wood and canvas
+
+From `assets/issues/issue12/issue.txt` (the trees, oars and rivers of it were done in 0.22.14) and the
+open rows of `docs/todo_list.md`. No `issue13` folder exists yet.
+
+### Smoke (issue12 "remove the particles, add 3D volumetric smoke with shaders"; "faster expansion, longer stay")
+- **Volumetric gunsmoke.** The three smoke billboard layers are gone (`MARE_SMOKE_BILLBOARDS=1`
+  brings them back). A broadside now spawns *density blobs* (`blob_t`, up to 128): three white
+  cores that race out and swell, a grey plume, a thin haze - lives 12-30 s, cubic-eased growth so
+  a puff is most of its size in the first seconds, advected at half the wind with a little lift.
+  `fx/volsmoke.frag` is a fullscreen pass after the billboards: every blob the pixel's ray
+  crosses is marched along its own chord (six jittered samples, clipped to the captured opaque
+  depth) and the samples are accumulated order-free - the optical depths add, the colour is the
+  extinction-weighted mean, which for one-coloured powder smoke needs no sorting. The density is
+  the blob's falloff with its silhouette dented and eroded by a scrolling 3D noise; each sample
+  is lit by the sun through two more taps of its blob towards it (self-shadowing), with the
+  sky's ambient and a back-lit rim, fogged. Hulls and masts stand *in* the smoke now rather than
+  behind a stack of discs. The flash, spray, rings and splinters stay billboards.
+  `MARE_VOLSMOKE_DEBUG=1|4|5` draws the blobs' spheres, the marched alpha, or freezes the blobs'
+  ages so a screenshot always holds smoke. (A first cut marched one union span over all the
+  blobs with 18 steps: the samples fell in the water between them and nothing showed.)
+
+### The rig (issue12 "rope behaviour flexible and physics based"; todo 115)
+- **Ropes hang.** Every rope is eight segments whose vertices carry (t, slack, kind)
+  (`mb_line_rope`); `rope.vert` hangs a catenary of the slack - small on a taut stay, large on a
+  long level sheet - blown to leeward by the wind in the ship's frame, lagging the heel so the
+  bight swings against the roll, with a slow breathing. The rig instance carries the wind for
+  it. Not a verlet: a shaped parabola with the right forces behind it; a true simulation is the
+  next step if the look is wanted closer.
+- **Sails are never hidden by distance in the staged scenes** (issue12): the rig's pixel gate is
+  bypassed when the ship is drawn at the staged scale.
+- **Furled sails.** `shipyard_req_t.furl`: at 1 the canvas is not drawn, spars and cordage stay.
+
+### Sailing (issue12 "sails only against the wind: move backwards; with oars, oar speed and roll the sails down"; "wind and sail direction for the speed")
+- Every staged ship's own heading against the wind sets what her canvas gives (`wind_factor`, the
+  point-of-sail curve), not only the line leader's. In the eye of the wind a sailing ship's canvas
+  is aback and she makes **sternway** at up to a quarter of her speed (the physics drives a
+  negative command now); an **oared** ship caught there takes in her sails over two seconds
+  (`furl` -> 1) and pulls at her oar speed, setting them again once the wind draws aft.
+
+### The sun (issue12 "animate the sun in delta time, not in ticks")
+- The sun's position is read from the days already ticked *plus* the accumulated fraction waiting
+  for the next tick, so it moves every frame.
+
+### The sea (issue12 "in battle mode the wave length by wind strength, not zoom")
+- The staged scenes use the finest tessellation cell for the Nyquist fade everywhere, so the set
+  of wavelengths drawn is the wind's and does not change as the camera moves; their longest
+  wavelength follows the wind strength harder (0.50 + 0.80 s, map 0.70 + 0.45 s); the wave set is
+  rebuilt when a staged scene opens or closes.
+
+### Materials (issue12 "wood, sails, rope: reflectiveness 0")
+- `sun_shade_matte`: Lambert under the sun with the shadow, the hemispheric ambient, no specular
+  lobe; `meshes.frag` uses it for wood, canvas and cordage. Painted trim, metal and stone keep
+  their highlights.
+
+### The hinterland (todo 117)
+- The authored trees' LOD 5 (~200 tris) stands from 7 to 14 units from the ring centre; the cards
+  begin past that.
+
+### Process
+- Mirror `C:\projects\mare_oak_01-11-2026_222329` (the `skills/` naming). The oak worktree was
+  reset onto `main` (the other session had committed 0.22.14 from both worktrees as WIP). That
+  commit also removed `docs/dev/summary_oak_*` except issue10 and `.github/workflows/build.yml`;
+  the issue11 summary is re-added here, the workflow is left as the other session left it.
+- The other session wrote a `gfx/volsmoke.cc/.h` and a composite shader into this mirror while it
+  built; they were not part of this tree and were removed before the link.
+
 ## 0.22.14 — the eleventh issues folder: the lantina on the head, waves off the bow, dense white smoke, round shot, authored trees, the package's rivers
 
 From `assets/issues/issue11` (nine screenshots and videos named for what they show; no text) and
