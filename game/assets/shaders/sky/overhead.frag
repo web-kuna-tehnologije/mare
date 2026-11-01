@@ -20,7 +20,7 @@ void main(){
   if (dens <= 0.002) discard;
   float fade = 1.0 - smoothstep(u_far * 0.55, u_far, t);
   float sunup = clamp(u_sun.y * 1.6, 0.0, 1.0);
-  vec3 lit = mix(vec3(0.55, 0.58, 0.64), vec3(1.0, 0.99, 0.97), sunup) * max(u_daylight, 0.25);
-  lit = mix(lit, lit * vec3(0.76, 0.78, 0.84), u_overcast * 0.6);
+  vec3 lit = mix(vec3(0.48, 0.50, 0.56), vec3(0.86, 0.86, 0.86), sunup) * max(u_daylight, 0.25);   // 0.22.12: greyer (issue9)
+  lit = mix(lit, lit * vec3(0.70, 0.72, 0.78), u_overcast * 0.6);
   fragColor = vec4(lit, dens * fade * 0.92);
 }

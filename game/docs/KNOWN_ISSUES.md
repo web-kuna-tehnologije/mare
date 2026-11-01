@@ -155,6 +155,12 @@ Severity: **H** breaks play or data · **M** noticeable · **L** cosmetic / edge
 - **L** The `assets/ships/FOAM` sheets are sailcloth, not foam (see CHANGELOG 0.22.9). The
   tool makes a usable breakup mask out of their tears, but a real foam photograph would give
   a better one for no extra code.
+- **L** The sheets (0.22.12) are laid in the hull frame for the squared yard; at a hard brace
+  the clew swings up to half a unit from the sheet's upper end. From the deck it still reads
+  as the sail made fast; putting the sheets into the braced canvas mesh is the fix.
+- **L** With the relief at 5 per 9000 m (0.22.12) the staged battle coast still builds its
+  hills from its own relief classes, which were tuned to the old scale: a "mountain" coast in
+  the battle view is taller relative to the map than it was. Retune `DV_RELIEF_*` if it shows.
 - **L** The tactical physics is 2D: surge, sway and yaw. Heave, pitch and roll are still the
   mesh shader's canned motion, now scaled by how hard the body is leaning into its turn. The
   rest of P1.3 (buoyancy sampling, ballistics, damage) is unbuilt.

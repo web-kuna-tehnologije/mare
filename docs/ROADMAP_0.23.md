@@ -1,11 +1,11 @@
-# Road map after 0.22.11 (worktree oak, 2026-11-01)
+# Road map after 0.22.12 (worktree oak, 2026-11-01)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.11
+## Done to 0.22.12
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -30,7 +30,12 @@ keyed trailer camera, Blender encoding) that made the first 45-second battle fil
 (issue8): recoil, real round shot with splashes and hits, five-point buoyancy, a wake that
 spreads into a cone and fades, a stern wave, the oil-slick and flicker fixes, oars outboard, the
 Alps widened, a blurred battle behind the menu, closed-canopy forests, fenced parcels, vine
-rows and standing wheat, the sail state as class data, bow spray in a breeze.
+rows and standing wheat, the sail state as class data, bow spray in a breeze. 0.22.12
+(issue9): the relief cut by 70% with every height threshold rescaled, fields only round the
+settlements and woods over the rest, fuller villages, cattle and flocks, the recoil as a
+centimetre of set and a quarter-degree heel per gun with the body's attitude drawn on every
+part of the ship, the wake as a V of breaking crests rooted at the stem, greyer slower smoke
+and torn clouds, sheets on every sail, the fog no longer leaving silhouettes.
 
 ## Next, in order
 
@@ -67,6 +72,8 @@ rows and standing wheat, the sail state as class data, bow spray in a breeze.
 - GL 4 and the v3 framework stay for this phase; Vulkan and DX12 bring their devices up and
   delegate.
 - Every height threshold in `terrain.frag` and every prop the scatter places is tied to the
-  world's vertical exaggeration, so that number (`GC_HEIGHT_SCALE`, now 16 per 9000 m, tunable
-  with `MARE_HEIGHT_SCALE`) is a global decision, not a per-zoom one.
+  world's vertical exaggeration. Since 0.22.12 they are all expressed relative to the 0.22.6
+  scale through `geochunks_height_scale_rel()` / `u_hscale`, so `GC_HEIGHT_SCALE` (now 5 per
+  9000 m, `MARE_HEIGHT_SCALE` to tune) can move without the snow line or the tree line moving
+  with it - but it is still a global decision, not a per-zoom one.
 - No mass asset import before the automated asset path is exercised end to end (dev.txt P1.6).

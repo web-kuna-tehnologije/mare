@@ -306,7 +306,7 @@ void main(){
   float crestfoam = collapse * (0.30 + 0.90 * capmask) * smoothstep(0.12, 0.65, ws) * detail * (0.7 + 0.6 * smoothstep(0.3, 0.9, fc));
 // the staged scenes want white on every tessellated crest ("white foam on peaks"), the map
 // only where the fold says the wave is breaking
-  float peak = u_local_depth > 0.0 ? smoothstep(0.1, 0.9, lift) * smoothstep(0.015, 0.06, v_slope) * 0.7 : 0.0;
+  float peak = u_local_depth > 0.0 ? smoothstep(0.05, 0.8, lift) * smoothstep(0.008, 0.045, v_slope) * 1.0 : 0.0;   // 0.22.12: the staged crests carry foam like the map's (issue9)
   float caps = max(max(fold, steep), peak) * smoothstep(0.12, 0.7, ws) * capmask * detail * u_capzoom;   // 0.22.11: on from a smaller swell
 // Surf: in the shoaling band the steepened waves break into a foam sheet that runs up the
 // beach. The shore direction is the depth gradient; the sheet's texture scrolls along it.
@@ -382,11 +382,11 @@ void main(){
     float ch = cos(u_ships[i].z), sh2 = -sin(u_ships[i].z);
     float along = dxz.x * ch + dxz.y * sh2, across = abs(-dxz.x * sh2 + dxz.y * ch);
     float spd = clamp(u_ships[i].w * 10.0, 0.0, 1.0);
-    float astern = -along;
+    float astern = 0.46 * L - along;              // from the stem (0.22.12)
     if (astern <= 0.0 || spd < 0.05) continue;
     float fade = exp(-astern / (3.4 * L)) * spd;
-    float arm = across - astern * 0.354, armw = 0.13 * L + 0.045 * astern;
-    float armk = exp(-(arm * arm) / (armw * armw)) * fade * smoothstep(0.26, 0.62, lum1);
+    float arm = across - astern * 0.354, armw = 0.09 * L + 0.03 * astern;
+    float armk = exp(-(arm * arm) / (armw * armw)) * fade * smoothstep(0.18, 0.55, lum1) * 1.35;   // 0.22.12: the breaking crest of the V, denser and narrower (wake.png)
     float lane = (1.0 - smoothstep(0.0, 0.26 * L + 0.20 * astern, across)) * fade
                * smoothstep(0.34, 0.70, lum2) * 0.55;
     shipk *= 1.0 - clamp(armk * 0.9 + lane, 0.0, 0.8);
@@ -428,7 +428,7 @@ void main(){
 // 0.22.11 (issue8 "missing crest and foam on top of waves"): under a fog or a low sun the
 // ambient went so dark the foam vanished into the water; a floor keeps foam lighter than the
 // sea whatever the sky does
-  vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * max(u_ambsky * 1.15 + u_suncol * 0.55, vec3(0.22));
+  vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * max(u_ambsky * 1.15 + u_suncol * 0.55, vec3(0.30));
   float foamall = clamp((caps * 0.95 + crestfoam * 1.05 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
   col3d = mix(col3d, foamcol, foamall);
   col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);

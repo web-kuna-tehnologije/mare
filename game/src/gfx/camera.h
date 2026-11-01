@@ -27,7 +27,7 @@ extern float cam_pitch_user;    // degrees added to the zoom's pitch by the play
 #define CAM_PITCH_MAX  86.f
 extern float cam_min_eye_y;     // the eye is never placed below this height (mare.c: the wave crest or the ground under it, plus a margin)
 
-#define CAM_MIN_DIST   (1.6f * WORLD_SCALE)    // close enough to walk a town square (city view); 0.22.8: a little closer (issue4 "zoom in a little more"), the eye floor and the ground-riding target keep the camera out of the terrain
+#define CAM_MIN_DIST   (1.0f * WORLD_SCALE)   // 0.22.12: closer again (issue9 "zoom a little more to see the landscape")    // close enough to walk a town square (city view); 0.22.8: a little closer (issue4 "zoom in a little more"), the eye floor and the ground-riding target keep the camera out of the terrain
 #define CAM_MAX_DIST   (950.f * WORLD_SCALE)
 #define CAM_CITY_DIST  (16.f * WORLD_SCALE)    // below this over a town: city view (mare.c slows the clock, hud.c says so)
 #define CAM_MAP_START  (300.f * WORLD_SCALE)   // map styling begins

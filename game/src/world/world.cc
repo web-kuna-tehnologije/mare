@@ -9,6 +9,7 @@
 
 extern "C" {
 #include "world.h"
+#include "terrain_chunks.h"
 #include "../core/util.h"
 #include "../data/geo_coast.h"
 #include "../core/diag.h"
@@ -276,6 +277,9 @@ void World::compute_heightmap_rows(void *arg, int begin, int end, int slot) {
             float cliff = fbm(lon*0.7f+55, lat*0.7f+5, 3, seed+77);
             if (d <= 4.f && cliff > 0.58f) h = maxf(h, 0.5f + RELIEF_CLIFF * (cliff - 0.58f) / 0.42f * clampf(d / 2.f, 0.35f, 1.f));
             if (fabsf(lat) > 66) h *= 0.6f;
+            // 0.22.12: the procedural land follows the world's relief scale (16 per 9000 m was
+            // what RELIEF_* were tuned against); the strand keeps its 0.12 so the coast stays
+            h = 0.12f + (h - 0.12f) * geochunks_height_scale_rel();
         } else {
             float shelf = clampf(-d / SHELF_CELLS, 0.f, 1.f);
             float drop  = clampf((-d - SHELF_CELLS) / 14.f, 0.f, 1.f);

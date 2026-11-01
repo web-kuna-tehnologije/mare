@@ -17,6 +17,7 @@
 extern "C" {
 #include "stream.h"
 #include "world.h"
+#include "terrain_chunks.h"
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../core/jobs.h"
@@ -58,7 +59,7 @@ private:
     // detail bands per level: amplitude in world units and noise frequency in cycles per degree.
     // L0/L1 are at or below the base map's resolution, so they carry no delta (zero payload): they
     // exist as residency markers and coarse fallbacks, which keeps every code path uniform.
-    static constexpr float lvl_amp[STREAM_LEVELS]  = { 0.f, 0.f, 0.16f, 0.22f };   // 0.22.5: 40% lower; 0.22.6: lower again (issue3); 0.22.11: the fine level lower still, the Alps were needles
+    static constexpr float lvl_amp[STREAM_LEVELS]  = { 0.f, 0.f, 0.05f, 0.07f };   // 0.22.12: the 70% relief cut (issue9) applies to the ring noise too   // 0.22.5: 40% lower; 0.22.6: lower again (issue3); 0.22.11: the fine level lower still, the Alps were needles
     static constexpr float lvl_freq[STREAM_LEVELS] = { 0.f, 0.f, 3.0f,  6.5f  };
 
     int   grid_w[STREAM_LEVELS] = {}, grid_h[STREAM_LEVELS] = {}, lvl_off[STREAM_LEVELS + 1] = {};
@@ -179,7 +180,8 @@ float *Stream::tile_generate(const stream_tile_t *t) {
     for (int j = 0; j < STREAM_RES; ++j) for (int i = 0; i < STREAM_RES; ++i) {
         float lon = lon0 + i * step, lat = lat1 - j * step;
         float h = world_height(lon2x(lon), lat2z(lat));
-        float m = clampf((h - STREAM_FADE_H) / 1.5f, 0.f, 1.f);           // flat near the shore, full a unit and a half up
+        float hs = geochunks_height_scale_rel();
+        float m = clampf((h - STREAM_FADE_H * hs) / (1.5f * hs), 0.f, 1.f);   // flat near the shore, full a unit and a half up (scaled with the world's relief, 0.22.12)
         float v = 0.f;
         if (m > 0.f) {
             // Ridged detail (0.17): the same crest-and-flank shape as the base relief, one and
@@ -190,7 +192,7 @@ float *Stream::tile_generate(const stream_tile_t *t) {
             // the crest-and-flank shape but gives the crest a shoulder
             float r = 1.f - fabsf(2.f * world_fbm(lon * freq, lat * freq, 3, seed) - 1.f); r = powf(r, 1.35f);
             float f = world_fbm(lon * freq * 2.1f + 5, lat * freq * 2.1f + 9, 2, seed ^ 0x55u) * 2.f - 1.f;
-            v = m * amp * (0.65f * (r * 2.f - 1.f) + 0.35f * f) * (0.5f + 0.5f * clampf(h / 6.f, 0.f, 1.f));
+            v = m * amp * (0.65f * (r * 2.f - 1.f) + 0.35f * f) * (0.5f + 0.5f * clampf(h / (6.f * hs), 0.f, 1.f));
         }
         d[j * STREAM_RES + i] = v;
     }

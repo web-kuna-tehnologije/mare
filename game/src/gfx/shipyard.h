@@ -27,6 +27,7 @@ typedef struct shipyard_req_t {
     float    cr, cg, cb;            // nation colour
     float    camdist;               // for LOD selection
     unsigned key;                   // stable per-ship LOD key (lod_key(LODK_FLEET, id, slot))
+    float    roll, pitch;           // the body's attitude in radians (0.22.12): starboard down +, bow up +; 0 on the map
 } shipyard_req_t;
 
 // What a class *is*, physically. The design sheets give the dimensions; the sailing numbers

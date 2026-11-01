@@ -93,7 +93,7 @@ void TerrainMap::load(const char *dir) {
     double t0 = diag_now();
     memset(&TM, 0, sizeof TM);
     TM.lon0 = TM_LON0; TM.lon1 = TM_LON1; TM.lat0 = TM_LAT0; TM.lat1 = TM_LAT1;
-    TM.sea_level = TM_SEA_LEVEL; TM.height_scale = TM_HEIGHT_SCALE;
+    TM.sea_level = TM_SEA_LEVEL; TM.height_scale = TM_HEIGHT_SCALE * geochunks_height_scale_rel();   // 0.22.12: follows the relief scale
     TM.depth  = tm_read_image(dir, "depth_map_terrain.png",  &TM.dw, &TM.dh, &TM.dc, 1);
     TM.normal = tm_read_image(dir, "normal_map_terrain.png", &TM.nw, &TM.nh, &TM.nc, 3);
     TM.atlas  = tm_read_image(dir, "terrain_textures.png",   &TM.aw, &TM.ah, &TM.ac, 3);

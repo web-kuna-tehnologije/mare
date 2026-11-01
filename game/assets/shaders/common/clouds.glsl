@@ -36,8 +36,11 @@ float cloud_density(vec2 xz, int octaves) {
 // edges do not run north-south
   vec2 q = mat2(0.86, 0.51, -0.51, 0.86) * (xz * 0.017) + u_cloud.xy;
   float f = cl_fbm(q, octaves);
+// 0.22.12 (issue9 "not circles"): a second, finer field warps the first before the threshold,
+// so a cloud's edge is torn rather than the smooth blob a thresholded fbm gives
+  f += (cl_fbm(q * 3.1 + vec2(5.2, 1.7), 2) - 0.5) * 0.22;
   float thr = 0.74 - u_cloud.z * 0.52;
-  return smoothstep(thr, thr + 0.26, f);
+  return smoothstep(thr, thr + 0.30, f);
 }
 float cloud_shadow(vec3 wpos, vec3 sun) {
   if (u_cloud.z <= 0.001) return 1.0;

@@ -30,6 +30,7 @@ typedef struct shot_t { float x, y, z, vx, vy, vz; int owner, used; } shot_t;
 
 typedef struct body_t {
     float heave, pitch, roll;      // from the surface under the hull (item 7)
+    float roll_k, roll_kv;         // the recoil heel and its rate: a damped spring about the buoyancy roll (0.22.12)
     float x, z, h;                 // the fixed-step state
     float px, pz, ph;              // the step before it (nphys_pose interpolates between them)
     float vx, vz, yr;              // velocity and yaw rate
@@ -51,6 +52,7 @@ public:
         float rx = px - b.x, rz = pz - b.z;
         b.yr += (rx * jz - rz * jx) * b.inv_i;          // the lever arm: an impulse off the centre turns her
     }
+    void kick_roll(int id, float rad) { if (valid(id)) b_[id].roll_kv += rad * 2.6f; }   // an impulse into the spring: it peaks at ~rad a quarter period later
     void fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed) {
         if (nshot_ >= NPHYS_MAX_SHOTS) return;
         float l = sqrtf(dx * dx + dy * dy + dz * dz); if (l < 1e-6f) return;
@@ -59,7 +61,7 @@ public:
     }
     void attitude(int id, float *heave, float *pitch, float *roll) const {
         if (!valid(id)) { *heave = *pitch = *roll = 0.f; return; }
-        *heave = b_[id].heave; *pitch = b_[id].pitch; *roll = b_[id].roll;
+        *heave = b_[id].heave; *pitch = b_[id].pitch; *roll = b_[id].roll + b_[id].roll_k;
     }
     int poll_events(nphys_event_t *out, int max) {
         int n = nev_ < max ? nev_ : max;
@@ -169,7 +171,11 @@ void NavalPhysics::step() {
 // the port-starboard difference her roll - the attitude a hull of that length and beam takes
 // on that water, relaxed towards over a few tenths of a second so she rides rather than jitters.
 void NavalPhysics::buoyancy() {
-    if (!surf_) { for (int i = 0; i < n_; ++i) { b_[i].heave = b_[i].pitch = b_[i].roll = 0.f; } return; }
+    if (!surf_) {
+        for (int i = 0; i < n_; ++i) { body_t &b = b_[i]; b.heave = b.pitch = b.roll = 0.f;
+            float w0 = 1.6f, zeta = 0.22f; b.roll_kv += (-w0 * w0 * b.roll_k - 2.f * zeta * w0 * b.roll_kv) * NPHYS_STEP; b.roll_k += b.roll_kv * NPHYS_STEP; }
+        return;
+    }
     const float dt = NPHYS_STEP;
     for (int i = 0; i < n_; ++i) {
         body_t &b = b_[i];
@@ -187,6 +193,10 @@ void NavalPhysics::buoyancy() {
         // a heavy hull answers the water more slowly than a light one
         float k = 1.f - expf(-dt * (2.4f + 1.6f * npf_clamp(1.f - b.inv_m * 400.f, 0.f, 1.f)));
         b.heave += (heave - b.heave) * k; b.pitch += (pitch - b.pitch) * k; b.roll += (roll - b.roll) * k;
+        // the recoil heel: a damped spring (period ~4 s, settles in ~8) over the water's own roll
+        float w0 = 1.6f, zeta = 0.22f;
+        b.roll_kv += (-w0 * w0 * b.roll_k - 2.f * zeta * w0 * b.roll_kv) * dt;
+        b.roll_k += b.roll_kv * dt;
     }
 }
 
@@ -387,6 +397,7 @@ int   nphys_aground(int id) { return mare::game::sim::physics().aground(id); }
 void  nphys_teleport(int id, float x, float z, float h) { mare::game::sim::physics().teleport(id, x, z, h); }
 void  nphys_set_surface(nphys_surface_fn fn, void *user) { mare::game::sim::physics().set_surface(fn, user); }
 void  nphys_impulse(int id, float px, float pz, float jx, float jz) { mare::game::sim::physics().impulse(id, px, pz, jx, jz); }
+void  nphys_kick_roll(int id, float rad) { mare::game::sim::physics().kick_roll(id, rad); }
 void  nphys_fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed) { mare::game::sim::physics().fire(owner, x, y, z, dx, dy, dz, speed); }
 void  nphys_attitude(int id, float *heave, float *pitch, float *roll) { mare::game::sim::physics().attitude(id, heave, pitch, roll); }
 int   nphys_poll_events(nphys_event_t *out, int max) { return mare::game::sim::physics().poll_events(out, max); }

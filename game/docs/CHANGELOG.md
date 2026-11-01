@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.22.12 — the ninth issues folder: a gentler world, a working hinterland, the V of the wake, the rig heeling with the hull
+
+From `assets/issues/issue9` (`issue.txt`, two screenshots, the rigging video).
+
+### Recoil, as asked ("move the ship by 5 cm, not rotate her five times; about the x axis")
+- The sideways set is the ball's real momentum now - 0.35 tonne-units per second a gun, which
+  moves a 1000-tonne hull centimetres - applied at her **centre**, so the broadside no longer
+  yaws her. What it does instead is **heel** her: each gun kicks her roll by a quarter of a
+  degree (scaled by the gun's size), away from the side she fired, and a damped spring in the
+  physics (`nphys_kick_roll`, period ~4 s) brings her back.
+- **The body's attitude reaches the shader.** `inst_t` carries `roll_b`/`pitch_b` (the
+  `i_anchor` attribute is a vec4 now), set on every part of a ship from `shipyard_req_t`, and
+  the three vertex stages add them to the rigid rotation about the hull's pivot. So the
+  five-point buoyancy roll and pitch of 0.22.11 and the recoil heel are *drawn*, hull, masts,
+  canvas and cordage together; the canned motion is cut to a third and only adds the fidget.
+
+### The world (issue9 "reduce elevation change by 70% ... nothing is fixed in terrain")
+- The vertical scale is 16 -> 5 (`MARE_HEIGHT_SCALE` still overrides); the rings' ridge noise
+  is cut to match. Every height threshold that was tuned against the old scale - the terrain
+  shader's snow line, the shore fade and ridge gate in the stream, the lowland gates in the
+  land-use bake, the scatter's tree line - is expressed through `geochunks_height_scale_rel()`
+  (`u_hscale` in the shader), so the snow stays on the summits and the fields on the plains.
+- **Why nothing was fixed before.** The base heightfield never followed the scale: the
+  geography bake kept whichever was *higher*, the procedural relief or the data, so the data
+  could never lower a hill the procedural world had invented, and every earlier cut only
+  reached the rings, which then pulled half the country down by metres on top of a base that
+  stayed where it was (the ring log: "142,960 texels lowered over 0.5"). Now the procedural
+  land and the overview scale themselves by the same factor, and where the data answers for a
+  land cell the base *is* the data (harbours keep theirs). The ring's correction is small
+  again and the whole world, not just the near ground, is at the new scale.
+
+### The hinterland
+- **Fields only round the settlements and along the roads** between them: the worked land is a
+  halo of ~0.75 units past each village's built disc, and a strip within a quarter unit of a
+  road; the open country between is no longer cropland.
+- **Woods fill the rest**: a clumped cover over every gentle lowland and hillside the data
+  does not call crops, bare or snow, so the land between the villages reads as the forested
+  Europe of 1620 (the "real forests" ask). Shrubland counts for more.
+- **Villages read**: the built disc is a third wider and a village keeps three houses in four
+  of its grid cells (was six in ten). The inland settlements, their roads to the port they
+  belong to, their mills and pitheads were already there (0.22.3-0.22.6); they stand out now
+  because the fields gather round them.
+- **Fences off** ("it just looks weird, too much"); the parcel grid is kept for later.
+- **Crops smaller and denser**: a wheat clump every 0.019 units at 0.015 (was 0.03 at 0.026).
+- **Cows and sheep**: herds of cattle (a new prop) and five times the flocks on the pasture
+  round the villages.
+
+### The sea (issue9 "waves from ship should be directional", `wake.png`)
+- **The V is the wake.** The diverging arms now root at the stem (the bow wave is their
+  beginning), run out at 19.5 degrees as a steep crest twice its old height in a band half as
+  wide, with a trough just inboard of each, and carry their wave train along their length; the
+  bow's radial ring is smaller. In the fragment stage and the wake map the arms break white,
+  denser and narrower, as the reference shows.
+- **Foam on the staged crests** like the strategic map's: the `peak` term starts lower on the
+  face and at a gentler slope, and the foam colour floor is raised under a dark sky.
+
+### Smoke and clouds (issue9 "clouds more uneven, greyer, slower, longer")
+- Gunsmoke: greyer again (core 0.60, plume 0.46, haze 0.42), opaque at birth, 1.6x the life,
+  carried at half the wind and rising at two thirds the rate, and the billboards are stretched
+  1.35:1 along their spin so no puff is a disc.
+- The sky's cloud layer: drift at a third of the old rate, greyer, and its edges torn by a
+  second finer noise before the threshold.
+
+### The rig (the video)
+- Masts thicker again (`MAST_SLIM` 0.52 -> 0.64).
+- The lantina is a tenth longer than the design line, so the head of the canvas never
+  overhangs its ends ("too small for the sail").
+- **Sheets**: a rope from each clew of every square sail down and aft to the rail (the course)
+  or to the yard below (a topsail), and from the lateen's clew to the quarter - the running
+  rigging that ties the canvas to the hull ("add rope connecting sails to boat").
+
+### Elsewhere
+- **Silhouettes through fog and smoke**: the mesh fog stopped at an 85% mix, so fifteen percent
+  of a dark hull or a black rope always survived the haze as an outline - and the cordage is
+  drawn at a pixel minimum, so every distant rig stayed etched on the fog. The mix goes to
+  100%. The smoke is opaque at birth and lasts longer, so the hulls behind a broadside are
+  hidden rather than shown through it.
+- **Zoom** on the map: `CAM_MIN_DIST` 1.6 -> 1.0 x scale.
+
 ## 0.22.11 — the eighth issues folder: recoil, shot and splashes, a diffusing wake, a blurred battle behind the menu, real forests and fenced fields
 
 From `assets/issues/issue8` (six screenshots and a video, each named for what to change), the

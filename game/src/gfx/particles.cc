@@ -51,7 +51,7 @@ typedef struct blast_t { float x, z, dx, dz, age, life, rmax, inner, strength; }
 // timeout"): a broadside is laid *rolling* - each gun has its own delay, a few tens of
 // milliseconds to a second and a half - so the side goes off as a ripple of flashes rather
 // than one wall. The gun's geometry is fixed when it is queued; only the moment is deferred.
-typedef struct gun_t { float gx, gy, gz, sx, sz, fx, fz, gs, deck; float t; int ring; int body; } gun_t;
+typedef struct gun_t { float gx, gy, gz, sx, sz, fx, fz, gs, deck; float t; int ring; int body; float cx, cz, side; } gun_t;
 #define GUN_MAX 768
 
 class Particles {
@@ -156,7 +156,7 @@ void Particles::broadside(float x, float y, float z, float heading, float side, 
         if (ngun_ >= GUN_MAX) break;
         float along = nside > 1 ? -half + 2.f * half * (float)g / (float)(nside - 1) : 0.f;
         gun_t q; q.gx = x + fx * along + sx * beam; q.gz = z + fz * along + sz * beam; q.gy = y + deck + (rnd_f(&rng_) - 0.5f) * 0.1f;
-        q.sx = sx; q.sz = sz; q.fx = fx; q.fz = fz; q.gs = gs; q.deck = deck; q.ring = (g % 2 == 0); q.body = body;
+        q.sx = sx; q.sz = sz; q.fx = fx; q.fz = fz; q.gs = gs; q.deck = deck; q.ring = (g % 2 == 0); q.body = body; q.cx = x; q.cz = z; q.side = side;
         float r = rnd_f(&rng_);
         q.t = r < 0.18f ? 0.f : r * r * spread;                       // some at once, the rest strung out
         if (q.t < tfirst) { tfirst = q.t; first = ngun_; }
@@ -179,9 +179,16 @@ void Particles::fire_gun(const gun_t &g) {
     // five centimetres. The shot itself goes into the ballistic model (nphys_fire): a swept
     // sphere under gravity, with a little spread and a low elevation, that hits a hull or
     // splashes (staged_scene.cc turns the events into spray and splinters).
+    // 0.22.12 (issue9): "move the ship by about 5 cm, not rotate her five times; the rotation
+    // is about the x axis, a fraction of a degree per gun". The sideways set is the ball's real
+    // momentum (0.35 tonne-units/s a gun - a 1000-tonne hull moves centimetres), applied at the
+    // *centre* so it does not yaw her; and each gun gives her a kick of heel, 0.25 degrees per
+    // gun scaled by the gun's size, away from the side she is firing, which the roll spring in
+    // the physics brings back over a few seconds.
     if (g.body >= 0) {
-        float J = 17.f * g.gs;
-        nphys_impulse(g.body, g.gx, g.gz, -g.sx * J, -g.sz * J);
+        float J = 0.35f * g.gs;
+        nphys_impulse(g.body, g.cx, g.cz, -g.sx * J, -g.sz * J);
+        nphys_kick_roll(g.body, -g.side * 0.0044f * g.gs);
         float yaw = (rnd_f(&rng_) - 0.5f) * 0.06f, el = 0.004f + rnd_f(&rng_) * 0.03f;
         float dx = g.sx * cosf(yaw) - g.sz * sinf(yaw), dz = g.sx * sinf(yaw) + g.sz * cosf(yaw);
         nphys_fire(g.body, g.gx + g.sx * 0.8f, g.gy, g.gz + g.sz * 0.8f, dx, el, dz, 150.f + 30.f * g.gs);
@@ -208,9 +215,9 @@ void Particles::fire_gun(const gun_t &g) {
             float off = (rnd_f(&rng_) - 0.5f) * 0.9f * gs;
             p->x = gx + sx * (0.7f + k * 0.55f) + fx * off; p->y = gy + (rnd_f(&rng_) - 0.3f) * 0.4f + 0.28f * k; p->z = gz + sz * (0.7f + k * 0.55f) + fz * off;
             p->vx = sx * spd + fx * jx * 2.4f; p->vz = sz * spd + fz * jz * 2.4f; p->vy = 0.6f + rnd_f(&rng_) * 0.9f;
-            p->life = 3.8f + rnd_f(&rng_) * 2.0f + 0.4f * k;
+            p->life = 6.0f + rnd_f(&rng_) * 3.0f + 0.6f * k;   // 0.22.12: longer in the air
             p->size0 = (0.5f + 0.25f * k) * gs; p->size1 = (4.4f + 0.9f * k + rnd_f(&rng_) * 1.4f) * gs;
-            p->alpha = 0.95f; p->shade = 0.72f - 0.05f * k + 0.06f * rnd_f(&rng_);   // 0.22.10: greyer again
+            p->alpha = 1.0f; p->shade = 0.60f - 0.05f * k + 0.06f * rnd_f(&rng_);   // 0.22.10: greyer again; 0.22.12: greyer still, opaque
             p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.9f;
         }
         // layer 2 - the plume: four darker grey puffs trailing the core
@@ -220,18 +227,18 @@ void Particles::fire_gun(const gun_t &g) {
             float jx = (rnd_f(&rng_) - 0.5f), jz = (rnd_f(&rng_) - 0.5f);
             p->x = gx + sx * (0.5f + k * 0.4f); p->y = gy + (rnd_f(&rng_) - 0.3f) * 0.3f; p->z = gz + sz * (0.5f + k * 0.4f);
             p->vx = sx * spd + jx * 1.2f + fx * jx * 1.5f; p->vz = sz * spd + jz * 1.2f + fz * jz * 1.5f; p->vy = 0.4f + rnd_f(&rng_) * 0.8f;
-            p->life = 5.f + rnd_f(&rng_) * 3.5f + k * 0.6f;
+            p->life = 8.f + rnd_f(&rng_) * 5.f + k * 0.8f;
             p->size0 = (0.35f + 0.15f * k) * gs; p->size1 = (4.4f + 1.4f * k + rnd_f(&rng_) * 1.6f) * gs;
-            p->alpha = 0.80f; p->shade = 0.56f - 0.06f * k + 0.07f * rnd_f(&rng_);
+            p->alpha = 0.92f; p->shade = 0.46f - 0.05f * k + 0.07f * rnd_f(&rng_);
             p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.6f;
         }
         // layer 3 - the haze: one big thin veil that hangs about and drifts off on the wind
         { ptc_t *p = spawn(); *p = ptc_t{}; p->kind = PK_HAZE;
           p->x = gx + sx * 1.5f; p->y = gy + 0.6f; p->z = gz + sz * 1.5f;
           p->vx = sx * 2.5f; p->vz = sz * 2.5f; p->vy = 0.25f;
-          p->life = 10.f + rnd_f(&rng_) * 5.f;
+          p->life = 16.f + rnd_f(&rng_) * 8.f;
           p->size0 = 1.5f * gs; p->size1 = (9.f + rnd_f(&rng_) * 4.f) * gs;
-          p->alpha = 0.46f; p->shade = 0.52f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.2f; }
+          p->alpha = 0.62f; p->shade = 0.42f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f; p->rotv = (rnd_f(&rng_) - 0.5f) * 0.2f; }
         // embers: burning wad thrown with the shot, out in a third of a second
         int ne = 5 + (int)(gs * 4.f);   // 0.22.10: more burning wad
         for (int k = 0; k < ne; ++k) {
@@ -342,8 +349,10 @@ void Particles::update(float dt) {
                 // The core is heavier and slower to give up its speed, the haze is all wind.
                 float kd = p->kind == PK_CORE ? 1.2f : p->kind == PK_HAZE ? 2.5f : 1.6f;
                 float k = 1.f - expf(-dt * kd);
-                p->vx += (wind_x_ - p->vx) * k; p->vz += (wind_z_ - p->vz) * k;
-                float buoy = (p->kind == PK_CORE ? 1.4f : 1.1f) * (1.f - t) * (1.f - t) + 0.12f;
+                // 0.22.12: the cloud is carried at half the wind - a heavy bank of powder smoke
+                // lags the air it hangs in - and rises more slowly, so it stays over the fight
+                p->vx += (wind_x_ * 0.5f - p->vx) * k; p->vz += (wind_z_ * 0.5f - p->vz) * k;
+                float buoy = (p->kind == PK_CORE ? 0.9f : 0.7f) * (1.f - t) * (1.f - t) + 0.06f;
                 p->vy += (buoy - p->vy) * (1.f - expf(-dt * 1.2f));
                 p->rot += p->rotv * dt;
             } break;

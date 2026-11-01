@@ -15,7 +15,7 @@ static const rhi_attr_t mesh_attrs[] = {
     { "a_pos", 0, 3,  0, 0 }, { "a_nrm", 0, 3, 12, 0 }, { "a_col", 0, 3, 24, 0 }, { "a_mat", 0, 1, 36, 0 },
     { "a_rm", 0, 2, 40, 0 },                                      // roughness, metalness
     { "i_pos", 1, 4,  0, 1 }, { "i_scol", 1, 4, 16, 1 }, { "i_misc", 1, 4, 32, 1 }, { "i_fx", 1, 4, 48, 1 },
-    { "i_anchor", 1, 2, 64, 1 },                                  // the hull a part is rigid to (inst_t.ax/az)
+    { "i_anchor", 1, 4, 64, 1 },                                  // the hull a part is rigid to (inst_t.ax/az) + the body's roll and pitch (0.22.12)
 };
 const rhi_layout_t mesh_layout = { mesh_attrs, 10, { MB_FLOATS*sizeof(float), sizeof(inst_t) } };
 

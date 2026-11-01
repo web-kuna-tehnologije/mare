@@ -1,4 +1,4 @@
-# Todo list - issue folders 4 to 8 (assets/issues/issue4-8; 2026-10-31/11-01, worktree oak, 0.22.7-0.22.11)
+# Todo list - issue folders 4 to 9 (assets/issues/issue4-9; 2026-10-31/11-01, worktree oak, 0.22.7-0.22.12)
 
 Every line of the `issues.txt` files and every screenshot in the folders, as written, with a priority.
 P0 = this round, in order; P1 = next round; P2 = after the physics foundation exists;
@@ -96,6 +96,25 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 61 | P0 | Fence the fields like in real life, not random placements | [x] 0.22.11: a panel on every cell of all four parcel edges, on the parcel grid |
 | 62 | P0 | Vineyards, wheat and similar in 3D, no shadow casting for now | [x] 0.22.11: vines in contour rows, wheat on a jittered grid over every grain parcel; the scatter was already main-pass only (no shadows) |
 
+## issue9 (assets/issues/issue9, 0.22.12)
+
+| # | Pri | Item (as written) | Status |
+|---|-----|-------------------|--------|
+| 63 | P0 | Recoil: move the ship ~5 cm, not rotate five times; rotation about the x axis, a couple of percent of a degree per shot, by gun strength | [x] 0.22.12: the ball's real momentum at the hull's centre (no yaw), plus a quarter-degree heel per gun on a damped roll spring; the body's roll and pitch now reach the shader |
+| 64 | P0 | Remove the fences (too much); reduce crop sizes and increase density | [x] 0.22.12: fences off; wheat 0.026 -> 0.015 every 0.019 units |
+| 65 | P0 | Villages: random non-interactable settlements for the hinterland population, roads to the ports they abide to, mines and fields nearby | [x] the inland settlements, their roads to their port, mills and pitheads exist since 0.22.3-0.22.6; 0.22.12 makes them *read*: wider built discs, fuller villages, and the fields gathered round them |
+| 66 | P0 | Fields only near rural or port settlements | [x] 0.22.12: a halo round each settlement and a strip along the roads; nothing elsewhere |
+| 67 | P0 | Forests to fill the empty relief | [x] 0.22.12: a clumped wild woodland over every gentle lowland and hillside not crops/bare/snow |
+| 68 | P0 | Clouds more uneven (not circles), greyer, slower, longer in the air | [x] 0.22.12: gunsmoke greyer, opaque, 1.6x life, half the wind, oval billboards; the sky's clouds a third the drift, greyer, torn edges |
+| 69 | P0 | Masts still not thick; the front lateen too small for its sail and not connected; rope connecting sails to the boat | [x] 0.22.12: MAST_SLIM 0.64; the lantina a tenth longer than the design line; sheets from every clew to the rail / the yard below |
+| 70 | P0 | Boat silhouettes visible through clouds, fog and smoke | [x] 0.22.12: the mesh fog mix goes to 100% (was capped at 85%, which kept every rope's outline); smoke opaque and longer-lived |
+| 71 | P0 | Zoom a little more on the strategic map to see the landscape | [x] 0.22.12: CAM_MIN_DIST 1.6 -> 1.0 x scale |
+| 72 | P0 | Waves from the ship should be directional | [x] 0.22.12: the Kelvin V rooted at the stem, twice the height, half the width, with inboard troughs; the bow's radial ring smaller |
+| 73 | P0 | Real forests; crops not needed now; cows and sheep | [x] 0.22.12: wild woodland (67), cattle herds and five times the flocks on the pasture |
+| 74 | P0 | Reduce elevation change by 70% | [x] 0.22.12: height scale 16 -> 5, ring noise cut to match, every height threshold rescaled through `u_hscale` / `geochunks_height_scale_rel()` |
+| 75 | P0 | Foam on the crests like in the strategic map (screenshot) | [x] 0.22.12: the staged peak term starts lower and at a gentler slope; foam floor 0.30 |
+| 76 | P0 | Wakes like wake.png | [x] same as 72: the arms break white, denser and narrower, in the fragment stage and the wake map |
+
 ## P1.3 Physics foundation (M5.5) - the dev.txt checklist
 
 | Pri | Item | Status |
@@ -108,7 +127,7 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | P1 | Ship-to-coast collision | [x] 0.22.9: the staged shore profile as a signed distance; a disc in water shallower than her draft grounds, is pushed seaward and slewed |
 | P2 | Wreck collision | [ ] |
 | P1 | Multi-point buoyancy sampling | [x] 0.22.11: five points per hull (three keel discs, two bilges) against the caller's surface; `physics_test` checks pitch on a fore-aft wave and roll on a beam wave |
-| P1 | Pitch / roll / heave | [~] the body has them now (`nphys_attitude`, 0.22.11) and the renderer scales the hull's roll by them; the mesh shader still draws its own canned motion - replacing it with the body's angles needs a wider instance format |
+| P1 | Pitch / roll / heave | [x] 0.22.12: the body's roll and pitch (buoyancy + recoil heel) go to the shader through `inst_t.roll_b/pitch_b` (`i_anchor` is a vec4) and turn every part of the ship about the hull's pivot; the canned motion is a third of what it was |
 | - | Physics samples the same wave function as the renderer | [x] |
 | P2 | Broadphase collision | [ ] |
 | P1 | Ballistic ray / swept-sphere projectile model | [x] 0.22.11: `nphys_fire` - swept spheres under gravity against the compound hulls, hits and splashes as events |
@@ -129,7 +148,7 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | - | Strategic simulation remains discrete: 1 day = 1 tick | [x] |
 | P1 | Strategic state includes hull integrity, crew/morale, guns, sails, flooding, fire, sinking | [~] hull/crew/guns exist; flooding/fire/sinking do not |
 
-## Order of work (updated 0.22.11)
+## Order of work (updated 0.22.12)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -140,10 +159,11 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 7. issue6 items 35-43 and P1.3 items 1-6. **Done 0.22.9.**
 8. issue7 items 44-51 and the trailer. **Done 0.22.10.**
 9. issue8 items 52-62, todo 15/17/19/21/26, physics buoyancy + ballistics. **Done 0.22.11.**
-10. Next, in this order:
+10. issue9 items 63-76. **Done 0.22.12.** (The body attitude into the shader came with it.)
+11. Next, in this order:
    1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
-   2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy already knows where the waterline is), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
-   3. **Body attitude into the shader**: a vec4 anchor (heave, pitch, roll per instance) so the rig heels with the physics instead of the canned motion. The other oak session did this to its `i_anchor`; merge with care.
-   4. **True sternway** (item 9): the rigid body can now be pushed backwards by a head wind - give the drive a sail force by point of sail instead of a speed command.
-   5. **Broadphase and physics jobs** once the staged battle has more than ~60 hulls; the worker pool is there.
-   6. **Lightning** in a storm, and squalls as particles (the rest of todo 19).
+   2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy knows the waterline), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
+   3. **Heave into the shader**: the body's heave is computed but the hull still rides the shader's own wave sample; with the attitude channel in place the heave is one more float.
+   4. **True sternway** (item 9): a sail force by point of sail instead of a speed command, now that the body can be pushed backwards by a head wind.
+   5. **A settlement generator proper** (roadmap P2.1): the hinterland reads now; the next step is street layouts and the authored house assets in the villages, and hand-placed landmarks in Venice, Dubrovnik and Constantinople.
+   6. **Broadphase and physics jobs** once the staged battle has more than ~60 hulls; **lightning** in a storm.

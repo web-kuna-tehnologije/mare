@@ -74,6 +74,7 @@ typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway
                         // shortening it. Spars whose long axis is y (the masts) set it; a yard
                         // or a bowsprit must not, since their length lies in x or z.
                         float ax, az;   // wave/roll anchor: the hull position a ship part is rigid to (0,0 = this IS the hull)
+                        float roll_b, pitch_b;   // the body's own roll and pitch (radians, sim/naval_physics attitude + recoil heel), the same on every part of one ship (0.22.12)
 } inst_t;
 typedef struct mesh_t { rhi_geometry_t geo; int ninst; } mesh_t;
 extern const rhi_layout_t mesh_layout;                // builder vertices + inst_t instances (meshes.c program)

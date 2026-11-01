@@ -897,14 +897,17 @@ void DetailView::frame(float dt) {
     shipyard_frame_begin();
     for (int i = 0; i < dv.nships; ++i) { const dv_ship_t *s = &dv.ship[i];
         float wx = dv.cx + s->x, wz = dv.cz + s->z, rock = dv.mode == DV_BATTLE ? 0.8f : 0.3f;
-        if (s->body >= 0) { float hv, pt, rl; nphys_attitude(s->body, &hv, &pt, &rl);
-            rock *= 1.f + 0.9f * nphys_heel(s->body) + 3.0f * fabsf(rl) + 2.0f * fabsf(pt); }   // 0.22.9: she leans into her turn; 0.22.11: and answers the water under her (P1.3 buoyancy)
+        float broll = 0.f, bpitch = 0.f;
+        if (s->body >= 0) { float hv; nphys_attitude(s->body, &hv, &bpitch, &broll);
+            // 0.22.12: the body's own roll and pitch go to the shader (inst_t roll_b/pitch_b), so
+            // the canned motion is cut to a third and only adds the small short-period fidget
+            rock = 0.28f * (1.f + 0.9f * nphys_heel(s->body)); }
         // Authored hull, rig and oars at the staged scene's magnification; the procedural hull
         // below stands in while a class is still loading (shipyard.h).
         float dx = wx - cam.pos.x, dz = wz - cam.pos.z;
         shipyard_req_t sr = { s->type, s->nation, ROLE_WARSHIP, wx, wz, s->heading, DV_SHIP_SCALE,
                               rock, 0.f, 0.f, s->r, s->g, s->b,
-                              sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y), lod_key(LODK_MISC, 7, i) };
+                              sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y), lod_key(LODK_MISC, 7, i), broll, bpitch };
         if (shipyard_push(&sr)) continue;
         *instlist_push(&dv.ships_il[s->type]) = inst_t{ wx, 0, wz, s->heading,
             ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }

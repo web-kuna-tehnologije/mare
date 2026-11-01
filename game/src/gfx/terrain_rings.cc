@@ -437,21 +437,26 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             // slopes here are the *drawn* world's (the export normal is exaggerated ~15x), so a
             // Po-plain field grade reads 0.05 and a real hillside 0.3-0.8
             float gentle = 1.f - smoothstep_(0.28f, 0.60f, slope);
-            float low    = 1.f - smoothstep_(1.6f, 2.6f, base);
+            float hsr = geochunks_height_scale_rel();
+            float hgate = fine ? h : base;   // 0.22.12: the data's own height where it answers, not the base cell's
+            float low    = 1.f - smoothstep_(1.6f * hsr, 2.6f * hsr, hgate);
             // the nearest settlement, and the built disc it stands in
             float ds = 1e9f, rs = 0.1f, village = 0.f; int skind = 0;
             for (int q = 0; q < f->nsets; ++q) {
                 float dq = dist2d(wx, wz, f->set_xz[q][0], f->set_xz[q][1]);
                 if (dq < ds) { ds = dq; rs = f->set_xz[q][2]; skind = (int)f->set_xz[q][3]; }
-                if (f->set_xz[q][3] < 2.5f) village = maxf(village, 1.f - smoothstep_(f->set_xz[q][2] * 0.8f, f->set_xz[q][2] * 1.15f, dq));
+                if (f->set_xz[q][3] < 2.5f) village = maxf(village, 1.f - smoothstep_(f->set_xz[q][2] * 0.95f, f->set_xz[q][2] * 1.35f, dq));   // 0.22.12: a wider village
             }
-            float near_set  = 1.f - smoothstep_(rs * 1.5f, rs * 1.5f + 1.3f, ds);
+            // 0.22.12 (issue9 "fields only near settlements or ports"): the worked land is a
+            // halo round each settlement - about two kilometres on the map's scale - and a
+            // narrower strip along the roads between them; the rest of the country is wood
+            float near_set  = 1.f - smoothstep_(rs * 1.6f, rs * 1.6f + 0.75f, ds);
             float near_road = 0.f, rdd = 1e9f;
             { float rh; int rc; if (f->rdg && roads_grid_query(f->rdg, wx, wz, &rdd, &rh, &rc)) near_road = 1.f - smoothstep_(0.12f, 0.7f, rdd); }
             float patch  = world_fbm(lon * 9.f + 2.f, lat * 9.f + 4.f, 2, 0x4C11u);
             float patch2 = world_fbm(lon * 21.f + 6.f, lat * 21.f + 1.f, 2, 0x2E53u);
             // fields: cropland on gentle low ground, thickest round the villages and along the roads
-            float fields = crop * gentle * low * clampf(0.62f + 0.38f * maxf(near_set, 0.7f * near_road), 0.f, 1.f) * (0.72f + 0.28f * smoothstep_(0.35f, 0.6f, patch));
+            float fields = crop * gentle * low * maxf(near_set, 0.55f * near_road * (1.f - smoothstep_(0.25f, 0.45f, rdd))) * (0.72f + 0.28f * smoothstep_(0.35f, 0.6f, patch));
             // the region's goods decide what grows on the slopes
             int reg = region_at(wx, wz);
             float wine_pot = reg >= 0 && reg < G.nregions ? G.regions[reg].potential[G_WINE] : 0.f;
@@ -462,11 +467,11 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             float wine = maxf(smoothstep_(0.25f, 0.6f, wine_pot), 0.35f * medb);
             float sunny = clampf(0.45f + 3.0f * aspect_s, 0.f, 1.f);
             float vine = wine * smoothstep_(0.06f, 0.16f, slope) * (1.f - smoothstep_(0.5f, 0.8f, slope)) * sunny
-                       * (1.f - smoothstep_(0.9f, 1.6f, base)) * (crop >= 0.25f ? 1.f : 0.35f)
+                       * (1.f - smoothstep_(0.9f * hsr, 1.6f * hsr, hgate)) * (crop >= 0.25f ? 1.f : 0.35f)
                        * smoothstep_(0.52f, 0.62f, patch2) * (0.5f + 0.5f * near_set);
             // orchards round the villages; olive groves across the Mediterranean belt's slopes
             float orch  = (1.f - smoothstep_(rs * 1.2f, rs * 1.2f + 0.55f, ds)) * gentle * low * (crop > 0.05f ? 1.f : 0.f) * smoothstep_(0.54f, 0.64f, patch2 * 0.6f + patch * 0.4f);
-            float olive = medb * smoothstep_(0.10f, 0.22f, slope) * (1.f - smoothstep_(0.55f, 0.85f, slope)) * (1.f - smoothstep_(1.0f, 1.6f, base)) * (crop > 0.05f ? 1.f : 0.f)
+            float olive = medb * smoothstep_(0.10f, 0.22f, slope) * (1.f - smoothstep_(0.55f, 0.85f, slope)) * (1.f - smoothstep_(1.0f * hsr, 1.6f * hsr, hgate)) * (crop > 0.05f ? 1.f : 0.f)
                         * smoothstep_(0.57f, 0.66f, world_fbm(lon * 13.f + 9.f, lat * 13.f + 3.f, 2, 0x7A21u)) * (0.4f + 0.6f * near_set);
             // roadside hamlets: a few of the 0.9-unit cells along a road get a cluster of houses
             float hamlet = 0.f;
@@ -486,7 +491,20 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             landuse[3] = (unsigned char)(255.f * clampf(built, 0.f, 1.f));
             // the woods (0.22.5): the export's tree cover, thinned by fields and villages, with
             // the shrubland as open woodland; gfx/scatter.cc stands the trees on it
-            float wood = biome == GC_BIOME_TREES ? 1.f : biome == GC_BIOME_SHRUBS ? 0.35f : 0.f;
+            float wood = biome == GC_BIOME_TREES ? 1.f : biome == GC_BIOME_SHRUBS ? 0.55f : 0.f;
+            // 0.22.12 (issue9 "add forests to fill the empty relief", "real forests"): the open
+            // country away from the settlements was grass; it is woodland now - a clumped cover
+            // over every gentle lowland and hillside the data does not call crops or bare, so
+            // the land between the villages reads as the forested Europe of 1620
+            // the export's cropland is the *modern* map: in 1620 that land was forest too unless
+            // a settlement worked it, and near_set already carries that, so cropland weighs
+            // nearly as much as the rest
+            // ... and the karst and heath the data calls *bare* were wooded then as well, before
+            // the goats and the galley yards: bare ground takes a lighter cover, snow none
+            float wild = (1.f - near_set) * (biome == GC_BIOME_CROPS ? 0.85f : biome == GC_BIOME_BARE ? 0.6f : biome == GC_BIOME_SNOW || biome == GC_BIOME_BUILT ? 0.f : 1.f)
+                       * (1.f - smoothstep_(2.2f * hsr, 3.6f * hsr, hgate))
+                       * smoothstep_(0.24f, 0.50f, world_fbm(lon * 3.5f + 31.f, lat * 3.5f + 11.f, 3, 0x66A1u));
+            wood = maxf(wood, 0.85f * wild);
             // 0.22.6 (issue3 "forests need to be in bunches, not in the middle of the fields"):
             // a low-frequency clump mask gathers the woodland into stands with clearings
             // between them, and cropland now excludes it outright rather than thinning it.
@@ -561,8 +579,9 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     }
     LOG_DEBUG("stream", "ring %s rivers: %d segments in the grid", r->extent < 100.f ? "near" : "far", rg.nidx);
     { int nr = 0, nf = 0, nv = 0, no = 0, nb = 0;
-      for (int i = 0; i < r->res * r->res; ++i) { nr += r->river[i * 4] > 64; nf += r->landuse[i * 4] > 64; nv += r->landuse[i * 4 + 1] > 64; no += r->landuse[i * 4 + 2] > 64; nb += r->landuse[i * 4 + 3] > 64; }
-      LOG_DEBUG("stream", "ring %s rivers: %d water texels; land use: %d field, %d vineyard, %d orchard, %d village texels (over 1/4)", r->extent < 100.f ? "near" : "far", nr, nf, nv, no, nb); }
+      int nw = 0;
+      for (int i = 0; i < r->res * r->res; ++i) { nr += r->river[i * 4] > 64; nf += r->landuse[i * 4] > 64; nv += r->landuse[i * 4 + 1] > 64; no += r->landuse[i * 4 + 2] > 64; nb += r->landuse[i * 4 + 3] > 64; nw += r->forest[i] >= 60; }
+      LOG_DEBUG("stream", "ring %s rivers: %d water texels; land use: %d field, %d vineyard, %d orchard, %d village texels (over 1/4), %d forest texels (>= 60)", r->extent < 100.f ? "near" : "far", nr, nf, nv, no, nb, nw); }
     rivers_grid_free(&rg); roads_grid_free(&rdg);
     rhi_texture_update(&r->tex, r->buf);
     rhi_texture_update(&r->shore_tex, r->shore);

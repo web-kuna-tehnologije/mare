@@ -29,8 +29,8 @@ void main(){
     float boil = exp(-astern / 0.38) * (1.0 - smoothstep(0.0, 0.085 + 0.06 * astern, across));
     foam += boil * 1.05;
 // the two diverging arms, at 19.5 degrees, started here and left behind by the map
-    float arm = abs(across - astern * 0.354), armw = 0.04 + 0.03 * astern;
-    foam += exp(-(arm * arm) / (armw * armw)) * exp(-astern / 0.7) * 0.5;
+    float arm = abs(across - astern * 0.354), armw = 0.035 + 0.025 * astern;
+    foam += exp(-(arm * arm) / (armw * armw)) * exp(-astern / 0.9) * 0.85;   // 0.22.12: the V's crests break white (wake.png)
 // the flattened lane between them: not foam, but water she has already broken
     dist += (1.0 - smoothstep(0.0, 0.16 + 0.18 * astern, across)) * exp(-astern / 0.8);
   }

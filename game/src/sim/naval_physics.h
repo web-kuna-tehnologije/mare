@@ -63,6 +63,9 @@ void nphys_set_surface(nphys_surface_fn fn, void *user);
 // An impulse (mass x velocity, in the caller's units) applied at a world point: the recoil of
 // a broadside, a ram, a tow. The off-centre part turns her (item 9).
 void nphys_impulse(int id, float px, float pz, float jx, float jz);
+// A kick to her roll (radians of heel), as a gun's recoil at deck height gives: a damped
+// spring brings her back over a few seconds (0.22.12). Starboard down +.
+void nphys_kick_roll(int id, float rad);
 
 // A round shot: from a point at height y, along a unit direction with a muzzle speed, from
 // `owner` (never hits her). Falls under gravity, tested against every other hull each step.

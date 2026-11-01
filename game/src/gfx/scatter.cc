@@ -15,6 +15,7 @@ extern "C" {
 #include "../core/util.h"
 #include "../core/diag.h"
 #include "../world/world.h"
+#include "../world/terrain_chunks.h"
 }
 
 int scatter_enabled = 1;
@@ -60,9 +61,9 @@ private:
     static float hash2(float x, float y) { float v = sinf(x * 127.1f + y * 311.7f) * 43758.5453f; return v - floorf(v); }   // terrain.frag's hash()
     static void octa(mb_t *m, float cy, float rxz, float ry, const float *ca, const float *cb);
     static void cone(mb_t *m, float cy, float r, float h, const float *ca, const float *cb);
-    mesh_t tree = {}, olive = {}, vine = {}, sheep = {}, pine = {}, oak = {}, house = {}; int built = 0;
+    mesh_t tree = {}, olive = {}, vine = {}, sheep = {}, pine = {}, oak = {}, house = {}, cow = {}; int built = 0;
     mesh_t card_broad = {}, card_pine = {}, fence = {}, wheat = {}, mill = {}, mine = {}, rock = {};
-    instlist_t li_tree = {}, li_olive = {}, li_vine = {}, li_sheep = {}, li_pine = {}, li_oak = {}, li_house = {};
+    instlist_t li_tree = {}, li_olive = {}, li_vine = {}, li_sheep = {}, li_pine = {}, li_oak = {}, li_house = {}, li_cow = {};
     instlist_t li_card_b = {}, li_card_p = {}, li_fence = {}, li_wheat = {}, li_mill = {}, li_mine = {}, li_rock = {};
 };
 
@@ -156,6 +157,11 @@ void Scatter::build_meshes() {
             float a1[3] = { 0, 0.02f, -w }, b1[3] = { 0, 0.02f, w }, c1[3] = { 0, 1.f, w }, d1[3] = { 0, 1.f, -w };
             mb_quad2(&m, a0, b0, c0, d0, col[0], col[1], col[2], 0.f);
             mb_quad2(&m, a1, b1, c1, d1, col[0] * 0.86f, col[1] * 0.86f, col[2] * 0.86f, 0.f);
+            // 0.22.12 (issue9 "real forests"): a flat crown quad as well, so from above - the
+            // way the strategic map looks at a wood - a card is a round crown and not a hairline
+            float cw = w * 0.9f, cy = k ? 0.62f : 0.72f;
+            float e0[3] = { -cw, cy, -cw }, e1[3] = { cw, cy, -cw }, e2[3] = { cw, cy, cw }, e3[3] = { -cw, cy, cw };
+            mb_quad2(&m, e0, e1, e2, e3, col[0] * 1.08f, col[1] * 1.08f, col[2] * 1.05f, 0.f);
             *(k ? &card_pine : &card_broad) = mesh_upload(&m);
         }
     }
@@ -218,6 +224,16 @@ void Scatter::build_meshes() {
         octa(&m, 0.45f, 0.55f, 0.45f, rk_hi, rk_lo);
         rock = mesh_upload(&m);
     }
+    {   // a cow (0.22.12, issue9 "add cows and sheep"): a deep body, a head forward and down, four legs, one unit long
+        const float hide[3] = { 0.42f, 0.30f, 0.22f }, patch[3] = { 0.86f, 0.84f, 0.80f }, dark[3] = { 0.20f, 0.16f, 0.13f };
+        mb_t m = mb_t{}; mb_material(&m, 0.92f, 0.f);
+        mb_box(&m, 0, 0.52f, 0, 0.44f, 0.22f, 0.17f, hide[0], hide[1], hide[2], 0.f);
+        mb_box(&m, -0.12f, 0.60f, 0.10f, 0.16f, 0.12f, 0.09f, patch[0], patch[1], patch[2], 0.f);   // a white patch on the flank
+        mb_box(&m, 0.52f, 0.44f, 0, 0.12f, 0.11f, 0.09f, dark[0], dark[1], dark[2], 0.f);           // the head
+        for (int lx = -1; lx <= 1; lx += 2) for (int lz = -1; lz <= 1; lz += 2)
+            mb_box(&m, lx * 0.30f, 0.16f, lz * 0.11f, 0.045f, 0.16f, 0.045f, dark[0], dark[1], dark[2], 0.f);
+        cow = mesh_upload(&m);
+    }
     {   // a sheep: a woolly body and a dark head, one unit long
         mb_t m = mb_t{}; mb_material(&m, 0.95f, 0.f);
         mb_box(&m, 0, 0.42f, 0, 0.42f, 0.26f, 0.24f, wool[0], wool[1], wool[2], 0.f);
@@ -231,7 +247,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                       const float *sets, int nsets) {
     if (!scatter_enabled) return;
     if (!built) build_meshes();
-    instlist_clear(&li_tree); instlist_clear(&li_olive); instlist_clear(&li_vine); instlist_clear(&li_sheep);
+    instlist_clear(&li_tree); instlist_clear(&li_olive); instlist_clear(&li_vine); instlist_clear(&li_sheep); instlist_clear(&li_cow);
     instlist_clear(&li_pine); instlist_clear(&li_oak); instlist_clear(&li_house);
     instlist_clear(&li_card_b); instlist_clear(&li_card_p); instlist_clear(&li_fence);
     instlist_clear(&li_wheat); instlist_clear(&li_mill); instlist_clear(&li_mine); instlist_clear(&li_rock);
@@ -273,7 +289,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             float hcx = 0.019f, hcz = 0.014f;
             float gx = floorf(qx / hcx), gz = floorf(qz / hcz);
             long long key = ((long long)(int)gx * 73856093LL) ^ ((long long)(int)gz * 19349663LL) ^ 0x5A5A5A5ALL ^ ((long long)(int)dcx * 83492791LL) ^ ((long long)(int)dcz * 2654435761LL);
-            if (cells.insert(key).second && hash2(gx + 9.f, gz + 9.f) >= 0.42f) {
+            if (cells.insert(key).second && hash2(gx + 9.f, gz + 9.f) >= 0.22f) {   // 0.22.12: a fuller village (issue9 "add villages")
                 float cqx = (gx + 0.5f) * hcx, cqz = (gz + 0.5f) * hcz;
                 float hx_ = cqx * ca + cqz * sa, hz_ = -cqx * sa + cqz * ca;
                 if (lu_at(hx_, hz_, 3) >= 110) {
@@ -289,7 +305,8 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                 float ox = (hash2(i + 21.f, j + 21.f) - 0.5f) * step, oz = (hash2(i + 22.f, j + 22.f) - 0.5f) * step;
                 float h = ground(wx + ox, wz + oz);
                 if (h > 0.04f) {
-                    int conifer = (h > 1.4f || lat > 46.f || hash2(i + 23.f, j + 23.f) < 0.22f + 0.35f * clampf((h - 0.7f) / 1.2f, 0.f, 1.f));
+                    float hsr = geochunks_height_scale_rel();
+                    int conifer = (h > 1.4f * hsr || lat > 46.f || hash2(i + 23.f, j + 23.f) < 0.22f + 0.35f * clampf((h - 0.7f * hsr) / (1.2f * hsr), 0.f, 1.f));
                     float sz = (conifer ? WOOD_H * 1.35f : WOOD_H) * (0.75f + 0.5f * hash2(i + 24.f, j + 24.f));   // 0.22.8: pines taller (1.15 -> 1.35)
                     inst_t ti = inst(wx + ox, h - 0.015f, wz + oz, hash2(i + 25.f, j + 25.f) * 6.2832f, sz);
                     int faraway = dist2d(wx, wz, ringcx, ringcz) > PROP_LOD1;   // the card LOD beyond PROP_LOD1 (`far` is a reserved word on MSVC)
@@ -380,7 +397,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             // only the worked parcels are fenced (the shader paints grain at R >= 60; the
             // thinner R is pasture and fallow, left open) - with every edge fenced, fencing
             // the fringe too laid a net over the whole lowland (241k panels in one ring)
-            const int fenced = R >= 60;
+            const int fenced = 0;   // 0.22.12 (issue9 "remove the fences, it looks weird"): the parcel grid is kept for the day they come back; nothing is placed
             if (fenced && fz < step / pcz) {                              // the long edge (along the parcel's x)
                 float ez = floorf(qz / pcz) * pcz;
                 for (float ex = floorf((qx - step * 0.5f) / FENCE_L) * FENCE_L; ex < qx + step * 0.5f; ex += FENCE_L) {
@@ -403,23 +420,28 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             // jittered grid - not a tuft on one texel in twenty. Only the grain parcels (the
             // shader paints R 60-120 as crops, lower as ploughed/pasture).
             if (R >= 60) {
-                const float WHEAT_GAP = 0.030f;
+                const float WHEAT_GAP = 0.019f;   // 0.22.12: closer (issue9 "reduce crop sizes, increase density")
                 for (float gx_ = ceilf((wx - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gx_ < wx + step * 0.5f && total < SCATTER_MAX; gx_ += WHEAT_GAP)
                     for (float gz_ = ceilf((wz - step * 0.5f) / WHEAT_GAP) * WHEAT_GAP; gz_ < wz + step * 0.5f && total < SCATTER_MAX; gz_ += WHEAT_GAP) {
                         float jx = (hash2(gx_ * 211.f, gz_ * 173.f) - 0.5f) * 0.6f * WHEAT_GAP, jz = (hash2(gx_ * 97.f + 3.f, gz_ * 59.f) - 0.5f) * 0.6f * WHEAT_GAP;
                         float h = ground(gx_ + jx, gz_ + jz);
                         if (h > 0.05f) { *instlist_push(&li_wheat) = inst(gx_ + jx, h - 0.002f, gz_ + jz, hash2(gx_ * 7.f, gz_ * 11.f) * 6.2832f,
-                                                                          0.026f * (0.8f + 0.4f * hash2(gx_ * 13.f, gz_ * 17.f))); total++; }
+                                                                          0.015f * (0.8f + 0.4f * hash2(gx_ * 13.f, gz_ * 17.f))); total++; }   // 0.22.12: 0.026 -> 0.015
                     }
             }
             continue;
-        } else {   // pasture: the thin fields round a village - the odd flock of sheep
-            if (hash2(i * 0.913f + 0.3f, j * 0.577f + 0.4f) < 0.004f) {
-                int n = 4 + (int)(hash2(i + 9.f, j + 9.f) * 4.f);
+        } else {   // pasture: the thin fields round a village - flocks of sheep and herds of cattle (0.22.12: five times as many, and cows)
+            float hp = hash2(i * 0.913f + 0.3f, j * 0.577f + 0.4f);
+            if (hp < 0.030f) {
+                int cows = hp < 0.011f;
+                int n = cows ? 3 + (int)(hash2(i + 9.f, j + 9.f) * 4.f) : 5 + (int)(hash2(i + 9.f, j + 9.f) * 6.f);
                 for (int k = 0; k < n && total < SCATTER_MAX; ++k) {
-                    float ox = (hash2(i + 10.f + k, j + 10.f) - 0.5f) * step * 1.6f, oz = (hash2(i + 11.f, j + 11.f + k) - 0.5f) * step * 1.6f;
+                    float ox = (hash2(i + 10.f + k, j + 10.f) - 0.5f) * step * 1.8f, oz = (hash2(i + 11.f, j + 11.f + k) - 0.5f) * step * 1.8f;
                     float h = ground(wx + ox, wz + oz);
-                    if (h > 0.04f) { *instlist_push(&li_sheep) = inst(wx + ox, h, wz + oz, hash2(i + 12.f + k, j + 12.f + k) * 6.2832f, SHEEP_L * (0.9f + 0.2f * hash2(i + 13.f, j + 13.f + k))); total++; }
+                    if (h <= 0.04f) continue;
+                    if (cows) *instlist_push(&li_cow) = inst(wx + ox, h, wz + oz, hash2(i + 12.f + k, j + 12.f + k) * 6.2832f, SHEEP_L * 1.9f * (0.9f + 0.2f * hash2(i + 13.f, j + 13.f + k)));
+                    else      *instlist_push(&li_sheep) = inst(wx + ox, h, wz + oz, hash2(i + 12.f + k, j + 12.f + k) * 6.2832f, SHEEP_L * (0.9f + 0.2f * hash2(i + 13.f, j + 13.f + k)));
+                    total++;
                 }
             }
         }
@@ -440,6 +462,7 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
     mesh_set_instances(&olive, li_olive.v, li_olive.n);
     mesh_set_instances(&vine, li_vine.v, li_vine.n);
     mesh_set_instances(&sheep, li_sheep.v, li_sheep.n);
+    mesh_set_instances(&cow, li_cow.v, li_cow.n);
     mesh_set_instances(&pine, li_pine.v, li_pine.n);
     mesh_set_instances(&oak, li_oak.v, li_oak.n);
     mesh_set_instances(&house, li_house.v, li_house.n);
@@ -475,6 +498,7 @@ int Scatter::submit() {
     if (li_olive.n) { mesh_draw(&olive); n += li_olive.n; }
     if (li_vine.n)  { mesh_draw(&vine);  n += li_vine.n; }
     if (li_sheep.n) { mesh_draw(&sheep); n += li_sheep.n; }
+    if (li_cow.n)   { mesh_draw(&cow);   n += li_cow.n; }
     return n;
 }
 

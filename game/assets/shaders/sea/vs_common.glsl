@@ -56,7 +56,7 @@ float ship_wave(vec2 pp, float t) {
     float side = 1.0 - smoothstep(0.30 * L, 0.70 * L, abs(across));
     float env = exp(-r / (0.35 * L)) * ahead * side * (1.0 - smoothstep(0.9 * L, 1.3 * L, r));
     float ph = 6.28318 / (0.30 * L) * r - t * (2.0 + 4.0 * spd);
-    hgt += 0.020 * L * spd * env * (0.7 * cos(ph) + 0.3);   // 0.22.5: a bigger bow wave
+    hgt += 0.012 * L * spd * env * (0.7 * cos(ph) + 0.3);   // 0.22.5: a bigger bow wave; 0.22.12: smaller - the water goes into the arms below, not a ring ahead (issue9 "waves should be directional")
     float hull = smoothstep(-0.05 * L, 0.25 * L, along) * (1.0 - smoothstep(0.40 * L, 0.50 * L, along))
                * exp(-abs(abs(across) - 0.19 * L) / (0.08 * L));
     hgt += 0.012 * L * spd * hull;
@@ -66,14 +66,19 @@ float ship_wave(vec2 pp, float t) {
 // train whose phase runs along each arm, so the wake rolls outward as she goes, and the lane is
 // a shallow trough. It decays over about six hull lengths, which is what keeps it from
 // becoming the scar across the ocean the old V wake was (0.19).
-    float astern = -along;                        // how far behind her stem
+    float astern = 0.46 * L - along;              // how far behind her stem (0.22.12: measured from the stem, so the arms root at the cutwater)
     if (astern > 0.0) {
       float fade = exp(-astern / (3.2 * L)) * spd;
+// 0.22.12 (issue9, wake.png): the diverging arms are the wake. They start at the stem (the
+// bow wave *is* their root), run out at 19.5 degrees as a steep, breaking crest with a
+// trough inboard of it, and carry a wave train along their length - twice the height they
+// had, in a band half as wide, so the V is a pair of ridges on the sea and not a smear.
       float arm = abs(across) - astern * 0.354;   // distance from the 19.5-degree arm
-      float armw = 0.16 * L + 0.05 * astern;      // the arm broadens as it runs out
+      float armw = 0.10 * L + 0.035 * astern;     // the arm broadens as it runs out
       float armk = exp(-(arm * arm) / (armw * armw)) * fade;
       float aph = 6.28318 / (0.42 * L) * (astern * 1.06 + abs(across) * 0.35) - t * 1.4;
-      hgt += 0.016 * L * armk * cos(aph);
+      hgt += 0.034 * L * armk * (0.55 + 0.45 * cos(aph));
+      hgt -= 0.012 * L * exp(-pow((arm + 0.9 * armw) / armw, 2.0)) * fade;   // the trough just inboard of the crest
       float lane = (1.0 - smoothstep(0.0, 0.30 * L + 0.22 * astern, abs(across))) * fade;
       hgt -= 0.010 * L * lane;                    // the flattened, dragged-down lane astern
 // the stern wave (0.22.11, issue8 "real generated waves from stern and bow"): the water closing

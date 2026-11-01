@@ -50,7 +50,7 @@ void Sky::update(float dt) {
     if (cloud_pin >= 0.f) target = cloud_pin;
     sky_cloud_cover += (target - sky_cloud_cover) * (1.f - expf(-dt / 4.f));
     // the cloud field drifts downwind, faster than the sea does, as an accumulated offset
-    sky_cloud_off[0] += sea_wind_dx * 0.011f * 1.8f * dt; sky_cloud_off[1] += sea_wind_dz * 0.011f * 1.8f * dt;
+    sky_cloud_off[0] += sea_wind_dx * 0.011f * 0.7f * dt; sky_cloud_off[1] += sea_wind_dz * 0.011f * 0.7f * dt;   // 0.22.12: clouds drift at a third of the old rate (issue9 "move slower")
 }
 
 // the cloud uniform every lit pipeline shares (GLSL_CLOUDS): drift, cover, plane height

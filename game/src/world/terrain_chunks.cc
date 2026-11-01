@@ -38,8 +38,14 @@ namespace mare::game::world {
 // in. So the whole world is 20% lower instead, which leaves the Po plain flat and takes the
 // worst of the spikes off the ranges. MARE_HEIGHT_SCALE overrides it for a look without a build.
 #define GC_HEIGHT_SCALE   gc_height_scale()
-static float gc_height_scale_v = 16.f;
-static inline float gc_height_scale(void) { return gc_height_scale_v; }
+static float gc_height_scale_v = 5.f;   // 0.22.12: 16 -> 5, the 70% less relief issue9 asks for (MARE_HEIGHT_SCALE overrides)
+static int   gc_height_scale_read = 0;
+static inline float gc_height_scale(void) {
+    // read the override on first use (0.22.12): the procedural base world and the overview
+    // scale themselves by this before geochunks_init runs, so it cannot wait for init
+    if (!gc_height_scale_read) { gc_height_scale_read = 1; const char *e = getenv("MARE_HEIGHT_SCALE"); if (e) gc_height_scale_v = clampf((float)atof(e), 2.f, 60.f); }
+    return gc_height_scale_v;
+}
 #define GC_DEPTH_SCALE     9.f
 #define GC_M_PER_DEG  111320.f      // metres per degree of latitude: the export's normals use geographic metre spacing
 // The high ranges (0.22.3). The linear 9000 m -> 20 units puts the Alps at 7-9 units, which
@@ -127,6 +133,7 @@ public:
     unsigned chunk_wanted(int d, int cx, int cy) { gc_chunk_t *c = at(d, cx, cy); return c ? c->last_want : 0; }
     const gc_biome_t *biome(int id);
     float    exaggeration() { return (GC_HEIGHT_SCALE / GC_LAND_MAX_M) / (WORLD_K / GC_M_PER_DEG); }
+    float    height_scale_rel() { return GC_HEIGHT_SCALE / 16.f; }   // relative to the 0.22.6 world every height threshold was tuned against
 
     int   present = 0, inited = 0;
     std::vector<gc_ds_t> ds;          // finest first
@@ -381,9 +388,7 @@ int GeoChunks::init(const char *dir) {
     { const char *on = getenv("MARE_GEOCHUNKS");
       if (on && atoi(on) == 0) { LOG_INFO("terrain", "terrain chunks off (MARE_GEOCHUNKS=0)"); return 0; } }
     std::vector<std::string> roots;
-    { const char *e = getenv("MARE_HEIGHT_SCALE");
-      if (e) { gc_height_scale_v = clampf((float)atof(e), 2.f, 60.f);
-               LOG_INFO("terrain", "vertical exaggeration pinned: 9000 m -> %.1f world units (MARE_HEIGHT_SCALE)", gc_height_scale_v); } }
+    if (getenv("MARE_HEIGHT_SCALE")) LOG_INFO("terrain", "vertical exaggeration pinned: 9000 m -> %.1f world units (MARE_HEIGHT_SCALE)", gc_height_scale());
     probe(dir, roots);
     for (const std::string &r : roots) if ((int)ds.size() < GC_MAX_DATASETS) add_dataset(r.c_str());
     if (ds.empty()) { LOG_WARN("terrain", "no terrain dataset found (looked beside %s for data_chunks_terrain, data_new_2 and data_new): the procedural world stands alone", asset_root()); return 0; }
@@ -786,7 +791,13 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
                 // thin coast keeps its hills instead of folding to a sandbar (0.22.3). A cell the
                 // data already puts on high ground keeps its centre sample as before.
                 float take = hc > 0.35f ? hc : maxf(hc, hmax);
-                if (take > b->hm[i]) { b->hm[i] = take; b->tally[k][0]++; }
+                // 0.22.12 (issue9 "nothing is fixed in terrain"): the base used to keep whichever
+                // was *higher*, the procedural relief or the data - so the data could never
+                // lower a hill the procedural world had invented, and when the vertical scale
+                // came down the base stayed where it was and the rings had to pull half the
+                // country down by metres every frame. Where the data answers for a land cell,
+                // the base is the data; the harbours (protect) keep theirs.
+                if (!keep || take > b->hm[i]) { b->hm[i] = take; b->tally[k][0]++; }
             } else if (!was_land && hc < 0.f && votes <= 1) {
                 b->hm[i] = minf(hc, -0.12f); b->tally[k][0]++;
             }
@@ -879,6 +890,7 @@ int  geochunks_chunk_maps(int ds, int cx, int cy, const unsigned char **cls, con
 unsigned geochunks_chunk_wanted(int ds, int cx, int cy) { return geochunks().chunk_wanted(ds, cx, cy); }
 const char *geochunks_biome_name(int id) { return geochunks().biome(id)->name; }
 void geochunks_biome_rgb(int id, float rgb[3]) { const auto *b = geochunks().biome(id); for (int k = 0; k < 3; ++k) rgb[k] = b->rgb[k] / 255.f; }
+float geochunks_height_scale_rel(void) { return mare::game::world::geochunks().height_scale_rel(); }
 float geochunks_exaggeration(void) { return geochunks().exaggeration(); }
 int  geochunks_bake(float *hm, unsigned char *lm, int w, int h, float lon0, float lat1,
                     float cells_per_deg, const unsigned char *protect, int *flips) {

@@ -551,6 +551,35 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
         // Canvas is not built here any more: every sail - square and lateen - is a per-ship
         // instance on its yard's braced heading (shipyard_push), hanging from the authored
         // square_yard / lateen_yard assets. Only the standing rigging stays in this mesh.
+        // 0.22.12 (issue9 "add rope connecting sails to boat"): the running rigging that ties
+        // the canvas to the hull - a sheet from each clew of every square sail down and aft to
+        // the rail, and the lateen's sheet from the clew to the quarter. The canvas swings on
+        // its brace and the sheet is laid for the squared yard, so at a hard brace a sheet
+        // lands a little off the clew; from the deck it still reads as the sail made fast.
+        {
+            float mh = ty[k] - dy;
+            int code = c->sail[k];
+            if (code == SAIL_LATEEN) {
+                float clew[3] = { sx[k] - 0.35f * mh, dy + 0.26f * mh, 0.012f };
+                for (int side = -1; side <= 1; side += 2) {
+                    float rail[3] = { sx[k] - 0.42f * mh, dy + 0.012f, side * hb * 0.92f };
+                    rig_rope(rope, clew, rail, RIG_ROPE_W * 1.1f);
+                }
+            } else if (code >= SAIL_SQUARE1 && code <= SAIL_SQUARE3) {
+                const sq_layout_t *ly = &sq_layout[code];
+                for (int l = 0; l < ly->n; ++l) {
+                    float top = dy + mh * ly->l[l].top, hw = mh * ly->l[l].hw;
+                    float foot = top - sq_drop[(int)ly->l[l].kind] * hw;
+                    for (int side = -1; side <= 1; side += 2) {
+                        float clew[3] = { sx[k] + RIG_SAIL_OFF, foot, side * hw };
+                        // the course sheets lead aft to the rail; a topsail's sheets lead to the
+                        // yard below it (here: down to the course's head), as on a real rig
+                        float to[3] = { l == 0 ? sx[k] - 0.16f * mh : sx[k] + RIG_SAIL_OFF, l == 0 ? dy + 0.012f : dy + mh * ly->l[l - 1].top, l == 0 ? side * hb * 0.92f : side * mh * ly->l[l - 1].hw };
+                        rig_rope(rope, clew, to, RIG_ROPE_W * (l == 0 ? 1.1f : 0.8f));
+                    }
+                }
+            }
+        }
     }
     if (c->spritsail) {   // the bowsprit, steeved up from the forecastle, with its spritsail slung under it
         if (!asset_find("bowsprit")) {   // authored spar in the registry: shipyard_push stands it instead
@@ -817,6 +846,7 @@ int Shipyard::push(const shipyard_req_t *r) {
 
     inst_t in = inst_t{ r->x, -water, r->z, r->heading, cscale,
                           r->cr, r->cg, r->cb, r->rock * resp, r->sel, resp, 0.f, r->dither };
+    in.roll_b = r->roll; in.pitch_b = r->pitch;   // the body's attitude, inherited by every part below (0.22.12)
     scene_asset_instance(hull, in, r->key, r->camdist);
     shipyard_ships_drawn++;
 
@@ -830,7 +860,7 @@ int Shipyard::push(const shipyard_req_t *r) {
     // The generated poles are chunky for their height - at the battle zoom a cog's mast read as
     // a tree trunk - so they are thinned radially (gpu.h inst_t.slim), which a uniform scale
     // cannot do without losing the height the class table sets.
-    #define MAST_SLIM     0.52f      // 0.22.6: thicker again (issue3); 0.34 -> 0.425 -> 0.52
+    #define MAST_SLIM     0.64f      // 0.22.6: thicker again (issue3); 0.34 -> 0.425 -> 0.52; 0.22.12: 0.64 (issue9 "masts still not thick")
     // ... and stepped *into* the ship rather than stood on `deck`. That fraction is a per-class
     // guess at where the hull model's deck is, and where it guesses high the mast floated a
     // metre over the planking. A mast is stepped on the keelson in any case, so burying the heel
@@ -995,7 +1025,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                         // the asset's rise is its y extent; scale it to the design line, put its
                         // middle on the line's middle (the model's pivot is its slung point)
                         float yext = maxf(la->bmax[1] - la->bmin[1], 1e-3f);
-                        float s = (LAT_PEAK_Y - LAT_TACK_Y) * mh / yext;
+                        float s = (LAT_PEAK_Y - LAT_TACK_Y) * mh / yext * 1.10f;   // 0.22.12: a tenth longer than the design line - the head of the canvas never overhung its ends (issue9 "too small for the sail")
                         if (s * yext * 1.5f > len * 1.6f) {   // never a spar longer than the hull and a half: log it instead of drawing it
                             static int warned; if (!warned) { warned = 1; LOG_WARN("gfx", "lateen_yard scale %.2f (extent %.3f, mh %.2f, len %.2f) implausible: spar suppressed", s, yext, mh, len); }
                             continue;

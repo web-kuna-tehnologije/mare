@@ -144,6 +144,7 @@ void        geochunks_biome_rgb(int id, float rgb[3]);
 // horizontal-to-vertical scale ratio of the world: a true-metre slope times this is the
 // slope of the drawn ground (the shaders apply it to the export's normals)
 float       geochunks_exaggeration(void);
+float       geochunks_height_scale_rel(void);   // GC_HEIGHT_SCALE / 16: scales every height threshold tuned against the 0.22.6 world (0.22.12)
 
 #ifdef __cplusplus
 }

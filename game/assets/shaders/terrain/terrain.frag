@@ -10,7 +10,7 @@ uniform sampler2D u_atlas; uniform float u_has_atlas;
 uniform sampler2D u_grain;
 // the procedural surface-grain normal map (detail.c): micro relief on the close ground
 uniform float u_time;
-uniform float u_camdist;
+uniform float u_camdist; uniform float u_hscale;
 // the camera's distance to its look-at point: the close-range detail fades below are gated by it
 // as well as by the fragment's own distance, so from a zoomed-out view they switch off everywhere
 // at once instead of inside a disc around the camera (the "ugly circle", 0.22.4)
@@ -58,7 +58,7 @@ void main(){
     gz += dk * (det_at(v_wpos.xz + vec2(0.0,e)) - det_at(v_wpos.xz - vec2(0.0,e))) / (2.0*e);
   }
   vec3 n = normalize(vec3(-gx, 1.0, -gz));
-  float h = v_h; float lat = -v_wpos.z / u_k; float lon = v_wpos.x / u_k;
+  float h = v_h / max(u_hscale, 0.05); float lat = -v_wpos.z / u_k; float lon = v_wpos.x / u_k;   // h in the 0.22.6 world's units, whatever the relief scale (0.22.12)
 // --- the chunk data (0.22): the export's land-cover classes, material weights and normal
 // (gfx/terrain_atlas.h). Everything below keeps its procedural rule as the fallback and takes the
 // data's word where a chunk is resident and the sample is covered.

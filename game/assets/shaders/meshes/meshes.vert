@@ -1,5 +1,5 @@
 in vec3 a_pos; in vec3 a_nrm; in vec3 a_col; in float a_mat; in vec2 a_rm;
-in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx; in vec2 i_anchor;
+in vec4 i_pos; in vec4 i_scol; in vec4 i_misc; in vec4 i_fx; in vec4 i_anchor;
 // xyz+heading | scale+rgb | sway, highlight, bob, x-stretch | dither, reserved
 uniform mat4 u_vp; uniform float u_time;
 uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_depth;
@@ -30,10 +30,13 @@ void main(){
 // same swell, the same roll and the same pitch. dl is the part's offset in the hull frame:
 // a pitching bow drops its foremast with it (first-order rigid translation).
   vec2 ap = i_pos.xz;
-  if (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6) ap = i_anchor;
+  if (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6) ap = i_anchor.xy;
   float ph = ap.x*3.0 + ap.y*2.0;
   float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.045;
   float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.022;
+// the body's own attitude (0.22.12): the five-point buoyancy and the recoil heel from
+// sim/naval_physics, the same angles on every part of the ship, about the same pivot
+  roll += i_anchor.z; pitch += i_anchor.w;
   float cr = cos(roll), sr = sin(roll), cp = cos(pitch), sp = sin(pitch);
 // 0.22.10 (issue7 "the lantina and the sail should act with the ship as if tied to it, which
 // they are"). The roll and the pitch are applied to the whole ship as ONE rigid body, about

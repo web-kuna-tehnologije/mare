@@ -88,6 +88,18 @@ Items 1-3 are done in this session; the rest is the order to take them in.
       houses to the road, a rutted centre on tracks - all as ring-texture channels or card
       scatter, never geometry in the height.
 
+## issue9 (assets/issues/issue9, 0.22.12) - rows 63-76 of docs/todo_list.md
+
+Done: the relief cut by 70% (height scale 16 -> 5) with every height threshold rescaled
+through `u_hscale`; fields only round the settlements and along the roads, wild woodland over
+the rest, fuller villages, cattle and flocks, fences off, smaller denser wheat; the recoil as
+the ball's real momentum at the centre plus a quarter-degree heel per gun on a roll spring,
+and the body's roll/pitch drawn on every part (`inst_t.roll_b/pitch_b`, `i_anchor` vec4); the
+wake as a V rooted at the stem with breaking crests; greyer, slower, longer, oval smoke and
+torn slow sky clouds; masts 0.64, the lantina a tenth longer, sheets from every clew; the fog
+mix to 100% so no silhouette survives; map zoom to 1.0 x scale; staged crest foam. Mirror
+`C:\projects\mare_oak_20261101_141803`, unmolested this round. Next: the damage model.
+
 ## issue8 (assets/issues/issue8, 0.22.11) - rows 52-62 of docs/todo_list.md
 
 Done: recoil per gun (impulse at the gun, yaw from the lever arm); round shot as swept spheres
