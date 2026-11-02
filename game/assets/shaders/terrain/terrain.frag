@@ -264,7 +264,7 @@ void main(){
 // collapses to its average colour. Everything shares one orientation per ~1.5-unit district,
 // so the parcels, rows and lanes of a valley run together the way a cadastre does.
   vec4 lu = landuse_at(v_wpos.xz) * dk * (1.0 - under);
-  float lunear = (1.0 - smoothstep(110.0, 220.0, dref)) * (1.0 - u_mapness);
+  float lunear = (1.0 - smoothstep(190.0, 340.0, dref)) * (1.0 - u_mapness);   // 0.22.17 (issue9 "make fields more visible"): the worked land faded out by 220 units; it carries to 340
   float luclean = (1.0 - wrock) * (1.0 - wbeach) * (1.0 - wsnow) * (1.0 - wmarsh) * (1.0 - wwater) * (1.0 - wdes);
   if ((lu.r + lu.g + lu.b + lu.a) * lunear * luclean > 0.01) {
     vec2 dc = floor(v_wpos.xz / 1.5);
@@ -293,7 +293,7 @@ void main(){
     vec3 fieldfar = mix(hay, young, 0.45) * 0.95;
     fieldc = mix(fieldc, fieldfar, lfar * 0.7);
     float fk = lu.r * lunear * luclean;
-    c = mix(c, fieldc, fk * 0.97);   // 0.22.6: more noticeable
+    c = mix(c, fieldc, clamp(fk * 1.25, 0.0, 1.0));   // 0.22.6: more noticeable; 0.22.17 (issue9): a quarter stronger again
 // vineyards: rows of vines along the contour on pale, stony soil; one green-ochre from afar
     vec2 down = normalize(n.xz + vec2(1e-4, 0.0));
     float along_slope = dot(v_wpos.xz, down);

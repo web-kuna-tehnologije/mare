@@ -124,6 +124,14 @@ public:
     void  weather(void);
     float eye_floor(void);
     void  trailer(float t);              // the recorder's clock (seconds into the take; < 0 = holding the first mark)
+    // 0.22.17 (issue14 "Q and E in battle view don't work" - they had never been bound to
+    // anything). The player's side under manual steering: `helm(d)` takes the helm if it is not
+    // already taken and swings the ordered course by d radians, `helm_release()` hands her back
+    // to the line. Every ship answers at the rate her class and displacement allow.
+    void  helm(float d);
+    void  helm_release(void);
+    int   helm_on(void) const { return helm_on_; }
+    float helm_course(void) const { return helm_course_; }
 
 private:
     void stage_free(void);
@@ -183,6 +191,8 @@ private:
         rhi_pipeline_t cloud_prg; rhi_geometry_t cloud_geo; int cloud_init;
     } dv;
     float dv_fp[220][3]; int dv_nfp;
+    int   helm_on_ = 0, helm_side_ = 0;   // 0.22.17: the manual helm
+    float helm_course_ = 0.f;
 };
 
 DetailView &detail_view() { static DetailView d; return d; }
@@ -559,6 +569,21 @@ void DetailView::build_battle(int fleet_id) {
     stage_battle();
 }
 
+void DetailView::helm(float d) {
+    if (dv.mode != DV_BATTLE) return;
+    if (!helm_on_) {                       // the first touch takes the course she already steers
+        helm_side_ = 0;                    // the player's side leads the near line
+        float hx, hz, hh; dv_line_point(helm_side_, dv.line_s[helm_side_], &hx, &hz, &hh);
+        helm_course_ = hh; helm_on_ = 1;
+        LOG_INFO("gfx", "battle: you have the helm (Q and E steer, H returns to the line)");
+    }
+    helm_course_ = wrap_angle(helm_course_ + d);
+}
+void DetailView::helm_release(void) {
+    if (helm_on_) LOG_INFO("gfx", "battle: back into the line");
+    helm_on_ = 0;
+}
+
 void DetailView::battle_update(float dt) {
     dv.time += dt;
     unsigned seed = (unsigned)(dv.time * 977) + 13;
@@ -583,10 +608,15 @@ void DetailView::battle_update(float dt) {
             float sarc = dv.line_s[s->side] - s->slot * dv.line_gap[s->side];
             float px, pz, ph; dv_line_point(s->side, sarc + DV_LINE_AHEAD, &px, &pz, &ph);
             float want = atan2f(-(pz - s->z), px - s->x);
+            // 0.22.17 (issue14): under the helm her side steers the ordered course instead of
+            // chasing its station, and holds the line's pace - nothing is pulling her round.
+            int helmed = helm_on_ && s->side == helm_side_;
+            if (helmed) want = helm_course_;
             float dh = wrap_angle(want - s->heading);
             float stx, stz, sth; dv_line_point(s->side, sarc, &stx, &stz, &sth);
             float err = (stx - s->x) * cosf(sth) + (stz - s->z) * -sinf(sth);   // along-track: + = station ahead
-            float v = minf(dv.line_v[s->side] * clampf(1.f + err / 22.f, 0.6f, 1.4f), s->speed);
+            float v = helmed ? minf(dv.line_v[s->side], s->speed)
+                             : minf(dv.line_v[s->side] * clampf(1.f + err / 22.f, 0.6f, 1.4f), s->speed);
             // 0.22.15 (issue12 "wind direction and sail direction for the speed"; "sails only and
             // the wind against her: move her backwards; with oars, oar speed and roll the sails
             // down"): every ship's own heading against the wind sets what her canvas gives
@@ -608,6 +638,7 @@ void DetailView::battle_update(float dt) {
             // 0.22.9 (P1.3): the helm, not the position. The body is integrated below at the
             // fixed tactical sub-step and may be shouldered off station by a collision or
             // brought up all standing by the ground; the formation only ever asks.
+            if (s->body >= 0) v *= nphys_speed_factor(s->body);   // 0.22.17 (P1.3): a wounded rig and water in her
             if (s->body >= 0) nphys_drive(s->body, v, want, s->turn);
             else { s->heading += clampf(dh, -s->turn * dt, s->turn * dt); s->x += cosf(s->heading) * v * dt; s->z -= sinf(s->heading) * v * dt; }
         } else {
@@ -620,6 +651,7 @@ void DetailView::battle_update(float dt) {
             s->x += cosf(s->heading) * s->speed * dt;
             s->z -= sinf(s->heading) * s->speed * dt;
         }
+        if (s->body >= 0 && nphys_sunk(s->body)) continue;   // 0.22.17: a wreck neither steers nor fires
         s->next_fire -= dt;
         if (s->next_fire < 0) {                                                // broadside at the nearest enemy within range
             s->next_fire = 4.f + rnd_f(&seed) * 7.f;
@@ -652,9 +684,29 @@ void DetailView::battle_update(float dt) {
         // what the shot did (ballistics, 0.22.11): a splash where a ball went into the sea, a
         // burst of splinters and dust where one went into a hull
         nphys_event_t ev[64]; int nev = nphys_poll_events(ev, 64);
-        for (int e = 0; e < nev; ++e) {
+        {   // 0.22.17 (P1.3): the butcher's bill, every ten seconds of battle, so a run can be read
+        static float dmg_log = 0.f; dmg_log += dt;
+        if (dmg_log > 10.f) { dmg_log = 0.f;
+            float wh = 0, wr = 0, wf = 0; int nsunk = 0, nmast = 0;
+            for (int i = 0; i < dv.nships; ++i) { if (dv.ship[i].body < 0) continue;
+                nphys_damage_t d; nphys_damage_get(dv.ship[i].body, &d);
+                if (d.hull > wh) wh = d.hull; if (d.rig > wr) wr = d.rig; if (d.flood > wf) wf = d.flood;
+                nsunk += d.sunk; nmast += d.masts_down; }
+            int nbody = 0; for (int i = 0; i < dv.nships; ++i) nbody += dv.ship[i].body >= 0;
+            LOG_DEBUG("sim", "battle damage: %d hits, worst hull %.2f rig %.2f flood %.2f, %d mast(s) down, %d sunk; %d bodies, %d shot in the air",
+                      dv.hits, wh, wr, wf, nmast, nsunk, nbody, nphys_shots()); }
+    }
+    for (int e = 0; e < nev; ++e) {
             float sz = 0.7f + 0.004f * ev[e].speed;
             if (ev[e].kind == NPHYS_EV_SPLASH) particles_splash(dv.cx + ev[e].x, dv.cz + ev[e].z, sz);
+            else if (ev[e].kind == NPHYS_EV_MAST_DOWN) {   // 0.22.17: a mast carried away
+                particles_hit(dv.cx + ev[e].x, ev[e].y, dv.cz + ev[e].z, 0.f, 1.f, 2.2f);
+                LOG_INFO("gfx", "battle: a mast goes by the board");
+            }
+            else if (ev[e].kind == NPHYS_EV_SUNK) {
+                particles_splash(dv.cx + ev[e].x, dv.cz + ev[e].z, 3.4f);
+                LOG_INFO("gfx", "battle: she has gone down");
+            }
             else if (ev[e].body >= 0) {
                 float bx = 0, bz = 0, bh = 0; nphys_pose(ev[e].body, &bx, &bz, &bh);
                 float dx = ev[e].x - bx, dz = ev[e].z - bz, l = sqrtf(dx * dx + dz * dz); if (l > 1e-4f) { dx /= l; dz /= l; }
@@ -874,6 +926,7 @@ void DetailView::frame(float dt) {
         wind_at(dv.cx, dv.cz, G.day, &dv.wdx, &dv.wdz, &dv.wstr);
         dv.timescale = 1.f; dv.show_wind = getenv("MARE_RECORD") ? 0 : 1; dv.reprobe_t = 0.f;   // a film has no debug arrows in it (0.22.10)
         particles_set_wind(dv.wdx * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M, dv.wdz * dv.wstr * DV_WIND_KN * 0.5144f / DV_LOCAL_M);
+        particles_set_origin(dv.cx, dv.cz);   // 0.22.17: the shot and the recoil belong to the scene's own frame
         if (dv.mode == DV_BATTLE) build_battle(dv.want_fleet); else build_city(dv.want_port);
         wake_set_region(dv.cx, dv.cz, 420.f);   // the staged scene never moves, so the map never scrolls
         cam.tx = cam.want_tx = dv.cx; cam.tz = cam.want_tz = dv.cz + (dv.mode == DV_BATTLE ? -25 : -30);
@@ -1147,7 +1200,11 @@ int  detailview_busy(void) { return mare::game::view::detail_view().busy(); }
 void detailview_enter_battle(int fleet_id) { mare::game::view::detail_view().enter_battle(fleet_id); }
 void detailview_enter_city(int port) { mare::game::view::detail_view().enter_city(port); }
 void detailview_exit(void) { mare::game::view::detail_view().exit(); }
-void detailview_abort(void) { mare::game::view::detail_view().abort(); }
+void  detailview_helm(float d) { mare::game::view::detail_view().helm(d); }
+void  detailview_helm_release(void) { mare::game::view::detail_view().helm_release(); }
+int   detailview_helm_on(void) { return mare::game::view::detail_view().helm_on(); }
+float detailview_helm_course(void) { return mare::game::view::detail_view().helm_course(); }
+void detailview_abort(void) { mare::game::view::detail_view().helm_release(); mare::game::view::detail_view().abort(); }
 int  detailview_hits(void) { return mare::game::view::detail_view().hits(); }
 void detailview_frame(float dt) { mare::game::view::detail_view().frame(dt); }
 int  detailview_submit(void) { return mare::game::view::detail_view().submit(); }

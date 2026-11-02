@@ -18,6 +18,12 @@ extern "C" {
 void particles_init(void);                               // pipeline + the quad (after render_init's programs)
 void particles_reset(void);                              // drop everything (a new staged scene)
 void particles_set_wind(float vx, float vz);             // the air the smoke drifts in, local units per second
+// 0.22.17 (P1.3): where the scene's origin sits in the world. The particles are drawn in world
+// coordinates but the tactical bodies live in the staged scene's own frame, so everything this
+// module hands to sim/naval_physics - the shot and the recoil - is taken back to that frame
+// first. Without it no ball in any battle could match a hull: the broadphase compared a gun at
+// world (1000, -700) with a body at local (-40, 20) and never found anything to hit.
+void particles_set_origin(float ox, float oz);
 // One broadside: `side` is +1 / -1 for the ship's starboard / port (in the heading frame, the
 // convention the staged ships use), `hull_len` the hull length in local units, `guns` the
 // class's total gun count (half fire); puff size and count follow both.

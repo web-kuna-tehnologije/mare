@@ -1,4 +1,5 @@
 in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither; in float v_wet; in float v_near;
+in vec3 v_mpos;   // the model's own frame: every surface detail below is sampled in it
 in vec3 v_cloth;
 uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform sampler2D u_grain;
 uniform sampler2D u_sail_a; uniform sampler2D u_sail_n;    // new canvas: albedo, normal
@@ -26,7 +27,7 @@ void main(){
 // rougher materials (wood, cloth, stone) get more relief than painted ones
   float dist0 = distance(v_wpos, u_campos);
   float grain = v_rm.x * 0.42 * (1.0 - smoothstep(30.0, 120.0, dist0));
-  if (grain > 0.01) n = nmap_triplanar(u_grain, v_wpos * 1.6, n, 1.0, grain);
+  if (grain > 0.01) n = nmap_triplanar(u_grain, v_mpos * 1.6, n, 1.0, grain);
   float dist = dist0;
   float rough = v_rm.x;
 // Wood (ship hulls, spars, brown roofs): the baked vertex colours are flat per plank, so the
@@ -37,7 +38,7 @@ void main(){
   float wood = clamp((v_col.r - v_col.b) * 4.0, 0.0, 1.0) * smoothstep(0.45, 0.70, v_rm.x)
              * (1.0 - smoothstep(25.0, 90.0, dist0));
   if (wood > 0.01) {
-    vec2 guv = abs(n.y) > 0.6 ? v_wpos.xz : (abs(n.x) > abs(n.z) ? v_wpos.zy : v_wpos.xy);
+    vec2 guv = abs(n.y) > 0.6 ? v_mpos.xz : (abs(n.x) > abs(n.z) ? v_mpos.zy : v_mpos.xy);
 // 0.22.14 (issue11 "weird texture over" the hull): at the battle scale the broad plank sample
 // read as purple-brown blotches laid over the scan; finer and a third as strong, grain not stains
     float planks = texture(u_grain, guv * 1.4).g;
@@ -85,7 +86,7 @@ void main(){
     float panels = 7.0;
     float seam = 1.0 - smoothstep(0.0, 0.035, abs(fract(across * panels + 0.5) - 0.5));
     float tabling = (1.0 - smoothstep(0.0, 0.06, down)) + smoothstep(0.93, 0.985, down);
-    float stain = texture(u_grain, v_wpos.xz * 0.23 + v_wpos.yy * 0.11).g;
+    float stain = texture(u_grain, v_mpos.xz * 0.23 + v_mpos.yy * 0.11).g;
     albedo *= 1.0 - 0.10 * seam * near - 0.06 * clamp(tabling, 0.0, 1.0) * near;
     albedo *= (0.90 + 0.10 * stain) * (1.0 - 0.09 * down);
 // The authored sailcloth (0.22.6): the panel's own (across, down) are its UV, so the weave,
@@ -110,13 +111,15 @@ void main(){
       vec3 bit = cross(n, tgt);
       n = normalize(mix(n, normalize(tn.x * tgt + tn.y * bit + tn.z * n), 0.65 * near));
       rough = mix(rough, premium > 0.5 ? 0.80 : 0.93, near);
-    } else if (near > 0.01) n = nmap_triplanar(u_grain, v_wpos * 9.0, n, 1.0, 0.18 * near);
+    } else if (near > 0.01) n = nmap_triplanar(u_grain, v_mpos * 9.0, n, 1.0, 0.18 * near);
     rough = mix(0.86 + 0.06 * stain, rough, u_has_sail * near);
 // transmission: the sun on the far side of the canvas (n faces the viewer), shadowed like the lit side
     float back = max(dot(-n, u_sun), 0.0);
     float sh = shadow_at(v_wpos, -n, back, dist0);
-    trans = albedo * u_suncol * back * 0.28 * sh;
-    trans += albedo * u_ambsky * 0.10;
+// 0.22.17 (todo 105): canvas seen from its shadowed face was a flat dark sheet. It is thin: the
+// sun behind it lights it from within, and the sky fills the rest.
+    trans = albedo * u_suncol * back * 0.52 * sh;
+    trans += albedo * u_ambsky * 0.20;
 // fuzz: the loose fibres catch light at a grazing view
     trans += albedo * (u_ambsky * 0.5 + u_suncol * 0.12) * pow(1.0 - max(dot(n, vdir), 0.0), 3.0) * 0.10;
   }

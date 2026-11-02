@@ -10,6 +10,7 @@ uniform float u_wave_amp; uniform float u_wave_scale; uniform float u_local_dept
 uniform sampler2D u_hm; uniform vec4 u_geo; uniform float u_wk;
 uniform vec3 u_campos_v; uniform vec2 u_nearfade;   // see meshes.vert (0.22.9)
 out vec3 gv_nrm; out vec3 gv_col; out vec3 gv_wpos; out float gv_sel; out vec2 gv_rm; out float gv_dither; out float gv_wet; out float gv_hw; out float gv_q; out float gv_near;
+out vec3 gv_mpos;
 #include "common/waves.glsl"
 void main(){
   gv_dither = i_fx.x;
@@ -21,11 +22,16 @@ void main(){
 // lags the heel: as the hull rolls to starboard the bight swings a little the other way, as a
 // hanging rope does. Static instances (kind 0) are straight.
   if (a_nrm.z > 0.5) {
-    float t = a_nrm.x, bight = 4.0 * t * (1.0 - t) * a_nrm.y * i_scol.x;
+// 0.22.17 (issue14 "add more elasticity to rope for sails"): a_nrm.z is the kind - 2 is running
+// rigging, a sheet or a brace made fast to the canvas, which comes up taut as the sail fills and
+// hangs again in a calm; 1 is standing rigging, which keeps most of its sag. On top of that the
+// bight *breathes*: two slow terms out of phase, so a rope is never a frozen curve.
+    float pull = clamp(length(i_fx.zw) * 1.2, 0.0, 1.0);
+    float t = a_nrm.x, bight = 4.0 * t * (1.0 - t) * a_nrm.y * i_scol.x * (1.0 - (a_nrm.z > 1.5 ? 0.78 : 0.30) * pull);
     float wxs = i_fx.z * c - i_fx.w * s, wzs = i_fx.z * s + i_fx.w * c;   // the wind in the ship's frame (along, across)
     float ph = u_time * 1.9 + a_pos.x * 7.0 + a_pos.z * 5.0;
-    p.y -= bight * (0.85 + 0.08 * sin(ph));
-    p.x += bight * 0.35 * wxs; p.z += bight * (0.35 * wzs - 0.9 * i_anchor.z + 0.06 * sin(ph * 1.3));
+    p.y -= bight * (0.85 + 0.17 * sin(ph) + 0.09 * sin(ph * 0.41 + 1.7));
+    p.x += bight * (0.35 * wxs + 0.07 * sin(ph * 0.73)); p.z += bight * (0.35 * wzs - 0.9 * i_anchor.z + 0.13 * sin(ph * 1.3));
   }
 // the rope's physical half-width rides in the roughness channel (model units: fractions of
 // the hull length), scaled to world units by the instance
@@ -47,6 +53,7 @@ void main(){
 // under it swung sideways, and the two slid against each other every swell.
   vec3 fwd = vec3(c, 0.0, -s), stb = vec3(s, 0.0, c);
   vec3 piv = vec3(ap.x, 0.0, ap.y);
+  gv_mpos = p;
   vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;
   { vec3 d = wp - piv; float lx = dot(d, fwd), ly = d.y, lz = dot(d, stb);
     float ly1 = ly*cr - lz*sr, lz1 = ly*sr + lz*cr;

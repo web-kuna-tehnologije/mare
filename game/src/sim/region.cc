@@ -47,7 +47,7 @@ int RegionSim::inland_spot(int r, float *x, float *z) {
         if (!inland) continue;
         float wx = lon2x(cx2lon(cx*TERR_DIV+TERR_DIV/2)), wz = lat2z(cy2lat(cy*TERR_DIV+TERR_DIV/2));
         float score = 10 - dist2d(wx, wz, R->cx, R->cz) * 0.1f + world_vnoise(wx*0.3f, wz*0.3f, 901) * 3;
-        for (int k = 0; k < G.ninland; ++k) if (G.inland[k].alive && dist2d(G.inland[k].x, G.inland[k].z, wx, wz) < 3) score -= 20;
+        for (int k = 0; k < G.ninland; ++k) if (G.inland[k].alive && dist2d(G.inland[k].x, G.inland[k].z, wx, wz) < 2.f) score -= 20;   // 0.22.17: 3 -> 2 units apart, so a region holds the six villages above
         if (score > best) { best = score; *x = wx; *z = wz; } }
     return best > -10;
 }
@@ -78,7 +78,12 @@ void RegionSim::setup() {
         // founds three farm villages, a frontier one with a port of some size one; inland_spot
         // keeps them 3 units apart, roads.cc routes each to its port, scatter.cc gives each a mill
         { int bg = -1; float bp = 0; for (int g = 0; g < G_IRON; ++g) if (is_staple(g) && g != G_FISH && R->potential[g] > bp) { bp = R->potential[g]; bg = g; }
-          int nfarm = R->development >= 2 ? 3 : R->development >= 1 ? 1 : 0;
+          // 0.22.17 (issue14 "other than cities add random small villages ... connected with
+          // roads to main cities and ports"): a settled region carries six hamlets, a frontier
+          // one two. Each is a real inland settlement, so world/roads.cc routes it to the port
+          // it belongs to and gfx/scatter.cc gives it houses and a mill - which is what makes
+          // the hinterland read as populated rather than empty between the towns.
+          int nfarm = R->development >= 2 ? 6 : R->development >= 1 ? 2 : 0;
           for (int k = 0; k < nfarm && bg >= 0; ++k) if (found_inland(r, bg, INLAND_FARM, -1, 0) < 0) break; }
     }
     regions_refresh_devmap();

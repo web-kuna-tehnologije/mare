@@ -175,8 +175,45 @@ static void test_recoil() {
     printf("  recoil: vz %.4f, yaw rate %.5f from an impulse 6 units forward of the centre\n", vz, yr);
 }
 
+// 0.22.17 (P1.3 "component / zone damage model"): a blow between wind and water starts her
+// leaking and the leak takes her down; a blow aloft costs her rig and her speed, not her life.
+static void test_damage() {
+    nphys_reset();
+    int a = nphys_add(0, 0, 0, 19.f, 5.f, 1.4f, 500.f);
+    nphys_damage_t d;
+    nphys_damage_get(a, &d);
+    CHECK(d.hull == 0.f && d.flood == 0.f && !d.sunk, "a fresh hull is already damaged");
+    // aloft: the rig suffers, she slows, she does not flood
+    nphys_damage_add(a, 2, 0.30f);
+    nphys_damage_get(a, &d);
+    CHECK(d.rig > 0.3f && d.hull == 0.f, "a blow aloft damaged the wrong thing: rig %.2f hull %.2f", d.rig, d.hull);
+    CHECK(nphys_speed_factor(a) < 1.f, "a wounded rig did not slow her: %.3f", nphys_speed_factor(a));
+    CHECK(d.masts_down >= 1, "no mast went by the board at rig %.2f", d.rig);
+    run(2.f, 0.05f);
+    nphys_damage_get(a, &d);
+    CHECK(d.flood == 0.f, "a blow aloft made her leak: flood %.3f", d.flood);
+    printf("  damage: rig %.2f, %d mast(s) down, speed factor %.2f, dry\n", d.rig, d.masts_down, nphys_speed_factor(a));
+    // between wind and water: she makes water and in the end she goes
+    int b = nphys_add(100.f, 0, 0, 19.f, 5.f, 1.4f, 500.f);
+    for (int i = 0; i < 12; ++i) nphys_damage_add(b, 0, 0.12f);
+    nphys_damage_get(b, &d);
+    CHECK(d.hull > 0.9f, "twelve balls below the line left the hull at %.2f", d.hull);
+    float flood0 = d.flood;
+    run(2.f, 0.05f);
+    nphys_damage_get(b, &d);
+    CHECK(d.flood > flood0, "a holed hull is not making water: %.3f -> %.3f", flood0, d.flood);
+    // advance() runs at most NPHYS_MAX_STEPS in one call, so sim time is fed in frame-sized
+    // slices, as the game feeds it. A hull holed through floods in about twenty seconds.
+    for (int i = 0; i < 1600 && !nphys_sunk(b); ++i) nphys_advance(0.05f);
+    CHECK(nphys_sunk(b), "a hull holed through never sank: flood %.3f", d.flood);
+    CHECK(nphys_wrecks() >= 1, "the wreck was not counted");
+    CHECK(nphys_speed_factor(b) == 0.f, "a sunk hull still makes way");
+    nphys_damage_get(b, &d);
+    printf("  damage: holed hull %.2f flooded to %.2f and sank; %d wreck(s)\n", d.hull, d.flood, nphys_wrecks());
+}
+
 int main(void) {
-    printf("physics_test: naval physics foundation (P1.3 1-9)\n");
+    printf("physics_test: naval physics foundation (P1.3 1-9) + the damage model\n");
     test_buoyancy();
     test_ballistics();
     test_recoil();
@@ -185,6 +222,7 @@ int main(void) {
     test_ship_ship();
     test_coast();
     test_yaw_from_contact();
+    test_damage();
     if (fails) { printf("physics_test: %d failure(s)\n", fails); return 1; }
     printf("physics_test: all checks passed\n");
     return 0;

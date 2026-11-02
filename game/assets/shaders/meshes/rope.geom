@@ -5,15 +5,15 @@
 // a cylinder seen side-on: the normal faces the viewer and tilts towards each edge.
 layout(lines) in;
 layout(triangle_strip, max_vertices = 4) out;
-in vec3 gv_nrm[]; in vec3 gv_col[]; in vec3 gv_wpos[]; in float gv_sel[]; in vec2 gv_rm[]; in float gv_dither[]; in float gv_wet[]; in float gv_hw[]; in float gv_q[]; in float gv_near[];
-out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet; out vec3 v_cloth; out float v_near;
+in vec3 gv_nrm[]; in vec3 gv_col[]; in vec3 gv_wpos[]; in float gv_sel[]; in vec2 gv_rm[]; in float gv_dither[]; in float gv_wet[]; in float gv_hw[]; in float gv_q[]; in float gv_near[]; in vec3 gv_mpos[];
+out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet; out vec3 v_cloth; out float v_near; out vec3 v_mpos;
 uniform vec2 u_viewport;   // framebuffer size, pixels
 uniform vec2 u_rope;       // x = pixels per world unit at distance 1, y = minimum half-width in pixels
 uniform vec3 u_campos;
 void emit_v(int i, vec2 off_ndc, vec3 n, float side, float along) {
   vec4 cp = gl_in[i].gl_Position;
   gl_Position = cp + vec4(off_ndc * cp.w, 0.0, 0.0);
-  v_nrm = n; v_col = gv_col[i]; v_wpos = gv_wpos[i]; v_sel = gv_sel[i]; v_rm = gv_rm[i]; v_dither = gv_dither[i]; v_wet = gv_wet[i]; v_near = gv_near[i];
+  v_nrm = n; v_col = gv_col[i]; v_wpos = gv_wpos[i]; v_sel = gv_sel[i]; v_rm = gv_rm[i]; v_dither = gv_dither[i]; v_wet = gv_wet[i]; v_near = gv_near[i]; v_mpos = gv_mpos[i];
 // rope, not canvas: x = 3 + condition (4 worn, 5 new), y = across the rope -1..1, z = distance
 // along it in rope diameters (meshes.frag lays the cordage texture along it, 0.22.8)
   v_cloth = vec3(3.0 + gv_q[i], side, along);

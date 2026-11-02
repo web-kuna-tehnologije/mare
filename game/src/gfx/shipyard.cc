@@ -46,6 +46,7 @@ namespace mare::game::view {
 // third of its length from the inboard end, so the bank sits outboard of the gunwale with the
 // looms buried in the hull rather than floating alongside it.
 #define OAR_INBOARD 0.22f
+#define OAR_PIVOT   0.26f       // 0.22.17: the rowlock, as a fraction of the oar's length inboard of its middle (issue14 "pivot in the ship part")
 
 #define SHIP_MAX_MASTS 4
 
@@ -254,8 +255,13 @@ static void classes_init() {
 #define RIG_ROPE_W_FALLBACK 0.0020f // cross-quad half-width without a geometry stage
 #define RIG_YARD_W   0.0050f        // procedural spar half-width (the far stand-in for an authored yard)
 #define RIG_SAIL_OFF 0.015f         // canvas hangs this far forward of its mast (on the yard's fore side)
-#define RIG_FLAG_LEN 0.085f
-#define RIG_FLAG_H   0.042f
+// 0.22.17 (issue13's reference paintings): a great ship flew a *streamer* from her truck -
+// several times her beam, tapering to a swallow tail - not a handkerchief. The cloth is the same
+// verlet grid; the mesh tapers it and forks its fly.
+#define RIG_FLAG_LEN 0.22f          // along the fly, fractions of hull length (was 0.085)
+#define RIG_FLAG_H   0.024f         // at the hoist; the fly tapers to RIG_FLAG_TAPER of it
+#define RIG_FLAG_TAPER 0.30f
+#define RIG_FLAG_FORK  0.26f        // how far the middle of the fly is cut back
 static const float rope_col[3] = { 0.20f, 0.155f, 0.115f };  // tarred hemp: dark brown, lit, not black
 // Two conditions of cordage (0.22.6, issue3 "add 2 types of rigging premium and used"): a
 // ship fresh from the arsenal has pale new hemp on her, a worn one dark tarred rope gone
@@ -287,13 +293,13 @@ static const float nrm_x[3] = { 1, 0, 0 }, nrm_z[3] = { 0, 0, 1 };
 // further forward and lower, so the spar is a tenth longer than before while nothing of it
 // stands over the truck. The clew and foot move with it (LAT_CLEW_*, LAT_FOOT_*).
 #define LAT_TACK_X  0.40f           // low forward end (the tack)
-#define LAT_TACK_Y  0.16f
+#define LAT_TACK_Y  0.30f           // 0.22.17 (issue13/14 "triangular sails ... don't clip through ships"): 0.16 -> 0.30
 #define LAT_PEAK_X -0.62f           // high aft end (the peak, at the masthead)
 #define LAT_PEAK_Y  0.98f
 #define LAT_FOOT_X  0.48f           // the tack corner of the canvas
-#define LAT_FOOT_Y  0.12f
+#define LAT_FOOT_Y  0.27f           // 0.22.17: the whole triangle rides a seventh of a mast higher
 #define LAT_CLEW_X -0.45f           // the clew, sheeted aft
-#define LAT_CLEW_Y  0.18f
+#define LAT_CLEW_Y  0.33f
 // The canvas is bent to the spar with robands - short lashings every few feet along the head -
 // and its foot is guided by a rope from tack to clew. Both are drawn in the sail's own mesh
 // (0.22.6, issue3), so they swing with it.
@@ -464,6 +470,10 @@ void Shipyard::rig_spar(mb_t *m, const float a[3], const float b[3], float w, co
 }
 // standing rigging: a line pair for the geometry stage, or the old cross quads without one.
 // `w` is the physical half-width in hull fractions (the fallback uses its own, visible width).
+// 0.22.17 (issue14): 1 = standing rigging, 2 = running - a sheet or brace the drawing canvas
+// hauls taut and that goes slack in a calm (meshes/rope.vert reads the kind off the vertex).
+static float g_rope_kind = 1.f;
+
 void Shipyard::rig_rope(mb_t *m, const float a[3], const float b[3], float w) {
     // 0.22.15 (issue12 "rope behaviour flexible and physics based"): eight segments with a slack
     // that grows with the rope's length and how level it lies - a stay hauled taut sags a little,
@@ -472,8 +482,8 @@ void Shipyard::rig_rope(mb_t *m, const float a[3], const float b[3], float w) {
     if (meshes_rope_available()) {
         float dx = b[0]-a[0], dy = b[1]-a[1], dz = b[2]-a[2], L = sqrtf(dx*dx + dy*dy + dz*dz);
         float level = L > 1e-5f ? 1.f - fabsf(dy) / L : 0.f;              // 1 = horizontal
-        float slack = L * (0.012f + 0.085f * level * level);
-        mb_line_rope(m, a, b, w, slack, 1.f, 8, g_rope_col[0], g_rope_col[1], g_rope_col[2]);
+        float slack = L * (0.020f + 0.130f * level * level);   // 0.22.17 (issue14 "more elasticity"): half as much sag again, and the shader works it harder
+        mb_line_rope(m, a, b, w, slack, g_rope_kind, 8, g_rope_col[0], g_rope_col[1], g_rope_col[2]);
     }
     else rig_bar(m, a, b, RIG_ROPE_W_FALLBACK * (w / RIG_ROPE_W), g_rope_col);
 }
@@ -509,13 +519,13 @@ void Shipyard::rig_sail_square(mb_t *cloth, mb_t *spars, float x, float top, flo
     {
         float rw = maxf(0.0045f * hw, RIG_ROPE_W_FALLBACK * 0.6f);
         float cl[3] = { x, bot, -hw * 1.0f }, cr[3] = { x, bot, hw * 1.0f };
-        rig_bar(cloth, cl, cr, rw * 0.8f, rope_col);
+        rig_spar(cloth, cl, cr, rw * 0.8f, rope_col);
         for (int side = -1; side <= 1; side += 2) {
             float clew[3] = { x, bot, side * hw * 1.0f };
             float sheet[3] = { x - 0.55f * hw, bot - 0.75f * hw, side * hw * 0.80f };      // down and aft, inboard a little: made fast on the deck
-            rig_bar(cloth, clew, sheet, rw * 1.3f, rope_col);
+            rig_spar(cloth, clew, sheet, rw * 1.3f, rope_col);
             float leech[3] = { x, bot + (top - bot) * 0.35f, side * hw * 0.96f };          // the clew-line up the leech
-            rig_bar(cloth, clew, leech, rw * 0.7f, rope_col);
+            rig_spar(cloth, clew, leech, rw * 0.7f, rope_col);
         }
     }
 }
@@ -569,15 +579,15 @@ void Shipyard::rig_sail_lateen(mb_t *cloth, mb_t *spars, float sx, float dy, flo
         float t = (float)i / LAT_ROBANDS;
         float yp[3], hp[3];
         for (int a = 0; a < 3; ++a) { yp[a] = ya[a] + (yb[a] - ya[a]) * t; hp[a] = T[a] + (P[a] - T[a]) * t; }
-        rig_bar(cord, yp, hp, roband_w * h, rope_col);
+        rig_spar(cord, yp, hp, roband_w * h, rope_col);
     }
     // the foot rope: tack to clew, guiding the bottom of the sail (issue3)
-    rig_bar(cord, F, C, roband_w * 1.3f * h, rope_col);
+    rig_spar(cord, F, C, roband_w * 1.3f * h, rope_col);
     // the sheet: from the clew down and aft to the rail, and the tack hauled down forward
     { float sheet[3] = { sx - 0.54f * h, dy + 0.02f * h, z };
-      rig_bar(cord, C, sheet, roband_w * 1.4f * h, rope_col);
+      rig_spar(cord, C, sheet, roband_w * 1.4f * h, rope_col);
       float tackpt[3] = { sx + 0.44f * h, dy + 0.02f * h, z };
-      rig_bar(cord, F, tackpt, roband_w * 1.4f * h, rope_col); }
+      rig_spar(cord, F, tackpt, roband_w * 1.4f * h, rope_col); }
 }
 
 // Build both meshes for a class. `hb` is the hull's half beam and `ty[]` the mast tops, all in
@@ -606,10 +616,23 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
         }
         // forestay to the next mast's foot (or the bow), backstay to the stern: the stays are
         // the heaviest cordage aboard
-        float fwd[3] = { k + 1 < nm && sx[k + 1] > sx[k] ? sx[k + 1] : bow,
-                         k + 1 < nm && sx[k + 1] > sx[k] ? dy + (ty[k + 1] - dy) * 0.18f : dy + 0.012f + lift, 0 };
+        // 0.22.17 (issue14 "remove riggings on the stern that lead nowhere"): the stays were
+        // picked by *array index*, and the stations run bow to stern, so every mast's "forward"
+        // stay went to the stem and the foremast's "after" stay ran the whole length of the ship
+        // to the taffrail, through the main and mizzen tops - the rope to nowhere. They are
+        // picked by *station* now: forward to the next mast ahead or the stem, aft to the next
+        // mast astern or (for the aftermost only) the taffrail.
+        int kf = -1, ka = -1;
+        for (int q = 0; q < nm; ++q) {
+            if (q == k) continue;
+            if (sx[q] > sx[k] && (kf < 0 || sx[q] < sx[kf])) kf = q;     // the nearest mast forward
+            if (sx[q] < sx[k] && (ka < 0 || sx[q] > sx[ka])) ka = q;     // ... and astern
+        }
+        float fwd[3] = { kf >= 0 ? sx[kf] : bow,
+                         kf >= 0 ? dy + (ty[kf] - dy) * 0.18f : dy + 0.012f, 0 };
         rig_rope(rope, top, fwd, RIG_ROPE_W * 1.35f);
-        float aft[3] = { k > 0 ? sx[k - 1] : stern, dy + 0.01f + lift, 0 };
+        float aft[3] = { ka >= 0 ? sx[ka] : stern,
+                         ka >= 0 ? dy + (ty[ka] - dy) * 0.18f : dy + 0.012f + lift, 0 };
         rig_rope(rope, top, aft, RIG_ROPE_W * 1.35f);
         // ratlines on the main shrouds, so the rig reads as climbable up close
         if (k == main) {
@@ -632,6 +655,7 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
         // its brace and the sheet is laid for the squared yard, so at a hard brace a sheet
         // lands a little off the clew; from the deck it still reads as the sail made fast.
         {
+            g_rope_kind = 2.f;   // 0.22.17: the sheets below are running rigging
             float mh = ty[k] - dy;
             int code = c->sail[k];
             if (code == SAIL_LATEEN) {
@@ -655,6 +679,7 @@ void Shipyard::rig_build_cordage(mb_t *rope, mb_t *cloth, const ship_class_t *c,
                 }
             }
         }
+        g_rope_kind = 1.f;
     }
     if (c->spritsail) {   // the bowsprit, steeved up from the forecastle, with its spritsail slung under it
         if (!asset_find("bowsprit")) {   // authored spar in the registry: shipyard_push stands it instead
@@ -833,8 +858,28 @@ void Shipyard::flag_build_mesh(flag_sim_t *f, float r, float g, float b) {
     // (FLAG_W-1)*(FLAG_H-1) quads, two flat triangles each, in the builder's 12-float layout
     enum { NV = (FLAG_W - 1) * (FLAG_H - 1) * 6 };
     float v[NV * MB_FLOATS]; int n = 0;
+    // 0.22.17: the simulated grid is a rectangle; the *drawn* cloth tapers along the fly and is
+    // forked at its end, so a square of cloth reads as a swallow-tailed streamer. Shape only -
+    // the physics behind it is untouched.
+    float d[FLAG_H][FLAG_W][3];
+    const float mid = 0.5f * (FLAG_H - 1);
+    for (int i = 0; i < FLAG_W; ++i) {
+        float fl = (float)i / (FLAG_W - 1), taper = 1.f - (1.f - RIG_FLAG_TAPER) * fl * fl;
+        float cx = 0, cy = 0, cz = 0;
+        for (int j = 0; j < FLAG_H; ++j) { cx += f->p[j][i][0]; cy += f->p[j][i][1]; cz += f->p[j][i][2]; }
+        cx /= FLAG_H; cy /= FLAG_H; cz /= FLAG_H;
+        int ia = i > 0 ? i - 1 : i, ib = i + 1 < FLAG_W ? i + 1 : i;
+        float fx2 = f->p[0][ib][0] - f->p[0][ia][0], fy2 = f->p[0][ib][1] - f->p[0][ia][1], fz2 = f->p[0][ib][2] - f->p[0][ia][2];
+        float fln = sqrtf(fx2*fx2 + fy2*fy2 + fz2*fz2); if (fln > 1e-6f) { fx2 /= fln; fy2 /= fln; fz2 /= fln; }
+        for (int j = 0; j < FLAG_H; ++j) {
+            float notch = RIG_FLAG_FORK * RIG_FLAG_LEN * fl * fl * (1.f - fabsf(j - mid) / mid);
+            d[j][i][0] = cx + (f->p[j][i][0] - cx) * taper - fx2 * notch;
+            d[j][i][1] = cy + (f->p[j][i][1] - cy) * taper - fy2 * notch;
+            d[j][i][2] = cz + (f->p[j][i][2] - cz) * taper - fz2 * notch;
+        }
+    }
     for (int j = 0; j + 1 < FLAG_H; ++j) for (int i = 0; i + 1 < FLAG_W; ++i) {
-        const float *q[4] = { f->p[j][i], f->p[j][i+1], f->p[j+1][i+1], f->p[j+1][i] };
+        const float *q[4] = { d[j][i], d[j][i+1], d[j+1][i+1], d[j+1][i] };
         const int tri[6] = { 0, 1, 2, 0, 2, 3 };
         float ux = q[1][0]-q[0][0], uy = q[1][1]-q[0][1], uz = q[1][2]-q[0][2];
         float wx = q[3][0]-q[0][0], wy = q[3][1]-q[0][1], wz = q[3][2]-q[0][2];
@@ -1090,11 +1135,15 @@ int Shipyard::push(const shipyard_req_t *r) {
             float rel = wrap_angle(wang - r->heading);
             // the lantina trims hard: up to ~70 degrees off the centreline toward the wind,
             // working a little harder the harder it blows
-            float swing = clampf(rel * 0.65f, -1.22f, 1.22f)
+            // 0.22.17 (issue13/14 "sails should turn to get maximum efficiency from the wind"):
+            // the bisector rule - a yard draws most when it halves the angle between the wind
+            // and the keel: square running, braced sharp close-hauled.
+            float trim = rel * 0.5f;
+            float swing = clampf(trim, -1.30f, 1.30f)
                         + (0.03f + 0.05f * wstr) * sinf(RF.anim_time * (0.8f + 0.3f * wstr) + (float)(r->key & 31u) * 0.21f);
             // square yards brace less than a lantina trims: toward the wind, clamped, with the
             // same working oscillation on the ship's own phase
-            float brace = clampf(rel * 0.30f, -0.50f, 0.50f)
+            float brace = clampf(trim, -0.95f, 0.95f)
                         + (0.02f + 0.04f * wstr) * sinf(RF.anim_time * (0.7f + 0.3f * wstr) + (float)(r->key & 31u) * 0.17f);
             if (!sq_cloth_built) {
                 for (int q = 0; q < SQ_KINDS; ++q) for (int v = 0; v < 2; ++v) {
@@ -1293,18 +1342,26 @@ int Shipyard::push(const shipyard_req_t *r) {
             // rate ~2.2 rad/s flat out. The blade dips on the pull and lifts on the recovery -
             // the instance transform has only yaw and height, and height is exactly the part of
             // the cycle that reads from the quarterdeck.
-            float rate = 0.9f + 1.3f * pull, reach = 0.04f + 0.09f * pull;   // 0.22.14 (issue11 "oars need to be rotated"): a short sweep about the square
+            // 0.22.17 (issue14 "oars again wrong: wide part needs to be in water, pivot in the
+            // ship part, movement slowly 30 deg, -15 to 15"): the sweep is fifteen degrees either
+            // side of the square and slow - a stroke every five seconds at rest, under three
+            // pulling hard, which is the 20-26 a minute a sweep is actually pulled at.
+            float rate = 1.20f + 0.95f * pull, reach = 0.2618f;   // 15 degrees
             float oph = RF.anim_time * rate + (float)(r->key & 63u) * 0.09f;
             float stroke = reach * sinf(oph);
-            float dip = 0.006f * len * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
+            float dip = 0.004f * len * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
             const float side_sign = 1.f;
             for (int i = 0; i < c->oar_pairs; ++i) {
                 float t = c->oar_pairs > 1 ? i / (float)(c->oar_pairs - 1) - 0.5f : 0.f;
                 float along = t * span;
                 for (int side = -1; side <= 1; side += 2) {
                     inst_t oi = in;
-                    oi.x = r->x + fx * along + sx * out * side;
-                    oi.z = r->z + fz * along + sz * out * side;
+                    // 0.22.17 (issue14 "pivot in the ship part"): the oar turns about its
+                    // *rowlock*, a point on the rail, not about its own middle hung outboard.
+                    // The model is centred on its length, so the instance is placed at the
+                    // rowlock less the rotated model-space offset of that point - the same
+                    // trick the lantina uses - and the loom then swings inboard over the deck
+                    // while the blade sweeps outboard, as it does in a boat.
                     oi.y = y - dip;
                     // Blade outboard, loom inboard: the oar model points its blade along -x
                     // once the ship assets are turned bow-to-+x, so the sweep is the mirror of
@@ -1323,7 +1380,19 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // z axis (meshes.vert reads fx2 on rigid instances), steeper on the pull
                     // 0.22.6: a steeper blade angle from the higher port, so the loom rises over
                     // the gunwale and only the blade is in the water
-                    oi.fx2 = 0.60f + 0.16f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);   // 0.22.14: steeper, so the blade is in the water a loom's length out and not lying along the surface
+                    // The blade is the model's -x end (measured: its z extent is twice the
+                    // loom's), and a positive pitch about the model's z carries -x downward -
+                    // so this is the sign that puts the wide part in the water.
+                    oi.fx2 = 0.46f + 0.14f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
+                    {   // the rowlock on the rail, and the oar hung from it
+                        float rlx = r->x + fx * along + sx * (half * 0.99f) * side;
+                        float rlz = r->z + fz * along + sz * (half * 0.99f) * side;
+                        float pm  = OAR_PIVOT * olen;                       // model-space: from the oar's middle toward the loom (+x)
+                        float cq = cosf(oi.fx2), sq = sinf(oi.fx2);
+                        float mx = pm * cq, my = pm * sq;                   // after the pitch about the model's z
+                        float ch = cosf(oi.heading), sh2 = -sinf(oi.heading);   // model +x -> this world direction
+                        oi.x = rlx - mx * ch; oi.z = rlz - mx * sh2; oi.y -= my;
+                    }
                     oi.r = 0.62f; oi.g = 0.52f; oi.b = 0.36f;   // oak, not the nation's colours
                     oi.sel = 0.f;
                     scene_asset_instance(oar, oi, r->key ^ (unsigned)(0x9E37u + i * 2 + (side > 0)), r->camdist);

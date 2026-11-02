@@ -11,6 +11,10 @@ uniform vec3 u_campos_v; uniform vec2 u_nearfade;
 // the band up to .y dissolves so the part thins out instead of vanishing at a hard line.
 out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet; out float v_near;
 out vec3 v_cloth;   // canvas material (meshes.frag): x = 1 on a cloth instance, y = across the panel -1..1, z = head 0 .. foot 1
+// 0.22.17 (issue13's video, re-applied): the position in the *model's* own frame, in world units.
+// Every surface detail - plank grain, triplanar relief, canvas stain - was sampled at v_wpos, so
+// the pattern stood still in the world while the ship sailed through it and swam over her planking.
+out vec3 v_mpos;
 #include "common/waves.glsl"
 void main(){
   v_dither = i_fx.x;
@@ -45,6 +49,7 @@ void main(){
 // under it swung sideways, and the two slid against each other every swell.
   vec3 fwd = vec3(c, 0.0, -s), stb = vec3(s, 0.0, c);
   vec3 piv = vec3(ap.x, 0.0, ap.y);
+  v_mpos = p;   // before the hull's rotation and position: the ship's own frame
   vec3 wp = vec3(p.x*c + p.z*s, p.y, -p.x*s + p.z*c) + i_pos.xyz;
   { vec3 d = wp - piv; float lx = dot(d, fwd), ly = d.y, lz = dot(d, stb);
     float ly1 = ly*cr - lz*sr, lz1 = ly*sr + lz*cr;

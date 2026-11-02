@@ -1,11 +1,11 @@
-# Road map after 0.22.15 (worktree oak, 2026-11-01)
+# Road map after 0.22.17 (session elm, 2026-11-02)
 
 Where the renderer and the simulation stand after the four issue folders, and the order the
 remaining work should be taken in. The backlog this is drawn from is `assets/dev.txt`
 (checked copy: `docs/dev/dev_oak_*.txt`) and `docs/todo_list.md` (issue4, with priorities);
 the visual target is `game/docs/DESIGN_VISUAL_TARGET.md`.
 
-## Done to 0.22.15
+## Done to 0.22.17
 
 Renderer foundation, asset runtime, LOD manager, worker pool and async loading, world
 streaming, the terrain-v2 world package as both terrain *and* coastline, the ocean (patch
@@ -51,7 +51,22 @@ sags and swings, sternway in the eye of the wind and oared ships furling to pull
 sail on every staged ship, the sun moving in delta time, battle wavelengths from the wind, matte
 wood, canvas and rope, sails kept at every distance in battle, the trees' far LOD ring.
 
+ 0.22.17 (issue14, session elm): the helm answers Q and E in the
+battle - they had never been bound; the oars row with the blade in the water about a rowlock on
+the rail at a slow fifteen-degree sweep; six inland villages a region, roaded to their port; the
+lateen lifted clear of the deck and the yards trimmed by the bisector; ropes with real elasticity
+and round cordage on the canvas; the stays picked by station, so the foremast no longer runs one
+the length of the ship to the taffrail. And the **damage model**: zones, masts going by the
+board, flooding and sinking - together with the two bugs that had made every battle bloodless,
+a world/local frame mismatch that meant no ball had ever struck a hull, and pieces laid upward
+from above the target.
+
 ## Next, in order
+
+0. **Fire, and the butcher's bill going home** (todo 152-153). The damage model lands this round;
+   what it still lacks is fire spreading from a hit and - the one that matters for the campaign -
+   the tactical result written back into the strategic ship: hull integrity, crew, guns, sails and
+   the sunk flag, so a battle finally costs a fleet something that outlives the scene.
 
 0. **Rope verlet and the lateen back face** (todo 121b, 105): the cordage sags now; a chain per
    sheet and brace that follows the swung sail, and a proper two-sided canvas material.

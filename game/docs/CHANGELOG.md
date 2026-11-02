@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.22.17 — the fourteenth issues folder: the helm answers, the oars row, and the guns finally hit something
+
+Session **elm**, working from `/mnt/c/projects/mare` (read only) into
+`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_002959`. From `assets/issues/issue14`, then the
+open rows of `docs/todo_list.md`, then the physics.
+
+**Note on what was in the tree.** The 0.22.16 round (issue13) was lost: the tree was committed at
+`199ec3a` without it, and the changelog's own 0.22.16 entry went with it. That is exactly why
+issue14 reports the oars, the lateen and the riggings as *still* wrong. The worthwhile parts of
+that round are carried back here, marked below.
+
+### issue14
+- **Q and E in the battle** ("Q AND E IN BATTLE VIEW DONT WORK"). They had never been bound to
+  anything - the feature existed only in a changelog entry. `Q` and `E` now put the player's line
+  under **manual steering** and swing the ordered course to port and starboard; `H` hands her back
+  to the line. The order goes through each ship's rigid body, so a fusta comes round smartly and a
+  great carrack leans into it. Steering runs on the battle's own clock: a stopped battle does not
+  steer.
+- **The oars** ("wide part needs to be in water, pivot in the ship part, movement slowly 30 deg").
+  The blade is the model's **-x** end - measured, its cross-section is twice the loom's - and a
+  *positive* pitch about the oar's own z carries that end under, so the sign had been flipped the
+  wrong way and the bank was rowing the air. Three things changed: the sign is right; the oar
+  turns about its **rowlock on the rail** (the instance is placed at the rowlock less the rotated
+  model-space offset of that point, the trick the lantina uses) instead of hanging centred
+  outboard; and the sweep is **±15 degrees** at a stroke every three to five seconds.
+- **Villages inland** ("other than cities add random small villages ... connected with roads").
+  A settled region founds six (was three), a frontier region two, and they may stand 2 units apart
+  (was 3). Each is a real inland settlement, so `world/roads.cc` routes it to the port it belongs
+  to and `gfx/scatter.cc` gives it houses and a mill.
+- **The front lateen** ("still front lanteen and sail isn't fixed"): the whole triangle - tack,
+  foot and clew - rides a seventh of a mast higher, so it swings over the rail instead of through
+  it, and the yards trim by the bisector rule, so the fore lateen sets to the wind rather than
+  lying across the bow.
+- **Rope elasticity** ("add more elasticity to rope for sails"): half as much sag again, two slow
+  out-of-phase breathing terms, and the running rigging comes up taut under a drawing sail while
+  the standing rigging keeps its sag.
+- **Rope texture** ("add texture similar to riggings"): the ropes drawn inside the canvas mesh -
+  the foot rope, the sheets, the clew-lines, the lateen's robands - were flat cross-quads and read
+  as paper ribbon beside the geometry-stage cordage. They are six-sided, lathe-shaded prisms now.
+- **The stays to nowhere** ("remove riggings on the stern that lead nowhere"): the stays were
+  chosen by array *index* while the stations run bow to stern, so every mast stayed to the stem
+  and the **foremast ran a stay the whole length of the ship to the taffrail**, through the main
+  and mizzen tops. They are chosen by *station*: forward to the next mast ahead or the stem, aft
+  to the next mast astern or, for the aftermost only, the taffrail.
+
+### Carried back from the lost round
+Model-space sampling of every surface detail (`v_mpos`) so the planks and the canvas weave stop
+sliding over a moving hull; the bisector sail trim; long tapering swallow-tailed pennants; the
+yaw rate *taken up* by displacement (1.7x on a fusta, 0.4x on a great carrack); issue9's last
+line, "make fields more visible" (the worked land carries to 340 units instead of 220, the paint a
+quarter stronger, the cropland floor 0.72 instead of 0.55); and the lee side of a sail, which was
+a flat dark sheet and now glows as thin canvas does.
+
+### Physics: the damage model (P1.3), and two bugs that had made every battle bloodless
+- **No cannon shot had ever hit anything.** The guns fire in **world** coordinates; the tactical
+  bodies live in the staged battle's **local** frame. The broadphase compared a gun at world
+  (1000, -700) against a hull at local (-40, 20) and never matched, so every ball in every battle
+  flew past and out to the 4 km cull. The same mismatch fed `nphys_impulse` a lever arm a
+  kilometre long on every shot. `particles_set_origin` takes both into the body's own frame.
+  Measured before: `battle damage: 0 hits` over a two-minute action. After: 440 hits, 31 masts
+  down, 6 sunk.
+- **The pieces were laid up, from above the target.** Elevation was +0.2 to +2 degrees from a
+  muzzle that already stands above the enemy's hull box. Point-blank is fired level now (-1.3 to
+  +0.1 degrees) and the hit box reaches the rail (0.16 of the length, was 0.11).
+- **Zone damage** (`nphys_damage_t`: hull, rig, guns, flood, sunk, masts_down). Where the ball
+  strikes decides what it breaks: between wind and water she starts to leak, on the gun deck she
+  loses her battery and timber, aloft it is her rig. Each blow is scaled by the shot's speed and
+  by her displacement, so the ball that starts a plank on a fusta is a dent in a great carrack.
+- **Masts** go by the board at each threshold of rig damage, once, with an event the battle turns
+  into splinters and a line in the log.
+- **Flooding** grows with the holes below her line *and with itself*, so the end of a sinking is
+  quick: a hull holed through floods in about twenty seconds. It drags her and costs her speed.
+- **Sinking**: past full flooding she is a wreck - dead in the water, no helm, no guns, counted in
+  `nphys_wrecks()`.
+- A wounded rig costs up to 65% of her speed; water in her up to 55%.
+- `physics_test` carries a new `test_damage`: a blow aloft wounds the rig, brings a mast down,
+  slows her and leaves her dry; twelve balls between wind and water hole her through, she makes
+  water and in the end she goes. **7/7 suites green.**
+
+### Measured
+- MSVC build green; `ctest` 7/7 including the new damage checks.
+- `physics_test`: `rig 0.39, 1 mast(s) down, speed factor 0.75, dry` and `holed hull 1.00 flooded
+  to 1.00 and sank; 1 wreck(s)`.
+- A 110-second staged action: 440 hits, worst hull 1.00, rig 1.00, flood 1.00, 31 masts down,
+  6 sunk of 30.
+- `shots/damage_v.png` - a galley's full bank with the blades in the water and the looms over the
+  rail; `shots/rig_v.png`, `shots/galley_lateen_v.png`.
+
 ## 0.22.15 — the twelfth issues folder: volumetric gunsmoke, sagging cordage, sternway and oars, a sun that moves, matte wood and canvas
 
 From `assets/issues/issue12/issue.txt` (the trees, oars and rivers of it were done in 0.22.14) and the

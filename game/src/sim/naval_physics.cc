@@ -20,6 +20,13 @@ static inline float npf_wrap(float a) { while (a > 3.14159265f) a -= 6.28318531f
 #define NP_DRAG_FWD   0.42f     // per second, per unit of speed (quadratic term below)
 #define NP_DRAG_LAT   3.40f     // the underwater body resisting sideslip
 #define NP_DRAG_YAW   2.10f     // and resisting rotation
+// Damage (0.22.17, P1.3). A 1000-tonne hull shrugs off a ball; a 90-tonne fusta does not, so
+// every blow is scaled by her displacement. Flooding grows with the holes she has below the
+// waterline and is only ever made worse - nothing pumps in a staged battle yet.
+#define NP_DMG_PER_HIT  0.070f  // hull damage from one ball on a 500-tonne hull: fifteen between wind and water hole her through
+#define NP_FLOOD_RATE   0.020f  // of her volume a second, at hull damage 1
+#define NP_SINK_AT      1.00f   // flooding at which she goes under
+#define NP_MAST_AT      0.30f   // rig damage that carries a mast away (each threshold, once)
 #define NP_THRUST_K   1.60f     // how hard she is driven towards the commanded speed
 #define NP_RESTITUTION 0.18f    // oak on oak: mostly a thud, a little bounce
 #define NP_FRICTION    0.35f    // tangential loss in a contact (rigging fouling, planks scraping)
@@ -38,12 +45,14 @@ typedef struct body_t {
     float inv_m, inv_i;            // a static hull would be 0; every ship here has mass
     float cmd_v, cmd_h, cmd_turn;  // what the helm asked for
     float heel;                    // smoothed |yaw rate| x speed: how hard she is leaning
+    float d_hull, d_rig, d_guns, d_flood;   // 0.22.17: the damage model (naval_physics.h)
+    int   sunk, masts_down;
     int   used, aground;
 } body_t;
 
 class NavalPhysics {
 public:
-    void reset() { n_ = 0; acc_ = 0; steps_ = 0; contacts_ = 0; coast_on_ = 0; nshot_ = 0; nev_ = 0; }
+    void reset() { n_ = 0; acc_ = 0; steps_ = 0; contacts_ = 0; coast_on_ = 0; nshot_ = 0; nev_ = 0; wrecks_ = 0; }
     void set_surface(nphys_surface_fn fn, void *user) { surf_ = fn; surf_user_ = user; }
     void impulse(int id, float px, float pz, float jx, float jz) {
         if (!valid(id)) return;
@@ -70,6 +79,22 @@ public:
         return n;
     }
     int shots() const { return nshot_; }
+    int wrecks() const { return wrecks_; }
+    void damage_get(int id, nphys_damage_t *o) const {
+        if (!o) return;
+        if (!valid(id)) { *o = nphys_damage_t{}; return; }
+        const body_t &b = b_[id];
+        o->hull = b.d_hull; o->rig = b.d_rig; o->guns = b.d_guns; o->flood = b.d_flood;
+        o->sunk = b.sunk; o->masts_down = b.masts_down;
+    }
+    float speed_factor(int id) const {
+        if (!valid(id)) return 1.f;
+        const body_t &b = b_[id];
+        if (b.sunk) return 0.f;
+        return npf_clamp((1.f - 0.65f * b.d_rig) * (1.f - 0.55f * b.d_flood), 0.f, 1.f);
+    }
+    int sunk(int id) const { return valid(id) && b_[id].sunk; }
+    void damage_add_pub(int id, int where, float amount) { damage_add(id, where, amount); }
     int shot_list(float *xyz, int max) const { int n = 0; for (int i = 0; i < nshot_ && n < max; ++i) { xyz[n*3] = sh_[i].x; xyz[n*3+1] = sh_[i].y; xyz[n*3+2] = sh_[i].z; n++; } return n; }
     int  add(float x, float z, float h, float len, float beam, float draft, float tonnes);
     void drive(int id, float v, float h, float turn) {
@@ -110,6 +135,9 @@ private:
     void collide_coast();
     void buoyancy();
     void shots_step();
+    void damage_add(int id, int where, float amount);   // 0.22.17 (P1.3)
+    void damage_step(body_t &b, int id, float dt);
+    int  wrecks_ = 0;
     void event(int kind, int body, int owner, float x, float y, float z, float speed) {
         if (nev_ >= NPHYS_MAX_EVENTS) return;
         ev_[nev_++] = nphys_event_t{ kind, body, owner, x, y, z, speed };
@@ -163,6 +191,7 @@ void NavalPhysics::step() {
     for (int i = 0; i < n_; ++i) if (b_[i].used) integrate(b_[i]);
     buoyancy();
     shots_step();
+    for (int i = 0; i < n_; ++i) if (b_[i].used) damage_step(b_[i], i, dt);   // 0.22.17: she makes water through her holes
     collide_ships();
     collide_coast();
 }
@@ -205,6 +234,39 @@ void NavalPhysics::buoyancy() {
 // firer's own, the segment it moved this step is tested against the three discs at the hull's
 // height band (the waterline to about a tenth of her length up - gun deck and rail); into the
 // sea it is a splash. Either way the shot is gone and an event is left for the caller.
+// 0.22.17 (P1.3 "component / zone damage model"): one blow, placed. `where` is 0 below the
+// waterline, 1 on the gun deck, 2 aloft. Nothing here repairs: a battle only ever takes.
+void NavalPhysics::damage_add(int id, int where, float amount) {
+    if (!valid(id) || amount <= 0.f) return;
+    body_t &b = b_[id];
+    if (b.sunk) return;
+    if (where <= 0) { b.d_hull = npf_clamp(b.d_hull + amount * 1.25f, 0.f, 1.f); }          // between wind and water
+    else if (where == 1) { b.d_hull = npf_clamp(b.d_hull + amount * 0.55f, 0.f, 1.f);
+                           b.d_guns = npf_clamp(b.d_guns + amount * 1.10f, 0.f, 1.f); }     // the battery
+    else { b.d_rig = npf_clamp(b.d_rig + amount * 1.30f, 0.f, 1.f); }                       // aloft
+    // a mast goes by the board at each threshold of rig damage, once
+    int want_down = (int)(b.d_rig / NP_MAST_AT);
+    while (b.masts_down < want_down && b.masts_down < 4) {
+        b.masts_down++;
+        event(NPHYS_EV_MAST_DOWN, id, -1, b.x, b.heave + 0.10f * b.len, b.z, 0.f);
+    }
+}
+
+void NavalPhysics::damage_step(body_t &b, int id, float dt) {
+    if (b.sunk) return;
+    // she makes water through the holes below her line; a hull that is already low takes it
+    // faster, which is what makes the end of a sinking quick
+    if (b.d_hull > 0.02f) {
+        float rate = NP_FLOOD_RATE * b.d_hull * b.d_hull * (1.f + 1.6f * b.d_flood);
+        b.d_flood = npf_clamp(b.d_flood + rate * dt, 0.f, 1.2f);
+    }
+    if (b.d_flood >= NP_SINK_AT) {
+        b.sunk = 1; wrecks_++;
+        b.cmd_v = 0.f;
+        event(NPHYS_EV_SUNK, id, -1, b.x, b.heave, b.z, 0.f);
+    }
+}
+
 void NavalPhysics::shots_step() {
     const float dt = NPHYS_STEP, G = 9.81f / 2.47f;   // gravity in the staged scene's units (~2.47 m each)
     for (int i = 0; i < nshot_; ) {
@@ -219,7 +281,7 @@ void NavalPhysics::shots_step() {
             const body_t &B = b_[b];
             float dx = sh.x - B.x, dz = sh.z - B.z;
             if (dx * dx + dz * dz > 0.6f * 0.6f * B.len * B.len) continue;   // broadphase
-            float top = B.heave + 0.11f * B.len, bot = B.heave - 0.02f * B.len;
+            float top = B.heave + 0.16f * B.len, bot = B.heave - 0.02f * B.len;   // 0.22.17: up to the rail and the works, not just the topsides
             if (sh.y > top && y0 > top) continue;
             for (int k = 0; k < NPHYS_PARTS && !done; ++k) {
                 float px, pz, pr; part(B, k, &px, &pz, &pr);
@@ -230,6 +292,16 @@ void NavalPhysics::shots_step() {
                 float yy = y0 + (sh.y - y0) * t;
                 if (cx * cx + cz * cz < pr * pr && yy <= top && yy >= bot) {
                     event(NPHYS_EV_HIT, b, sh.owner, x0 + ex * t, yy, z0 + ez * t, spd);
+                    // 0.22.17 (P1.3): what the ball breaks follows from where it struck her.
+                    // Between wind and water she starts to leak; on the gun deck she loses
+                    // guns and timber; aloft it is the rig that suffers. The blow is scaled by
+                    // the shot's speed and by her displacement - the same ball that starts a
+                    // plank on a fusta is a dent in a great carrack.
+                    { body_t &Bd = b_[b];
+                      float rel_y = (yy - Bd.heave) / (0.13f * Bd.len > 1e-3f ? 0.13f * Bd.len : 1e-3f);   // 0 at the waterline, 1 at the rail
+                      float scale = NP_DMG_PER_HIT * (spd / 150.f) * npf_clamp(500.f * Bd.inv_m, 0.35f, 3.0f);
+                      int where = rel_y < 0.18f ? 0 : rel_y < 0.62f ? 1 : 2;
+                      damage_add(b, where, scale); }
                     // the shot's momentum goes into the hull (a 14 kg ball at 450 m/s is a tonne-metre
                     // a second: nothing a ship of 800 tonnes notices, but a boat does)
                     body_t &Bm = b_[b];
@@ -253,9 +325,13 @@ void NavalPhysics::integrate(body_t &b) {
     float vl = b.vx * rx + b.vz * rz;                    // and sideways
     // thrust towards the commanded speed. 0.22.15: a negative command is sternway - a ship
     // caught in the eye of the wind with her canvas aback (staged_scene.cc) - and is driven as asked
-    float thrust = (b.cmd_v - vf) * NP_THRUST_K;
+    // 0.22.17: a wounded rig drives her less and the water in her drags; a sunk hull is dead
+    // in the water and settles by the head.
+    float cmd = b.cmd_v * (1.f - 0.65f * b.d_rig) * (1.f - 0.55f * b.d_flood);
+    if (b.sunk) cmd = 0.f;
+    float thrust = (cmd - vf) * NP_THRUST_K;
     // drag: linear plus quadratic, much harder across than along
-    float df = -(NP_DRAG_FWD * vf + 0.28f * vf * fabsf(vf));
+    float df = -(NP_DRAG_FWD * (1.f + 1.3f * b.d_flood + (b.sunk ? 3.f : 0.f)) * vf + 0.28f * vf * fabsf(vf));
     float dl = -(NP_DRAG_LAT * vl + 0.9f * vl * fabsf(vl));
     float af = thrust + df, al = dl;
     b.vx += (af * c + al * rx) * dt;
@@ -265,7 +341,11 @@ void NavalPhysics::integrate(body_t &b) {
     float err = npf_wrap(b.cmd_h - b.h);
     float authority = npf_clamp(fabsf(vf) / (0.35f * b.len + 1e-3f), 0.08f, 1.f);
     float want_yr = npf_clamp(err * 2.2f, -b.cmd_turn, b.cmd_turn) * authority;
-    b.yr += (want_yr - b.yr) * npf_clamp(NP_DRAG_YAW * dt, 0.f, 1.f);
+    // 0.22.17: a hull does not take up the ordered rate of turn at once, nor shed it. inv_m is
+    // 1/tonnes, so an 80-tonne fusta swings into her turn four times as readily as a 1500-tonne
+    // great carrack, and carries her swing as long.
+    float agility = npf_clamp(b.inv_m * 450.f, 0.40f, 1.70f);
+    b.yr += (want_yr - b.yr) * npf_clamp(NP_DRAG_YAW * agility * dt, 0.f, 1.f);
     b.x += b.vx * dt; b.z += b.vz * dt; b.h = npf_wrap(b.h + b.yr * dt);
     // how hard she is leaning: the centripetal force on a hull in a turn, smoothed
     float want_heel = npf_clamp(fabsf(b.yr) * fabsf(vf) * 2.6f, 0.f, 1.f);
@@ -403,6 +483,11 @@ void  nphys_fire(int owner, float x, float y, float z, float dx, float dy, float
 void  nphys_attitude(int id, float *heave, float *pitch, float *roll) { mare::game::sim::physics().attitude(id, heave, pitch, roll); }
 int   nphys_poll_events(nphys_event_t *out, int max) { return mare::game::sim::physics().poll_events(out, max); }
 int   nphys_shots(void) { return mare::game::sim::physics().shots(); }
+int   nphys_wrecks(void) { return mare::game::sim::physics().wrecks(); }
+void  nphys_damage_get(int id, nphys_damage_t *out) { mare::game::sim::physics().damage_get(id, out); }
+void  nphys_damage_add(int id, int where, float amount) { mare::game::sim::physics().damage_add_pub(id, where, amount); }
+float nphys_speed_factor(int id) { return mare::game::sim::physics().speed_factor(id); }
+int   nphys_sunk(int id) { return mare::game::sim::physics().sunk(id); }
 int   nphys_shot_list(float *xyz, int max) { return mare::game::sim::physics().shot_list(xyz, max); }
 int   nphys_steps_last(void) { return mare::game::sim::physics().steps_last(); }
 int   nphys_contacts_last(void) { return mare::game::sim::physics().contacts_last(); }

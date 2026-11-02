@@ -132,14 +132,14 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | P2 | Broadphase collision | [ ] |
 | P1 | Ballistic ray / swept-sphere projectile model | [x] 0.22.11: `nphys_fire` - swept spheres under gravity against the compound hulls, hits and splashes as events |
 | P1 | Cannonball / projectile hits | [x] 0.22.11: a hit gives the hull the ball's momentum and an event the staged scene turns into splinters; no damage yet (next row) |
-| P1 | Component / zone damage model | [ ] |
-| P1 | Hull damage | [ ] |
-| P1 | Mast damage | [ ] |
-| P1 | Sail damage | [ ] |
-| P1 | Gun damage | [ ] |
+| P1 | Component / zone damage model | [x] 0.22.17: `nphys_damage_t` - hull, rig, guns, flood, sunk; the zone follows the impact height |
+| P1 | Hull damage | [x] 0.22.17 |
+| P1 | Mast damage | [x] 0.22.17: a mast at each threshold of rig damage, with an event |
+| P1 | Sail damage | [x] 0.22.17: the rig scalar costs her up to 65% of her speed |
+| P1 | Gun damage | [~] 0.22.17: the scalar is raised by gun-deck hits; the battery does not yet fire slower |
 | P1 | Fire | [ ] |
-| P1 | Flooding | [ ] |
-| P1 | Sinking state | [ ] |
+| P1 | Flooding | [x] 0.22.17: grows with the holes below the line and with itself |
+| P1 | Sinking state | [x] 0.22.17: a wreck - dead in the water, no helm, no guns |
 | P2 | Constraints only where gameplay-relevant | [ ] |
 | P2 | Mast / debris constraints where needed | [ ] |
 | P3 | Towing / boarding constraints if needed | [ ] |
@@ -216,7 +216,46 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 128 | P1 | Authored trees' far LOD ring to 14 units (row 117, first half) | [x] LOD 5 from 7 to 14 units. [ ] the fruit-tree set for the orchards |
 | 129 | P1 | issue12 "add waves like wake.png"; "create waves continuously with the ship moving" | [x] done in 0.22.13/14 (rows 86, 100); nothing further this round |
 
-## Order of work (updated 0.22.15)
+## issue14 (assets/issues/issue14, 0.22.17) - session elm
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 130 | P0 | "Q AND E IN BATTLE VIEW DONT WORK" | [x] they had never been bound to anything. Q/E now put the player's line under manual steering and swing the ordered course; H hands her back to the line. Each ship answers at her class's rate (`detailview_helm`, `ui/input.cc`) |
+| 131 | P0 | "oars again wrong: wide part needs to be in water, pivot in the ship part, movement slowly 30 deg (-15 to 15)" | [x] the blade is the model's -x end (measured: twice the loom's width) and a positive pitch carries it under - the sign had been flipped the wrong way; the oar now turns about its **rowlock on the rail**, not about its own middle hung outboard; the sweep is +-15 degrees at a stroke every 3-5 s |
+| 132 | P0 | "other than cities add random small villages (houses in rural areas inland connected with roads to main cities and ports)" | [x] a settled region founds six inland villages (was three) and a frontier two, 2 units apart (was 3). Each is a real settlement, so `world/roads.cc` routes it to its port and `gfx/scatter.cc` gives it houses and a mill |
+| 133 | P0 | "still front lanteen and sail isn't fixed" | [x] the lateen rides a seventh of a mast higher (tack/foot/clew) so it no longer cuts the deck, and the yards trim by the bisector rule, so the fore lateen sets to the wind instead of lying across the bow |
+| 134 | P0 | "add more elasticity to rope for sails" | [x] half as much sag again, two slow out-of-phase breathing terms, and the running rigging (kind 2) comes up taut under a drawing sail while the standing rigging keeps its sag |
+| 135 | P0 | "add texture similar to riggings" (the sails' own ropes) | [x] the foot rope, the sheets, the clew-lines and the lateen's robands were flat cross-quads reading as paper ribbon; they are six-sided lathe-shaded prisms now, like the cordage |
+| 136 | P0 | "remove riggings on the stern that lead nowhere" | [x] the stays were picked by array *index*, so every mast stayed to the stem and the foremast ran a stay the whole length of the ship to the taffrail through the other tops. They are picked by *station* now: forward to the next mast ahead or the stem, aft to the next mast astern or (for the aftermost only) the taffrail |
+
+### Carried back after the 0.22.16 round was lost in a commit
+| # | Pri | Item | Status |
+|---|-----|------|--------|
+| 137 | P0 | issue13's video: "texture over ships that is not moving with mesh" | [x] every surface detail sampled in the model's frame (`v_mpos`), not the world's |
+| 138 | P0 | issue13: sails trimmed for maximum efficiency | [x] the bisector rule |
+| 139 | P1 | issue13: flags like the reference paintings | [x] long tapering swallow-tailed pennants |
+| 140 | P1 | issue13/14: turn capability by size | [x] the yaw rate is *taken up* by displacement: 1.7x on a fusta, 0.4x on a great carrack |
+| 141 | P1 | issue9's last line, "make fields more visible" | [x] the worked land carries to 340 units (was 220), the paint a quarter stronger, the cropland floor 0.72 (was 0.55) |
+| 142 | P1 | todo 105, the lateen canvas' lee side | [x] transmission 0.52 and twice the sky fill |
+
+### Physics - the damage model (P1.3), started this round
+| # | Pri | Item | Status |
+|---|-----|------|--------|
+| 143 | P0 | **(found) No cannon shot had ever hit anything** | [x] the guns fire in world coordinates, the tactical bodies live in the battle's local frame: the broadphase compared a gun at world (1000, -700) against a hull at local (-40, 20) and never matched. Every ball in every battle flew past. `particles_set_origin` takes the shot - and the recoil's lever arm, which had been a kilometre long - into the body's own frame |
+| 144 | P0 | (found) The guns were laid *up* from a muzzle above the target's hit box | [x] point-blank is fired level: elevation -1.3 to +0.1 degrees, and the hit box reaches the rail (0.16 L, was 0.11) |
+| 145 | P1 | Component / zone damage model | [x] `nphys_damage_t`: hull, rig, guns, flood, sunk, masts_down. Where the ball strikes decides what it breaks - below the waterline she leaks, on the gun deck she loses her battery, aloft her rig |
+| 146 | P1 | Hull damage | [x] |
+| 147 | P1 | Mast damage | [x] a mast goes by the board at each threshold of rig damage, with an event |
+| 148 | P1 | Sail damage | [x] carried by the same rig scalar: a wounded rig costs up to 65% of her speed |
+| 149 | P1 | Gun damage | [~] the scalar is kept and raised by hits on the gun deck; the battery does not fire slower for it yet |
+| 150 | P1 | Flooding | [x] grows with the holes below her line and with itself, so the end comes quickly |
+| 151 | P1 | Sinking state | [x] past full flooding she is a wreck: dead in the water, no helm, no guns, and an event |
+| 152 | P1 | Fire | [ ] nothing burns yet |
+| 153 | P1 | Tactical results update strategic ship state | [ ] the damage is read back by nothing; the staged exercise has no real fleet behind it |
+| 154 | P2 | Broadphase collision | [ ] |
+| 155 | P2 | Multithreaded physics jobs | [ ] |
+
+## Order of work (updated 0.22.17)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -231,7 +270,9 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 11. issue10 items 77-90, 92, 98. **Done 0.22.13.** Open from it: 91 (rivers), 93-97.
 12. issue11/12 items 99-114. **Done 0.22.14** (105 partly). Rows 91 and 94 closed with it; 95 (volumetric smoke) and 115 (rope physics) are the open issue12 items.
 13. issue12's rest, rows 119-129. **Done 0.22.15.** Rows 95, 115 and half of 117 closed with it.
-14. Next, in this order: 105 (the lateen canvas' back face), 117b (a fruit-tree set), 118 (river carving and navigation on the authored data), 121b (a verlet rope), then the list below:
+14. issue14 + the lost 0.22.16 work, rows 130-142. **Done 0.22.17** (session elm).
+15. The damage model (P1.3), rows 143-151. **Done 0.22.17** - and with it the two bugs that had kept every battle bloodless.
+16. Next, in this order: 152 (fire), 153 (tactical results into the strategic ship), 117b (a fruit-tree set), 118 (river carving and navigation on the authored data), 121b (a verlet rope), then the list below:
    1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
    2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy knows the waterline), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
    3. **Heave into the shader**: the body's heave is computed but the hull still rides the shader's own wave sample; with the attitude channel in place the heave is one more float.

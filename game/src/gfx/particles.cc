@@ -66,6 +66,7 @@ public:
     void init();
     void reset() { n_ = 0; nshock_ = 0; nblast_ = 0; ngun_ = 0; nblob_ = 0; sea_set_blasts(0, 0, 0); }
     void set_wind(float vx, float vz) { wind_x_ = vx; wind_z_ = vz; }
+    void set_origin(float ox, float oz) { org_x_ = ox; org_z_ = oz; }
     void broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body);
     void splash(float x, float z, float size);
     void hit(float x, float y, float z, float dx, float dz, float size);
@@ -91,6 +92,7 @@ private:
     blob_t *blob_spawn();
     void   vol_draw();
     float wind_x_ = 0, wind_z_ = 0;
+    float org_x_ = 0, org_z_ = 0;   // 0.22.17: the staged scene's origin in the world (particles.h)
     unsigned rng_ = 0x9e3779b9u;
     rhi_pipeline_t prg_{}; mesh_t quad_{}; int inited_ = 0;
     int tex_smoke_ = -1, tex_fire_ = -1, tex_foam_ = -1;   // 0.22.13 (issue10): the Meshy sheets as RGBA sprite atlases (tools/fx_sprites.py)
@@ -229,11 +231,15 @@ void Particles::fire_gun(const gun_t &g) {
     // the physics brings back over a few seconds.
     if (g.body >= 0) {
         float J = 0.35f * g.gs;
-        nphys_impulse(g.body, g.cx, g.cz, -g.sx * J, -g.sz * J);
+        nphys_impulse(g.body, g.cx - org_x_, g.cz - org_z_, -g.sx * J, -g.sz * J);   // 0.22.17: in the body's own frame, or the lever arm is a kilometre long
         nphys_kick_roll(g.body, -g.side * 0.0044f * g.gs);
-        float yaw = (rnd_f(&rng_) - 0.5f) * 0.06f, el = 0.004f + rnd_f(&rng_) * 0.03f;
+        // 0.22.17 (P1.3): the piece is laid flat, a touch low. It had been laid 0.2 to 2
+        // degrees *up* from a muzzle that already stands above the enemy's hull box, so every
+        // ball in every battle flew clean over her and not one shot had ever struck home
+        // (`battle damage: 0 hits` over a two-minute action). Point-blank is fired level.
+        float yaw = (rnd_f(&rng_) - 0.5f) * 0.06f, el = -0.022f + rnd_f(&rng_) * 0.020f;
         float dx = g.sx * cosf(yaw) - g.sz * sinf(yaw), dz = g.sx * sinf(yaw) + g.sz * cosf(yaw);
-        nphys_fire(g.body, g.gx + g.sx * 0.8f, g.gy, g.gz + g.sz * 0.8f, dx, el, dz, 150.f + 30.f * g.gs);
+        nphys_fire(g.body, g.gx + g.sx * 0.8f - org_x_, g.gy, g.gz + g.sz * 0.8f - org_z_, dx, el, dz, 150.f + 30.f * g.gs);
     }
     const float gx = g.gx, gy = g.gy, gz = g.gz, sx = g.sx, sz = g.sz, fx = g.fx, fz = g.fz, gs = g.gs, deck = g.deck;
         // flash
@@ -549,6 +555,7 @@ extern "C" {
 void particles_init(void) { mare::engine::render::particles().init(); }
 void particles_reset(void) { mare::engine::render::particles().reset(); }
 void particles_set_wind(float vx, float vz) { mare::engine::render::particles().set_wind(vx, vz); }
+void particles_set_origin(float ox, float oz) { mare::engine::render::particles().set_origin(ox, oz); }
 void particles_broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body) { mare::engine::render::particles().broadside(x, y, z, heading, side, hull_len, guns, body); }
 void particles_splash(float x, float z, float size) { mare::engine::render::particles().splash(x, z, size); }
 void particles_hit(float x, float y, float z, float dx, float dz, float size) { mare::engine::render::particles().hit(x, y, z, dx, dz, size); }

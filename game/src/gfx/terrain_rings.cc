@@ -460,7 +460,7 @@ void StreamView::sv_fill_rows(void *arg, int begin, int end, int slot) {
             // again wherever the data calls it crops or grass and the ground is gentle - a floor of
             // 0.55 under the halo, which still makes the country round a village and along a road
             // the thickest; the standing wheat is gone from gfx/scatter.cc, so the parcels are paint
-            float fields = crop * gentle * low * maxf(0.55f, maxf(near_set, 0.55f * near_road * (1.f - smoothstep_(0.25f, 0.45f, rdd)))) * (0.72f + 0.28f * smoothstep_(0.35f, 0.6f, patch));
+            float fields = crop * gentle * low * maxf(0.72f, maxf(near_set, 0.55f * near_road * (1.f - smoothstep_(0.25f, 0.45f, rdd)))) * (0.80f + 0.20f * smoothstep_(0.35f, 0.6f, patch));   // 0.22.17 (issue9 "make fields more visible"): floor 0.55 -> 0.72, flatter patch mask
             // the region's goods decide what grows on the slopes
             int reg = region_at(wx, wz);
             float wine_pot = reg >= 0 && reg < G.nregions ? G.regions[reg].potential[G_WINE] : 0.f;

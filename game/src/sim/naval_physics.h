@@ -92,13 +92,36 @@ typedef struct nphys_event_t {
     float x, y, z;             // where
     float speed;               // of the shot at that moment
 } nphys_event_t;
-enum { NPHYS_EV_SPLASH = 1, NPHYS_EV_HIT = 2 };
+enum { NPHYS_EV_SPLASH = 1, NPHYS_EV_HIT = 2, NPHYS_EV_MAST_DOWN = 3, NPHYS_EV_SUNK = 4 };
+
+// ---------------------------------------------------------------------------
+// Damage (0.22.17, P1.3 "component / zone damage model"). Every hit lands somewhere on the
+// hull and what it breaks follows from *where*: between wind and water it starts her leaking,
+// on the gun deck it dismounts guns, aloft it wounds the rig. Four scalars 0..1 carry it, and
+// flooding is the one that kills her - it grows with the holes below the line, drags her down
+// by the head and, past NP_SINK_AT, takes her under.
+typedef struct nphys_damage_t {
+    float hull;      // 0 sound .. 1 a sieve
+    float rig;       // masts, yards and canvas: what she can still set
+    float guns;      // the battery she can still fire
+    float flood;     // water in her: 0 dry .. 1 gone
+    int   sunk;      // she has gone under; the body stops driving and is left to settle
+    int   masts_down;// masts carried away so far (each is an event)
+} nphys_damage_t;
+
+void nphys_damage_get(int id, nphys_damage_t *out);   // zeros when the id is not a body
+// A blow dealt by something other than round shot - a ram, a grounding, a fire below:
+// `where` is 0 below the waterline, 1 on the gun deck, 2 aloft.
+void nphys_damage_add(int id, int where, float amount);
+float nphys_speed_factor(int id);   // 1 sound .. ~0.25 a wreck: what her rig and her flooding leave her
+int   nphys_sunk(int id);
 int   nphys_poll_events(nphys_event_t *out, int max);
 
 // diagnostics
 int   nphys_steps_last(void);           // fixed steps run by the last advance()
 int   nphys_contacts_last(void);        // ship-ship contacts resolved in the last step
 int   nphys_shots(void);                // shot in the air
+int   nphys_wrecks(void);               // bodies that have gone under this scene
 int   nphys_shot_list(float *xyz, int max);   // their positions (x, y, z per shot, this frame's integrated state); returns the count written (0.22.14: drawn as round shot)
 float nphys_alpha(void);                // interpolation fraction, 0..1
 int   nphys_count(void);

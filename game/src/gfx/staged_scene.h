@@ -43,6 +43,14 @@ const char *detailview_coast_desc(void);       // "wooded hills to the NE, 12 km
 void  detailview_overlays(void);               // wind arrows (dd lines; the caller flushes)
 void  detailview_weather(void);                // after the weather: haze for the open sea, a little for a coast
 float detailview_eye_floor(void);              // the lowest the eye may sit in a staged scene (local units)
+// The helm (0.22.17, issue14 "Q and E in battle view don't work" - they were never bound).
+// `detailview_helm(d)` puts the player's side under manual steering and turns the ordered
+// course by `d` radians; `detailview_helm_release()` hands her back to the line. Every ship
+// answers at her own rate through her rigid body, so a great carrack comes round slowly.
+void  detailview_helm(float dcourse);
+void  detailview_helm_release(void);
+int   detailview_helm_on(void);                // 1 while the player's side is steering by hand
+float detailview_helm_course(void);            // the ordered course, radians
 void  detailview_trailer(float t);             // the trailer's keyed camera, at t seconds into the take (main.cc MARE_RECORD; < 0 holds the first mark)
 
 #ifdef __cplusplus

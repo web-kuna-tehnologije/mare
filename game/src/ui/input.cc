@@ -200,6 +200,14 @@ void Input::frame(float dt, int ui_blocked) {
             if (KDOWN(GLFW_KEY_MINUS) || KDOWN(GLFW_KEY_KP_SUBTRACT)) detailview_set_timescale(ts > 0.f ? maxf(ts * 0.5f, 0.0625f) : 0.0625f);
             if (KDOWN(GLFW_KEY_EQUAL) || KDOWN(GLFW_KEY_KP_ADD)) detailview_set_timescale(ts > 0.f ? minf(ts * 2.f, 8.f) : 0.25f);
             if (key_down('n')) detailview_toggle_wind();
+            // 0.22.17 (issue14): the helm. Q and E put the player's line under manual steering
+            // and swing the ordered course to port and starboard; H gives her back to the line.
+            // A quarter-turn a second held down, on the battle's own clock, so a stopped battle
+            // does not steer. Each ship answers at the rate her class and displacement allow.
+            { float hts = detailview_timescale();
+              if (key('q')) detailview_helm(-1.2f * dt * (hts > 0.f ? hts : 0.f));
+              if (key('e')) detailview_helm( 1.2f * dt * (hts > 0.f ? hts : 0.f));
+              if (key_down('h')) detailview_helm_release(); }
             if (!detailview_busy()) { float lift = cam.want_dist * 0.7f * dt; if (key('r')) cam.want_ty += lift; if (key('f')) cam.want_ty -= lift; }
         } else {
             static const float speeds[4] = SIM_SPEEDS;
