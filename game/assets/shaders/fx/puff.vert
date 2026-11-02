@@ -10,6 +10,9 @@ void main(){
 // 0.22.12 (issue9 "clouds not circles"): smoke billboards are stretched 1.35:1 along their own
 // spin axis, so the silhouette is an oval lump the noise then tears, never a disc
   vec2 st = i_misc.z < 0.5 || (i_misc.z > 2.5 && i_misc.z < 4.5) ? vec2(1.35, 0.85) : vec2(1.0);
+// kind 8 (0.22.20, issue16 "more realistic fire"): a flame is a tongue, twice as tall as it
+// is wide, and it does not spin - the rotation is zeroed so the stretch is always upright
+  if (i_misc.z > 7.5) { st = vec2(0.55, 1.6); c = 1.0; s = 0.0; }
   vec2 q = vec2(a_pos.x * st.x * c - a_pos.y * st.y * s, a_pos.x * st.x * s + a_pos.y * st.y * c);
 // kind 6 (a ring on the water) lies flat in the world; everything else faces the camera
   vec3 ax = i_misc.z > 5.5 ? vec3(1.0, 0.0, 0.0) : u_cam_right, ay = i_misc.z > 5.5 ? vec3(0.0, 0.0, 1.0) : u_cam_up;

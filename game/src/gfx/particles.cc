@@ -29,7 +29,7 @@ extern "C" {
 namespace mare::engine::render {
 
 // kinds, as fx/puff.frag reads them in i_misc.z
-enum { PK_SMOKE = 0, PK_FLASH = 1, PK_EMBER = 2, PK_CORE = 3, PK_HAZE = 4, PK_SPRAY = 5, PK_RING = 6, PK_SPLINTER = 7 };
+enum { PK_SMOKE = 0, PK_FLASH = 1, PK_EMBER = 2, PK_CORE = 3, PK_HAZE = 4, PK_SPRAY = 5, PK_RING = 6, PK_SPLINTER = 7, PK_FLAME = 8 };   // 8 (0.22.20, issue16): a tongue of real fire - the fire sheet, stretched tall, climbing
 #define PTC_MAX   5632
 #define BLAST_MAX 12
 #define SHOCK_MAX 16
@@ -68,6 +68,8 @@ public:
     void set_wind(float vx, float vz) { wind_x_ = vx; wind_z_ = vz; }
     void set_origin(float ox, float oz) { org_x_ = ox; org_z_ = oz; }
     void broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body);
+    void fire(float x, float y, float z, float hull_len, float heat);        // 0.22.19 (todo 152)
+    void explosion(float x, float y, float z, float hull_len);
     void splash(float x, float z, float size);
     void hit(float x, float y, float z, float dx, float dz, float size);
     void spray(float x, float y, float z, float dx, float dz, float strength);
@@ -185,6 +187,93 @@ void Particles::blast(float x, float z, float dx, float dz, float L) {
 // blast throws spray. Bigger hulls carry bigger guns: the puff size grows with the length,
 // the count with the guns. 0.22.10: the guns are *queued* with their own delays and go off as
 // a ripple (fire_gun); the ring on the water is laid when the first of them fires.
+
+// A ship on fire (0.22.19, todo 152). One plume per call, from a point that wanders along her
+// deck, because a fire is not a chimney: it takes hold in one place, spreads along the deck,
+// and the column leans off downwind. The smoke is the same volumetric blob the guns make, but
+// darker and slower, and at the root there is flame - which is the thing that reads at a
+// distance and tells the player, at a glance, that that ship is in trouble.
+void Particles::fire(float x, float y, float z, float hull_len, float heat) {
+    float L = maxf(hull_len, 3.f);
+    float h = clampf(heat, 0.f, 1.f);
+    float ox = (rnd_f(&rng_) - 0.5f) * 0.45f * L, oz = (rnd_f(&rng_) - 0.5f) * 0.18f * L;
+    // the smoke column: dark, climbing, carried off on the wind
+    if (vol_on_) {
+        blob_t *b = blob_spawn();
+        if (b) { *b = blob_t{};
+            b->x = x + ox; b->y = y + 0.4f; b->z = z + oz;
+            b->vy = 1.4f + 2.2f * h; b->vx = wind_x_ * 2.2f; b->vz = wind_z_ * 2.2f;
+            b->life = 14.f + 8.f * rnd_f(&rng_);
+            b->r0 = 0.5f + 0.5f * h; b->r1 = (3.0f + 5.0f * h) * (0.6f + L / 30.f);
+            b->dens = 1.5f + 1.1f * h;
+            b->shade = 0.30f - 0.16f * h;            // soot: far darker than gunsmoke
+            b->seed = rnd_f(&rng_); b->kind = 1; }
+    }
+    // The flame at its root (0.22.20, issue16 "make more realistic fire, you have particles
+    // and smoke also" - the first cut used the muzzle-flash sprite, which is a hot *disc*, so
+    // a burning ship showed two yellow blobs). Fire is tongues: tall, narrow, climbing, each
+    // one born small at the deck, stretching upward as it rises, and gone in under a second -
+    // the flicker is many short-lived tongues, not one long-lived sprite. PK_FLAME renders
+    // the Meshy fire sheet stretched 2:1 tall with a colour ramp from white at the root to
+    // red at the tip (fx/puff.frag), and never spins - fire does not rotate.
+    int nf = 2 + (int)(5.f * h);
+    for (int k = 0; k < nf; ++k) {
+        ptc_t *p = spawn(); if (!p) break; *p = ptc_t{};
+        p->kind = PK_FLAME;
+        p->x = x + ox + (rnd_f(&rng_) - 0.5f) * 0.10f * L;
+        p->y = y + 0.05f + rnd_f(&rng_) * 0.2f;
+        p->z = z + oz + (rnd_f(&rng_) - 0.5f) * 0.06f * L;
+        p->vx = wind_x_ * 0.4f; p->vz = wind_z_ * 0.4f;
+        p->vy = 1.6f + 2.6f * rnd_f(&rng_) * (0.5f + h);
+        p->life = 0.45f + rnd_f(&rng_) * 0.5f;
+        p->size0 = (0.30f + 0.55f * h) * (0.5f + L / 40.f);
+        p->size1 = p->size0 * 1.7f;                      // a tongue stretches as it climbs, then the frag fades it
+        p->alpha = 0.95f; p->seed = rnd_f(&rng_); p->rot = 0.f;
+    }
+    // ... and embers off a hot fire, carried up and off on the wind
+    if (h > 0.3f) for (int k = 0; k < 2; ++k) {
+        ptc_t *p = spawn(); if (!p) break; *p = ptc_t{};
+        p->kind = PK_EMBER;
+        p->x = x + ox; p->y = y + 0.4f; p->z = z + oz;
+        float a = rnd_f(&rng_) * 6.2832f;
+        p->vx = cosf(a) * 0.8f + wind_x_; p->vz = sinf(a) * 0.8f + wind_z_;
+        p->vy = 2.5f + 3.5f * rnd_f(&rng_);
+        p->life = 1.2f + rnd_f(&rng_) * 1.6f;
+        p->size0 = 0.05f; p->size1 = 0.02f;
+        p->alpha = 1.f; p->seed = rnd_f(&rng_);
+    }
+}
+
+// The magazine (0.22.19, todo 152). Not a bigger fire: a single event, a white core going out
+// hard in every direction with the dark of her timbers behind it, and the sea thrown up round
+// where she was. She is gone before the smoke clears.
+void Particles::explosion(float x, float y, float z, float hull_len) {
+    float L = maxf(hull_len, 3.f);
+    for (int k = 0; k < 7 && vol_on_; ++k) {
+        blob_t *b = blob_spawn(); if (!b) break; *b = blob_t{};
+        float a = rnd_f(&rng_) * 6.2832f, r = rnd_f(&rng_) * 0.35f * L;
+        b->x = x + cosf(a) * r; b->y = y + 0.5f + rnd_f(&rng_) * 0.5f * L; b->z = z + sinf(a) * r;
+        b->vx = cosf(a) * (3.f + 5.f * rnd_f(&rng_)); b->vz = sinf(a) * (3.f + 5.f * rnd_f(&rng_));
+        b->vy = 3.5f + 5.f * rnd_f(&rng_);
+        b->life = 22.f + 10.f * rnd_f(&rng_);
+        b->r0 = 1.2f; b->r1 = (7.f + 5.f * rnd_f(&rng_)) * (0.6f + L / 26.f);
+        b->dens = 2.2f; b->shade = k < 2 ? 0.92f : 0.26f;     // the flash, then the soot
+        b->seed = rnd_f(&rng_); b->kind = k < 2 ? 0 : 1;
+    }
+    for (int k = 0; k < 22; ++k) {              // burning wreckage thrown out
+        ptc_t *p = spawn(); if (!p) break; *p = ptc_t{};
+        float a = rnd_f(&rng_) * 6.2832f;
+        p->kind = k < 6 ? PK_FLASH : PK_FLAME;
+        p->x = x; p->y = y + 0.4f; p->z = z;
+        float sp = 6.f + 16.f * rnd_f(&rng_);
+        p->vx = cosf(a) * sp; p->vz = sinf(a) * sp; p->vy = 4.f + 12.f * rnd_f(&rng_);
+        p->life = 0.8f + rnd_f(&rng_) * 1.2f;
+        p->size0 = 0.5f + 0.5f * rnd_f(&rng_); p->size1 = 0.08f;
+        p->alpha = 1.f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f;
+    }
+    shock(x, y + 0.2f, z, L * 2.2f, 0.75f);
+}
+
 void Particles::broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body) {
     int nside = (int)clampf((float)guns * 0.5f, 1.f, 18.f);
     float L = maxf(hull_len, 3.f);
@@ -238,8 +327,35 @@ void Particles::fire_gun(const gun_t &g) {
         // ball in every battle flew clean over her and not one shot had ever struck home
         // (`battle damage: 0 hits` over a two-minute action). Point-blank is fired level.
         float yaw = (rnd_f(&rng_) - 0.5f) * 0.06f, el = -0.022f + rnd_f(&rng_) * 0.020f;
+        // 0.22.19 (issue15 "angle of firing based on waves and ship rotation and position").
+        // A gun is bolted to the deck: it is laid in the ship's frame and fired in the
+        // world's, and in a seaway those are not the same. The piece follows her roll, so a
+        // ship rolled towards the enemy throws her shot into the sea and one rolled away
+        // throws it over the mastheads - which is why gun captains fired on the roll. Her
+        // pitch tilts the muzzle too, by however much the gun points along her length. This
+        // is the single largest source of error in the model and it is a real one, not a
+        // random number: a steady ship shoots straight.
+        float heave_b = 0.f, pitch_b = 0.f, roll_b = 0.f;
+        nphys_attitude(g.body, &heave_b, &pitch_b, &roll_b);
+        el += -g.side * roll_b;                          // roll is starboard-down positive
+        el += pitch_b * (g.sx * g.fx + g.sz * g.fz);     // ... and the pitch, projected on the gun's bearing
         float dx = g.sx * cosf(yaw) - g.sz * sinf(yaw), dz = g.sx * sinf(yaw) + g.sz * cosf(yaw);
-        nphys_fire(g.body, g.gx + g.sx * 0.8f - org_x_, g.gy, g.gz + g.sz * 0.8f - org_z_, dx, el, dz, 150.f + 30.f * g.gs);
+        // The ball's own size, from the gun it came out of (`gs` is the piece's scale, so a
+        // bow chaser throws a smaller ball than a lower-deck gun): a 6-pounder's ball is 4.4 cm
+        // in the radius and a 32-pounder's 7.6, which is 0.018 to 0.031 scene units at 2.47 m
+        // a unit. Drag goes as 1/r, so the light pieces are short-ranged all by themselves.
+        float ball_r = (0.018f + 0.013f * clampf(g.gs, 0.f, 1.4f) / 1.4f);
+        // the curve a smooth bore puts on the ball: windage and whatever spin it picks up
+        // coming out, sideways and constant, up to about a degree of deflection over a
+        // second's flight. Sign and size are the ball's own, not the gunner's.
+        float drift = (rnd_f(&rng_) - 0.5f) * 9.0f;
+        // and she throws it from a moving platform: the ball carries her way with it
+        float svx = 0.f, svz = 0.f, syr = 0.f; nphys_velocity(g.body, &svx, &svz, &syr);
+        float spd = 150.f + 30.f * g.gs;
+        float mx = dx * spd + svx, my = el * spd, mz = dz * spd + svz;
+        float ms = sqrtf(mx * mx + my * my + mz * mz);
+        nphys_fire(g.body, g.gx + g.sx * 0.8f - org_x_, g.gy, g.gz + g.sz * 0.8f - org_z_,
+                   mx, my, mz, ms, ball_r, drift);
     }
     const float gx = g.gx, gy = g.gy, gz = g.gz, sx = g.sx, sz = g.sz, fx = g.fx, fz = g.fz, gs = g.gs, deck = g.deck;
         // flash
@@ -260,18 +376,18 @@ void Particles::fire_gun(const gun_t &g) {
                 float spd = (9.f - 2.5f * k) * (0.85f + 0.3f * rnd_f(&rng_)), off = (rnd_f(&rng_) - 0.5f) * 1.2f * gs;
                 b->x = gx + sx * (0.8f + 1.1f * k) + fx * off; b->y = gy + 0.25f + 0.35f * k; b->z = gz + sz * (0.8f + 1.1f * k) + fz * off;
                 b->vx = sx * spd + fx * (rnd_f(&rng_) - 0.5f) * 1.5f; b->vz = sz * spd + fz * (rnd_f(&rng_) - 0.5f) * 1.5f; b->vy = 0.7f + 0.6f * rnd_f(&rng_);
-                b->life = 12.f + 4.f * rnd_f(&rng_); b->r0 = 0.8f * gs; b->r1 = (6.5f + 1.5f * k + 1.5f * rnd_f(&rng_)) * gs;   // 0.22.15: half as big again - the first cut read as beads beside a 19-unit hull
+                b->life = 20.f + 7.f * rnd_f(&rng_); b->r0 = 0.8f * gs; b->r1 = (6.5f + 1.5f * k + 1.5f * rnd_f(&rng_)) * gs;   // 0.22.15: half as big again - the first cut read as beads beside a 19-unit hull
                 b->dens = 2.0f; b->shade = 0.86f - 0.05f * k + 0.06f * rnd_f(&rng_); b->seed = rnd_f(&rng_); b->kind = 0; }
             { blob_t *b = blob_spawn(); *b = blob_t{};
                 float spd = 5.f * (0.85f + 0.3f * rnd_f(&rng_));
                 b->x = gx + sx * 0.6f; b->y = gy + 0.3f; b->z = gz + sz * 0.6f;
                 b->vx = sx * spd; b->vz = sz * spd; b->vy = 0.5f + 0.5f * rnd_f(&rng_);
-                b->life = 18.f + 6.f * rnd_f(&rng_); b->r0 = 0.7f * gs; b->r1 = (9.5f + 2.f * rnd_f(&rng_)) * gs;
+                b->life = 30.f + 10.f * rnd_f(&rng_); b->r0 = 0.7f * gs; b->r1 = (9.5f + 2.f * rnd_f(&rng_)) * gs;
                 b->dens = 1.3f; b->shade = 0.58f + 0.08f * rnd_f(&rng_); b->seed = rnd_f(&rng_); b->kind = 1; }
             if (rnd_f(&rng_) < 0.5f) { blob_t *b = blob_spawn(); *b = blob_t{};
                 b->x = gx + sx * 1.5f; b->y = gy + 0.8f; b->z = gz + sz * 1.5f;
                 b->vx = sx * 2.0f; b->vz = sz * 2.0f; b->vy = 0.35f;
-                b->life = 24.f + 6.f * rnd_f(&rng_); b->r0 = 2.0f * gs; b->r1 = (11.f + 3.f * rnd_f(&rng_)) * gs;
+                b->life = 40.f + 10.f * rnd_f(&rng_); b->r0 = 2.0f * gs; b->r1 = (11.f + 3.f * rnd_f(&rng_)) * gs;
                 b->dens = 0.40f; b->shade = 0.52f; b->seed = rnd_f(&rng_); b->kind = 2; }
         }
         // layer 1 - the core: four dense cumulus balls, fast, slow to thin, big enough to
@@ -427,6 +543,10 @@ void Particles::update(float dt) {
                 p->rot += p->rotv * dt;
             } break;
             case PK_FLASH: p->vx *= expf(-dt * 8.f); p->vz *= expf(-dt * 8.f); break;
+            case PK_FLAME: {   // a tongue wavers as it climbs: a little sideways noise, no gravity, no spin
+                float w = sinf((p->age * 9.f + p->seed * 31.f)) * 0.35f;
+                p->vx += w * dt * 2.f; p->vz += w * dt * 1.3f; p->vy *= expf(-dt * 0.8f);
+            } break;
             case PK_EMBER: p->vy -= G * dt; { float d = expf(-dt * 2.5f); p->vx = wind_x_ + (p->vx - wind_x_) * d; p->vz = wind_z_ + (p->vz - wind_z_) * d; } break;
             case PK_SPRAY: p->vy -= G * 0.8f * dt; { float d = expf(-dt * 1.5f); p->vx *= d; p->vz *= d; } break;
             case PK_SPLINTER: p->vy -= G * dt; { float d = expf(-dt * 0.8f); p->vx *= d; p->vz *= d; } p->rot += 7.f * dt; break;
@@ -458,7 +578,11 @@ void Particles::vol_draw() {
     for (int i = 0; i < nblob_; ++i) { const blob_t *b = &vb_[i];
         float t = clampf(b->age / maxf(b->life, 0.01f), 0.f, 1.f), g = 1.f - (1.f - t) * (1.f - t) * (1.f - t);   // fast early growth
         float R = lerpf(b->r0, b->r1, g);
-        float dens = b->dens * (1.f - t * t) * (b->kind == 0 ? 1.f : 1.f) / maxf(R / b->r1, 0.15f);   // the same smoke in a bigger ball is thinner
+        // 0.22.19 (issue15 "add smoke in battle view to fade slower"): the density fell as
+        // 1 - t^2, which is already down by a quarter at half life and reads as a cloud
+        // evaporating while it is still rolling. (1 - t)^2 holds it up through the middle of
+        // its life and takes it away at the end, where the eye expects it to go.
+        float dens = b->dens * (1.f - t) * (1.f - t) / maxf(R / b->r1, 0.15f);   // the same smoke in a bigger ball is thinner
         b4[i*4] = b->x; b4[i*4+1] = b->y; b4[i*4+2] = b->z; b4[i*4+3] = R;
         p4[i*4] = dens; p4[i*4+1] = t; p4[i*4+2] = b->seed; p4[i*4+3] = lerpf(b->shade, 0.55f, t * 0.7f); }
     rhi_pipeline_bind(&vol_prg_);
@@ -519,6 +643,7 @@ int Particles::draw() {
             case PK_SPRAY: alpha = p->alpha * (1.f - t * t); r = 0.92f; g = 0.95f; b = 0.97f; break;
             case PK_RING:  alpha = p->alpha * (1.f - t) * (1.f - t) * clampf(p->age / 0.05f, 0.f, 1.f); r = 0.90f; g = 0.93f; b = 0.95f; break;
             case PK_SPLINTER: alpha = 1.f - t * t; r = 0.55f; g = 0.42f; b = 0.26f; break;
+            case PK_FLAME: alpha = p->alpha * (1.f - t * t) * clampf(p->age / 0.06f, 0.f, 1.f); r = 1.0f; g = 0.72f; b = 0.30f; break;
         }
         // inst_t: pos+rotation | size+rgb | alpha, seed, kind, age01 | soft radius
         *instlist_push(&il_) = inst_t{ p->x, p->y, p->z, p->rot, size, r, g, b, alpha, p->seed, (float)p->kind, t, size, 0, 0, 0, 0, 0 };
@@ -557,6 +682,8 @@ void particles_reset(void) { mare::engine::render::particles().reset(); }
 void particles_set_wind(float vx, float vz) { mare::engine::render::particles().set_wind(vx, vz); }
 void particles_set_origin(float ox, float oz) { mare::engine::render::particles().set_origin(ox, oz); }
 void particles_broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body) { mare::engine::render::particles().broadside(x, y, z, heading, side, hull_len, guns, body); }
+void particles_fire(float x, float y, float z, float hull_len, float heat) { mare::engine::render::particles().fire(x, y, z, hull_len, heat); }
+void particles_explosion(float x, float y, float z, float hull_len) { mare::engine::render::particles().explosion(x, y, z, hull_len); }
 void particles_splash(float x, float z, float size) { mare::engine::render::particles().splash(x, z, size); }
 void particles_hit(float x, float y, float z, float dx, float dz, float size) { mare::engine::render::particles().hit(x, y, z, dx, dz, size); }
 void particles_spray(float x, float y, float z, float dx, float dz, float strength) { mare::engine::render::particles().spray(x, y, z, dx, dz, strength); }

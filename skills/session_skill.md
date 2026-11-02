@@ -1,10 +1,13 @@
-if your work directory contains string elm then you are elm session else if your directory
+if you are in ~/.cache/claude-hfi/-mnt-c-projects-mare/oak directorey then you are elm session 
+else if you are in ~/.cache/claude-hfi/-mnt-c-projects-mare/oak directory you are oak session. 
 
-contains oak then you are oak session. Now based on that when creating folder to work in
+Now based on that when creating folder to work in:
+
+also add in title mare liberum: {name}
 
 save folder under /mnt/c/projects/mare\_sessions
 
-YOU ONLY HAVE READ/WRITE/EXEC PERMISSIONS IN THIS FOLDER AND WORK DIRECTORY:
+and don't try to access other session folders and files.
 
 use this syntax mare\_{session:name}\_{date dd-mm-yyyy}\_{timestamp}
 

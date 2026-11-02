@@ -11,6 +11,7 @@
 extern "C" {
 #include "ui.h"
 #include "options.h"
+#include "../gfx/rhi.h"
 #include "../core/util.h"
 #include "../core/balance.h"
 #include "../core/diag.h"
@@ -45,7 +46,8 @@ public:
     void panels(void);                               // top bar, selection, fleets, chronicle, stats, help
     int  menu(void);                                 // main menu; returns chosen nation, -1 load mare_save.bin, -2 load the autosave, 0 nothing
     void labels(void);                               // world labels, toast, ticker (inside the overlay)
-    void battle(void);                               // the staged battle's overlay (0.22.7)
+    void battle(void);
+    void battle_muster(void);                               // the staged battle's overlay (0.22.7)
     void battle_panel(void);                         // its clickable controls (0.22.9)
 
 private:
@@ -359,7 +361,7 @@ void Hud::panel_help(void) {
 
 int Hud::menu(void) {
     int W = screen_w, H = screen_h, chosen = 0;
-    mu_Container *c = mu_get_container(ui_ctx, "Mare Liberum"); c->rect = mu_rect(W/2 - 230, H/2 - 200, 460, 400);
+    mu_Container *c = mu_get_container(ui_ctx, "Mare Liberum"); c->rect = mu_rect(W/2 - 230, H/2 - 230, 460, 468);   // 0.22.19: taller, for the graphics row
     if (!mu_begin_window_ex(ui_ctx, "Mare Liberum", c->rect, MU_OPT_NORESIZE|MU_OPT_NOCLOSE)) return 0;
     ui_text_full("Anno Domini 1620. Choose the flag under which you will sail. Each nation begins with its historical ports, a small fleet and 60,000 ducats.");
     static const char *blurb[MAX_NATIONS] = { 0, "silver of the Indies", "rising sea power", "furs and Mediterranean trade", "the merchant republic (recommended)", "Brazil, Africa and spices", "the Levant trade", "master of the eastern seas", "Baltic and Norwegian trade", 0 };
@@ -375,7 +377,28 @@ int Hud::menu(void) {
         if (autosave_exists) { if (ui_btn("Load autosave")) chosen = -2; }
         if (chosen) autosave_checked = 0;
     }
+    // 0.22.19 (issue15 "add in menu starting options with posibility of changing rendering
+    // software and level of graphics details low -> high"). The settings existed, but only
+    // behind a top-bar button that does not exist until a game is running - so the one choice
+    // that has to be made *before* the world is built, the render backend, could not be made
+    // from the menu at all. The Options panel opens over the menu now, and the detail preset
+    // is on its own row here as well, because that is the choice a player wants first.
+    { ROW(1, -1, 20); mu_label(ui_ctx, "Graphics"); }
+    { ROW(5, 76, 76, 76, 76, -1, 24);
+      int cur = options_quality();
+      for (int q = 0; q <= QUALITY_ULTRA; ++q) {
+          mu_push_id(ui_ctx, &quality_names[q], sizeof quality_names[q]);
+          char lbl[32]; snprintf(lbl, sizeof lbl, "%s%s", cur == q ? "* " : "", quality_names[q]);
+          if (ui_btn(lbl)) { options_set_quality(q); options_save(); }
+          mu_pop_id(ui_ctx);
+      }
+      if (ui_btn(options_show ? "Hide options" : "Options...")) options_show = !options_show; }
+    { ROW(1, -1, 20); char s[128];
+      snprintf(s, sizeof s, "renderer: %s%s   detail: %s", OPT.backend,
+               strcmp(OPT.backend, rhi_backend()) ? " (next launch)" : "", quality_names[options_quality()]);
+      mu_label(ui_ctx, s); }
     mu_end_window(ui_ctx);
+    options_panel();            // over the menu, so the backend can be chosen before a world exists
     return chosen;
 }
 
@@ -434,6 +457,50 @@ void Hud::labels(void) {
 
 // The staged battle's overlay (0.22.7, issue4): the battle clock (its own, separate from the
 // strategic one), the wind in knots and by compass point, the coast the probe found, the keys.
+
+// The muster list (0.22.20, issue16 "add ship icons and list on top enemy on bottom player and
+// shows stats"). The enemy's line across the top of the battle view, the player's across the
+// bottom, one card per ship: her class name and four condition bars - hull, sails, guns and
+// the water in her - with a flame when she burns and her fate written over her when she is
+// past fighting. Crew and ammunition are not simulated, so no bar pretends they are.
+void Hud::battle_muster(void) {
+    int W = screen_w, H = screen_h;
+    int n = detailview_ship_count(); if (n <= 0) return;
+    const int cw = 86, chh = 40, gap = 6;
+    int counts[2] = { 0, 0 };
+    dv_shipinfo_t inf;
+    for (int i = 0; i < n; ++i) if (detailview_ship_info(i, &inf)) counts[inf.side ? 1 : 0]++;
+    int drawn[2] = { 0, 0 };
+    for (int i = 0; i < n; ++i) {
+        if (!detailview_ship_info(i, &inf)) continue;
+        int side = inf.side ? 1 : 0;
+        int row_n = mini(counts[side], (W - 40) / (cw + gap));
+        if (drawn[side] >= row_n) continue;                      // what fits; a melee truncates
+        float x0 = W / 2.f - row_n * (cw + gap) / 2.f + drawn[side] * (cw + gap);
+        float y0 = side ? 70.f : H - chh - 14.f;                 // enemy under the battle line, player at the foot
+        drawn[side]++;
+        mu_Color back = side ? mu_color(60, 24, 20, 165) : mu_color(20, 32, 55, 165);
+        ui_overlay_rect(x0, y0, cw, chh, back);
+        const char *nm = ship_types[inf.type].name;
+        mu_Color tc = inf.sunk ? mu_color(150, 150, 150, 255) : mu_color(235, 228, 205, 255);
+        ui_overlay_text(x0 + cw / 2.f, y0 + 8, inf.sunk ? va("%s +", nm) : inf.stranded ? va("%s (aground)", nm) : nm, tc, 1, 0);
+        if (inf.fire > 0.02f) ui_overlay_text(x0 + cw - 8, y0 + 8, "~", mu_color(255, 140, 30, 255), 1, 0);
+        // the four bars: what she has left of hull, sails and guns, and how full of water she is
+        struct { float v; mu_Color c; } bars[4] = {
+            { inf.hull,  mu_color(120, 200, 90, 220) },
+            { inf.sails, mu_color(220, 205, 160, 220) },
+            { inf.guns,  mu_color(190, 190, 200, 220) },
+            { inf.water, mu_color(90, 150, 230, 220) },
+        };
+        for (int b = 0; b < 4; ++b) {
+            float bx = x0 + 5, by = y0 + 16 + b * 5.5f, bw = cw - 10;
+            ui_overlay_rect(bx, by, bw, 4, mu_color(10, 10, 14, 180));
+            float v = clampf(bars[b].v, 0.f, 1.f);
+            if (v > 0.003f) ui_overlay_rect(bx, by, bw * v, 4, bars[b].c);
+        }
+    }
+}
+
 void Hud::battle(void) {
     int W = screen_w, h = ui_ctx->text_height(NULL);
     float ts = detailview_timescale(), wdx, wdz, wstr; detailview_wind(&wdx, &wdz, &wstr);
@@ -453,6 +520,7 @@ void Hud::battle(void) {
     if (ts <= 0.f) ui_overlay_text(W/2, 100, "- BATTLE PAUSED -", mu_color(255,255,255,200), 1, 1);
     else if (ts < 0.99f) ui_overlay_text(W/2, 100, va("- slow time x%g -", ts), mu_color(255,255,255,170), 1, 1);
     if (U.toast_timer > 0) { int tw2 = ui_text_w(U.toast); ui_overlay_rect(W/2 - tw2/2 - 10, 120, tw2 + 20, h + 8, mu_color(20,20,30,200)); ui_overlay_text(W/2, 120 + h/2 + 4, U.toast, mu_color(255,240,200,255), 1, 0); }
+    battle_muster();   // 0.22.20 (issue16): the two lines' condition, enemy up, player down
 }
 
 // The battle's controls as a real window (0.22.9, issue6 "add turn off wind arrows button").
@@ -461,7 +529,7 @@ void Hud::battle(void) {
 // want off the moment you have read the wind.
 void Hud::battle_panel(void) {
     mu_Container *c = mu_get_container(ui_ctx, "Battle");
-    if (c->rect.w == 0) c->rect = mu_rect(12, screen_h - 150, 248, 112);
+    if (c->rect.w == 0) c->rect = mu_rect(12, screen_h - 280, 252, 242);   // 0.22.20: and the sails
     if (!mu_begin_window_ex(ui_ctx, "Battle", c->rect, MU_OPT_NOCLOSE)) return;
     float ts = detailview_timescale();
     ROW(5, 54, 34, 34, 34, 34);
@@ -470,8 +538,29 @@ void Hud::battle_panel(void) {
       for (int i = 0; i < 4; ++i) { mu_push_id(ui_ctx, &i, sizeof i);
           if (ui_btn(ts == sp[i] ? va("[%g]", sp[i]) : va("%g", sp[i]))) detailview_set_timescale(sp[i]);
           mu_pop_id(ui_ctx); } }
+    // 0.22.19 (issue15 "in battle you are not allowed to make and direct changes - add UI
+    // with buttons like direct fire to warship / ... tradeships, retreat, board or fight to
+    // death"). Until now the battle was a spectacle: you could stop the clock, look at the
+    // wind and steer by hand, and that was all. These are the two orders a commander of the
+    // day actually gave - what to shoot at, and what to do with the ship.
+    { ROW(1, -1, 0); ui_label_col("Fire at", mu_color(200, 210, 225, 255)); }
+    { ROW(3, 78, 78, 78);
+      static const char *const fo[3] = { "Nearest", "Warships", "Traders" };
+      int cur = detailview_fire_order();
+      for (int i = 0; i < 3; ++i) { mu_push_id(ui_ctx, &fo[i], sizeof fo[i]);
+          if (ui_btn(cur == i ? va("[%s]", fo[i]) : fo[i])) detailview_set_fire_order(i);
+          mu_pop_id(ui_ctx); } }
+    { ROW(1, -1, 0); ui_label_col("The line", mu_color(200, 210, 225, 255)); }
+    { ROW(4, 58, 58, 58, 58);
+      static const char *const mo[4] = { "Hold", "Board", "Retreat", "No quarter" };
+      int cur = detailview_move_order();
+      for (int i = 0; i < 4; ++i) { mu_push_id(ui_ctx, &mo[i], sizeof mo[i]);
+          if (ui_btn(cur == i ? va("[%s]", mo[i]) : mo[i])) detailview_set_move_order(i);
+          mu_pop_id(ui_ctx); } }
     ROW(2, 118, 118);
+    if (ui_btn(detailview_furl_order() ? "[Sails taken in]" : "Take in sails")) detailview_set_furl_order(!detailview_furl_order());   // 0.22.20 (issue16 "retract sails if upwind")
     if (ui_btn(detailview_show_wind() ? "[Wind arrows]" : "Wind arrows")) detailview_toggle_wind();
+    ROW(2, 118, 118);
     if (ui_btn("Leave (Esc)")) detailview_exit();
     { float wdx, wdz, wstr; detailview_wind(&wdx, &wdz, &wstr);
       ROW(1, -1, 0);

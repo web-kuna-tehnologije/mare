@@ -27,13 +27,47 @@ static inline float npf_wrap(float a) { while (a > 3.14159265f) a -= 6.28318531f
 #define NP_FLOOD_RATE   0.020f  // of her volume a second, at hull damage 1
 #define NP_SINK_AT      1.00f   // flooding at which she goes under
 #define NP_MAST_AT      0.30f   // rig damage that carries a mast away (each threshold, once)
+// Fire (0.22.19, todo 152). A ball on the gun deck lands among loose powder, slow match and
+// dry timber, and sometimes it takes. Once alight a fire feeds on itself: it grows with what
+// is already burning, it eats the rig faster than anything else aboard, it opens her seams,
+// and if it gets below it finds the magazine. The numbers are chosen so that a fire left
+// alone takes a ship in a minute or two of battle time - long enough to watch, short enough
+// to be the emergency it was.
+#define NP_FIRE_CHANCE  0.16f   // of a hit on the gun deck starting one (scaled by the blow)
+#define NP_FIRE_GROW    0.020f  // per second, times (0.35 + fire): it accelerates
+#define NP_FIRE_RIG     0.12f   // what it does to her rig, per unit of fire per second
+#define NP_FIRE_HULL    0.045f   // ... and to her timbers
+#define NP_BLOW_AT      0.85f   // past this the magazine may go, per second:
+#define NP_BLOW_RATE    0.10f
+// How a wreck goes down (0.22.19): eight seconds, nose first, settling faster as she fills.
+#define NP_SINK_SECS    8.0f
+#define NP_SINK_PITCH   0.42f   // radians by the head at the end
+#define NP_SINK_DROP    1.0f    // ... and how far under, in hull heights
+// Collisions and the ground (0.22.20, issue16): what a blow of timber against timber or
+// against the bottom costs. NP_RAM_DMG is hull damage per unit of closing speed above the
+// threshold - a fusta at 4 units/s head-on into a hull takes ~0.5, half a sinking.
+#define NP_RAM_MIN_VN   0.8f    // closing speed below which a contact is a nudge, not a blow
+#define NP_RAM_DMG      0.16f
+#define NP_GROUND_DMG   0.03f   // per second hard aground, scaled by how far up the shelf
+#define NP_STRAND_SECS  4.0f    // hard aground this long and she is stuck fast
+
+// A fire is the one thing in this model that is not deterministic in the hit, so it needs a
+// stream of its own - kept here rather than taken from the game's, so that stepping the
+// physics never perturbs the simulation's sequence.
+static inline float npf_rand(unsigned *s) { *s = *s * 1664525u + 1013904223u; return (float)((*s >> 8) & 0xFFFFFF) / 16777216.f; }
+// Air resistance on round shot (0.22.19, issue15). 3 * rho_air * Cd / (8 * rho_iron) with
+// rho_air 1.225, Cd 0.47 for a sphere and rho_iron 7850: the deceleration is this times
+// v^2 / r, and because the scene's scale cancels between the square of the speed and the
+// radius it is the same number in scene units as in SI. A 32-pounder's ball (r 0.074 m) at
+// 450 m/s loses about 77 m/s^2, which is round shot to the life.
+#define NP_DRAG_K       2.75e-5f
 #define NP_THRUST_K   1.60f     // how hard she is driven towards the commanded speed
 #define NP_RESTITUTION 0.18f    // oak on oak: mostly a thud, a little bounce
 #define NP_FRICTION    0.35f    // tangential loss in a contact (rigging fouling, planks scraping)
 #define NP_SLOP        0.004f   // penetration left unresolved, so resting contacts do not jitter
 #define NP_CORRECT     0.55f    // share of the remaining penetration pushed out per step
 
-typedef struct shot_t { float x, y, z, vx, vy, vz; int owner, used; } shot_t;
+typedef struct shot_t { float x, y, z, vx, vy, vz; float r, dx_, dz_; int owner, used; } shot_t;   // r = ball radius, (dx_,dz_) = its constant sideways drift (0.22.19)
 
 typedef struct body_t {
     float heave, pitch, roll;      // from the surface under the hull (item 7)
@@ -46,8 +80,11 @@ typedef struct body_t {
     float cmd_v, cmd_h, cmd_turn;  // what the helm asked for
     float heel;                    // smoothed |yaw rate| x speed: how hard she is leaning
     float d_hull, d_rig, d_guns, d_flood;   // 0.22.17: the damage model (naval_physics.h)
+    float d_fire;                           // 0.22.19 (todo 152): how far she is alight
+    float sink_t, sink_pitch, sink_drop;    // 0.22.19: how far through going down she is
+    int   blew_up;                          // ... and whether the magazine went
     int   sunk, masts_down;
-    int   used, aground;
+    int   used, aground, stranded; float strand_t;
 } body_t;
 
 class NavalPhysics {
@@ -62,15 +99,23 @@ public:
         b.yr += (rx * jz - rz * jx) * b.inv_i;          // the lever arm: an impulse off the centre turns her
     }
     void kick_roll(int id, float rad) { if (valid(id)) b_[id].roll_kv += rad * 2.6f; }   // an impulse into the spring: it peaks at ~rad a quarter period later
-    void fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed) {
+    void fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed,
+              float radius, float drift) {
         if (nshot_ >= NPHYS_MAX_SHOTS) return;
         float l = sqrtf(dx * dx + dy * dy + dz * dz); if (l < 1e-6f) return;
         shot_t &s = sh_[nshot_++];
-        s.x = x; s.y = y; s.z = z; s.vx = dx / l * speed; s.vy = dy / l * speed; s.vz = dz / l * speed; s.owner = owner; s.used = 1;
+        s.x = x; s.y = y; s.z = z; s.vx = dx / l * speed; s.vy = dy / l * speed; s.vz = dz / l * speed;
+        s.r = radius > 1e-4f ? radius : 0.03f;
+        // the drift is across the line of flight, in the horizontal plane
+        float hx = dx / l, hz = dz / l, hl = sqrtf(hx * hx + hz * hz);
+        if (hl > 1e-6f) { s.dx_ = -hz / hl * drift; s.dz_ = hx / hl * drift; } else { s.dx_ = s.dz_ = 0.f; }
+        s.owner = owner; s.used = 1;
     }
     void attitude(int id, float *heave, float *pitch, float *roll) const {
         if (!valid(id)) { *heave = *pitch = *roll = 0.f; return; }
-        *heave = b_[id].heave; *pitch = b_[id].pitch; *roll = b_[id].roll + b_[id].roll_k;
+        *heave = b_[id].heave + b_[id].sink_drop;        // 0.22.19: a wreck settles out of sight
+        *pitch = b_[id].pitch + b_[id].sink_pitch;
+        *roll  = b_[id].roll + b_[id].roll_k;
     }
     int poll_events(nphys_event_t *out, int max) {
         int n = nev_ < max ? nev_ : max;
@@ -85,17 +130,20 @@ public:
         if (!valid(id)) { *o = nphys_damage_t{}; return; }
         const body_t &b = b_[id];
         o->hull = b.d_hull; o->rig = b.d_rig; o->guns = b.d_guns; o->flood = b.d_flood;
-        o->sunk = b.sunk; o->masts_down = b.masts_down;
+        o->fire = b.d_fire; o->blew_up = b.blew_up;
+        o->sunk = b.sunk; o->stranded = b.stranded; o->masts_down = b.masts_down;
     }
     float speed_factor(int id) const {
         if (!valid(id)) return 1.f;
         const body_t &b = b_[id];
         if (b.sunk) return 0.f;
-        return npf_clamp((1.f - 0.65f * b.d_rig) * (1.f - 0.55f * b.d_flood), 0.f, 1.f);
+        // 0.22.19 (todo 152): a ship fighting a fire is not sailing. Her people are at the
+        // buckets, not the braces, and what is burning is her canvas.
+        return npf_clamp((1.f - 0.65f * b.d_rig) * (1.f - 0.55f * b.d_flood) * (1.f - 0.45f * b.d_fire), 0.f, 1.f);
     }
     int sunk(int id) const { return valid(id) && b_[id].sunk; }
     void damage_add_pub(int id, int where, float amount) { damage_add(id, where, amount); }
-    int shot_list(float *xyz, int max) const { int n = 0; for (int i = 0; i < nshot_ && n < max; ++i) { xyz[n*3] = sh_[i].x; xyz[n*3+1] = sh_[i].y; xyz[n*3+2] = sh_[i].z; n++; } return n; }
+    int shot_list(float *xyzr, int max) const { int n = 0; for (int i = 0; i < nshot_ && n < max; ++i) { xyzr[n*4] = sh_[i].x; xyzr[n*4+1] = sh_[i].y; xyzr[n*4+2] = sh_[i].z; xyzr[n*4+3] = sh_[i].r; n++; } return n; }
     int  add(float x, float z, float h, float len, float beam, float draft, float tonnes);
     void drive(int id, float v, float h, float turn) {
         if (!valid(id)) return;
@@ -160,6 +208,7 @@ private:
 
     body_t b_[NPHYS_MAX_BODIES]; int n_ = 0;
     shot_t sh_[NPHYS_MAX_SHOTS]; int nshot_ = 0;
+    unsigned fire_seed_ = 0x9E3779B9u;   // 0.22.19 (todo 152): the fire's own stream
     nphys_event_t ev_[NPHYS_MAX_EVENTS]; int nev_ = 0;
     nphys_surface_fn surf_ = 0; void *surf_user_ = 0;
     float acc_ = 0.f; int steps_ = 0, contacts_ = 0;
@@ -242,7 +291,14 @@ void NavalPhysics::damage_add(int id, int where, float amount) {
     if (b.sunk) return;
     if (where <= 0) { b.d_hull = npf_clamp(b.d_hull + amount * 1.25f, 0.f, 1.f); }          // between wind and water
     else if (where == 1) { b.d_hull = npf_clamp(b.d_hull + amount * 0.55f, 0.f, 1.f);
-                           b.d_guns = npf_clamp(b.d_guns + amount * 1.10f, 0.f, 1.f); }     // the battery
+                           b.d_guns = npf_clamp(b.d_guns + amount * 1.10f, 0.f, 1.f);       // the battery
+        // 0.22.19 (todo 152): the gun deck is where the powder, the match and the dry timber
+        // are. A heavy blow there sometimes starts a fire - and a ship already alight catches
+        // far more readily, because there is already something burning to spread it.
+        if (!b.d_fire) {
+            float p = NP_FIRE_CHANCE * npf_clamp(amount / NP_DMG_PER_HIT, 0.f, 4.f);
+            if (npf_rand(&fire_seed_) < p) { b.d_fire = 0.08f; event(NPHYS_EV_FIRE, id, -1, b.x, b.heave + 0.05f * b.len, b.z, 0.f); }
+        } }
     else { b.d_rig = npf_clamp(b.d_rig + amount * 1.30f, 0.f, 1.f); }                       // aloft
     // a mast goes by the board at each threshold of rig damage, once
     int want_down = (int)(b.d_rig / NP_MAST_AT);
@@ -253,7 +309,39 @@ void NavalPhysics::damage_add(int id, int where, float amount) {
 }
 
 void NavalPhysics::damage_step(body_t &b, int id, float dt) {
-    if (b.sunk) return;
+    // 0.22.19 ("a sinking that reads"): a wreck used to simply stop. She settles now - down
+    // by the head, because the water is forward of her centre of buoyancy where the holes
+    // are, and heeled a little the way she was last leaning - over about eight seconds, and
+    // then she is under. The heave and the attitude channels into the shader already exist
+    // (0.22.12), so this is three lines of physics and no renderer work at all.
+    if (b.sunk) {
+        b.sink_t += dt;
+        float t = npf_clamp(b.sink_t / NP_SINK_SECS, 0.f, 1.f);
+        b.sink_pitch = -NP_SINK_PITCH * t;                  // bow down (pitch is bow-up positive)
+        b.sink_drop  = -NP_SINK_DROP * t * t * 0.13f * b.len;   // slow at first, then she goes
+        return;
+    }
+    // Fire (0.22.19, todo 152). It feeds on itself, so the curve is (0.35 + fire): slow to
+    // take hold, then quick. What it burns is her rig first - canvas and cordage go like
+    // paper - then her timbers, which starts her leaking, so a fire ends in the same place a
+    // broadside does. And if it reaches the magazine she does not sink at all: she goes up,
+    // all at once, which is the end every powder ship feared.
+    if (b.d_fire > 0.f) {
+        b.d_fire = npf_clamp(b.d_fire + NP_FIRE_GROW * (0.35f + b.d_fire) * dt, 0.f, 1.f);
+        b.d_rig  = npf_clamp(b.d_rig  + NP_FIRE_RIG  * b.d_fire * dt, 0.f, 1.f);
+        b.d_hull = npf_clamp(b.d_hull + NP_FIRE_HULL * b.d_fire * dt, 0.f, 1.f);
+        int want_down = (int)(b.d_rig / NP_MAST_AT);
+        while (b.masts_down < want_down && b.masts_down < 4) {
+            b.masts_down++;
+            event(NPHYS_EV_MAST_DOWN, id, -1, b.x, b.heave + 0.10f * b.len, b.z, 0.f);
+        }
+        if (b.d_fire > NP_BLOW_AT && npf_rand(&fire_seed_) < NP_BLOW_RATE * dt) {
+            b.blew_up = 1; b.sunk = 1; wrecks_++; b.cmd_v = 0.f;
+            event(NPHYS_EV_EXPLODE, id, -1, b.x, b.heave + 0.08f * b.len, b.z, 0.f);
+            event(NPHYS_EV_SUNK, id, -1, b.x, b.heave, b.z, 0.f);
+            return;
+        }
+    }
     // she makes water through the holes below her line; a hull that is already low takes it
     // faster, which is what makes the end of a sinking quick
     if (b.d_hull > 0.02f) {
@@ -272,7 +360,17 @@ void NavalPhysics::shots_step() {
     for (int i = 0; i < nshot_; ) {
         shot_t &sh = sh_[i];
         float x0 = sh.x, y0 = sh.y, z0 = sh.z;
+        // 0.22.19: gravity, then the air. A sphere's drag deceleration is
+        // 3 rho_air Cd v^2 / (8 rho_iron r), about 2.75e-5 v^2 / r with the scale cancelling
+        // between the square of the speed and the radius - so it is written in scene units
+        // directly. It is inversely proportional to the ball's radius, which is why a light
+        // gun's shot falls away so much sooner than a heavy one's. The drift is the curve a
+        // smooth bore puts on the ball, constant across its line of flight.
+        float v = sqrtf(sh.vx * sh.vx + sh.vy * sh.vy + sh.vz * sh.vz);
+        float k = NP_DRAG_K * v / sh.r;                 // a = k * v, with k itself proportional to v
+        sh.vx -= sh.vx * k * dt; sh.vy -= sh.vy * k * dt; sh.vz -= sh.vz * k * dt;
         sh.vy -= G * dt;
+        sh.vx += sh.dx_ * dt; sh.vz += sh.dz_ * dt;
         sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.z += sh.vz * dt;
         int done = 0;
         float spd = sqrtf(sh.vx * sh.vx + sh.vy * sh.vy + sh.vz * sh.vz);
@@ -328,7 +426,7 @@ void NavalPhysics::integrate(body_t &b) {
     // 0.22.17: a wounded rig drives her less and the water in her drags; a sunk hull is dead
     // in the water and settles by the head.
     float cmd = b.cmd_v * (1.f - 0.65f * b.d_rig) * (1.f - 0.55f * b.d_flood);
-    if (b.sunk) cmd = 0.f;
+    if (b.sunk || b.stranded) cmd = 0.f;   // 0.22.20: a stranded ship answers no helm
     float thrust = (cmd - vf) * NP_THRUST_K;
     // drag: linear plus quadratic, much harder across than along
     float df = -(NP_DRAG_FWD * (1.f + 1.3f * b.d_flood + (b.sunk ? 3.f : 0.f)) * vf + 0.28f * vf * fabsf(vf));
@@ -395,6 +493,16 @@ void NavalPhysics::collide_ships() {
                 float jn = -(1.f + NP_RESTITUTION) * vn / denom;
                 A.vx -= jn * nx * A.inv_m; A.vz -= jn * nz * A.inv_m; A.yr -= jn * rn1 * A.inv_i;
                 B.vx += jn * nx * B.inv_m; B.vz += jn * nz * B.inv_m; B.yr += jn * rn2 * B.inv_i;
+                // 0.22.20 (issue16 "add damage on collision"): oak on oak costs timber. The
+                // blow is the closing speed at the contact, and it only counts above a walking
+                // pace - ships lying board-and-board grinding in a swell are not stoving each
+                // other in. The damage lands between wind and water (where hulls meet), split
+                // by inverse mass: the boat takes the worst of touching a carrack, as she must.
+                if (-vn > NP_RAM_MIN_VN) {
+                    float blow = NP_RAM_DMG * (-vn - NP_RAM_MIN_VN);
+                    damage_add(i, 0, blow * A.inv_m / inv_sum * 2.f);
+                    damage_add(j, 0, blow * B.inv_m / inv_sum * 2.f);
+                }
                 // friction along the contact, capped by Coulomb against the normal impulse
                 float tx = -nz, tz = nx;
                 float vt = (v2x - v1x) * tx + (v2z - v1z) * tz;
@@ -428,7 +536,20 @@ void NavalPhysics::collide_coast() {
             float need = b.draft;
             if (depth >= need) continue;
             b.aground = 1;
+            // 0.22.20 (issue16 "posibility to ... get strayed on beach"): a ship that keeps
+            // driving up the shelf goes from touching to *stranded*. Hard aground - a quarter
+            // of her draft out of her depth - she takes ground damage as the sea works her on
+            // the bottom, and past a few seconds of it she is stuck fast: no helm, no way,
+            // a wreck in all but name. The event is raised once.
             float over = need - depth;                       // how far up the shelf she is
+            if (over > 0.25f * b.draft) {
+                b.strand_t += dt;
+                damage_add(i, 0, NP_GROUND_DMG * dt * npf_clamp(over / b.draft, 0.f, 1.f));
+                if (b.strand_t > NP_STRAND_SECS && !b.stranded) {
+                    b.stranded = 1; b.cmd_v = 0.f;
+                    event(NPHYS_EV_STRANDED, i, -1, b.x, b.heave, b.z, 0.f);
+                }
+            }
             // seaward is -normal; the profile's slope turns "too shallow" into a distance
             float push = over / (cslope_ > 1e-4f ? cslope_ : 1e-4f);
             float mx = -cnx_, mz = -cnz_;
@@ -479,7 +600,7 @@ void  nphys_teleport(int id, float x, float z, float h) { mare::game::sim::physi
 void  nphys_set_surface(nphys_surface_fn fn, void *user) { mare::game::sim::physics().set_surface(fn, user); }
 void  nphys_impulse(int id, float px, float pz, float jx, float jz) { mare::game::sim::physics().impulse(id, px, pz, jx, jz); }
 void  nphys_kick_roll(int id, float rad) { mare::game::sim::physics().kick_roll(id, rad); }
-void  nphys_fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed) { mare::game::sim::physics().fire(owner, x, y, z, dx, dy, dz, speed); }
+void  nphys_fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed, float radius, float drift) { mare::game::sim::physics().fire(owner, x, y, z, dx, dy, dz, speed, radius, drift); }
 void  nphys_attitude(int id, float *heave, float *pitch, float *roll) { mare::game::sim::physics().attitude(id, heave, pitch, roll); }
 int   nphys_poll_events(nphys_event_t *out, int max) { return mare::game::sim::physics().poll_events(out, max); }
 int   nphys_shots(void) { return mare::game::sim::physics().shots(); }
@@ -488,7 +609,7 @@ void  nphys_damage_get(int id, nphys_damage_t *out) { mare::game::sim::physics()
 void  nphys_damage_add(int id, int where, float amount) { mare::game::sim::physics().damage_add_pub(id, where, amount); }
 float nphys_speed_factor(int id) { return mare::game::sim::physics().speed_factor(id); }
 int   nphys_sunk(int id) { return mare::game::sim::physics().sunk(id); }
-int   nphys_shot_list(float *xyz, int max) { return mare::game::sim::physics().shot_list(xyz, max); }
+int   nphys_shot_list(float *xyzr, int max) { return mare::game::sim::physics().shot_list(xyzr, max); }
 int   nphys_steps_last(void) { return mare::game::sim::physics().steps_last(); }
 int   nphys_contacts_last(void) { return mare::game::sim::physics().contacts_last(); }
 float nphys_alpha(void) { return mare::game::sim::physics().alpha(); }

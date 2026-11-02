@@ -578,7 +578,11 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
     for (int i = 0; i < G.ninland && f.nsets < 192; ++i) {
         const inland_t *s = &G.inland[i]; if (!s->alive) continue;
         if (s->x < f.x0 - 3.f || s->x > f.x0 + r->extent + 3.f || s->z < f.z0 - 3.f || s->z > f.z0 + r->extent + 3.f) continue;
-        float rad = s->kind == INLAND_FARM ? 0.22f + 0.08f * sqrtf(maxf(s->pop, 0.f)) : s->kind == INLAND_MINE ? 0.14f : 0.10f;   // 0.22.5: villages you can see
+        // 0.22.20 (issue16 "villages to small in sizes they need to be same size as cities"):
+        // a farm village's built disc was 0.22-0.35 units against a town's 0.29-0.43, and at
+        // the hinterland camera it read as a pink smudge. It now matches a small town's
+        // footprint and grows with its people.
+        float rad = s->kind == INLAND_FARM ? 0.34f + 0.11f * sqrtf(maxf(s->pop, 0.f)) : s->kind == INLAND_MINE ? 0.18f : 0.12f;
         f.set_xz[f.nsets][0] = s->x; f.set_xz[f.nsets][1] = s->z; f.set_xz[f.nsets][2] = rad; f.set_xz[f.nsets][3] = (float)s->kind; f.nsets++;
     }
     for (int i = 0; i < G.nports && f.nsets < 192; ++i) {

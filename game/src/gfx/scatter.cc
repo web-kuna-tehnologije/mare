@@ -35,11 +35,11 @@ namespace mare::game::view {
 #define WOOD_H      0.13f        // a forest tree; pines a little taller still
 #define WOOD_P      1.00f        // share of forest texels that get a tree; 0.22.11: every forest texel, plus extra trees on full cover ("real forests, not a tree here and there")
 #define WOOD_EXTRA  3            // more trees per texel where the cover is full (0.22.11)
-#define HOUSE_W     0.020f       // a village house, wall to wall
+#define HOUSE_W     0.026f       // a village house, wall to wall (0.22.20, issue16: a third bigger, so a village reads beside a town)
 #define VINE_H      0.022f       // a vine bush's height; rows follow the contour
 #define SHEEP_L     0.018f       // a sheep, nose to tail
 #define SCATTER_FAR 16.f         // camera distance past which the small props are not drawn (they are specks by then)
-#define HOUSE_FAR   40.f         // ... the houses, mills and headframes carry further
+#define HOUSE_FAR   70.f         // ... the houses, mills and headframes carry further (0.22.20: nearly doubled - the issue16 screenshot is taken from ~55 units and the village showed bare ground)
 #define SCATTER_MAX 600000   // 0.22.11: the fields and the woods are full now
 // Ambient-prop LOD (0.22.6, issue3 "add LODs to ambient props"). Every tree is a mesh out to
 // PROP_LOD1 units from the look-at point and a crossed pair of cards beyond it, to the edge of

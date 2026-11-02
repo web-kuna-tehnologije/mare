@@ -36,8 +36,13 @@ void main(){
   vec2 ap = i_pos.xz;
   if (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6) ap = i_anchor.xy;
   float ph = ap.x*3.0 + ap.y*2.0;
-  float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.045;
-  float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.022;
+// 0.22.19 (issue15 "ships gliding"): the working roll was +-2.6 degrees at the worst and the
+// pitch +-1.3, which at map range is no motion at all - a squadron read as decals sliding
+// over the swell. Doubled, so a ship under way works visibly and a storm throws her about,
+// while a moored ship (i_misc.x = 0.25) still only stirs. The steady wind heel comes in
+// below with the body's attitude and is the other half of it.
+  float roll  = i_misc.x * (sin(u_time*1.30 + ph) + 0.4*sin(u_time*2.10 + ph*1.7)) * 0.090;
+  float pitch = i_misc.x * (sin(u_time*0.90 + ph*0.6) + 0.3*sin(u_time*1.70 + ph)) * 0.048;
 // the body's own attitude (0.22.12): the five-point buoyancy and the recoil heel from
 // sim/naval_physics, the same angles on every part of the ship, about the same pivot
   roll += i_anchor.z; pitch += i_anchor.w;

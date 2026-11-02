@@ -2,17 +2,82 @@
 
 `[x]` done · `[~]` partly done, the rest named · `[ ]` open · `[-]` dropped, with the reason.
 
-Updated **2026-11-02, 0.22.18**, session `elm`. The numbers in brackets are the row in
+Updated **2026-11-02, 0.22.20**, session `elm`. The numbers in brackets are the row in
 `docs/todo_list.md` or the item in `docs/TODO.md`, so every line here can be traced back to the
 request it came from. Nothing is listed here that is not tracked there.
 
-**162 done · 9 partly · 29 open · 2 dropped, of 202 tracked — about 82% done**, and the balance
-has shifted: what is left is simulation (fire, the butcher's bill, the campaign loop) and
-authored art, not renderer or world work.
+**184 done · 9 partly · 28 open · 2 dropped, of 223 tracked — about 83% done.** The battle is
+now a commanded, visible, costly thing: orders, a muster list, fire with real flames, masts
+that fall off the mesh, collisions and groundings that cost timber. The clear next renderer
+task is the **per-ship rope/rig buffer** (121b), which now unblocks two separate asks; the
+clear next sim tasks are a yard that repairs, and crew/ammunition.
 
 ---
 
-## This round (0.22.18) — the 4x world and its rivers
+## This round (0.22.20) — issue16
+
+- [x] Realistic fire: flame tongues off the fire sheet (2:1 tall, climbing, white root to red
+      tip, self-lit), embers downwind; the explosion uses them too [171]
+- [~] Oars, third report — the asset finally *measured*: blade at **+x** on a −45° diagonal
+      (cross-section 0.227 vs the loom's 0.090); every prior fix assumed −x and mounted the
+      real blade inboard. Side sign and pivot fixed. A close-up verification shot kept missing
+      the moving ship, so this rests on the measurement [172]
+- [x] Take in sails: a battle-panel button; oared ships pull, sailing ships heave to [173]
+- [x] Stranding: hard aground takes ground damage and after a few seconds she is stuck fast —
+      no helm, no way, "(aground)" on her card [174]
+- [x] Collision damage: closing speed above a walking pace costs hull, split by inverse mass [175]
+- [x] Mesh damage removal: a felled mast is gone from the drawn ship, with its yards, canvas
+      and lantina; the standing rigging still shows its runs (121b's buffer is the blocker) [176]
+- [x] The muster list: enemy top, player bottom, four honest bars per ship (hull, sails, guns,
+      water), flame / "+" / "(aground)" marks; crew and ammo not shown because not simulated [177]
+- [ ] Crew and ammunition as simulated quantities, then their bars [178]
+- [x] Villages at a town's footprint, bigger houses, drawn to 70 units [179]
+- [~] Cities that look like cities: ~90 houses on ring streets inside towered walls — a better
+      procedural town; authored landmarks for the great cities stay on the roadmap [180]
+- [ ] Roads weighted by trade flow — needs the economy's flows in the road builder [181]
+- [ ] The rope, carried at the issue's own invitation ("add rope for the next round if unable
+      this one") — and its buffer now also unblocks cutting a felled mast's rigging [121b]
+
+## Last round (0.22.19) — issue15, and the battle grows teeth
+
+### issue15
+- [x] Villages bigger in the strategic view: 9 px, and every settlement mark a third larger at
+      the strategic tier, where the house meshes are gone and the mark *is* the village [162]
+- [x] Start-menu graphics: the Options panel opens over the menu (the backend must be chosen
+      before a world exists) and a Low/Medium/High/Ultra preset sets the nine knobs at once [163]
+- [x] Smoke fades slower (density `(1-t)^2`, lives 20-50 s), is less round (a low-frequency
+      noise lobe), and fades from its rim inwards to a dense knot instead of going transparent
+      at full size [164]
+- [x] Battle orders: **Fire at** Nearest / Warships / Traders, and **The line** Hold / Board /
+      Retreat / No quarter [165]
+- [x] Real shot: calibre per gun, air resistance (`2.75e-5 v²/r` — a 32-pounder out-ranges a
+      6-pounder by 30%, measured), the piece laid on the rolling deck, a smooth bore's drift,
+      and the ball carrying the ship's way [166]
+- [x] Ships no longer glide on the map: they heel to leeward with the wind and work twice as
+      hard in a seaway [167]
+- [x] Rivers smoothed: 287,511 wide segments chained and Chaikin'd into 1,227 curves; the
+      blockiness was 825k two-point sticks carved wider than they were long [168]
+- [x] Mountain heights down by 1 (`GC_HEIGHT_SCALE` 7 → 6, exaggeration 4.6x) [169]
+
+### Physics and battle
+- [x] **The butcher's bill goes home** — the biggest item on the list, open since the damage
+      model was written. `ship_t` carries rig, gun and flood damage; a ship sunk in the scene
+      is struck off the fleet; damage is taken and never given back [153]
+- [x] **Fire**: started on the gun deck, feeds on itself, takes her rig then her timbers then
+      floods her, and can reach the magazine [152]
+- [x] **Gun damage with teeth**: up to four times slower, fewer pieces bearing, nothing past
+      nine tenths — and `fleet_power` reads it [149]
+- [x] **A sinking that reads**: down by the head over eight seconds, slow then quick
+- [ ] **A verlet chain for the sheets and braces** — the one item of this round left open. The
+      ropes are a per-class *static* mesh shaped in the vertex shader; a real verlet needs the
+      geometry on a per-ship dynamic buffer with the endpoints enumerated per hull. The
+      simulation is cheap; the plumbing is a new subsystem [121b]
+- [ ] Broadphase collision [154] and multithreaded physics jobs [155] — no visible result at
+      the hull counts the staged battle runs today
+- [ ] A yard that repairs what a fleet brings home: the damage persists now, and nothing takes
+      it off again [170]
+
+## Last round (0.22.18) — the 4x world and its rivers
 
 - [x] Read the Mare Liberum 4x terrain build (`assets/data-terrain-v2`, 2049 samples a chunk,
       ~700 m a sample) — the loader took 513 samples as a hard ceiling [TODO 1, row 156]
@@ -89,7 +154,8 @@ authored art, not renderer or world work.
       the canvas is still open [row 105]
 - [~] True sternway: leeway and falling off exist, and she makes sternway in the eye of the wind;
       a sail force by point of sail on the rigid body does not [row 9]
-- [ ] A verlet chain for the sheets and braces, if the look is wanted closer [row 121b]
+- [ ] A verlet chain for the sheets and braces [row 121b] - needs the rope geometry off the
+      per-class static mesh first
 - [ ] A fruit-tree set: the orchards use the forest species scaled down [rows 117b, 96]
 - [ ] The dark used suit of sails [row 21]
 - [-] The guns through the hull's *painted* ports — superseded: the hulls are to be re-made
@@ -102,12 +168,13 @@ authored art, not renderer or world work.
       pieces laid up from above the target. 0 hits in two minutes became 440 [rows 143, 144]
 - [x] The damage model: hull, rig, guns, flood, sunk, masts down, by where the ball strikes [rows 145-148, 150, 151]
 - [x] Flooding grows with the holes and with itself; past full flooding she is a wreck [rows 150, 151]
-- [~] Gun damage: the scalar is kept and raised, but the battery does not fire slower for it [row 149]
-- [~] Strategic state holds hull, crew and guns; flooding, fire and sinking are not in it [P1.3]
-- [ ] **Fire**: nothing burns yet [row 152]
-- [ ] **Tactical results update the strategic ship** — the damage is read by nothing, which makes
-      the whole damage model scenery [row 153]
-- [ ] A sinking that reads: settle by the head over several seconds, not simply stop
+- [x] Gun damage: up to four times slower, fewer pieces bearing, nothing past nine tenths [row 149]
+- [~] Strategic state holds hull, crew, guns, rig and flooding (0.22.19); fire is not carried
+      home - it either took her or it did not, and a strategic fire needs a strategic fire model [P1.3]
+- [x] **Fire**: she burns, loses her rig and her way, and can take the magazine with her [row 152]
+- [x] **Tactical results update the strategic ship** (0.22.19): rig, guns and flooding come home
+      and a ship sunk in the scene is struck off the fleet [row 153]
+- [x] A sinking that reads: she settles by the head over eight seconds (0.22.19)
 - [ ] Broadphase collision [row 154]
 - [ ] Multithreaded physics jobs [row 155]
 - [ ] Constraints where gameplay-relevant; mast and debris constraints [P2]
@@ -129,16 +196,10 @@ authored art, not renderer or world work.
 
 ## What to take next, in order
 
-1. **The butcher's bill goes home** [row 153]. The damage model is complete and nothing reads
-   it. Write the tactical result back into the strategic ship — hull, crew, guns, sails, sunk —
-   so a battle costs a fleet something that outlives the scene. Still the highest-value item on
-   the list; everything in the campaign loop hangs off it.
-2. **Fire** [row 152]. A hit on a ship already burning or carrying powder starts a fire that
-   spreads, smokes through the volumetric system already in place, and ends in flooding or an
-   explosion.
-3. **Bridges as props** [10b]. The road network now knows where it crosses a real river — 31,895
-   land-mask cells of it — so the stone arch and the timber beam are an afternoon's work with a
-   visible return.
-4. **Gun damage with teeth** [row 149]: the battery scalar exists; let it slow the broadside.
-5. **A fruit-tree set** [row 117b] and the authored village props [7c] — the hinterland reads
-   well now and these are what is thin in it.
+1. **The per-ship rope/rig buffer** [121b]. It now unblocks two things at once: the verlet
+   sheets and braces, and cutting away a felled mast's shrouds and stays (the mast itself
+   already goes). This is the renderer work the last three rounds have been circling.
+2. **Crew and ammunition** [178]: the muster list has two honest gaps where they belong, and
+   the damage model has nowhere to send casualties.
+3. **A yard that repairs** [170]: the damage persists and nothing takes it off.
+4. **Roads by trade flow** [181], **bridge props** [161], **a fruit-tree set** [117b].

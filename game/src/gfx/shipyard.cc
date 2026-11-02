@@ -1040,6 +1040,14 @@ int Shipyard::push(const shipyard_req_t *r) {
             float deck_y = -water + hh * c->deck;
             for (int k = 0; k < nm; ++k) {
                 if (!mp[k]) continue;
+                // 0.22.20 (issue16 "add mesh damage removal dynamically ... actually removing
+                // parts of mesh"): a mast that has gone by the board is not drawn - not scaled,
+                // not greyed, *gone*, with its yards and canvas below. The ship is assembled
+                // from parts per frame, so removal really is removal. Stations fall from the
+                // bow aft, matching the physics' masts_down count; the standing rigging is one
+                // per-class mesh and still shows its old runs - cutting it per station needs
+                // the per-ship rig buffer the verlet rope needs too (todo 121b).
+                if (k < r->masts_down) continue;
                 float dx = c->mast_at[k] * len;
                 inst_t mi = in;
                 mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
@@ -1164,6 +1172,7 @@ int Shipyard::push(const shipyard_req_t *r) {
             for (int k = 0; k < nm; ++k) {
                 asset_t *mk = mast_asset(c, k);
                 if (!mk) continue;
+                if (k < r->masts_down) continue;            // 0.22.20: no mast, no canvas
                 float mh_full = (mk->bmax[1] - mk->bmin[1]) * msl * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);   // heel to truck
                 // 0.22.13 (issue10): the canvas and the spars are laid out in fractions of the mast
                 // that *stands above the deck* - the heel is MAST_STEP under it - so a layer at 0.96
@@ -1375,7 +1384,18 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // 0.22.11 (issue8 "oars wrong side"): with heading - 90 the model's +x lay
                     // along the ship's own side direction, so the blade (-x) pointed *inboard*
                     // and the whole bank lay across the deck. Plus 90 puts the blade outboard.
-                    oi.heading = r->heading + side * (1.5708f + 0.17f - stroke * side_sign);   // 0.22.14: squared to the hull, trailing ten degrees aft, the sweep about that
+                    // 0.22.20 (issue16, the *third* report of "wide part needs to be in water
+                    // and thin part in ship" - this time the asset was measured instead of
+                    // assumed). The GLB says: the oar is modelled on a **diagonal**, its long
+                    // axis at -45 degrees in its own x-y plane, blade toward (+x, -y), loom
+                    // toward (-x, +y); the blade end's cross-section is 0.23 units against the
+                    // loom's 0.09. Every earlier fix believed the blade was the -x end, so the
+                    // mount put +x - the real blade - *inboard*: the wide part buried in the
+                    // hull, the thin loom sticking outboard and upward. Exactly what the
+                    // screenshots show. The side sign is therefore flipped (blade outboard),
+                    // and with the model's own -45 droop the fx2 pitch below brings the blade
+                    // to ~20 degrees under the horizontal and the loom level over the deck.
+                    oi.heading = r->heading - side * (1.5708f + 0.17f - stroke * side_sign);
                     // the sweep angles *down* into the water (0.22.5): a pitch about the oar's own
                     // z axis (meshes.vert reads fx2 on rigid instances), steeper on the pull
                     // 0.22.6: a steeper blade angle from the higher port, so the loom rises over
@@ -1387,7 +1407,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     {   // the rowlock on the rail, and the oar hung from it
                         float rlx = r->x + fx * along + sx * (half * 0.99f) * side;
                         float rlz = r->z + fz * along + sz * (half * 0.99f) * side;
-                        float pm  = OAR_PIVOT * olen;                       // model-space: from the oar's middle toward the loom (+x)
+                        float pm  = -OAR_PIVOT * olen;                      // model-space: toward the loom, which the measurement puts at **-x** (0.22.20)
                         float cq = cosf(oi.fx2), sq = sinf(oi.fx2);
                         float mx = pm * cq, my = pm * sq;                   // after the pitch about the model's z
                         float ch = cosf(oi.heading), sh2 = -sinf(oi.heading);   // model +x -> this world direction

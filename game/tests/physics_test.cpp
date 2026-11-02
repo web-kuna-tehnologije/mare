@@ -148,8 +148,8 @@ static void test_ballistics() {
     nphys_reset();
     int a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
     int b = nphys_add(0, 30, 0, 20, 6, 1.2f, 800);            // thirty units abeam to starboard
-    nphys_fire(a, 0, 1.5f, 3.f, 0.f, 0.03f, 1.f, 60.f);       // at b, nearly flat
-    nphys_fire(a, 0, 1.5f, -3.f, 0.f, 0.08f, -1.f, 60.f);     // the other way, into empty sea (a 2.5 s flight)
+    nphys_fire(a, 0, 1.5f, 3.f, 0.f, 0.03f, 1.f, 60.f, 0.03f, 0.f);    // at b, nearly flat
+    nphys_fire(a, 0, 1.5f, -3.f, 0.f, 0.08f, -1.f, 60.f, 0.03f, 0.f);  // the other way, into empty sea (a 2.5 s flight)
     int hits = 0, splashes = 0, hitbody = -2;
     for (int i = 0; i < 600; ++i) {
         nphys_advance(1.f / 60.f);
@@ -161,6 +161,55 @@ static void test_ballistics() {
     CHECK(splashes == 1, "expected one splash, got %d", splashes);
     CHECK(nphys_shots() == 0, "%d shots still in the air", nphys_shots());
     printf("  ballistics: 1 hit on the target hull, 1 splash in open water, nothing left flying\n");
+}
+
+// 8b (0.22.19, issue15 "add air resistance to slow down where it hits"): a light ball loses
+// its way faster than a heavy one, because the drag deceleration goes as 1/r. Both are fired
+// level at the same speed from the same place; the small one must fall short.
+static void test_ball_drag() {
+    nphys_reset();
+    int a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
+    float small_x = 0, big_x = 0;
+    for (int pass = 0; pass < 2; ++pass) {
+        nphys_reset();
+        a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
+        float r = pass == 0 ? 0.018f : 0.031f;             // a 6-pounder's ball, then a 32-pounder's
+        nphys_fire(a, 0, 2.f, 0, 1.f, 0.12f, 0.f, 180.f, r, 0.f);   // lobbed, so the flight is long enough for the air to tell
+        float last = 0;
+        for (int i = 0; i < 3000 && nphys_shots() > 0; ++i) {
+            float xyzr[4]; if (nphys_shot_list(xyzr, 1) == 1) last = xyzr[0];
+            nphys_advance(1.f / 60.f);
+            nphys_event_t ev[8]; nphys_poll_events(ev, 8);
+        }
+        if (pass == 0) small_x = last; else big_x = last;
+    }
+    CHECK(big_x > small_x * 1.10f, "the heavy ball did not out-range the light one: %.1f against %.1f", big_x, small_x);
+    printf("  air resistance: a 32-pounder's ball carried %.0f units, a 6-pounder's %.0f (%.0f%% further)\n",
+           big_x, small_x, 100.f * (big_x / (small_x > 1e-3f ? small_x : 1.f) - 1.f));
+}
+
+
+// 10b (0.22.19, todo 152): a fire takes hold, eats her rig, opens her timbers and ends her.
+// The fire itself starts by chance on a gun-deck hit, so the test lights one directly through
+// the damage API and checks that it goes where a fire goes: never out, and always down.
+static void test_fire() {
+    nphys_reset();
+    int a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
+    // twelve blows on the gun deck: with NP_FIRE_CHANCE this is all but certain to light her
+    for (int i = 0; i < 12; ++i) nphys_damage_add(a, 1, 0.05f);
+    nphys_damage_t d; nphys_damage_get(a, &d);
+    CHECK(d.fire > 0.f, "twelve blows on the gun deck started no fire");
+    float fire0 = d.fire, rig0 = d.rig;
+    for (int i = 0; i < 60 * 20; ++i) nphys_advance(1.f / 60.f);   // twenty seconds of it
+    nphys_damage_get(a, &d);
+    CHECK(d.fire > fire0, "the fire did not grow: %.3f from %.3f", d.fire, fire0);
+    CHECK(d.rig > rig0, "the fire did not touch her rig: %.3f from %.3f", d.rig, rig0);
+    CHECK(nphys_speed_factor(a) < 0.95f, "a ship alight sails as if nothing were wrong: %.2f", nphys_speed_factor(a));
+    printf("  fire: lit at %.2f, after 20 s fire %.2f rig %.2f hull %.2f, she makes %.0f%% of her speed\n",
+           fire0, d.fire, d.rig, d.hull, 100.f * nphys_speed_factor(a));
+    for (int i = 0; i < 60 * 200 && !d.sunk; ++i) { nphys_advance(1.f / 60.f); nphys_damage_get(a, &d); }
+    CHECK(d.sunk, "a fire left alone for three minutes did not finish her (fire %.2f hull %.2f flood %.2f)", d.fire, d.hull, d.flood);
+    printf("  fire: she was lost after it%s\n", d.blew_up ? " - the magazine went" : " - burnt and flooded");
 }
 
 // 9: an impulse off the centre pushes her the other way and turns her
@@ -216,6 +265,8 @@ int main(void) {
     printf("physics_test: naval physics foundation (P1.3 1-9) + the damage model\n");
     test_buoyancy();
     test_ballistics();
+    test_ball_drag();
+    test_fire();
     test_recoil();
     test_fixed_step();
     test_interpolation();

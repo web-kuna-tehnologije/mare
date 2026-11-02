@@ -265,6 +265,12 @@ void SceneBuilder::ship_station(const fleet_t *f, int s, float x, float z, float
 
 #define BATTLE_DETAIL_MAX 50     // full-detail ships a battle may add beyond the normal LOD rules
 
+// How far a ship lies over under a beam wind at full strength, and how far her bow lifts at
+// full speed (radians). 0.14 rad is 8 degrees - about right for a square-rigged merchantman
+// hard on the wind, and enough to read at map range without looking like a knockdown.
+#define HEEL_PER_WIND   0.14f
+#define TRIM_PER_SPEED  0.030f
+
 void SceneBuilder::build_ships(void) {
     cam_frustum(frustum);
     scene_culled_ships = scene_occluded_ships = 0;
@@ -317,6 +323,21 @@ void SceneBuilder::build_ships(void) {
         const event_t *storm = storm_at(f->x, f->z);
         float rock = (f->at_port >= 0 ? 0.25f : 0.55f + 0.45f * clampf(vel / 9.f, 0, 1))
                    * (storm ? 1.f + 1.6f * storm->strength : 1.f);
+        // The wind heel (0.22.19, issue15 "ships gliding as in video shown"). On the map a
+        // ship carried roll = pitch = 0 and nothing but a two-degree sinusoid in the vertex
+        // shader, so a squadron slid over the swell bolt upright, like a decal dragged across
+        // the water - which is exactly what the video shows. A sailing ship under a beam wind
+        // lies over to leeward and stays there; that steady angle is most of what reads as
+        // "she is sailing" at a distance. The heel is the wind's strength times the sine of
+        // the angle between the wind and her heading (nothing on a dead run or in irons, most
+        // on the beam), to leeward, and a storm lays her further down. Moored ships sit up.
+        float heel = 0.f, trim = 0.f;
+        if (f->at_port < 0) {
+            float wdx, wdz, wstr; wind_at(x, z, G.day, &wdx, &wdz, &wstr);
+            float across = hx * wdz - hz * wdx;           // + wind from starboard: she heels to port
+            heel = -across * clampf(wstr, 0.f, 1.6f) * HEEL_PER_WIND * (storm ? 1.f + 1.0f * storm->strength : 1.f);
+            trim = -TRIM_PER_SPEED * clampf(vel / 9.f, 0.f, 1.f);   // bow lifts a little when she is footing
+        }
         // Authored hulls first (shipyard.h): a class that has finished loading draws the whole
         // line through the asset path - its own five LODs replace the full/simplified pair, so
         // those ships are left out of the procedural passes below. The fleet's mesh-to-icon
@@ -330,6 +351,7 @@ void SceneBuilder::build_ships(void) {
                                   rock, sel ? 1.f : hov ? 0.5f : 0.f, lod_dither(&pk, pk.lod),
                                   col_r(col), col_g(col), col_b(col),
                                   cam_distance(sx_[s], sz_[s]), lod_key(LODK_FLEET, f->id, s + 1) };
+            sr.roll = heel; sr.pitch = trim;
             authored[s] = shipyard_push(&sr);
         }
         for (int pass = 0; pass < 2; ++pass) {                                // the level shown, then the one fading in
@@ -344,6 +366,7 @@ void SceneBuilder::build_ships(void) {
                 if (!authored[s]) {
                     inst_t *in = instlist_push(&ship_inst[f->ships[s].type][lod]);
                     *in = inst_t{ wx, 0, wz, wh, sc, col_r(col), col_g(col), col_b(col), rock, sel ? 1.f : hov ? 0.5f : 0.f, 1, 0, dith };
+                    in->roll_b = heel; in->pitch_b = trim;      // the procedural hulls heel too (0.22.19)
                 }
                 if (pass == 0 && f->at_port < 0) {           // moored ships leave no splash
                     float dd = dist2d(wx, wz, cam.tx, cam.tz);
@@ -630,7 +653,7 @@ unsigned SceneBuilder::town_signature(const port_t *p) {
 // other or in the fort wall, and every house takes the *lowest* ground under its footprint
 // and is skipped on steep ground: a house set at its centre height on a slope floats on the
 // downhill side and shows a roof without walls on the uphill side (issue-1).
-#define TOWN_MAX_FOOTPRINTS 96
+#define TOWN_MAX_FOOTPRINTS 160   // 0.22.20 (issue16): room for a city's worth of houses
 #define TOWN_MIN_HEIGHT     0.18f   // above the beach (terrain.c blends sand into grass from 0.15)
 
 int SceneBuilder::fp_free(const footprint_t *fp, int n, float x, float z, float r) {
@@ -708,15 +731,27 @@ void SceneBuilder::town_build(const port_t *p, int index) {
         }
     }
 
-    // houses: as many as the town's size and population call for, where they fit
-    int nh = mini(4 + 7 * p->size + (int)(p->pop / 12), 40), placed = 0;
+    // Houses: as many as the town's size and population call for, where they fit.
+    // 0.22.20 (issue16 "you have assets for buildings - use them to create cities that look
+    // like cities, not just this"): Venice drew ~25 houses loosely scattered inside the wall,
+    // which reads as a hamlet with a rampart. Three changes make it read as a town: nearly
+    // three times the houses (a size-3 city fills its wall), the houses stand on *ring
+    // streets* - oriented along the tangent of their ring with a little scatter, so lanes
+    // appear between the rings instead of a random strew - and the wall carries a tower at
+    // every other joint (below).
+    int nh = mini(10 + 16 * p->size + (int)(p->pop / 6), 110), placed = 0;
     int med = p->region == REG_MED || p->region == REG_ATLANTIC, colonial = port_colonial(p);
     float roof[3]; if (med) { roof[0]=0.68f; roof[1]=0.32f; roof[2]=0.20f; } else if (colonial) { roof[0]=0.55f; roof[1]=0.42f; roof[2]=0.22f; } else { roof[0]=0.30f; roof[1]=0.32f; roof[2]=0.36f; }
     for (int k = 0; k < nh * 4 && placed < nh && nfp < TOWN_MAX_FOOTPRINTS; ++k) {
         float s = 0.16f + rnd_f(&seed) * 0.12f, half = 0.55f * s;        // roof overhang is the widest part
-        float a = rnd_f(&seed) * 6.2832f, ring = sqrtf(rnd_f(&seed)), r = ring * maxf(wall_inner - half, 0.1f);
+        float a = rnd_f(&seed) * 6.2832f;
+        // the ring streets: houses stand on one of 3-5 concentric rings (how many depends on
+        // the town's size), displaced a little, rather than anywhere in the disc
+        int nrings = 2 + p->size;
+        float ring = (floorf(rnd_f(&seed) * nrings) + 0.55f + rnd_f(&seed) * 0.35f) / nrings;
+        float r = ring * maxf(wall_inner - half, 0.1f);
         float hx = p->lx + cosf(a) * r, hz = p->lz + sinf(a) * r;
-        float rot = rnd_f(&seed) * 3.14f, wc = 0.75f + rnd_f(&seed) * 0.2f;
+        float rot = -(a + 1.5708f) + (rnd_f(&seed) - 0.5f) * 0.35f, wc = 0.75f + rnd_f(&seed) * 0.2f;   // along the street, not at random
         asset_t *house = town_house_asset(ring, p->size, &seed);
         if (house) { half = asset_footprint_radius(house); s = house->bmax[1] - house->bmin[1]; }
         if (!world_is_land(hx, hz)) continue;
@@ -726,7 +761,7 @@ void SceneBuilder::town_build(const port_t *p, int index) {
         float hy = lo - 0.03f;                                              // the lowest corner touches ground; the rest is buried a little
         if (house) {
             // face the square (doors towards the street), with a little scatter
-            tc_push_asset(house, inst_t{ hx, hy, hz, -atan2f(p->lz - hz, p->lx - hx) + (rnd_f(&seed) - 0.5f) * 0.6f, 1.f, 1,1,1, 0,0,0,0 });
+            tc_push_asset(house, inst_t{ hx, hy, hz, rot, 1.f, 1,1,1, 0,0,0,0 });   // 0.22.20: doors on the ring street
         } else {
             float wr = med ? wc : colonial ? wc*0.9f : wc*0.7f, wg = med ? wc*0.92f : colonial ? wc*0.8f : wc*0.55f, wb = med ? wc*0.75f : colonial ? wc*0.6f : wc*0.45f;
             tc_push(TM_HOUSE, inst_t{ hx, hy, hz, rot, s, wr, wg, wb, 0,0,0,0 });
@@ -762,6 +797,14 @@ void SceneBuilder::town_build(const port_t *p, int index) {
             float lo, hi; ground_range(mx, mz, dist2d(x0,z0,x1,z1) * 0.5f, &lo, &hi);
             if (lo < 0.05f) continue;                                        // no wall on the beach
             tc_push(TM_WALL, inst_t{ mx, lo - 0.1f, mz, -atan2f(z1-z0, x1-x0), wh, 1,1,1, 0,0,0, dist2d(x0,z0,x1,z1) / wh });
+            // 0.22.20 (issue16): a tower at every other joint, so the ring reads as a city
+            // wall rather than a kerb - a bare ellipse of stones was most of why the issue's
+            // screenshot "looks just bad"
+            if ((k & 1) == 0) {
+                float lo2, hi2; ground_range(x0, z0, 0.1f, &lo2, &hi2);
+                if (lo2 >= 0.05f && world_is_land(x0, z0))
+                    tc_push(TM_TOWER, inst_t{ x0, lo2 - 0.08f, z0, a0, wh * 1.9f, 0.78f, 0.76f, 0.70f, 0,0,0,0 });
+            }
         }
     }
 }
@@ -893,7 +936,14 @@ void SceneBuilder::push_icons(void) {
             if (g) count = g->count;
         }
         unsigned col = p->size > 0 ? nations_info[p->nation].color : 0xFFBBBBBB;
-        float sz = p->size <= 0 ? 5.f : 6.f + 2.5f * p->size;
+        // 0.22.19 (issue15 "increase sizes of villages assets in strategic view as they are
+        // literally dots on map"). A village is a settlement of size 0, and it drew at 5 px
+        // against a small town's 8.5 - at the strategic tier, where the house meshes are long
+        // gone (gfx/scatter.cc stops at cam.mapness 0.5), that 5 px diamond *was* the village,
+        // and it read as a speck. Villages now draw at 9 px, and every settlement mark grows
+        // by a third once the camera is at the strategic tier, where the map is all there is.
+        float sz = p->size <= 0 ? 9.f : 6.f + 2.5f * p->size;
+        if (clustering) sz *= 1.35f;
         if (count > 1) sz *= 1.f + 0.16f * logf((float)count) / 0.693f;      // grows with log2 of the group
         icon(p->x, p->z, 0, sz, p->size <= 0 ? ICON_DIAMOND : ICON_DISC, (p->size <= 0 ? 0.8f : 1.f) * w, 1.f, col);
         if (count > 1) icon(p->x, p->z, 0, sz + 7, ICON_RING, 0.55f * w, 0, col);   // a group, not one great city

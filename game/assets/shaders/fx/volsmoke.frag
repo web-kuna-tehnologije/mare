@@ -32,11 +32,24 @@ float density_one(int i, vec3 p, float fine) {
   float age = u_blobp[i].y, seed = u_blobp[i].z;
   float e = 1.0;
   if (fine > 0.5) {
+// 0.22.19 (issue15 "less round"): the dent was 0.45 of a single noise field, which leaves a
+// ball with a rough coat. A second, much lower-frequency lobe field pulls the whole silhouette
+// out of round - that is what makes one puff tall and ragged and the next one squat - and the
+// fine dent is half as deep again on top of it.
     vec3 np = q / R * 1.6 + vec3(seed * 13.0, age * 0.7 + seed * 3.0, seed * 7.0) + u_wind * (u_time * 0.06);
     float n = fbm3(np) * 0.75 + fbm3(np * 2.6 + 5.0) * 0.25;
-    r *= 1.0 + 0.45 * (n - 0.45);                                   // the silhouette is dented by the noise: never a sphere
+    float lobe = fbm3(q / R * 0.55 + vec3(seed * 31.0, seed * 17.0, age * 0.20));
+    r *= 1.0 + 0.70 * (n - 0.45) + 0.55 * (lobe - 0.5);             // never a sphere, and never the same shape twice
     e = clamp((n * 1.6 + 0.25 - 0.45 * age) * (1.5 - 0.5 * age), 0.0, 1.0);
   }
+// 0.22.19 (issue15 "fade from end to middle"): a puff used to thin everywhere at once, so it
+// kept its size and went transparent - a ghost of the original ball. Smoke does the opposite:
+// the thin outside is carried off and mixed away first and the dense middle is the last of it
+// to go. `core` is the fraction of the ball still holding smoke, shrinking with age, and the
+// radius is measured against *that*, so the cloud is eaten from its rim inwards and the last
+// of it is a small dense knot where the heart of the puff was.
+  float core = 1.0 - 0.62 * age * age;
+  r /= max(core, 0.22);
   if (r >= 1.0) return 0.0;
   float shape = (1.0 - r * r); shape *= shape;
   return u_blobp[i].x * shape * e;

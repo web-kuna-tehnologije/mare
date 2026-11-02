@@ -47,6 +47,47 @@ float detailview_eye_floor(void);              // the lowest the eye may sit in 
 // `detailview_helm(d)` puts the player's side under manual steering and turns the ordered
 // course by `d` radians; `detailview_helm_release()` hands her back to the line. Every ship
 // answers at her own rate through her rigid body, so a great carrack comes round slowly.
+
+// Orders to the player's line (0.22.19, issue15 "in battle you are not allowed to make any
+// direct changes - add UI with buttons like direct fire to warship / interceptors or
+// tradeships, retreat, board or fight to death").
+//
+// Two independent choices, because they are two different decisions a captain makes:
+//
+//   * what to shoot at  - DV_FIRE_*: the nearest enemy (the default), the heaviest ship in
+//     range (break the enemy's line of battle), or the lightest (take the convoy and let the
+//     escort go). The guns pick a target by this every time they are ready to fire.
+//   * what to do with the ship - DV_MOVE_*: hold the line, close to board, or haul off.
+//     Boarding steers for the nearest enemy and crowds on sail; retreating turns away from
+//     the enemy's centre of mass and runs. "Fight to the death" is DV_MOVE_HOLD with the
+//     retreat locked out, so the AI cannot haul her off and neither can a stray click.
+//
+// Both apply to the whole of the player's side, which is the unit the battle actually
+// manoeuvres; they are cleared when the scene is left.
+enum { DV_FIRE_NEAREST = 0, DV_FIRE_WARSHIPS = 1, DV_FIRE_TRADERS = 2 };
+enum { DV_MOVE_LINE = 0, DV_MOVE_BOARD = 1, DV_MOVE_RETREAT = 2, DV_MOVE_LAST_STAND = 3 };
+void detailview_set_fire_order(int order);
+void detailview_set_move_order(int order);
+// 0.22.20 (issue16 "retract sails if upwind"): the player's side takes in or makes sail. Under
+// bare poles an oared ship pulls at her oars; a sailing ship is hove to.
+void detailview_set_furl_order(int on);
+int  detailview_furl_order(void);
+
+// The muster list (0.22.20, issue16 "add ship icons and list on top enemy on bottom player and
+// shows stats"). One entry per tactical ship, player's side 0: the HUD draws the player's line
+// along the bottom of the battle view and the enemy's along the top, each ship with her
+// condition bars. `hull`, `sails`, `guns` are what she has LEFT (1 sound, 0 gone); `water` is
+// how far flooded she is (0 dry); `fire` 0..1. Crew and ammunition are not simulated yet, so
+// they are not shown - a bar that never moves is a lie.
+typedef struct dv_shipinfo_t {
+    int   side, type;          // 0 = the player's line
+    int   sunk, stranded, masts_down;
+    float hull, sails, guns, water, fire;
+} dv_shipinfo_t;
+int detailview_ship_info(int i, dv_shipinfo_t *out);   // 0 past the end; i from 0
+int detailview_ship_count(void);
+int  detailview_fire_order(void);
+int  detailview_move_order(void);
 void  detailview_helm(float dcourse);
 void  detailview_helm_release(void);
 int   detailview_helm_on(void);                // 1 while the player's side is steering by hand

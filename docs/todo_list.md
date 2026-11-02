@@ -268,7 +268,50 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 159 | P2 | The Seine, the Guadalquivir, the Thames and the Tiber are not navigable | [ ] the first two fall under our 60 Mm threshold, the last two under the export's own 10.9 Mm filter. `from_upstream_m` is length, not discharge, and the layer carries no width (`width_m` is null throughout) - correcting it needs a flow figure the data does not have |
 | 161 | P2 | Bridges as props at each `road_bridges[]` point (TODO 10b) | [ ] the points exist over real rivers now, which is what was blocking it |
 
-## Order of work (updated 0.22.18)
+## issue15 (assets/issues/issue15, 0.22.19) - session elm
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 162 | P0 | "increase sizes of villages assets in strategic view as they are literally dots on map" | [x] a village (settlement size 0) drew at 5 px against a town's 8.5, and at the strategic tier the house meshes are gone, so that diamond *was* the village: 9 px now, and every settlement mark a third larger at the strategic tier |
+| 163 | P0 | "add in menu starting options with posibility of changing rendering software and level of graphics details low -> high" | [x] the Options panel opens over the start menu (the backend has to be chosen before a world exists), and a Low/Medium/High/Ultra preset sets the nine knobs at once; moving one reads "Custom". The four buttons and the running renderer are on the menu itself |
+| 164 | P0 | "add smoke in battle view to fade slower and be less round, also fade from end to middle" | [x] density `(1-t)^2` instead of `1-t^2` and lives 20-50 s (were 12-30); a low-frequency noise lobe pulls the silhouette out of round; and the visible radius shrinks with age so a puff is eaten from its rim inwards and ends as a small dense knot, instead of keeping its size and going transparent |
+| 165 | P0 | "in battle you are not allowed to make and direct changes - add UI with buttons like direct fire to warship / ... tradeships retreat board or fight to death" | [x] two standing orders for the player's side: **Fire at** Nearest/Warships/Traders (by gun count, every time the guns are ready) and **The line** Hold/Board/Retreat/No quarter. Orders override the hand helm and are cleared on entering a new action |
+| 166 | P0 | "add real cannonballs ... sizes depending of cannons ... curvature and gravity ... angle of firing based on waves and ship rotation ... air resistance" | [x] calibre per gun (and drawn at it); drag `2.75e-5 v^2/r` - a 32-pounder out-ranges a 6-pounder by 30%, measured; the piece laid on the ship's own roll and pitch, so she shoots where the deck points; a constant sideways drift for the smooth bore's curve; and the ball carries her way off a moving platform |
+| 167 | P0 | "ships gliding as in video shown" | [x] map ships carried roll = pitch = 0 and a 2.6-degree sinusoid: they now heel to leeward by the wind's strength times the sine of its angle on her heading (8 degrees on the beam, more in a storm), and the working roll and pitch are doubled |
+| 168 | P0 | "add real rivers and traversable and remove blockiness of rivvers add curvatures smooth" | [x] traversable landed in 0.22.18. The blockiness was that the layer is 825k lines of *two points each* and a navigable reach is carved wider than the sticks it follows: the segments are chained by an exact-endpoint walk and Chaikin-smoothed twice - 287,511 wide segments became 1,227 chains - with the width per point, so a river opens out instead of stepping |
+| 169 | P0 | Reduce the mountain heights by 1 | [x] `GC_HEIGHT_SCALE` 7 -> 6, exaggeration 4.6x (was 5.4x); the 4x build carries its own relief, so the ranges do not go flat |
+
+## Physics and battle (0.22.19) - the rows this round closed
+
+| # | Pri | Item | Status |
+|---|-----|------|--------|
+| 153 | P1 | Tactical results update strategic ship state | [x] `ship_t` carries `d_rig`, `d_guns`, `d_flood`; every tactical hull that stands for a real ship writes home, damage taken and never given back, hull points following the tactical damage to a floor of a tenth, and a ship sunk in the scene struck off the fleet. On a 5 s timer and on the way out. `SAVE_VERSION` 6 |
+| 152 | P1 | Fire | [x] started by a heavy blow on the gun deck, feeds on itself, burns her rig then her timbers then floods her, costs her way - and can reach the magazine, in which case she goes up at once. 60% of her speed and a mast gone twenty seconds in; lost in a minute or two |
+| 149 | P1 | Gun damage with teeth | [x] up to four times slower to fire, fewer pieces bearing, and nothing at all past nine tenths; `fleet_power` reads it, so a wrecked battery does not come back for the next action |
+| - | P1 | A sinking that reads | [x] she settles by the head over eight seconds, slow then quick, instead of simply stopping |
+| 121b | P1 | A verlet chain for the sheets and braces | [ ] the ropes are a per-class *static* mesh shaped in the vertex shader; a real verlet needs the geometry moved to a per-ship dynamic buffer with the endpoints enumerated per hull. The simulation is cheap, the plumbing is the work - left open rather than faked |
+| 154 | P2 | Broadphase collision | [ ] no visible result at the hull counts the staged battle runs today |
+| 155 | P2 | Multithreaded physics jobs | [ ] as above |
+| 170 | P2 | A yard that repairs what a fleet brings home | [ ] the damage persists now and nothing takes it off again |
+
+## issue16 (assets/issues/issue16, 0.22.20) - session elm
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 171 | P0 | "make mor realistic fire, you have particles and smoke also" (screenshot: two yellow discs) | [x] a flame particle kind: the fire sheet stretched 2:1 tall, never spinning, tongues born at the deck that climb and die in under a second, white root to red tip, self-lit; embers downwind off a hot fire |
+| 172 | P0 | "oars are on fron side wide part needs to be in water and thin part in ship" (third report) | [x] the asset was finally *measured*: the oar is modelled on a -45-degree diagonal with the blade at **+x** (cross-section 0.227 against the loom's 0.090) - every prior fix assumed -x and so mounted the real blade inboard. Side sign flipped, pivot moved to the loom's true end. [~] a close-up verification shot kept missing the moving ship; the fix rests on the measurement |
+| 173 | P0 | "add posiblity to retract sails if upwind" | [x] a Take in sails button: the player's side furls; oared ships pull, sailing ships heave to |
+| 174 | P0 | "add posibiliti to sunk or to get strayed on beach" | [x] stranding: hard aground (a quarter of her draft out of her depth) she takes ground damage, and past four seconds she is stuck fast - no helm, no way, an event, "(aground)" on her muster card. Sinking has existed since 0.22.17 |
+| 175 | P0 | "add damage on collion" | [x] the contact's closing speed above a walking pace costs hull, between wind and water, split by inverse mass - the boat takes the worst of touching a carrack |
+| 176 | P0 | "add mesh damage removal dynamically not changing model but actually removing parts of mesh" | [x] a mast that goes by the board is not drawn - with its yards, canvas and lantina, stations falling bow-aft to the physics' count. [ ] the standing rigging still shows its old runs: one per-class mesh, needs the per-ship rig buffer (121b's blocker) |
+| 177 | P0 | "add ship icons and list on top ernemy on bottom player and shows stats (hull, water, crew, sails, ammo)" | [x] the muster list: enemy top, player bottom, per ship four bars (hull, sails, guns, water), a flame when burning, "+" lost, "(aground)" stranded. [ ] crew and ammo are not *simulated*, so they are not shown - a bar that never moves is a lie; they belong to the strategic-ship work (178) |
+| 178 | P2 | Crew and ammunition as simulated quantities (then their bars) | [ ] |
+| 179 | P0 | "villages to small in sizes they need to be same size as cities" (screenshot) | [x] built disc to a small town's footprint, houses a third bigger, drawn to 70 units (was 40) |
+| 180 | P0 | issue1.png "circled city with walls and port that looks just bad. you have assets for buildings" | [x] ~90 houses in a size-3 city (was ~40), ring streets with doors to the lane, a tower at every other wall joint. [~] it is a better procedural town, not an authored cityscape - hand-placed landmarks for Venice/Dubrovnik/Constantinople stay on the roadmap (P2.1) |
+| 181 | P1 | "connect cities with roads and villages depending where trade is flowing to from hinterlands" | [ ] roads already run settlement -> hub port; weighting by trade flow needs the economy's flows in the road builder - a sim feature, left open rather than faked |
+| 121b | P1 | "add rope for then next round if unable this one" | [ ] carried at the issue's own invitation; the blocker is unchanged (the per-ship rope/rig buffer) and the mast removal now wants the same buffer, so it is the next renderer task |
+
+## Order of work (updated 0.22.20)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -286,9 +329,13 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 14. issue14 + the lost 0.22.16 work, rows 130-142. **Done 0.22.17** (session elm).
 15. The damage model (P1.3), rows 143-151. **Done 0.22.17** - and with it the two bugs that had kept every battle bloodless.
 16. The 4x terrain build and its rivers, rows 156-158, 160, and with them 93 and 118. **Done 0.22.18** (session elm).
-17. Next, in this order: 153 (tactical results into the strategic ship), 152 (fire), 161 (bridge
-    props, now unblocked), 149 (gun damage with teeth), 117b (a fruit-tree set), 121b (a verlet
-    rope), then the list below. `docs/TODO_STATUS.md` is the whole list as checkboxes:
+17. issue15 and the battle rows, 162-169 with 149, 152, 153. **Done 0.22.19** (session elm).
+18. issue16, rows 171-180. **Done 0.22.20** (session elm), 181 and 121b carried.
+19. Next, in this order: 121b (the per-ship rope/rig buffer - it now unblocks *two* things, the
+    verlet rope and cutting a felled mast's rigging), 170 (a yard that repairs), 178 (crew and
+    ammunition, so the muster list can show them honestly), 181 (roads by trade flow), 161
+    (bridge props), 117b (a fruit-tree set). `docs/TODO_STATUS.md` is the whole list as
+    checkboxes:
    1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
    2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy knows the waterline), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
    3. **Heave into the shader**: the body's heave is computed but the hull still rides the shader's own wave sample; with the attitude channel in place the heave is one more float.

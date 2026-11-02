@@ -1,5 +1,246 @@
 # Changelog
 
+## 0.22.20 — the sixteenth issues folder: fire that burns, oars measured at last, towns with streets
+
+Session **elm**, working from `/mnt/c/projects/mare` (read only) into
+`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_160813`. `assets/issues/issue16` resolved
+first (issue15 had been closed in 0.22.19), then the carried todo rows.
+
+### issue16
+
+- **"make more realistic fire, you have particles and smoke also"** (the screenshot shows two
+  glowing yellow discs on a burning ship). The 0.22.19 fire borrowed the muzzle-flash sprite,
+  which is a hot *disc*. Fire is tongues. A new particle kind (`PK_FLAME`) draws the Meshy fire
+  sheet stretched **2:1 tall and never spinning**, each tongue born small at the deck, climbing,
+  stretching as it rises and gone in under a second - the flicker is many short-lived tongues,
+  not one long-lived sprite. In the fragment stage the tongue is a noise-eaten teardrop, white
+  at the root through orange to deep red at the tip, self-lit (no fog, no sun), and a hot fire
+  throws embers downwind (`PK_EMBER`, already there). The magazine explosion uses them too.
+- **"oars are on fron side wide part needs to be in water and thin part in ship"** - the
+  *third* report of the same fault, and this time the asset was **measured instead of assumed**:
+  the GLB's vertices say the oar is modelled on a *diagonal*, its long axis at -45 degrees in
+  its own x-y plane, the blade toward (+x, -y) with a cross-section of 0.23 against the loom's
+  0.09. Every earlier fix believed the blade was the **-x** end ("measured", it said), so the
+  0.22.11 mount put +x - the real blade - *inboard*: the wide part buried in the hull, the thin
+  loom sticking outboard and upward, which is exactly what every screenshot since has shown.
+  The mount's side sign is flipped (blade outboard, trailing aft) and the rowlock pivot moved
+  to the loom's true end; with the model's own -45 droop the existing pitch brings the blade
+  ~20 degrees under the horizontal and the loom level over the deck. *Caveat, honestly made:*
+  a close-up verification shot kept missing the moving ship this round, so this fix rests on
+  the measurement, not on a picture.
+- **"add posiblity to retract sails if upwind"**: a **Take in sails** button on the Battle
+  panel. The player's side furls (the canvas is not drawn, spars and cordage stay - the furl
+  machinery existed for oared ships since 0.22.15); under bare poles an oared ship pulls at her
+  oar speed and a sailing ship is hove to, which is what taking in sail upwind is for.
+- **"add posibiliti to sunk or to get strayed on beach"**: sinking has existed since 0.22.17;
+  **stranding** is new. A ship driven hard aground - a quarter of her draft out of her depth -
+  takes ground damage as the sea works her on the bottom, and after a few seconds of it she is
+  **stuck fast**: no helm, no way, an event and a line in the log ("she has taken the ground
+  and is stuck fast"), and the muster card reads *(aground)*.
+- **"add damage on collion"**: a contact's normal impulse now costs timber. The blow is the
+  closing speed at the contact point above a walking pace (board-and-board grinding in a swell
+  stoves nothing in), lands between wind and water, and splits by inverse mass - the boat takes
+  the worst of touching a carrack, as she must.
+- **"add mesh damage removal dynamically ... actually removing parts of mesh"**: a mast that
+  goes by the board **is no longer drawn** - not scaled, not greyed, gone, with its yards, its
+  canvas and its lantina, stations falling from the bow aft to match the physics' count. The
+  ships are assembled from parts per frame, so removal really is removal. (The standing rigging
+  is one per-class mesh and still shows its old runs; cutting it per station needs the per-ship
+  rig buffer that the verlet rope needs too - same blocker, todo 121b.)
+- **"add ship icons and list on top ernemy on bottom player and shows stats"**: the **muster
+  list**. The enemy's line across the top of the battle view, the player's across the bottom,
+  one card per ship: her class name and four condition bars - hull, sails, guns, and the water
+  in her - a flame mark when she burns, "+" when she is lost, "(aground)" when she is stranded.
+  Crew and ammunition are **not shown because they are not simulated**; a bar that never moves
+  would be a lie. (They are the natural next step of the strategic ship.)
+- **"villages to small in sizes they need to be same size as cities"** (screenshot: pink
+  smudges beside a walled town): a farm village's built disc now matches a small town's
+  footprint (0.34 + 0.11·sqrt(pop), was 0.22 + 0.08·sqrt(pop)), its houses are a third bigger,
+  and the house meshes draw to 70 units out instead of 40 - the issue's screenshot is taken
+  from about 55, where the village used to show bare painted ground.
+- **"you have assets for buildings - use them to create cities that look like cities"**
+  (issue1.png: a sparse oval of stones round a handful of houses): three changes. A size-3 city
+  now stands **~90 houses instead of ~40** and fills its wall; the houses stand on **ring
+  streets** - each on one of 3-5 concentric rings, doors to the lane, instead of strewn at
+  random - so streets appear between the rings; and the wall carries a **tower at every other
+  joint**, so the ring reads as a rampart rather than a kerb. The authored pieces (town hall,
+  church, warehouse, lighthouse) stand as before, now inside a town that deserves them.
+- **"connect cities with roads and villages depending where trade is flowing to from
+  hinterlands"**: *not done.* The roads already run settlement -> hub port; weighting them by
+  trade flow needs the economy's flows plumbed into the road builder, which is a sim feature,
+  not an afternoon. Left open as todo 171 rather than faked with cosmetic lines.
+- **"add rope for then next round if unable this one"**: taken at its word - carried once more
+  (todo 121b), with the same honest blocker: the rope geometry must move off the per-class
+  static mesh onto a per-ship dynamic buffer before any simulation can bend it. The mast
+  removal above now needs the same buffer, which makes it the clear next renderer task.
+
+### Found on the way
+
+- **The mirror build was linking stale objects.** `rsync -a` preserves source mtimes; when an
+  edit's mtime landed *older* than the existing `.obj`, MSBuild skipped the recompile and the
+  linker failed - or worse, succeeded - against last round's code. The sync step now touches
+  the sources after copying. (Last round's lesson was "grep the linker too"; this is its twin:
+  make sure the linker is even looking at your code.)
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7**.
+- A 55-second staged battle logged six fires with the new tongues visible as a flame column in
+  the screenshot (`shots/fire_new.png`); `shots/venice_city2.png` shows the walled town with
+  its corner towers and ring-street houses.
+- The oar GLB, measured: long axis at -45.0 degrees in x-y, blade cross-section 0.227 at the
+  +x end against 0.090 at -x - the numbers the fix rests on.
+
+## 0.22.19 — the fifteenth issues folder: a battle you can command, and one that can burn
+
+Session **elm**, working from `/mnt/c/projects/mare` (read only) into
+`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_130428`. `assets/issues/issue15` first, as
+the skill asks, then the relief, then the physics and battle rows of `docs/todo_list.md`.
+
+### issue15
+
+- **"increase sizes of villages assets in strategic view as they are literally dots on map"**.
+  A village is a settlement of size 0 and it drew at 5 px against a small town's 8.5. At the
+  strategic tier the house meshes are long gone (`gfx/scatter.cc` stops at `cam.mapness` 0.5),
+  so that 5 px diamond *was* the village. Villages draw at 9 px now, and every settlement mark
+  grows by a third once the camera reaches the strategic tier, where the map is all there is.
+- **"add in menu starting options with posibility of changing rendering software and level of
+  graphics details low -> high"**. Both existed as sliders behind a top-bar button that does
+  not exist until a game is running - so the one choice that *has* to be made before the world
+  is built, the render backend, could not be made from the menu at all. The Options panel now
+  opens over the menu, and there is a **graphics detail preset** - Low / Medium / High / Ultra -
+  which is a named set of the nine knobs already there (shadows, their distance, anisotropy,
+  tessellation, model LOD, waves, ambient occlusion, bloom). Move any one of them and the
+  preset reads "Custom", because that is what it is. The menu carries the four buttons and an
+  "Options..." button of its own, and a line saying which renderer is running.
+- **"add smoke in battle view to fade slower and be less round, also fade from end to middle"**.
+  Three separate changes, because they are three separate things:
+  *Slower*: the blobs' density fell as `1 - t^2`, already down a quarter at half life - a cloud
+  evaporating while it was still rolling. It is `(1 - t)^2` now, which holds through the middle
+  of its life, and the lives themselves went from 12-30 s to 20-50.
+  *Less round*: a second, much lower-frequency noise lobe pulls the whole silhouette out of
+  round, so one puff is tall and ragged and the next squat; the fine dent is half as deep again
+  on top of that.
+  *From the end to the middle*: a puff used to thin everywhere at once, keeping its size and
+  going transparent - a ghost of the original ball. Smoke does the opposite: the thin outside
+  mixes away first and the dense middle is the last of it. The visible radius now shrinks with
+  age and the density is measured against *that*, so the cloud is eaten from its rim inwards
+  and the last of it is a small dense knot where the heart of the puff was.
+- **"in battle you are not allowed to make and direct changes - add UI with buttons like direct
+  fire to warship / ... tradeships, retreat, board or fight to death"**. The battle was a
+  spectacle: stop the clock, look at the wind, steer by hand, and that was all. There are two
+  standing orders now, because they are the two decisions a commander of the day actually made:
+  **Fire at** Nearest / Warships / Traders - the guns choose by the heaviest or the lightest
+  ship in range (by her gun count, which is what tells a man-of-war from a merchantman at a
+  cable), every time they are ready; and **The line**: Hold / Board / Retreat / No quarter -
+  boarding lays her alongside the nearest enemy under everything she will carry, retreating
+  turns away from the enemy's centre of mass and runs, "no quarter" holds station with the
+  retreat locked out. They apply to the player's whole side; the enemy always engages the
+  nearest, as before. Orders override the hand on the wheel and are cleared on entering a new
+  action.
+- **"add real cannonballs in game and sizes depending of cannons and add course of flying not
+  just straight line but calculate wind imperfection in aiming and curvature and gravity also
+  angle of firing based on waves and ship rotation and position. also add air resistance"**.
+  Gravity was already there; everything else was not.
+  **Calibre**: a shot now carries its radius, from the gun that threw it - 1.8 cm for a light
+  piece to 3.1 for a lower-deck gun, in scene units - and it is drawn at that size (×3, because
+  a 15 cm ball at a battle camera is a pixel and the point of drawing shot is that you can
+  follow it).
+  **Air resistance**: a sphere's drag deceleration is `3·ρ_air·Cd·v² / (8·ρ_iron·r)`, about
+  `2.75e-5 · v²/r` - and the scene's scale cancels between the square of the speed and the
+  radius, so that constant is the same in scene units as in SI. At a 32-pounder's 450 m/s it is
+  ~77 m/s², which is round shot to the life. Being inversely proportional to the radius, it is
+  also why light guns are short-ranged: measured in `physics_test`, **a 32-pounder's ball
+  carries 30% further than a 6-pounder's** on the same lay.
+  **The rolling deck**: a gun is bolted down, laid in the ship's frame and fired in the
+  world's, and in a seaway those are not the same. The piece follows her roll (so a ship rolled
+  towards the enemy throws her shot into the sea and one rolled away throws it over the
+  mastheads - why gun captains fired *on the roll*) and her pitch, projected on the gun's
+  bearing. This is the largest source of error in the model and it is a real one, not a random
+  number: a steady ship shoots straight.
+  **Curvature** is a constant sideways acceleration per ball, the curve a smooth bore puts on
+  it from windage and spin - up to about a degree over a second's flight, sign and size the
+  ball's own. And the shot carries the ship's own way with it off a moving platform.
+- **"ships gliding as in video shown"**. On the strategic map a ship carried roll = pitch = 0
+  and nothing but a 2.6-degree sinusoid in the vertex shader, so a squadron slid over the swell
+  bolt upright - a decal dragged across the water, which is exactly what the video shows. Two
+  fixes: a **wind heel**, the strength of the wind times the sine of the angle between it and
+  her heading, to leeward, up to 8 degrees on the beam and further in a storm (nothing on a
+  dead run or in irons) - that steady angle is most of what reads as "she is sailing" at a
+  distance; and the working roll and pitch doubled, so a ship under way visibly works and a
+  moored one still only stirs.
+- **"as you have now real world data fine enough you can add real rivers and traversable and
+  remove blockiness of rivvers add curvatures smooth"**. Traversable landed in 0.22.18. The
+  blockiness had a specific cause: the waterwaymap layer is **825,000 lines of two points
+  each** - every one a straight 2-3 km stick - and a navigable reach is carved 0.6 to 1.05
+  units wide, which is *wider than the sticks it is carved along*, so the channel came out as a
+  row of overlapping lozenges with a corner at every join. The segments are now chained back
+  into rivers by an exact-endpoint walk (they were clipped from one source line, so they meet
+  exactly) and each chain gets two Chaikin passes, which round every corner without moving the
+  line off the survey. Measured: **287,511 segments of the reaches that are drawn wide became
+  1,227 smoothed chains**; the 533,818 hairline streams are left straight, since a one-texel
+  line has no corners to see and leaving them costs nothing. The width is per point now rather
+  than per segment, so a river opens out downstream instead of stepping at every join.
+
+### The relief
+
+`GC_HEIGHT_SCALE` 7 -> 6 ("reduce mountain heights by 1"): 9000 m is 6 world units and the
+vertical exaggeration 4.6x, against 5.4x. The 4x terrain build carries its own relief now, so
+the exaggeration can come down without the ranges going flat (`shots/height6.png`).
+
+### Physics and battle (docs/todo_list.md)
+
+- **The butcher's bill goes home** (row 153, the biggest item on the list and open since the
+  damage model was written). The damage was scenery: a ship could be dismasted, holed and sunk
+  in front of the player and sail out of the scene without a scratch, because nothing read
+  `nphys_damage_t`. `ship_t` now carries `d_rig`, `d_guns` and `d_flood` beside its hull
+  points, and every tactical hull that stands for a real ship writes home. Three rules:
+  damage is **taken, never given back** (the worse of what she had and what the battle did, so
+  leaving and re-entering a scene cannot heal her); hull points **follow** the tactical hull
+  damage down to a floor of a tenth rather than being set from it, because the discrete model
+  is still the authority on an unwatched action; and **a ship that goes under in the scene is
+  struck off the fleet**, which is the whole point. It runs on a five-second timer during the
+  action as well as on the way out, so a battle left by Escape still counts. `SAVE_VERSION` 6.
+- **Fire** (row 152). A heavy blow on the gun deck - where the powder, the slow match and the
+  dry timber are - sometimes starts one, and a fire feeds on itself. It burns her rig first
+  (canvas and cordage go like paper, and masts come down at the same thresholds a broadside
+  brings them down at), then her timbers, which starts her leaking, so a fire ends where a
+  broadside does. Her people are at the buckets and not the braces, so she loses way. And if
+  it gets below it finds the **magazine**: she does not sink by degrees, she goes up all at
+  once. Tuned against the clock: twenty seconds in she is at 60% of her speed with a mast gone
+  and half her timbers started, and she is lost in a minute or two. `physics_test` covers it.
+- **Gun damage with teeth** (row 149). The battery scalar had been kept and raised since
+  0.22.17 and done nothing at all. A ship whose guns have been shot off their carriages fires
+  up to four times slower and brings fewer pieces to bear; past nine tenths she has no battery
+  left to fire with. And `fleet_power` reads `d_guns`, so a battery wrecked in a battle the
+  player watched does not come back for the next one.
+- **A sinking that reads**. A wreck used to simply stop. She settles now - down by the head,
+  because the holes are forward of her centre of buoyancy - over about eight seconds, slow at
+  first and then quickly, and then she is under. The heave and attitude channels into the
+  shader have been in place since 0.22.12, so this was three lines of physics and no renderer
+  work (`shots/battle_fire.png`).
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7**, with two new cases in `physics_test`: `test_ball_drag`
+  (a 32-pounder out-ranges a 6-pounder by 30%) and `test_fire` (she is lit, loses her rig and
+  her way, and is lost).
+- A 75-second staged battle: three ships caught fire, nine masts went by the board, and the
+  screenshot catches one going down by the head with her bow buried.
+- Shots in `shots/`: `height6.png` (the relief at 6), `battle_fire.png` (a dismasted ship
+  sinking by the head).
+
+### Not done this round
+
+- **A verlet chain for the sheets and braces** (row 121b). The ropes are a per-class *static*
+  mesh whose catenary is computed in the vertex shader, so a real verlet needs the rope
+  geometry moved to a per-ship dynamic buffer with the endpoints enumerated per hull - a new
+  subsystem, and a larger piece than anything else in this round. The simulation itself is
+  cheap (30 ships x 40 ropes x 9 nodes is nothing); the plumbing is the work. Left open rather
+  than faked.
+- **Broadphase collision** (154) and **multithreaded physics jobs** (155): optimisations with
+  no visible result at the hull counts the staged battle runs today.
+
 ## 0.22.18 — the 4x world, and rivers you can sail up
 
 Session **elm**, working from `/mnt/c/projects/mare` (read only) into

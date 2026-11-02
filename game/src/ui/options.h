@@ -19,6 +19,18 @@
 extern "C" {
 #endif
 
+// Graphics detail, as one choice (0.22.19, issue15 "add in menu starting options with
+// posibility of changing rendering software and level of graphics details low -> high").
+// Every knob below is still individually adjustable; a preset is simply a named set of them,
+// so picking "Low" is the same as moving nine sliders and the panel shows where they landed.
+// QUALITY_CUSTOM is what a preset becomes the moment the player moves one of those sliders.
+enum { QUALITY_LOW = 0, QUALITY_MEDIUM = 1, QUALITY_HIGH = 2, QUALITY_ULTRA = 3, QUALITY_CUSTOM = 4 };
+extern const char *const quality_names[5];
+// write the preset's values into OPT (and apply() pushes them on as usual)
+void options_set_quality(int q);
+// which preset OPT currently matches, or QUALITY_CUSTOM
+int  options_quality(void);
+
 typedef struct options_t {
     // renderer (applied at the next launch)
     char  backend[16];        // "gl" | "vulkan" | "dx12"

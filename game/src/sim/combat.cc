@@ -34,7 +34,11 @@ private:
 Combat &combat() { static Combat c; return c; }
 
 float Combat::fleet_power(const fleet_t *f) {
-    float s = 0; for (int i = 0; i < f->nships; ++i) s += ship_types[f->ships[i].type].guns * (0.5f + 0.5f*f->ships[i].hull/ship_types[f->ships[i].type].hull);
+    // 0.22.19 (todo 153): a battery that was shot to pieces in a battle the player watched
+    // does not come back for the next one. `d_guns` is the tactical damage brought home.
+    float s = 0; for (int i = 0; i < f->nships; ++i) s += ship_types[f->ships[i].type].guns
+                      * (0.5f + 0.5f*f->ships[i].hull/ship_types[f->ships[i].type].hull)
+                      * (1.f - 0.85f * clampf(f->ships[i].d_guns, 0.f, 1.f));
     return s * f->morale + 1;
 }
 

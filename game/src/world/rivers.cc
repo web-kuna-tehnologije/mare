@@ -6,6 +6,7 @@
 #include <cmath>
 #include <vector>
 #include <algorithm>
+#include <unordered_map>
 
 extern "C" {
 #include "rivers.h"
@@ -35,6 +36,7 @@ public:
     void shutdown();
 private:
     int  load_package();   // the authored rivers of the terrain package (rivers.bin per chunk, tools/rivers_pack.py); 1 when they were taken
+    void chain_and_emit(const std::vector<float> &lon, const std::vector<float> &lat, const std::vector<float> &up);
     // a binary heap of (height, cell) for the priority flood
     struct heap_t { std::vector<float> key; std::vector<int> idx;
         void push(float k, int i) { key.push_back(k); idx.push_back(i); int c = (int)key.size() - 1;
@@ -72,13 +74,16 @@ int Rivers::load_package() {
     { const char *e = getenv("MARE_RIVER_DATA"); if (e && !atoi(e)) return 0; }
     gc_dataset_t d; if (!geochunks_dataset_count() || !geochunks_dataset(0, &d)) return 0;
     int nseg = 0, nread = 0; size_t total_pts = 0;
+    // every segment as its two endpoints, kept flat: the layer is 825k two-point lines and a
+    // vector per line would cost more in headers than in geometry
+    std::vector<float> raw_lon, raw_lat, raw_up;
     for (int cy = 0; cy < d.chunks_y; ++cy) for (int cx = 0; cx < d.chunks_x; ++cx) {
         char path[640]; snprintf(path, sizeof path, "%s/%schunks/%d/%d/rivers.bin", d.root, d.subdir, cy, cx);
         FILE *f = fopen(path, "rb"); if (!f) continue;
         char magic[4]; unsigned count = 0;
         if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "MRV1", 4) || fread(&count, 4, 1, f) != 1) { fclose(f); continue; }
         nread++; rivers_authored = 1;      // before the first width is computed: it asks rivers_carve_enabled()
-        for (unsigned k = 0; k < count && px.size() < RIVER_MAX_POINTS; ++k) {
+        for (unsigned k = 0; k < count && raw_lon.size() < 2 * RIVER_MAX_POINTS; ++k) {
             float up; unsigned short np;
             if (fread(&up, 4, 1, f) != 1 || fread(&np, 2, 1, f) != 1) break;
             std::vector<float> ll(2 * np); if (np && fread(ll.data(), 4, 2 * np, f) != (size_t)(2 * np)) break;
@@ -86,35 +91,17 @@ int Rivers::load_package() {
             // inside the world and on the land mask (the data draws into estuaries; the paint stops at the coast)
             int inside = 0; for (int i = 0; i < np; ++i) if (ll[2*i] > LON0 && ll[2*i] < LON1 && ll[2*i+1] > LAT0 && ll[2*i+1] < LAT1) inside = 1;
             if (!inside) continue;
-            // the segment's class, and the width that goes with it. Painted, every river keeps
-            // its true hairline width; carved, a navigable reach widens to ship scale (the same
-            // reasoning as RIVER_W_DEEP in rivers.h - a cog is 1.1 units across and the Danube
-            // is 0.2), crossing over smoothly so no class boundary shows as a step.
-            float hair = clampf(0.012f + 0.020f * log10f(maxf(up / 1.5e7f, 1.f)), 0.012f, 0.09f);
-            unsigned char pc = up >= RIVER_UP_DEEP_M ? 1 : up >= RIVER_UP_NAV_M ? 2 : 0;
-            float hwv = hair;
-            if (rivers_carve_enabled() && pc) {
-                float t = clampf((up - RIVER_UP_NAV_M) / (RIVER_UP_DEEP_M - RIVER_UP_NAV_M), 0.f, 1.f);
-                hwv = lerpf(RIVER_W_NAV, RIVER_W_DEEP, t);
-            } else if (rivers_carve_enabled()) {
-                float t = clampf((up - RIVER_UP_NAV_M * 0.45f) / (RIVER_UP_NAV_M * 0.55f), 0.f, 1.f);
-                hwv = lerpf(hair, RIVER_W_NAV, t);
+            for (int i = 0; i + 1 < np; ++i) {
+                raw_lon.push_back(ll[2*i]);   raw_lat.push_back(ll[2*i+1]);
+                raw_lon.push_back(ll[2*i+2]); raw_lat.push_back(ll[2*i+3]);
+                raw_up.push_back(up);
             }
-            river_t r; r.first = (int)px.size(); r.cells = (int)(up / 1e6f); r.navigable = pc;
-            for (int i = 0; i < np; ++i) {
-                float wx = lon2x(ll[2*i]), wz = lat2z(ll[2*i+1]);
-                int i0 = i > 0 ? i - 1 : i, i1 = i + 1 < np ? i + 1 : i;
-                float tx = lon2x(ll[2*i1]) - lon2x(ll[2*i0]), tz = lat2z(ll[2*i1+1]) - lat2z(ll[2*i0+1]);
-                float tl = sqrtf(tx * tx + tz * tz); if (tl < 1e-6f) { tx = 1; tz = 0; } else { tx /= tl; tz /= tl; }
-                px.push_back(wx); pz.push_back(wz); hw.push_back(hwv); dx.push_back(tx); dz.push_back(tz); cls.push_back(pc);
-            }
-            r.count = (int)px.size() - r.first;
-            if (r.count >= 2) list.push_back(r); else { px.resize(r.first); pz.resize(r.first); hw.resize(r.first); dx.resize(r.first); dz.resize(r.first); cls.resize(r.first); }
             nseg++; total_pts += np;
         }
         fclose(f);
     }
     if (!nread) return 0;
+    chain_and_emit(raw_lon, raw_lat, raw_up);
     river_npts = (int)px.size(); river_n = (int)list.size();
     river_px = (float *)malloc(river_npts * sizeof(float)); river_pz = (float *)malloc(river_npts * sizeof(float));
     river_hw = (float *)malloc(river_npts * sizeof(float)); river_dx = (float *)malloc(river_npts * sizeof(float)); river_dz = (float *)malloc(river_npts * sizeof(float));
@@ -151,6 +138,136 @@ int Rivers::load_package() {
     LOG_INFO("rivers", "authored reaches: %d to a merchantman, %d points open to ships (%d deep), %d cells carry a river for the roads to bridge; channels %s",
              great, nnav, ndeep, nbridge, rivers_carve_enabled() ? "carved" : "painted only");
     return 1;
+}
+
+
+// Chain the layer's segments into rivers, and smooth the ones that are drawn wide
+// (0.22.19, issue15 "remove blockiness of rivvers add curvatures smooth").
+//
+// The waterwaymap layer is 825,000 lines of *two points each* - every one a straight 2-3 km
+// stick. That is why the rivers looked blocky: a navigable reach is carved 0.6 to 1.05 units
+// wide, which is wider than the 0.4-unit sticks it is carved along, so the channel came out
+// as a row of overlapping lozenges with a corner at every join. Painting hairline streams
+// that way costs nothing - a one-texel line has no corners to see - so only the reaches that
+// are actually drawn wide are chained and smoothed, which also keeps the point budget.
+//
+// Segments meet at exactly equal coordinates (they were clipped from one source line), so the
+// chaining is an exact-match walk: index every endpoint, start at the ends of the network
+// (degree != 2) and walk through, then pick up any closed loops left over. Each chain then
+// gets two Chaikin passes, which round every corner without moving the line off the survey -
+// a Chaikin point is always inside the hull of the three around it.
+void Rivers::chain_and_emit(const std::vector<float> &lon, const std::vector<float> &lat, const std::vector<float> &up) {
+    const int nseg = (int)up.size();
+    // --- index the endpoints. The key is the coordinate quantised to a ten-millionth of a
+    // degree (about a centimetre), which is finer than the data and coarse enough to be exact.
+    auto key_of = [&](int seg, int end) -> long long {
+        double lo = lon[seg * 2 + end], la = lat[seg * 2 + end];
+        return ((long long)llround(lo * 1e7) * 2654435761LL) ^ (long long)llround(la * 1e7);
+    };
+    std::unordered_map<long long, std::vector<int>> at;   // endpoint -> the segments meeting there
+    at.reserve((size_t)nseg * 2);
+    std::vector<unsigned char> wide((size_t)nseg, 0);
+    int nwide = 0;
+    for (int i = 0; i < nseg; ++i) {
+        wide[i] = up[i] >= RIVER_UP_NAV_M * 0.45f;     // everything that gets more than a hairline
+        if (!wide[i]) continue;
+        nwide++;
+        at[key_of(i, 0)].push_back(i);
+        at[key_of(i, 1)].push_back(i);
+    }
+    std::vector<unsigned char> used((size_t)nseg, 0);
+    std::vector<float> cx, cz, cu;      // the chain being built, in world units, with its upstream length
+    int nchain = 0, nsmoothed = 0;
+
+    auto emit = [&](const std::vector<float> &qx, const std::vector<float> &qz, const std::vector<float> &qu) {
+        if (qx.size() < 2 || px.size() + qx.size() > RIVER_MAX_POINTS) return;
+        river_t r; r.first = (int)px.size(); r.cells = (int)(qu[qu.size() / 2] / 1e6f); r.navigable = 0;
+        unsigned char worst = 0;
+        for (size_t i = 0; i < qx.size(); ++i) {
+            float u = qu[i];
+            // the width, per point now rather than per segment, so it opens out downstream
+            // instead of stepping at every join (the reasoning is RIVER_UP_DEEP_M in rivers.h)
+            float hair = clampf(0.012f + 0.020f * log10f(maxf(u / 1.5e7f, 1.f)), 0.012f, 0.09f);
+            unsigned char pc = u >= RIVER_UP_DEEP_M ? 1 : u >= RIVER_UP_NAV_M ? 2 : 0;
+            float hwv = hair;
+            if (rivers_carve_enabled() && pc) {
+                float t = clampf((u - RIVER_UP_NAV_M) / (RIVER_UP_DEEP_M - RIVER_UP_NAV_M), 0.f, 1.f);
+                hwv = lerpf(RIVER_W_NAV, RIVER_W_DEEP, t);
+            } else if (rivers_carve_enabled()) {
+                float t = clampf((u - RIVER_UP_NAV_M * 0.45f) / (RIVER_UP_NAV_M * 0.55f), 0.f, 1.f);
+                hwv = lerpf(hair, RIVER_W_NAV, t);
+            }
+            size_t i0 = i > 0 ? i - 1 : i, i1 = i + 1 < qx.size() ? i + 1 : i;
+            float tx = qx[i1] - qx[i0], tz = qz[i1] - qz[i0];
+            float tl = sqrtf(tx * tx + tz * tz); if (tl < 1e-6f) { tx = 1; tz = 0; } else { tx /= tl; tz /= tl; }
+            px.push_back(qx[i]); pz.push_back(qz[i]); hw.push_back(hwv); dx.push_back(tx); dz.push_back(tz); cls.push_back(pc);
+            if (pc && (!worst || pc < worst)) worst = pc;
+        }
+        r.count = (int)px.size() - r.first; r.navigable = worst;
+        if (r.count >= 2) list.push_back(r);
+        else { px.resize(r.first); pz.resize(r.first); hw.resize(r.first); dx.resize(r.first); dz.resize(r.first); cls.resize(r.first); }
+    };
+
+    // one Chaikin pass over an open chain: the ends stay put, every span is cut at a quarter
+    // and three quarters, so every corner is replaced by two points inside it
+    auto chaikin = [](std::vector<float> &ax, std::vector<float> &az, std::vector<float> &au) {
+        if (ax.size() < 3) return;
+        std::vector<float> ox, oz, ou;
+        ox.reserve(ax.size() * 2); oz.reserve(ax.size() * 2); ou.reserve(ax.size() * 2);
+        ox.push_back(ax[0]); oz.push_back(az[0]); ou.push_back(au[0]);
+        for (size_t i = 0; i + 1 < ax.size(); ++i) {
+            ox.push_back(0.75f * ax[i] + 0.25f * ax[i+1]); oz.push_back(0.75f * az[i] + 0.25f * az[i+1]); ou.push_back(0.75f * au[i] + 0.25f * au[i+1]);
+            ox.push_back(0.25f * ax[i] + 0.75f * ax[i+1]); oz.push_back(0.25f * az[i] + 0.75f * az[i+1]); ou.push_back(0.25f * au[i] + 0.75f * au[i+1]);
+        }
+        ox.push_back(ax.back()); oz.push_back(az.back()); ou.push_back(au.back());
+        ax.swap(ox); az.swap(oz); au.swap(ou);
+    };
+
+    // walk a chain from (seg, end): `end` is the endpoint we leave *from*
+    auto walk = [&](int seg, int from_end) {
+        cx.clear(); cz.clear(); cu.clear();
+        int cur = seg, e = from_end;
+        cx.push_back(lon2x(lon[cur*2 + e]));  cz.push_back(lat2z(lat[cur*2 + e]));  cu.push_back(up[cur]);
+        for (;;) {
+            used[cur] = 1;
+            int other = 1 - e;
+            cx.push_back(lon2x(lon[cur*2 + other])); cz.push_back(lat2z(lat[cur*2 + other])); cu.push_back(up[cur]);
+            long long k = key_of(cur, other);
+            auto it = at.find(k);
+            if (it == at.end() || it->second.size() != 2) break;      // an end, or a confluence: stop the chain here
+            int nxt = it->second[0] == cur ? it->second[1] : it->second[0];
+            if (nxt == cur || used[nxt]) break;
+            // which end of the next segment are we entering by?
+            e = key_of(nxt, 0) == k ? 0 : 1;
+            cur = nxt;
+        }
+        if (cx.size() < 2) return;
+        chaikin(cx, cz, cu); chaikin(cx, cz, cu);
+        nchain++; nsmoothed += (int)cx.size();
+        emit(cx, cz, cu);
+    };
+
+    for (int i = 0; i < nseg; ++i) {
+        if (!wide[i] || used[i]) continue;
+        for (int e = 0; e < 2; ++e) {       // start where the network ends: a head, a mouth or a confluence
+            auto it = at.find(key_of(i, e));
+            if (it != at.end() && it->second.size() == 2) continue;
+            walk(i, e); break;
+        }
+    }
+    for (int i = 0; i < nseg; ++i) if (wide[i] && !used[i]) walk(i, 0);   // whatever is left is a loop
+
+    // the hairline streams, as they come: a one-texel line has no corners worth rounding
+    int nhair = 0;
+    for (int i = 0; i < nseg; ++i) {
+        if (wide[i] || px.size() + 2 > RIVER_MAX_POINTS) continue;
+        std::vector<float> qx = { lon2x(lon[i*2]), lon2x(lon[i*2+1]) };
+        std::vector<float> qz = { lat2z(lat[i*2]), lat2z(lat[i*2+1]) };
+        std::vector<float> qu = { up[i], up[i] };
+        emit(qx, qz, qu); nhair++;
+    }
+    LOG_INFO("rivers", "authored rivers chained: %d of %d segments were wide enough to show a corner -> %d smoothed chains (%d points), %d hairline streams left straight",
+             nwide, nseg, nchain, nsmoothed, nhair);
 }
 
 void Rivers::generate() {

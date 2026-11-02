@@ -129,9 +129,19 @@ typedef struct nation_info_t {
 // --------------------------------------------------------------------------
 // dynamic state
 
+// 0.22.19 (todo 153, P1.3 "tactical results update strategic ship state"). `hull` is hull
+// points, as it always was - the discrete combat model takes them off. The three scalars
+// beside it are *damage*, 0 sound to 1 ruined, and they are what a battle you watched leaves
+// behind: a wounded rig she cannot set sail on, a battery she cannot fire, water she cannot
+// pump out. They come back from the tactical scene (gfx/staged_scene.cc write_back) and are
+// read by `fleet_power` and by how fast she sails, so an action costs a fleet something that
+// outlives the scene. Nothing here repairs them yet - a yard does, when there is one.
 typedef struct ship_t {
     int type;
     float hull;
+    float d_rig;      // masts, yards and canvas: what she can still set
+    float d_guns;     // her battery
+    float d_flood;    // water in her, 0..1; she is lost at 1
 } ship_t;
 
 typedef struct fleet_t {
@@ -265,7 +275,7 @@ typedef struct lane_t {
 } lane_t;
 
 #define SAVE_MAGIC   0x4D415245u  // 'MARE'
-#define SAVE_VERSION 5          // 5: MAX_REGIONS 250 (0.17)
+#define SAVE_VERSION 6          // 6: ship_t carries the tactical damage home (0.22.19, todo 153); 5: MAX_REGIONS 250 (0.17)
 
 typedef struct game_t {
     unsigned magic, version, size;

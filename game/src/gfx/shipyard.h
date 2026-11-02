@@ -29,6 +29,7 @@ typedef struct shipyard_req_t {
     unsigned key;                   // stable per-ship LOD key (lod_key(LODK_FLEET, id, slot))
     float    roll, pitch;           // the body's attitude in radians (0.22.12): starboard down +, bow up +; 0 on the map
     float    furl;                  // 0.22.15: 1 = sails taken in (an oared ship pulling into the wind); the canvas is not drawn, spars and cordage stay
+    int      masts_down;            // 0.22.20 (issue16 "mesh damage removal"): stations carried away, fore first - the mast, its yards and its canvas are not drawn
 } shipyard_req_t;
 
 // What a class *is*, physically. The design sheets give the dimensions; the sailing numbers

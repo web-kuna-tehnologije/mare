@@ -141,6 +141,7 @@ void Options::apply() {
     if (OPT.anisotropy != last_aniso_) { rhi_set_anisotropy(OPT.anisotropy); last_aniso_ = OPT.anisotropy; }
 }
 
+
 // ---------------------------------------------------------------------------
 // the panel
 
@@ -168,6 +169,17 @@ void Options::panel() {
       snprintf(s, sizeof s, "running on %s - %s", rhi_backend(),
                strcmp(OPT.backend, rhi_backend()) ? "restart to switch" : "active");
       mu_label(ui_ctx, s); }
+
+    mu_label(ui_ctx, "Graphics detail");
+    { ROW(4, 95, 95, 95, -1, 24);
+      int cur = options_quality();
+      for (int q = 0; q <= QUALITY_ULTRA; ++q) {
+          mu_push_id(ui_ctx, &quality_names[q], sizeof quality_names[q]);
+          char lbl[32]; snprintf(lbl, sizeof lbl, "%s%s", cur == q ? "* " : "", quality_names[q]);
+          if (ui_btn(lbl)) options_set_quality(q);
+          mu_pop_id(ui_ctx);
+      } }
+    if (options_quality() == QUALITY_CUSTOM) { ROW(1, -1, 20); mu_label(ui_ctx, "custom - the sliders below have been moved off a preset"); }
 
     mu_label(ui_ctx, "Shadows");
     { ROW(2, 120, -1, 24);
@@ -210,6 +222,50 @@ void Options::panel() {
 
 // C ABI (options.h)
 extern "C" {
+
+// ---------------------------------------------------------------------------
+// graphics detail presets (0.22.19, issue15)
+
+const char *const quality_names[5] = { "Low", "Medium", "High", "Ultra", "Custom" };
+
+// Four named sets of the same knobs the panel already has. Low turns off everything that
+// costs a pass - shadows, tessellation, ambient occlusion, bloom - and halves the model
+// detail distance; Ultra pushes every one of them past the default. The backend, the camera
+// tilt and the exposure are not touched: the first is a different kind of choice and the
+// other two are taste, not cost.
+typedef struct quality_set_t { int shadows; float shadow_distance; float anisotropy; int tess;
+                               float lod_bias; float wave_height; int ssao; float bloom; } quality_set_t;
+static const quality_set_t QSET[4] = {
+    /* Low    */ { 0, 0.6f,  1.f, 0, 0.55f, 0.6f, 0, 0.00f },
+    /* Medium */ { 1, 0.9f,  4.f, 0, 0.85f, 1.0f, 0, 0.35f },
+    /* High   */ { 1, 1.2f,  8.f, 1, 1.20f, 1.0f, 1, 0.60f },
+    /* Ultra  */ { 1, 1.8f, 16.f, 1, 2.00f, 1.2f, 1, 0.85f },
+};
+
+void options_set_quality(int q) {
+    if (q < 0 || q > QUALITY_ULTRA) return;
+    const quality_set_t &k = QSET[q];
+    OPT.shadows = k.shadows; OPT.shadow_distance = k.shadow_distance;
+    OPT.anisotropy = minf(k.anisotropy, maxf(rhi_anisotropy_max(), 1.f));
+    OPT.tessellation = k.tess; OPT.lod_bias = k.lod_bias; OPT.wave_height = k.wave_height;
+    OPT.ssao = k.ssao; OPT.bloom = k.bloom;
+    LOG_INFO("ui", "graphics detail: %s (shadows %d at %.2fx, aniso %.0f, tess %d, lod %.2f, waves %.2f, ssao %d, bloom %.2f)",
+             quality_names[q], OPT.shadows, OPT.shadow_distance, OPT.anisotropy, OPT.tessellation, OPT.lod_bias, OPT.wave_height, OPT.ssao, OPT.bloom);
+}
+
+int options_quality(void) {
+    for (int q = 0; q <= QUALITY_ULTRA; ++q) {
+        const quality_set_t &k = QSET[q];
+        float want_aniso = minf(k.anisotropy, maxf(rhi_anisotropy_max(), 1.f));
+        if (OPT.shadows == k.shadows && fabsf(OPT.shadow_distance - k.shadow_distance) < 1e-3f
+            && fabsf(OPT.anisotropy - want_aniso) < 0.5f && OPT.tessellation == k.tess
+            && fabsf(OPT.lod_bias - k.lod_bias) < 1e-3f && fabsf(OPT.wave_height - k.wave_height) < 1e-3f
+            && OPT.ssao == k.ssao && fabsf(OPT.bloom - k.bloom) < 1e-3f) return q;
+    }
+    return QUALITY_CUSTOM;
+}
+
+
 void options_load(void) { mare::ui::options().load(); }
 void options_save(void) { mare::ui::options().save(); }
 void options_apply(void) { mare::ui::options().apply(); }

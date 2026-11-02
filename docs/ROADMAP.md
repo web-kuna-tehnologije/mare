@@ -1,5 +1,27 @@
 # Development roadmap
 
+## Done: 0.22.20 — issue16: fire that burns, oars measured, towns with streets (worktree `elm`)
+
+The fire is tongues of flame instead of glowing discs; the oar asset was finally *measured*
+(the blade was at +x all along, on a -45-degree diagonal - three rounds of fixes had been
+mounting it inboard); a felled mast is actually removed from the drawn ship; collisions and
+running aground cost timber, and a ship can be stranded; the player can take in sail; the
+battle has a muster list (enemy top, player bottom, condition bars per ship); villages match a
+small town's footprint and towns stand ring streets inside towered walls.
+
+## Done: 0.22.19 — issue15, and the battle grows teeth (worktree `elm`)
+
+The fifteenth issues folder, then the physics and battle rows. The battle is no longer a
+spectacle: the player gives standing orders (what to fire at, whether to board, run or hold),
+the guns throw real shot with calibre, drag, curvature and a lay that follows the rolling
+deck, ships catch fire and blow up, a wounded battery fires slower, a wreck settles by the
+head - and, at last, **the result goes home**: tactical damage is written into the strategic
+ships, so a battle costs a fleet something that outlives the scene. Relief down to 6; the map
+ships heel to the wind instead of gliding; the authored rivers are chained and smoothed.
+
+This closes the roadmap's long-standing **"the butcher's bill goes home"**, which has been the
+highest-value item on the list since the damage model was written in 0.22.17.
+
 ## Done: 0.22.18 — the 4x world and its rivers (worktree `elm`)
 
 The Mare Liberum 4x terrain build (2049 samples a chunk, ~700 m) is read, streamed and drawn:
@@ -29,9 +51,14 @@ panel that persists, the geography fold reads the export's float32 chunks on the
   pipeline from `rhi_pipeline_desc_t`, move its uniforms into a descriptor set, and render it
   offscreen next to the GL frame for comparison. Presenting comes last, because the swapchain
   has to replace the window's GL context rather than share it.
-- **The butcher's bill goes home.** The damage model is complete and nothing reads it: write
-  the tactical result back into the strategic ship, so a battle costs a fleet something that
-  outlives the scene. The single highest-value item left (`docs/TODO_STATUS.md`).
+- ~~The butcher's bill goes home~~ — **done in 0.22.19** (todo 153). What remains under that
+  heading is the campaign side of it: a yard that *repairs* the damage a fleet brings home, and
+  a crew that can be killed and has to be replaced.
+- **The per-ship rope/rig buffer** (todo 121b) - now the top renderer item, since it unblocks
+  *two* asks: the verlet rope, and cutting a felled mast's standing rigging (0.22.20 removes
+  the mast and its canvas; the shrouds still show their old runs).
+- **Crew and ammunition** (todo 178): the muster list shows hull, sails, guns and water and
+  honestly omits the two the simulation does not carry yet.
 - ~~A genuinely finer DEM for the home seas~~ — **done in 0.22.18** by the 4x world build.
   What remains under that heading is procedural micro-detail on the near ground, not data.
 - Finish T9: move callers onto the class APIs and inject `game_t`, which is what lets the

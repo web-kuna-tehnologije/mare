@@ -69,7 +69,22 @@ void nphys_kick_roll(int id, float rad);
 
 // A round shot: from a point at height y, along a unit direction with a muzzle speed, from
 // `owner` (never hits her). Falls under gravity, tested against every other hull each step.
-void nphys_fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed);
+//
+// 0.22.19 (issue15 "add real cannonballs in game and sizes depending of cannons ... also add
+// air resistance to slow down where it hits"). `radius` is the ball's true radius in scene
+// units, and it is not decoration: the drag deceleration of a sphere is
+//
+//     a = 3 * rho_air * Cd * v^2 / (8 * rho_iron * r)   ~=  2.75e-5 * v^2 / r
+//
+// which is inversely proportional to the radius, so a 6-pounder's ball loses its way far
+// faster than a 32-pounder's and the small guns are genuinely short-ranged. (The constant is
+// the same in scene units as in metres: the scale cancels between v^2 and r.) At a 32-pdr's
+// 450 m/s that is about 8 g of deceleration, which is what round shot really does.
+//
+// `drift` is a constant sideways acceleration, the curve a smooth-bore ball takes from
+// windage and spin - the reason a gun captain could not simply point at his target.
+void nphys_fire(int owner, float x, float y, float z, float dx, float dy, float dz, float speed,
+                float radius, float drift);
 
 // Run whole fixed steps for `dt` seconds of scene time. dt <= 0 holds everything still.
 void nphys_advance(float dt);
@@ -92,7 +107,10 @@ typedef struct nphys_event_t {
     float x, y, z;             // where
     float speed;               // of the shot at that moment
 } nphys_event_t;
-enum { NPHYS_EV_SPLASH = 1, NPHYS_EV_HIT = 2, NPHYS_EV_MAST_DOWN = 3, NPHYS_EV_SUNK = 4 };
+enum { NPHYS_EV_SPLASH = 1, NPHYS_EV_HIT = 2, NPHYS_EV_MAST_DOWN = 3, NPHYS_EV_SUNK = 4,
+       NPHYS_EV_FIRE = 5,        // 0.22.19 (todo 152): she has caught light
+       NPHYS_EV_EXPLODE = 6,     // ... and it reached the magazine
+       NPHYS_EV_STRANDED = 7 };  // 0.22.20 (issue16): hard aground long enough to be stuck fast
 
 // ---------------------------------------------------------------------------
 // Damage (0.22.17, P1.3 "component / zone damage model"). Every hit lands somewhere on the
@@ -105,8 +123,11 @@ typedef struct nphys_damage_t {
     float rig;       // masts, yards and canvas: what she can still set
     float guns;      // the battery she can still fire
     float flood;     // water in her: 0 dry .. 1 gone
+    float fire;      // 0.22.19 (todo 152): how far she is alight, 0 .. 1
     int   sunk;      // she has gone under; the body stops driving and is left to settle
+    int   stranded;  // 0.22.20 (issue16): stuck fast on the ground - no helm, no way
     int   masts_down;// masts carried away so far (each is an event)
+    int   blew_up;   // 0.22.19: the magazine went; she is gone at once, not by degrees
 } nphys_damage_t;
 
 void nphys_damage_get(int id, nphys_damage_t *out);   // zeros when the id is not a body
@@ -122,7 +143,7 @@ int   nphys_steps_last(void);           // fixed steps run by the last advance()
 int   nphys_contacts_last(void);        // ship-ship contacts resolved in the last step
 int   nphys_shots(void);                // shot in the air
 int   nphys_wrecks(void);               // bodies that have gone under this scene
-int   nphys_shot_list(float *xyz, int max);   // their positions (x, y, z per shot, this frame's integrated state); returns the count written (0.22.14: drawn as round shot)
+int   nphys_shot_list(float *xyzr, int max);  // x, y, z and the ball's radius per shot (0.22.19: four floats, was three); returns the count written
 float nphys_alpha(void);                // interpolation fraction, 0..1
 int   nphys_count(void);
 

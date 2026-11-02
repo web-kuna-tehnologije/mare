@@ -20,6 +20,7 @@ extern "C" {
 #include "scene.h"
 #include "glsl.h"
 #include "../core/util.h"
+#include "../core/balance.h"
 #include "../core/diag.h"
 #include "../assets/asset.h"
 #include "../data/tables.h"
@@ -70,6 +71,8 @@ typedef struct dv_ship_t {
     float beam, tonnes;              // what that body is built from
     float oar_speed;                 // 0.22.15: under oars, local units per second (0 = no oars)
     float furl;                      // 0.22.15: 0..1, how far the sails are taken in (an oared ship pulling into the wind)
+    int   src_fleet, src_slot;       // 0.22.19 (todo 153): the strategic ship she stands for; -1 in a staged exercise
+    float fire_puff;                 // 0.22.19 (todo 152): seconds to the next plume off a burning ship
 } dv_ship_t;
 
 // Metres per local unit: the authored hulls are fitted at SHIP_M_PER_UNIT (0.045 world units
@@ -132,12 +135,41 @@ public:
     void  helm_release(void);
     int   helm_on(void) const { return helm_on_; }
     float helm_course(void) const { return helm_course_; }
+    int   ship_count(void) const { return dv.nships; }
+    int   ship_info(int i, dv_shipinfo_t *out) const {
+        if (i < 0 || i >= dv.nships || !out) return 0;
+        const dv_ship_t *s = &dv.ship[i];
+        *out = dv_shipinfo_t{};
+        out->side = s->side == helm_side_ ? 0 : 1; out->type = s->type;
+        out->hull = out->sails = out->guns = 1.f;
+        if (s->body >= 0) {
+            nphys_damage_t d; nphys_damage_get(s->body, &d);
+            out->sunk = d.sunk; out->stranded = d.stranded; out->masts_down = d.masts_down;
+            out->hull = 1.f - d.hull; out->sails = 1.f - d.rig; out->guns = 1.f - d.guns;
+            out->water = d.flood; out->fire = d.fire;
+        }
+        return 1;
+    }
+    int   fire_order(void) const { return fire_order_; }
+    int   move_order(void) const { return move_order_; }
+    int   furl_order(void) const { return furl_order_; }
+    void  set_furl_order(int o) { if ((o != 0) != (furl_order_ != 0)) {
+              furl_order_ = o != 0;
+              LOG_INFO("gfx", "battle order: %s", furl_order_ ? "take in sail" : "make sail"); } }
+    void  set_fire_order(int o) { if (o >= DV_FIRE_NEAREST && o <= DV_FIRE_TRADERS && o != fire_order_) {
+              fire_order_ = o;
+              LOG_INFO("gfx", "battle order: fire at %s", o == DV_FIRE_WARSHIPS ? "the heaviest ship in range" : o == DV_FIRE_TRADERS ? "the lightest ship in range (the convoy, not the escort)" : "the nearest enemy"); } }
+    void  set_move_order(int o) { if (o >= DV_MOVE_LINE && o <= DV_MOVE_LAST_STAND && o != move_order_) {
+              move_order_ = o;
+              if (o != DV_MOVE_LINE) helm_on_ = 0;      // an order supersedes the hand on the wheel
+              LOG_INFO("gfx", "battle order: %s", o == DV_MOVE_BOARD ? "close and board" : o == DV_MOVE_RETREAT ? "haul off and run" : o == DV_MOVE_LAST_STAND ? "hold station - no quarter asked" : "back into the line"); } }
 
 private:
     void stage_free(void);
     void stage_battle(void);
     void stage_city(void);
-    void battle_add_ship(int type, int side, float x, float z, float heading, unsigned col, unsigned *seed, int nation);
+    void battle_add_ship(int type, int side, float x, float z, float heading, unsigned col, unsigned *seed, int nation, int src_fleet, int src_slot);
+    void write_back(void);      // 0.22.19 (todo 153): the butcher's bill, into the strategic ships
     static float dv_line_perim(void);
     static void  dv_line_point(int side, float sarc, float *x, float *z, float *hdg);
     void battle_form_lines(void);
@@ -193,6 +225,8 @@ private:
     float dv_fp[220][3]; int dv_nfp;
     int   helm_on_ = 0, helm_side_ = 0;   // 0.22.17: the manual helm
     float helm_course_ = 0.f;
+    int   fire_order_ = DV_FIRE_NEAREST, move_order_ = DV_MOVE_LINE;   // 0.22.19: the player's orders
+    int   furl_order_ = 0;                                              // 0.22.20 (issue16): the player's side takes in sail
 };
 
 DetailView &detail_view() { static DetailView d; return d; }
@@ -438,7 +472,7 @@ void DetailView::stage_city(void) {
 // with a fair wind and turns at three degrees a second, a fusta under oars is half as fast
 // again and twice as handy. In a fight nobody carries full sail, so each ship is given 55-90 %
 // of her best speed and keeps it.
-void DetailView::battle_add_ship(int type, int side, float x, float z, float heading, unsigned col, unsigned *seed, int nation) {
+void DetailView::battle_add_ship(int type, int side, float x, float z, float heading, unsigned col, unsigned *seed, int nation, int src_fleet, int src_slot) {
     if (dv.nships >= DV_MAX_SHIPS) return;
     dv_ship_t *s = &dv.ship[dv.nships++];
     ship_stats_t st; shipyard_class_stats(type, nation, &st);
@@ -450,7 +484,7 @@ void DetailView::battle_add_ship(int type, int side, float x, float z, float hea
                       heading, st.turn_dps * 0.0174533f, st.length_m / DV_M_PER_UNIT, 0,
                       st.guns, st.oar_knots > 0.5f * st.knots, -1,
                       st.beam_m / DV_M_PER_UNIT, st.tonnes,
-                      st.oar_knots * DV_KNOT, 0.f };
+                      st.oar_knots * DV_KNOT, 0.f, src_fleet, src_slot, 0.f };
     // Her rigid body (0.22.9, P1.3): the battle is stepped at a fixed rate and the hulls
     // collide, so from here on the formation code only *asks* for a course and a speed.
     if (dv.mode == DV_BATTLE || dv.want_mode == DV_BATTLE)
@@ -547,7 +581,7 @@ void DetailView::build_battle(int fleet_id) {
             unsigned col = f->role == ROLE_PIRATE ? rgb(25,25,25) : nations_info[f->nation].color;
             for (int k = 0; k < f->nships; ++k) {
                 float lx = -46 + (dv.nships % 7) * 15.f + rnd_f(&seed) * 7, lz = (side ? 14 : -14) + ((dv.nships / 7) % 3) * 19.f + rnd_f(&seed) * 8;
-                battle_add_ship(f->ships[k].type, side, lx, lz, side ? 3.14159f + rnd_f(&seed) * 0.5f : rnd_f(&seed) * 0.5f, col, &seed, f->nation);
+                battle_add_ship(f->ships[k].type, side, lx, lz, side ? 3.14159f + rnd_f(&seed) * 0.5f : rnd_f(&seed) * 0.5f, col, &seed, f->nation, f->id, k);
             }
         }
     }
@@ -558,8 +592,8 @@ void DetailView::build_battle(int fleet_id) {
         { const char *e = getenv("MARE_BATTLE_SHIPS"); if (e && atoi(e) > 0) per = mini(maxi(atoi(e) / 2, 1), DV_MAX_SHIPS / 2); }
         for (int i = 0; i < per; ++i) {
             int ta = i % SHIP_COUNT, tb = (i * 2 + 1) % SHIP_COUNT;
-            battle_add_ship(ta, 0, -56 + (i % 6) * 22 + rnd_f(&seed) * 8, -22 - (i / 6) * 20 + rnd_f(&seed) * 6, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed, na);
-            battle_add_ship(tb, 1, -48 + (i % 6) * 23 + rnd_f(&seed) * 8,  20 + (i / 6) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed, nb);
+            battle_add_ship(ta, 0, -56 + (i % 6) * 22 + rnd_f(&seed) * 8, -22 - (i / 6) * 20 + rnd_f(&seed) * 6, 0.25f + rnd_f(&seed) * 0.4f, ca, &seed, na, -1, -1);
+            battle_add_ship(tb, 1, -48 + (i % 6) * 23 + rnd_f(&seed) * 8,  20 + (i / 6) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed, nb, -1, -1);
         }
         LOG_INFO("gfx", "detail view: no battle under way, staged a %d-ship exercise", dv.nships);
     } else LOG_INFO("gfx", "detail view: battle with %d ships", dv.nships);
@@ -582,6 +616,65 @@ void DetailView::helm(float d) {
 void DetailView::helm_release(void) {
     if (helm_on_) LOG_INFO("gfx", "battle: back into the line");
     helm_on_ = 0;
+}
+
+
+// The butcher's bill goes home (0.22.19, todo 153 / P1.3 "tactical results update strategic
+// ship state"). Until now the damage model was scenery: a ship could be dismasted, holed and
+// sunk in front of the player and sail away from the scene without a scratch, because nothing
+// read `nphys_damage_t`. Now every tactical hull that stands for a real ship writes what
+// happened to her back into `ship_t`.
+//
+// Three rules, and they matter:
+//
+//  * **Damage is taken, never given back.** The strategic ship keeps the worse of what she
+//    had and what the battle did, so leaving and re-entering a scene cannot heal her, and the
+//    discrete combat model (sim/combat.cc) going on in parallel cannot be undone by this.
+//  * **Hull points follow the tactical hull damage**, down to a floor of a tenth, rather than
+//    being set from it: the two models measure different things and the discrete one is still
+//    the authority on whether a ship is lost in an unwatched action.
+//  * **A ship that goes under in the scene is struck off the fleet.** That is the whole point
+//    - a battle has to be able to cost you a ship you were watching.
+//
+// It runs on a timer during the action as well as on the way out, so a battle the player
+// leaves by Escape, by the menu or by closing the game still counts.
+void DetailView::write_back(void) {
+    if (dv.mode != DV_BATTLE) return;
+    int touched = 0, sunk = 0;
+    for (int i = 0; i < dv.nships; ++i) {
+        dv_ship_t *s = &dv.ship[i];
+        if (s->src_fleet < 0 || s->body < 0) continue;          // a staged exercise owes nobody anything
+        fleet_t *f = fleet_by_id(s->src_fleet);
+        if (!f || !f->alive || s->src_slot < 0 || s->src_slot >= f->nships) continue;
+        nphys_damage_t d; nphys_damage_get(s->body, &d);
+        ship_t *sh = &f->ships[s->src_slot];
+        if (d.sunk) {
+            // struck off: the slot the others stand in must not shift under them, so she is
+            // marked spent here and the fleet is compacted once, below
+            sh->hull = 0.f; sh->d_flood = 1.f; sunk++; touched++;
+            continue;
+        }
+        if (d.rig   > sh->d_rig)   { sh->d_rig   = d.rig;   touched++; }
+        if (d.guns  > sh->d_guns)  { sh->d_guns  = d.guns;  touched++; }
+        if (d.flood > sh->d_flood) { sh->d_flood = d.flood; touched++; }
+        float want = ship_types[sh->type].hull * maxf(1.f - d.hull, 0.10f);
+        if (want < sh->hull) { sh->hull = want; touched++; }
+    }
+    if (sunk) {
+        for (int i = 0; i < G.nfleets; ++i) {
+            fleet_t *f = &G.fleets[i]; if (!f->alive) continue;
+            for (int k = 0; k < f->nships; ) {
+                if (f->ships[k].hull > 0.f) { k++; continue; }
+                G.nations[f->nation].ships_lost++;
+                f->ships[k] = f->ships[--f->nships];
+                f->morale = maxf(f->morale - MORALE_LOSS_SHIP, 0.f);
+            }
+            if (f->nships == 0) f->alive = 0;
+        }
+        // the tactical bodies now point at slots that have moved: stop writing back for them
+        for (int i = 0; i < dv.nships; ++i) dv.ship[i].src_fleet = -1;
+    }
+    if (touched) LOG_INFO("sim", "battle result written home: %d ship(s) carry their damage out of the scene, %d sunk", touched, sunk);
 }
 
 void DetailView::battle_update(float dt) {
@@ -612,11 +705,37 @@ void DetailView::battle_update(float dt) {
             // chasing its station, and holds the line's pace - nothing is pulling her round.
             int helmed = helm_on_ && s->side == helm_side_;
             if (helmed) want = helm_course_;
+            // 0.22.19 (issue15): the player's orders, which override the station but not the
+            // physics - she still cannot turn faster than her class, and a wounded rig still
+            // costs her the speed to do it with.
+            int ordered = s->side == helm_side_ && move_order_ != DV_MOVE_LINE, ord_press = 0;
+            if (ordered) {
+                float tx = 0, tz = 0; int found = 0; float best = 1e9f;
+                float ex = 0, ez = 0; int nen = 0;
+                for (int j = 0; j < dv.nships; ++j) {
+                    const dv_ship_t *o = &dv.ship[j];
+                    if (o->side == s->side || (o->body >= 0 && nphys_sunk(o->body))) continue;
+                    ex += o->x; ez += o->z; nen++;
+                    float d = dist2d(s->x, s->z, o->x, o->z);
+                    if (d < best) { best = d; tx = o->x; tz = o->z; found = 1; }
+                }
+                if (nen) { ex /= nen; ez /= nen; }
+                if (move_order_ == DV_MOVE_BOARD && found) {
+                    want = atan2f(-(tz - s->z), tx - s->x);        // lay her aboard
+                    ord_press = 1;                                  // and crowd on everything she has
+                } else if (move_order_ == DV_MOVE_RETREAT && nen) {
+                    want = atan2f(-(s->z - ez), s->x - ex);         // the enemy's centre, astern
+                    ord_press = 1;
+                } else if (move_order_ == DV_MOVE_LAST_STAND) {
+                    // hold what she has: the station course, and no hauling off
+                }
+            }
             float dh = wrap_angle(want - s->heading);
             float stx, stz, sth; dv_line_point(s->side, sarc, &stx, &stz, &sth);
             float err = (stx - s->x) * cosf(sth) + (stz - s->z) * -sinf(sth);   // along-track: + = station ahead
             float v = helmed ? minf(dv.line_v[s->side], s->speed)
                              : minf(dv.line_v[s->side] * clampf(1.f + err / 22.f, 0.6f, 1.4f), s->speed);
+            if (ord_press) v = s->speed;     // boarding or running: everything she will carry
             // 0.22.15 (issue12 "wind direction and sail direction for the speed"; "sails only and
             // the wind against her: move her backwards; with oars, oar speed and roll the sails
             // down"): every ship's own heading against the wind sets what her canvas gives
@@ -630,7 +749,15 @@ void DetailView::battle_update(float dt) {
                 float into = -(hx * dv.wdx + hz * dv.wdz);                 // 1 = dead into the wind
                 int in_eye = into > 0.72f && dv.wstr > 0.25f;
                 float want_furl = 0.f;
-                if (s->oar_speed > 0.05f && (in_eye || wf < 0.45f)) { want_furl = 1.f; v = minf(v, s->oar_speed); }   // under oars, canvas in
+                // 0.22.20 (issue16 "add posiblity to retract sails if upwind"): the player's
+                // order takes everything in. Under bare poles an oared ship pulls at her oar
+                // speed; a pure sailing ship is hove to - a quarter knot of leeway, no drive -
+                // which is precisely what taking in sail upwind is *for*.
+                if (furl_order_ && s->side == helm_side_) {
+                    want_furl = 1.f;
+                    v = s->oar_speed > 0.05f ? minf(v, s->oar_speed) : 0.f;
+                }
+                else if (s->oar_speed > 0.05f && (in_eye || wf < 0.45f)) { want_furl = 1.f; v = minf(v, s->oar_speed); }   // under oars, canvas in
                 else if (in_eye) v = -0.25f * s->speed * clampf((into - 0.72f) / 0.28f, 0.f, 1.f) * clampf(dv.wstr, 0.3f, 1.2f);   // aback: sternway
                 else v *= clampf(wf / 1.0f, 0.3f, 1.3f);
                 s->furl += clampf(want_furl - s->furl, -dt * 0.5f, dt * 0.5f);   // sails come in or are set over two seconds
@@ -652,18 +779,55 @@ void DetailView::battle_update(float dt) {
             s->z -= sinf(s->heading) * s->speed * dt;
         }
         if (s->body >= 0 && nphys_sunk(s->body)) continue;   // 0.22.17: a wreck neither steers nor fires
+        // 0.22.19 (todo 152): a ship alight smokes from where she is burning, and the fire
+        // grows visibly. The volumetric system is already here - this is one more source.
+        if (s->body >= 0) {
+            nphys_damage_t fd; nphys_damage_get(s->body, &fd);
+            if (fd.fire > 0.02f) {
+                s->fire_puff -= dt;
+                if (s->fire_puff < 0.f) {
+                    s->fire_puff = 0.55f - 0.35f * fd.fire;          // the harder she burns, the thicker it comes
+                    particles_fire(dv.cx + s->x, 0.06f * s->len, dv.cz + s->z, s->len, fd.fire);
+                }
+            }
+        }
         s->next_fire -= dt;
         if (s->next_fire < 0) {                                                // broadside at the nearest enemy within range
-            s->next_fire = 4.f + rnd_f(&seed) * 7.f;
+            // 0.22.19 (todo 149, "gun damage with teeth"): the battery scalar has been kept
+            // since 0.22.17 and done nothing. A ship whose guns have been shot off their
+            // carriages fires slower, because she has fewer of them and fewer men to serve
+            // them - up to four times slower - and past nine tenths she has no battery left
+            // to fire at all.
+            float gd = 0.f;
+            if (s->body >= 0) { nphys_damage_t d2; nphys_damage_get(s->body, &d2); gd = d2.guns; }
+            s->next_fire = (4.f + rnd_f(&seed) * 7.f) * (1.f + 3.0f * gd);
+            if (gd > 0.90f) continue;                                           // her guns are wreckage
+            // 0.22.19 (issue15 "direct fire to warship ... or tradeships"): the guns choose
+            // their target by the player's standing order. Only the player's side obeys it;
+            // the enemy always engages the nearest, as before. "Heaviest" and "lightest" are
+            // by the number of guns she carries, which is what tells a man-of-war from a
+            // merchantman at a cable's distance.
+            int pick = -1; float pick_score = 0.f;
             for (int j = 0; j < dv.nships; ++j) {
                 if (dv.ship[j].side == s->side) continue;
-                if (dist2d(s->x, s->z, dv.ship[j].x, dv.ship[j].z) > 55.f) continue;
+                if (dv.ship[j].body >= 0 && nphys_sunk(dv.ship[j].body)) continue;
+                float d = dist2d(s->x, s->z, dv.ship[j].x, dv.ship[j].z);
+                if (d > 55.f) continue;
+                int order = s->side == helm_side_ ? fire_order_ : DV_FIRE_NEAREST;
+                float score;
+                if (order == DV_FIRE_WARSHIPS)      score = (float)dv.ship[j].guns - d * 0.25f;
+                else if (order == DV_FIRE_TRADERS)  score = -(float)dv.ship[j].guns - d * 0.25f;
+                else                                score = -d;
+                if (pick < 0 || score > pick_score) { pick = j; pick_score = score; }
+            }
+            if (pick >= 0) {
+                const int j = pick;
                 // the broadside facing the target: flashes, smoke and embers from every gun on
                 // that side, sized by the class (particles.h); the smoke drifts off on the wind
                 float fx = cosf(s->heading), fz = -sinf(s->heading), tx = dv.ship[j].x - s->x, tz = dv.ship[j].z - s->z;
                 float side = (-fz * tx + fx * tz) >= 0.f ? 1.f : -1.f;
-                particles_broadside(dv.cx + s->x, 0.f, dv.cz + s->z, s->heading, side, s->len, maxi(s->guns, 2), s->body);
-                break;
+                int serve = maxi((int)(s->guns * (1.f - gd) + 0.5f), 1);     // the pieces she can still serve
+                particles_broadside(dv.cx + s->x, 0.f, dv.cz + s->z, s->heading, side, s->len, maxi(serve, 2), s->body);
             }
         }
     }
@@ -686,6 +850,7 @@ void DetailView::battle_update(float dt) {
         nphys_event_t ev[64]; int nev = nphys_poll_events(ev, 64);
         {   // 0.22.17 (P1.3): the butcher's bill, every ten seconds of battle, so a run can be read
         static float dmg_log = 0.f; dmg_log += dt;
+        { static float wb_t = 0.f; wb_t += dt; if (wb_t > 5.f) { wb_t = 0.f; write_back(); } }   // 0.22.19 (todo 153): and home it goes
         if (dmg_log > 10.f) { dmg_log = 0.f;
             float wh = 0, wr = 0, wf = 0; int nsunk = 0, nmast = 0;
             for (int i = 0; i < dv.nships; ++i) { if (dv.ship[i].body < 0) continue;
@@ -702,6 +867,19 @@ void DetailView::battle_update(float dt) {
             else if (ev[e].kind == NPHYS_EV_MAST_DOWN) {   // 0.22.17: a mast carried away
                 particles_hit(dv.cx + ev[e].x, ev[e].y, dv.cz + ev[e].z, 0.f, 1.f, 2.2f);
                 LOG_INFO("gfx", "battle: a mast goes by the board");
+            }
+            else if (ev[e].kind == NPHYS_EV_FIRE) {        // 0.22.19 (todo 152)
+                LOG_INFO("gfx", "battle: she is on fire");
+            }
+            else if (ev[e].kind == NPHYS_EV_STRANDED) {    // 0.22.20 (issue16)
+                particles_splash(dv.cx + ev[e].x, dv.cz + ev[e].z, 2.2f);
+                LOG_INFO("gfx", "battle: she has taken the ground and is stuck fast");
+            }
+            else if (ev[e].kind == NPHYS_EV_EXPLODE) {
+                float L = 20.f;
+                for (int i = 0; i < dv.nships; ++i) if (dv.ship[i].body == ev[e].body) L = dv.ship[i].len;
+                particles_explosion(dv.cx + ev[e].x, ev[e].y, dv.cz + ev[e].z, L);
+                LOG_INFO("gfx", "battle: her magazine has gone");
             }
             else if (ev[e].kind == NPHYS_EV_SUNK) {
                 particles_splash(dv.cx + ev[e].x, dv.cz + ev[e].z, 3.4f);
@@ -840,8 +1018,8 @@ void DetailView::build_city(int port) {
     }
     // a couple of ships moored off the piers for life
     unsigned scol = col;
-    battle_add_ship(SHIP_FLUYT, 0, -40, -180, 0.2f, scol, &seed, p ? p->nation : NATION_ENGLAND);
-    battle_add_ship(SHIP_MERCHANT, 0, 25, -195, 2.9f, scol, &seed, p ? p->nation : NATION_ENGLAND);
+    battle_add_ship(SHIP_FLUYT, 0, -40, -180, 0.2f, scol, &seed, p ? p->nation : NATION_ENGLAND, -1, -1);
+    battle_add_ship(SHIP_MERCHANT, 0, 25, -195, 2.9f, scol, &seed, p ? p->nation : NATION_ENGLAND, -1, -1);
     for (int i = 0; i < dv.nships; ++i) dv.ship[i].speed *= 0.25f;
     stage_city();
     LOG_INFO("gfx", "detail view: city '%s' size %d pop %.0f: %d houses, %d walls, fort %d, market %d",
@@ -856,16 +1034,20 @@ void DetailView::dv_begin(int mode, int port, int fleet) {
     dv.want_mode = mode; dv.want_port = port; dv.want_fleet = fleet;
     dv.phase = DVP_IN; dv.t = 0;
 }
-void DetailView::enter_battle(int fleet_id) { dv_begin(DV_BATTLE, -1, fleet_id); }
+void DetailView::enter_battle(int fleet_id) {
+    helm_on_ = 0; fire_order_ = DV_FIRE_NEAREST; move_order_ = DV_MOVE_LINE; furl_order_ = 0;   // 0.22.19: a new action, no standing orders
+    dv_begin(DV_BATTLE, -1, fleet_id);
+}
 void DetailView::enter_city(int port) {
     if (port < 0) { float best = 1e9f;
         for (int i = 0; i < G.nports; ++i) { const port_t *pp = &G.ports[i];
             if (!port_is_gone(pp) && pp->size >= 1) { float d = dist2d(pp->x, pp->z, cam.tx, cam.tz); if (d < best) { best = d; port = i; } } } }
     if (port >= 0) dv_begin(DV_CITY, port, 0);
 }
-void DetailView::exit(void) { if (dv.phase == DVP_SHOW) { LOG_INFO("gfx", "detail view: leaving (t=%.1f)", dv.t); dv.phase = DVP_OUT_IN; dv.t = 0; } }
+void DetailView::exit(void) { if (dv.phase == DVP_SHOW) { write_back(); LOG_INFO("gfx", "detail view: leaving (t=%.1f)", dv.t); dv.phase = DVP_OUT_IN; dv.t = 0; } }
 // drop the scene at once, no clouds, no camera restore (the menu preview, 0.22.11)
 void DetailView::abort(void) {
+    write_back();      // 0.22.19 (todo 153): even a scene dropped in a hurry pays its bill
     dv.phase = DVP_IDLE; dv.mode = DV_OFF; stage_free(); wake_set_region(0, 0, 0); particles_reset(); nphys_reset();
     cam_pitch_scale = 1.f; cam.ty = cam.want_ty = 0.f;
 }
@@ -990,6 +1172,8 @@ void DetailView::frame(float dt) {
         shipyard_req_t sr = { s->type, s->nation, ROLE_WARSHIP, wx, wz, s->heading, DV_SHIP_SCALE,
                               rock, 0.f, 0.f, s->r, s->g, s->b,
                               sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y), lod_key(LODK_MISC, 7, i), broll, bpitch, s->furl };
+        // 0.22.20 (issue16 "mesh damage removal"): the masts the physics took are not drawn
+        if (s->body >= 0) { nphys_damage_t dd; nphys_damage_get(s->body, &dd); sr.masts_down = dd.masts_down; }
         if (shipyard_push(&sr)) continue;
         *instlist_push(&dv.ships_il[s->type]) = inst_t{ wx, 0, wz, s->heading,
             ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }
@@ -1018,11 +1202,16 @@ void DetailView::frame(float dt) {
             }
             shot_mesh = mesh_upload(&m); shot_built = 1;
         }
-        float xyz[3 * 256]; int ns = nphys_shot_list(xyz, 256);
+        // 0.22.19 (issue15 "add real cannonballs ... and sizes depending of cannons"): the
+        // ball's own radius comes back with its position, so a lower-deck 32-pounder's shot
+        // is visibly the heavier one. Drawn at three times life size - a 15 cm ball at a
+        // battle camera a hundred metres off is a pixel, and the point of drawing shot at all
+        // is that the player can follow it.
+        float xyzr[4 * 256]; int ns = nphys_shot_list(xyzr, 256);
         instlist_clear(&shot_il);
         for (int i = 0; i < ns; ++i) {
-            inst_t si = inst_t{}; si.x = dv.cx + xyz[i*3]; si.y = xyz[i*3+1]; si.z = dv.cz + xyz[i*3+2];
-            si.scale = 0.13f; si.r = si.g = si.b = 1.f; si.bob = 0.f; si.sway = 0.f;   // no swell on a ball in flight
+            inst_t si = inst_t{}; si.x = dv.cx + xyzr[i*4]; si.y = xyzr[i*4+1]; si.z = dv.cz + xyzr[i*4+2];
+            si.scale = xyzr[i*4+3] * 3.0f; si.r = si.g = si.b = 1.f; si.bob = 0.f; si.sway = 0.f;   // no swell on a ball in flight
             *instlist_push(&shot_il) = si;
         }
         mesh_set_instances(&shot_mesh, shot_il.v, shot_il.n);
@@ -1200,6 +1389,14 @@ int  detailview_busy(void) { return mare::game::view::detail_view().busy(); }
 void detailview_enter_battle(int fleet_id) { mare::game::view::detail_view().enter_battle(fleet_id); }
 void detailview_enter_city(int port) { mare::game::view::detail_view().enter_city(port); }
 void detailview_exit(void) { mare::game::view::detail_view().exit(); }
+void  detailview_set_fire_order(int o) { mare::game::view::detail_view().set_fire_order(o); }
+void  detailview_set_move_order(int o) { mare::game::view::detail_view().set_move_order(o); }
+void  detailview_set_furl_order(int o) { mare::game::view::detail_view().set_furl_order(o); }
+int   detailview_ship_info(int i, dv_shipinfo_t *out) { return mare::game::view::detail_view().ship_info(i, out); }
+int   detailview_ship_count(void) { return mare::game::view::detail_view().ship_count(); }
+int   detailview_furl_order(void) { return mare::game::view::detail_view().furl_order(); }
+int   detailview_fire_order(void) { return mare::game::view::detail_view().fire_order(); }
+int   detailview_move_order(void) { return mare::game::view::detail_view().move_order(); }
 void  detailview_helm(float d) { mare::game::view::detail_view().helm(d); }
 void  detailview_helm_release(void) { mare::game::view::detail_view().helm_release(); }
 int   detailview_helm_on(void) { return mare::game::view::detail_view().helm_on(); }

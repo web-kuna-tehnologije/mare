@@ -29,6 +29,12 @@ void particles_set_origin(float ox, float oz);
 // class's total gun count (half fire); puff size and count follow both.
 // `body` is her rigid body (sim/naval_physics.h) for the recoil and the shot, or -1.
 void particles_broadside(float x, float y, float z, float heading, float side, float hull_len, int guns, int body);
+// A ship on fire (0.22.19, todo 152): a column of dark smoke with flame in its root, rising
+// from her and leaning away on the wind. `heat` is how far gone she is, 0..1 - it decides how
+// black the smoke is, how fast it climbs and how much flame shows at the base.
+void particles_fire(float x, float y, float z, float hull_len, float heat);
+// ... and the end of one (NPHYS_EV_EXPLODE): the magazine, all at once.
+void particles_explosion(float x, float y, float z, float hull_len);
 void particles_splash(float x, float z, float size);                          // a shot into the sea (0.22.11)
 void particles_hit(float x, float y, float z, float dx, float dz, float size); // a shot into a hull: splinters, dust, embers
 void particles_spray(float x, float y, float z, float dx, float dz, float strength);   // spray torn off a bow in a breeze

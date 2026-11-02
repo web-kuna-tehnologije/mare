@@ -31,6 +31,24 @@ void main(){
   float alpha = v_misc.x, seed = v_misc.y, kind = v_misc.z, age = v_misc.w;
   float dist = distance(v_wpos, u_campos);
   vec3 skyl = srgb_to_linear(u_sky);
+  if (kind > 7.5) {                                   // a flame tongue (0.22.20, issue16): fire, not a glowing disc
+    // the tongue: narrow at the root, waving at the tip, eaten by noise that scrolls *down*
+    // through the sprite as the flame climbs through it
+    vec2 uv = v_uv; uv.x *= 1.0 + 0.7 * (uv.y * 0.5 + 0.5);                      // wider at the top, where it tears
+    float wob = (vnoise3(vec3(uv * 2.2, seed * 17.0 + age * 6.0)) - 0.5) * (0.5 + 0.8 * (uv.y * 0.5 + 0.5));
+    float tongue = exp(-pow((uv.x + wob * 0.4) * 2.4, 2.0)) * smoothstep(1.0, -0.6, uv.y * (0.8 - 0.5 * age));
+    float n = fbm3(vec3(uv * 2.6, seed * 9.0 - age * 4.0));
+    float body = clamp(tongue * (0.55 + 0.9 * n) - 0.18 * age, 0.0, 1.0);
+    if (u_has_fx.y > 0.5) {                                                      // the fire sheet gives it structure
+      vec4 fx = texture(u_fx_fire, atlas_uv(vec2(uv.x, -uv.y), seed + floor(age * 3.0) * 0.137, 4.0, 2.0));
+      body = clamp(body * (0.35 + 1.3 * fx.a), 0.0, 1.0);
+    }
+    // white-hot at the root through orange to deep red at the tip, bright enough to bloom
+    float hgt = uv.y * 0.5 + 0.5;
+    vec3 c = mix(vec3(1.0, 0.93, 0.70), mix(vec3(1.0, 0.55, 0.12), vec3(0.75, 0.12, 0.03), hgt), clamp(hgt * 1.6, 0.0, 1.0));
+    float a = clamp(body * alpha, 0.0, 1.0);
+    fragColor = vec4(srgb_to_linear(c) * (4.5 + 4.0 * body), a); return;         // fire lights itself: no fog, no sun
+  }
   if (kind > 6.5) {                                   // a splinter: a dark chip, hard-edged, tumbling
     float a = smoothstep(0.9, 0.3, abs(v_uv.x) * 2.2 + abs(v_uv.y) * 0.6) * alpha;
     vec3 c = srgb_to_linear(v_col) * (u_ambsky * 0.8 + u_suncol * 0.5 * max(u_sun.y, 0.0));
