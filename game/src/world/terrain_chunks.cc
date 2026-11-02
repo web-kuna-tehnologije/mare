@@ -104,6 +104,7 @@ typedef struct bake_band_t {
     const gc_ds_t *d;
     float **row; unsigned char **cov;
     float *hm; unsigned char *lm; const unsigned char *protect;
+    int samples, cells;            // of the rows as held: the dataset's own, or its decimation
     int w, h, cy, y0;
     float lon0, lat1, cells_per_deg, gw, gh;
     int allow_flips;
@@ -234,11 +235,24 @@ void GeoChunks::probe(const char *dir, std::vector<std::string> &roots) {
     if (dir) cands.push_back(dir);
     else {
         const char *env = getenv("MARE_GEOCHUNK_DIR");
-        if (env) cands.push_back(env);
+        if (env) {
+            // a ';'-separated list, so a build that lives outside the tree - the 4x world cut
+            // into a session folder, say - can be named *beside* the deliveries under assets
+            // rather than instead of them (0.22.18). ';' and not ':': these are Windows paths.
+            const char *p = env;
+            while (*p) {
+                const char *e = strchr(p, ';'); size_t n = e ? (size_t)(e - p) : strlen(p);
+                if (n) cands.push_back(std::string(p, n));
+                if (!e) break;
+                p = e + 1;
+            }
+        }
         else {
             // the newest delivery first (data_new_2: the LOD package and the regional builds),
             // then the previous one; every dataset found in either is registered
-            static const char *names[] = { "data_chunks_terrain", "data_new_2", "data_new" };   // data_chunks_terrain: the world-game-package delivery (0.22.4)
+            // data-terrain-v2: the Mare Liberum 4x world build (0.22.18, 2049 samples a chunk);
+            // data_chunks_terrain: the world-game-package delivery (0.22.4)
+            static const char *names[] = { "data-terrain-v2", "data_terrain_v2", "data_chunks_terrain", "data_new_2", "data_new" };
             char buf[400];
             for (const char *nm : names) {
                 snprintf(buf, sizeof buf, "%s/../%s", asset_root(), nm); cands.push_back(buf);
@@ -347,7 +361,7 @@ int GeoChunks::add_dataset(const char *root) {
         I.wrap = wrap && fabsf((I.east - I.west) - 360.f) < 1e-3f;
         if (I.chunks_x <= 0 || I.chunks_y <= 0 || I.chunks_x * I.chunks_y > GC_MAX_CHUNKS) {
             LOG_WARN("terrain", "%s: %dx%d chunks is out of range (max %d)", path, I.chunks_x, I.chunks_y, GC_MAX_CHUNKS); if (!package) break; else continue; }
-        if (I.samples != I.cells + 1 || I.samples < 3 || I.samples > GC_SAMPLES) {
+        if (I.samples != I.cells + 1 || I.samples < 3 || I.samples > GC_MAX_SAMPLES) {
             LOG_WARN("terrain", "%s: %d samples / %d cells per chunk is not a grid this build reads", path, I.samples, I.cells); if (!package) break; else continue; }
         I.step_lon = sx > 0 ? (float)sx : (I.east - I.west) / (I.chunks_x * I.cells);
         I.step_lat = sy > 0 ? (float)sy : (I.north - I.south) / (I.chunks_y * I.cells);
@@ -395,6 +409,18 @@ int GeoChunks::init(const char *dir) {
     // finest first: a regional build answers before the overview wherever both are resident
     std::stable_sort(ds.begin(), ds.end(), [](const gc_ds_t &a, const gc_ds_t &b) { return a.info.step_lat != b.info.step_lat ? a.info.step_lat < b.info.step_lat : a.area < b.area; });
     for (int i = 0; i < (int)ds.size(); ++i) ds[i].info.index = i;
+    // The budget is a count of chunks, not a flat number of megabytes (0.22.18). A chunk is
+    // N^2 * 17 bytes resident (height, coverage and the three RGBA8 maps): 4.5 MB at the
+    // overview's 513 samples, but 71 MB at the 4x build's 2049. The fixed 160 MB would have
+    // held two of those and thrashed the moment the camera straddled a chunk border, so the
+    // floor rises to whatever keeps GC_BUDGET_CHUNKS of the finest dataset resident - the
+    // four under a corner of the view, plus one either side of a pan.
+    {
+        size_t per_chunk = 0;
+        for (const gc_ds_t &D : ds) { size_t b = (size_t)D.info.samples * D.info.samples * 17; if (b > per_chunk) per_chunk = b; }
+        size_t want = per_chunk * GC_BUDGET_CHUNKS;
+        if (want > budget) { LOG_INFO("terrain", "budget raised to %zu MB: %d chunks of %zu MB", want / (1024 * 1024), GC_BUDGET_CHUNKS, per_chunk / (1024 * 1024)); budget = want; }
+    }
     { const char *e = getenv("MARE_GEOCHUNK_MB"); if (e && atoi(e) > 0) budget = (size_t)atoi(e) * 1024 * 1024; }
     present = inited = 1;
     LOG_INFO("terrain", "%d terrain-v2 dataset%s, budget %zu MB, vertical exaggeration %.1fx", (int)ds.size(), ds.size() == 1 ? "" : "s", budget / (1024 * 1024), exaggeration());
@@ -441,6 +467,27 @@ static unsigned char *gc_read_file(const char *path, size_t *n) {
     fclose(f);
     if (!b || got != (size_t)len) { free(b); return nullptr; }
     *n = got; return b;
+}
+// Every `stride`-th row and column of an N x N raw map of `esz`-byte elements, into a
+// (C+1)^2 buffer, by seeking over the rows it does not want. The geography fold reads this
+// way (bake, below): at the 4x build's stride of 4 it is a sixteenth of the bytes off disk
+// and the only alternative - reading 17 MB to keep 1 MB - is what made the fold slow.
+static void *gc_read_strided(const char *path, int N, int stride, size_t esz, size_t *out_n) {
+    const int C = (N - 1) / stride, M = C + 1;
+    FILE *f = fopen(path, "rb"); if (!f) return nullptr;
+    fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
+    if (len != (long)((size_t)N * N * esz)) { LOG_WARN("terrain", "%s: %ld bytes, expected %zu - ignored", path, len, (size_t)N * N * esz); fclose(f); return nullptr; }
+    unsigned char *row = (unsigned char *)malloc((size_t)N * esz);
+    unsigned char *out = (unsigned char *)malloc((size_t)M * M * esz);
+    int ok = row && out;
+    for (int j = 0; ok && j <= C; ++j) {
+        if (fseek(f, (long)((size_t)(j * stride) * N * esz), SEEK_SET) || fread(row, esz, (size_t)N, f) != (size_t)N) { ok = 0; break; }
+        for (int i = 0; i <= C; ++i) memcpy(out + ((size_t)j * M + i) * esz, row + (size_t)(i * stride) * esz, esz);
+    }
+    free(row); fclose(f);
+    if (!ok) { free(out); return nullptr; }
+    if (out_n) *out_n = (size_t)M * M;
+    return out;
 }
 static unsigned char *gc_read_exact(const char *path, size_t want) {   // a raw map, validated by length
     size_t n = 0; unsigned char *b = gc_read_file(path, &n);
@@ -542,6 +589,16 @@ void GeoChunks::update(float lon, float lat, float radius_deg) {
     if (!inited) return;
     update_no++;
     int started = 0;
+    // How many reads to start this frame. Four was right when a chunk was ~2.4 MB on disk;
+    // a 4x chunk is ~30 MB, and four of those at once stall the IO lane long enough for the
+    // camera to want somewhere else. Scale the count by the finest dataset's chunk size and
+    // keep at least one in flight, so streaming never stops (0.22.18).
+    int inflight = GC_MAX_INFLIGHT;
+    if (!ds.empty()) {
+        size_t disk_mb = (size_t)ds[0].info.samples * ds[0].info.samples * 7 / (1024 * 1024);   // height + three raw maps, PNGs compressed
+        if (disk_mb > 0) inflight = (int)(GC_INFLIGHT_MB / disk_mb);
+        inflight = inflight < 1 ? 1 : inflight > GC_MAX_INFLIGHT ? GC_MAX_INFLIGHT : inflight;
+    }
     for (int d = 0; d < (int)ds.size(); ++d) {
         gc_ds_t &D = ds[d]; const gc_dataset_t &I = D.info;
         float w = lon - radius_deg, e = lon + radius_deg, s = lat - radius_deg, n = lat + radius_deg;
@@ -556,7 +613,7 @@ void GeoChunks::update(float lon, float lat, float radius_deg) {
         for (int y = y0; y <= y1; ++y) for (int xx = x0; xx <= x1; ++xx) {
             gc_chunk_t *c = at(d, I.wrap ? (xx % nx + nx) % nx : xx, y); if (!c) continue;
             c->last_want = update_no;
-            if (c->state == GC_EMPTY && !c->absent && started < GC_MAX_INFLIGHT) { request(d, c); started++; }
+            if (c->state == GC_EMPTY && !c->absent && started < inflight) { request(d, c); started++; }
         }
     }
     for (int guard = 0; guard < 8 && bytes > budget; ++guard) {
@@ -754,7 +811,7 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
                 float u = (lon + off[q][0] / b->cells_per_deg - bw) / (be - bw) * b->gw;
                 float v = (bn - (lat + off[q][1] / b->cells_per_deg)) / (bn - bs) * b->gh;
                 float m;
-                if (!gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, I.samples, I.cells, u, v, &m)) continue;
+                if (!gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, b->samples, b->cells, u, v, &m)) continue;
                 float hh = gc_world(m);
                 votes += hh > 0.03f; got++;
                 if (q == 0) hc = hh;
@@ -773,7 +830,7 @@ void GeoChunks::bake_rows(void *arg, int begin, int end, int slot) {
                     float u = (lon + edge[q][0] * reach[rr] / b->cells_per_deg - bw) / (be - bw) * b->gw;
                     float v = (bn - (lat + edge[q][1] * reach[rr] / b->cells_per_deg)) / (bn - bs) * b->gh;
                     float m;
-                    if (gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, I.samples, I.cells, u, v, &m)) { float hh = gc_world(m); hmax = maxf(hmax, hh); if (rr == 0) hmax_in = maxf(hmax_in, hh); }
+                    if (gc_row_sample(b->row, b->cov, I.chunks_x, b->cy, b->samples, b->cells, u, v, &m)) { float hh = gc_world(m); hmax = maxf(hmax, hh); if (rr == 0) hmax_in = maxf(hmax_in, hh); }
                 }
             }
             if (b->allow_flips && !was_land && votes >= 6 && !keep) {
@@ -822,8 +879,20 @@ int GeoChunks::bake(float *hm, unsigned char *lm, int w, int h, float lon0, floa
     { const char *e = getenv("MARE_TERRAIN_ISLANDS"); if (e) allow_flips = atoi(e) != 0; }
     double t0 = diag_now();
     int changed = 0, newland = 0, missing = 0;
-    const int C = I.cells;
+    // The fold writes a base grid of `cells_per_deg` cells to the degree - about 7 km a cell -
+    // and takes nine taps across each. Samples closer together than half a cell add nothing to
+    // that average, so a finer build than the base grid is read at a stride: the 4x world
+    // (700 m) comes in at every fourth sample, which is still three taps to the base cell.
+    // Without this the fold reads 17 MB a chunk to throw fifteen sixteenths of it away - it
+    // cost 2.6 s and half a gigabyte of peak against the overview's 0.7 s (0.22.18). The
+    // residency path below is untouched: *there* the extra samples are the whole point.
+    int stride = 1;
+    while (I.cells % (stride * 2) == 0 && I.step_lat * (stride * 2) * cells_per_deg < 0.5f) stride *= 2;
+    const int C = I.cells / stride, N = C + 1;
     size_t nsamp = (size_t)I.samples * I.samples;
+    size_t nkeep = (size_t)N * N;
+    if (stride > 1) LOG_INFO("terrain", "geography fold reads every %dth sample: %d samples a chunk is %.0f m against the base grid's %.0f m",
+                             stride, I.samples, I.step_lat * GC_M_PER_DEG, GC_M_PER_DEG / cells_per_deg);
     float **row = (float **)calloc((size_t)I.chunks_x, sizeof *row);
     unsigned char **cov = (unsigned char **)calloc((size_t)I.chunks_x, sizeof *cov);
     if (!row || !cov) { free(row); free(cov); return 0; }
@@ -839,12 +908,16 @@ int GeoChunks::bake(float *hm, unsigned char *lm, int w, int h, float lon0, floa
             float clon0 = I.west + (float)cx * (I.east - I.west) / I.chunks_x, clon1 = clon0 + (I.east - I.west) / I.chunks_x;
             if (clon1 < lon0 || clon0 > lon0 + w / cells_per_deg) continue;
             char path[448];
+            // every `stride`-th sample, the shared edge row and column included, so the
+            // decimated chunks still join exactly where the full-rate ones do
             snprintf(path, sizeof path, "%s/%schunks/%d/%d/height.r32", I.root, I.subdir, cy, cx);
-            row[cx] = (float *)gc_read_exact(path, nsamp * sizeof(float));
+            row[cx] = stride == 1 ? (float *)gc_read_exact(path, nsamp * sizeof(float))
+                                  : (float *)gc_read_strided(path, I.samples, stride, sizeof(float), nullptr);
             if (!row[cx]) { missing++; continue; }
             snprintf(path, sizeof path, "%s/%schunks/%d/%d/coverage.r8", I.root, I.subdir, cy, cx);
-            cov[cx] = gc_read_exact(path, nsamp);
-            if (!cov[cx]) { cov[cx] = (unsigned char *)malloc(nsamp); if (cov[cx]) memset(cov[cx], 1, nsamp); }
+            cov[cx] = stride == 1 ? gc_read_exact(path, nsamp)
+                                  : (unsigned char *)gc_read_strided(path, I.samples, stride, 1, nullptr);
+            if (!cov[cx]) { cov[cx] = (unsigned char *)malloc(nkeep); if (cov[cx]) memset(cov[cx], 1, nkeep); }
         }
         // Which base rows fall in this band, computed rather than scanned. The rows are then
         // folded in parallel - each writes its own cells, so the only shared state is the
@@ -854,7 +927,7 @@ int GeoChunks::bake(float *hm, unsigned char *lm, int w, int h, float lon0, floa
         if (y0 < 0) y0 = 0;
         if (y1 > h - 1) y1 = h - 1;
         if (y1 >= y0) {
-            bake_band_t bb = { D, row, cov, hm, lm, protect, w, h, cy, y0, lon0, lat1, cells_per_deg, gw, gh, allow_flips, {} };
+            bake_band_t bb = { D, row, cov, hm, lm, protect, N, C, w, h, cy, y0, lon0, lat1, cells_per_deg, gw, gh, allow_flips, {} };
             if (jobs_worker_count() > 0) jobs_parallel_for(JOB_LANE_WORKER, bake_rows, &bb, y1 - y0 + 1, 8);
             else bake_rows(&bb, 0, y1 - y0 + 1, 0);
             for (int k = 0; k < GC_BAKE_SLOTS; ++k) { changed += bb.tally[k][0]; newland += bb.tally[k][1]; }

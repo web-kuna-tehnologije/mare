@@ -1,5 +1,100 @@
 # Changelog
 
+## 0.22.18 — the 4x world, and rivers you can sail up
+
+Session **elm**, working from `/mnt/c/projects/mare` (read only) into
+`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_120500`. The new asset in
+`assets/data-terrain-v2` first, then the open rows of `docs/todo_list.md`.
+
+### The Mare Liberum 4x terrain build
+
+`mare-liberum-world-terrain-4x.zip` is the same world as the 3 km overview at **four times the
+samples per axis**: 2049 a chunk instead of 513, ~700 m a sample, resampled from GEBCO rather
+than upscaled. 12.2 GB of it is what the game reads (`height.r32`, `coverage.r8`, `biome.r8`,
+`biome_source.r8`, `splat.png`, `normal.png`, `tile.json`, `waterways.geojsonl`); the preview
+PNGs and the palette texture are not read and were not unpacked.
+
+Everything in the loader was already per-dataset except the four things that assumed 513:
+
+- **The sample ceiling.** `GC_MAX_SAMPLES` is 2049; 513 stays as the overview's grid and the
+  atlas' reference slot. A dataset with a finer grid used to be rejected by its own manifest.
+- **The budget is a count of chunks, not megabytes.** A chunk is `N^2 * 17` bytes resident -
+  4.5 MB at 513 samples, **68 MB at 2049** - so the flat 160 MB held two of them and thrashed
+  the moment the camera straddled a border. The floor now rises to `GC_BUDGET_CHUNKS` of the
+  finest dataset (408 MB for the 4x build); `MARE_GEOCHUNK_MB` still overrides.
+- **Reads in flight scale with chunk size.** Four at once was right at 2.4 MB a chunk on disk;
+  at 30 MB it stalls the IO lane for longer than the camera stays still.
+- **The GPU chunk atlas picks its grid from the dataset.** A slot's cost is quadratic in its
+  edge, so 4x4 slots of 2049 would be 800 MB. It now trades slots for texels and spends at
+  most ~115 MB: 4x4 of 513 (50 MB, 52 degrees covered) for the overview, **3x3 of 1025 (113
+  MB, 39 degrees)** for the 4x build. A finer dataset is point-sampled down by an integer
+  stride - point-sampled and not box-filtered on purpose: the grids are `2^k + 1` and
+  neighbouring chunks share their edge row and column, so taking samples `0, s, 2s ... C`
+  lands on the shared edge exactly and the joins stay seamless, where averaging would mix a
+  chunk's interior into its edge and open a seam at every border.
+  `MARE_CHUNK_ATLAS_SAMPLES=2049` buys the full material detail at 2x2 slots and 200 MB.
+- **The geography fold reads a finer build at a stride.** The fold writes a ~7 km base grid and
+  takes nine taps across each cell; samples 700 m apart add nothing to that average. It had
+  been reading 17 MB a chunk to throw fifteen sixteenths of it away: **2.6 s and about half a
+  gigabyte of peak**, against the overview's 0.7 s. Reading every fourth row and column, by
+  seeking over the rest, brings it to **1.0 s** and a fortieth of the memory, with the fold's
+  own output identical to the sample (5,768,831 cells, 148,069 new land).
+- `MARE_GEOCHUNK_DIR` takes a `;`-separated list, so a build outside the tree can be named
+  *beside* the deliveries under `assets` rather than instead of them.
+
+**What it looks like.** Compare `shots/terrain_3km.png` with `shots/terrain_4x.png` (the same
+seed, camera and hour over the Dalmatian coast): the karst has rock faces, ridges and crags
+where the 3 km data gave smooth green hills, and the islands have relief instead of being
+plateaux. This closes todo row 93 - "the ranges at 12 read as terraces (the 2.8 km samples)" -
+and the roadmap's standing "a genuinely finer DEM for the home seas", which has been the
+highest-value terrain item since 0.20. It is still not street-level survey: GEBCO's own grid is
+about 460 m at the equator, so 700 m output is the end of the real detail, not the start of it.
+
+### Rivers: carved, navigable, and bridged (todo 118)
+
+The package's river layer - 115 chunks of `waterways.geojsonl`, 1.27M segments - has been read
+since 0.22.14, but only *painted*. Carving and navigation waited, correctly: the only rivers
+before were a drainage network folded out of 7 km cells, which puts a watercourse wherever the
+heightfield happens to dip, and cutting ship-scale channels along those opened navigable water
+across half of Europe. These are surveyed watercourses, so they can be cut and sailed.
+
+- **The class comes off the data.** `from_upstream_m` - the total length of river above a
+  segment - is what decides it, and the thresholds were **read off the layer**, which is the
+  half of row 118 that said "the half-width from the upstream length is a guess". Over the
+  1.65M points in the game's box: `>= 15 Mm` is 74% of them, `>= 60 Mm` 15%, `>= 150 Mm` 3.9%;
+  river by river, the Danube delta measures 338 Mm, the Rhine 110, the Elbe 94, the Po 59, the
+  Ebro 50. So **150 Mm takes a merchantman** (the Danube and the lower Rhine) and **60 Mm a
+  shallow draught** (the Elbe, the upper Rhine, the Po's last reach). 15 Mm would have reached
+  Seville and Rouen and been not a river network but a canal system.
+- **2,148 cells of the navigation grid are river** where there were none, by class, so a fleet
+  can stand up the Danube as deep as her hulls allow.
+- **Roads bridge them.** `river_mask` - the cells a road needs a bridge for - was built only by
+  the *generated* network, so since the authored rivers replaced it a road had been laid over
+  the Po as if it were dry ground. 31,895 cells carry a river for the roads to bridge now.
+- **Carving defaults on for authored rivers and stays off for the generated network.**
+  `MARE_RIVER_CARVE` decides it either way.
+- Honest limit: `from_upstream_m` is length, not discharge, so it cannot tell a large river in
+  a small basin from a middling reach of a huge one. The Seine (20 Mm) and the Guadalquivir
+  (17) fall short of 60 and are not navigable; the Thames and the Tiber are not in the layer at
+  all, falling under the export's own 10.9 Mm filter rather than ours. The layer carries no
+  width or flow to correct this with - `width_m` is null throughout.
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7**.
+- The 3 km overview path is unchanged: same budget (160 MB), same atlas (4x4 of 513), same
+  fold (5,767,931 cells, 148,995 new land), and with `MARE_RIVER_DATA=0` the generated network
+  still comes up painted with 0 river cells open to ships.
+- Shots in `shots/`: `terrain_3km.png` and `terrain_4x.png` (the same view, before and after),
+  `rivers_po2.png` (the Po's lower reach as a navigable channel with its own beaches and surf).
+
+### Where the data is
+
+Unpacked to `mare_sessions/mare_elm_02-11-2026_120500/terrain_v2_extract/mare-world-terrain`,
+because `assets/` is read-only to this session. To make it the game's default, move that folder
+to `assets/data-terrain-v2/mare-world-terrain` - the loader probes that name first, ahead of
+`data_new`. Until then, point `MARE_GEOCHUNK_DIR` at it.
+
 ## 0.22.17 — the fourteenth issues folder: the helm answers, the oars row, and the guns finally hit something
 
 Session **elm**, working from `/mnt/c/projects/mare` (read only) into

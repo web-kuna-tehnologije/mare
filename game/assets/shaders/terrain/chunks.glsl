@@ -1,8 +1,8 @@
 // The terrain-v2 chunks' material maps (gfx/terrain_atlas.h): biome class, splat weights and
 // the terrain-scale normal, per sample, for the dataset the atlas holds.
 //
-// Addressing follows assets/data_new/MARE_INTEGRATION.md: every map is *vertex-aligned*, so the
-// sample at global column i sits at texel centre (i + 0.5) / 513 inside its chunk's slot; the
+// Addressing follows MARE_INTEGRATION.md: every map is *vertex-aligned*, so the sample at
+// global column i sits at texel centre (i + 0.5) / (slot texels) inside its chunk's slot; the
 // class map is read nearest, the rest bilinear, no mipmaps. Chunks share their edge samples,
 // so a point exactly on a chunk border reads the same value from either side.
 uniform sampler2D u_ccls;     // R = biome id, G = coverage, B = provenance   (NEAREST)
@@ -10,8 +10,8 @@ uniform sampler2D u_csplat;   // grass, rock, sand, snow weights                
 uniform sampler2D u_cnrm;     // east / up / south normal, true-metre slopes    (LINEAR)
 uniform sampler2D u_cslots;   // chunk grid -> slot + 1 (0 = not resident)      (NEAREST)
 uniform vec4 u_cgeo;          // west, north, 1/lon span, 1/lat span
-uniform vec4 u_cgrid;         // chunks_x, chunks_y, cells per chunk (512), wraps
-uniform vec4 u_cslot;         // cols, rows, texels per slot (513), 1/atlas edge
+uniform vec4 u_cgrid;         // chunks_x, chunks_y, cells per slot (512 or 1024), wraps
+uniform vec4 u_cslot;         // cols, rows, texels per slot (513 .. 2049), 1/atlas edge
 uniform vec2 u_con;           // x = the atlas holds something, y = vertical exaggeration of the drawn world
 
 // atlas texture coordinates of a geographic point (texel-centre space, bilinear-safe), and
@@ -28,7 +28,7 @@ bool ch_uv(float lon, float lat, out vec2 uv, out vec2 local, out vec2 cell) {
   vec2 ch = min(floor(gs / u_cgrid.z), u_cgrid.xy - 1.0);
   float s = texture(u_cslots, (ch + 0.5) / u_cgrid.xy).r * 255.0 - 1.0;
   if (s < -0.5) return false;
-  local = clamp(gs - ch * u_cgrid.z, 0.0, u_cgrid.z - 0.001);     // 0 .. 512 (the shared edge sample)
+  local = clamp(gs - ch * u_cgrid.z, 0.0, u_cgrid.z - 0.001);     // 0 .. cells (the shared edge sample)
   cell = vec2(mod(s, u_cslot.x), floor(s / u_cslot.x));
   uv = (cell * u_cslot.z + local + 0.5) * u_cslot.w;
   return true;

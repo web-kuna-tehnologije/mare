@@ -1,78 +1,115 @@
-# Mare Liberum - session summary, **elm**, 2026-11-02 (0.22.17)
+# Mare Liberum - session summary, **elm**, 2026-11-02 (0.22.18)
 
-Worked from `/mnt/c/projects/mare` (read only) into this folder,
-`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_002959`, per `skills/session_skill.md`.
-Nothing was written into the project tree or into `docs/dev`.
+Worked from `/mnt/c/projects/mare` (read only) into this folder and
+`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_120500`, per `skills/session_skill.md`.
+Nothing was written into the project tree or into `docs/dev`. `assets/issues/` holds nothing
+newer than issue14, which 0.22.17 closed, so this round went straight to the new asset and
+then to the open rows of `docs/todo_list.md`.
 
-## What I found first
-The **0.22.16 round was lost**. The tree had been committed at `199ec3a` without it and the
-changelog's own 0.22.16 entry went with it. That is precisely why issue14 opens by saying the
-oars, the lateen and the riggings are *still* wrong, and why "Q and E in battle view don't work" -
-the helm existed only as a changelog sentence, never as code. The worthwhile parts of that round
-are carried back here alongside the new work.
+**The whole list, as checkboxes, is `docs/TODO_STATUS.md`** - that is the file to open to see
+where things stand.
 
-## issue14, item by item
-| the ask | what was wrong | what it is now |
-|---|---|---|
-| "Q AND E IN BATTLE VIEW DONT WORK" | never bound to anything | Q/E steer the player's line by hand, H returns it to the line; each ship answers at her own rate, on the battle's clock |
-| "oars ... wide part in water, pivot in the ship part, slowly 30 deg" | the pitch sign was flipped (the bank rowed the air), the oar hung centred outboard, the sweep was 2-7 deg | blade down (measured: the -x end is twice the loom's section), the oar turns about its **rowlock on the rail**, ±15 deg at a stroke every 3-5 s |
-| "random small villages ... connected with roads" | three per settled region, 3 units apart | six per settled region, two on a frontier, 2 units apart - each a real settlement, so roads and a mill follow |
-| "still front lanteen and sail isn't fixed" | the triangle cut through the deck; the yards barely trimmed | the whole sail rides a seventh of a mast higher; the yards trim by the bisector rule |
-| "more elasticity to rope for sails" | one stiff curve | half as much sag again, two breathing terms, and running rigging that comes taut under a drawing sail |
-| "add texture similar to riggings" | the sails' own ropes were flat cross-quads | six-sided lathe-shaded prisms, like the cordage |
-| "remove riggings on the stern that lead nowhere" | stays chosen by array index: every mast stayed to the stem and the **foremast ran one the length of the ship to the taffrail** | chosen by station - forward to the next mast ahead or the stem, aft to the next astern or the taffrail |
+## The new asset: the Mare Liberum 4x world
 
-## The physics (asked for last, and where the real finds were)
-Two bugs had made every battle bloodless, and neither was visible without measuring:
+`assets/data-terrain-v2/mare-liberum-world-terrain-4x.zip` is the same Earth as the 3 km
+overview at **four times the samples per axis** - 2049 a chunk, ~700 m a sample, resampled from
+GEBCO rather than upscaled - plus a river layer of 1.27M surveyed segments. 12.2 GB of it is
+what the game reads; the preview PNGs and the palette texture are not read and were not
+unpacked.
 
-1. **No cannon shot had ever hit anything.** The guns fire in world coordinates; the tactical
-   bodies live in the battle's local frame. The broadphase compared a gun at world (1000, -700)
-   with a hull at local (-40, 20). Every ball flew past and out to the 4 km cull. The same
-   mismatch handed `nphys_impulse` a lever arm a kilometre long on every shot.
-2. **The pieces were laid up, from above the target.** +0.2 to +2 degrees of elevation from a
-   muzzle already above the enemy's hull box.
+The loader was already written per-dataset, which is why this came down to four assumptions
+rather than a rewrite:
 
-Measured before: `battle damage: 0 hits` over a two-minute action. After: **440 hits, 31 masts
-down, 6 of 30 sunk.**
+| what assumed 513 | what it is now |
+|---|---|
+| the sample ceiling | `GC_MAX_SAMPLES` 2049; a finer manifest is no longer rejected |
+| a flat 160 MB resident budget | a count of **chunks** - a 4x chunk is 68 MB resident where the overview's is 4.5, so 160 MB held two and thrashed at every border |
+| four reads in flight | scaled by chunk size: right at 2.4 MB on disk, wrong at 30 |
+| 4x4 GPU atlas slots of 513 | the grid comes from the dataset - 3x3 of 1025 (113 MB) at 4x, 4x4 of 513 (50 MB) at 3 km - with finer data point-sampled down **on the shared edges**, so the chunk joins stay seamless |
 
-On that foundation, the **damage model** (P1.3): `nphys_damage_t` with hull, rig, guns, flood,
-sunk and masts_down. Where the ball strikes decides what it breaks - below the waterline she
-leaks, on the gun deck she loses her battery, aloft her rig - scaled by the shot's speed and her
-displacement. Masts go by the board at each threshold. Flooding grows with the holes and with
-itself, so the end is quick. A wreck is dead in the water: no helm, no guns. A wounded rig costs
-up to 65% of her speed.
+One thing found on the way, and worth the measurement: **the geography fold was reading 17 MB a
+chunk to throw fifteen sixteenths of it away.** It writes a ~7 km base grid and takes nine taps
+across each cell, so 700 m samples add nothing to that average - but it cost 2.6 s and about
+half a gigabyte of peak, against the overview's 0.7 s. Reading every fourth row and column, by
+seeking over the rest, brings it to 1.0 s with the fold's output identical to the sample.
+
+**What it looks like**: `shots/terrain_3km.png` against `shots/terrain_4x.png`, the same seed,
+camera and hour over the Dalmatian coast. The karst has rock faces, ridges and crags where the
+3 km data gave smooth green hills; the islands have relief instead of reading as plateaux. That
+closes todo row 93 ("the ranges read as terraces") and the roadmap's **"a genuinely finer DEM
+for the home seas"**, which had been the highest-value terrain item since 0.20 - though by a
+4x resample of the whole Earth rather than the EU-DEM/EMODnet cut that entry expected. It is
+not street-level: GEBCO's own grid is ~460 m, so 700 m is the end of the source's detail.
+
+## Then the todo list: rivers (row 118)
+
+The package's rivers have been read since 0.22.14 but only **painted**. Carving and navigation
+waited, and correctly: the only rivers before were a drainage network folded out of 7 km cells,
+which puts a watercourse wherever the heightfield dips, and cutting ship-scale channels along
+those opened navigable water across half of Europe. These are surveyed lines, so they can be
+cut and sailed.
+
+The part of row 118 that mattered was *"the half-width from the upstream length is a guess"*. It
+is not a guess now - the thresholds were **read off the layer**. Over the 1.65M river points in
+the game's box, `>= 15 Mm` of upstream length is 74% of them, `>= 60 Mm` is 15%, `>= 150 Mm` is
+3.9%; river by river the Danube delta measures 338 Mm, the Rhine 110, the Elbe 94, the Po 59,
+the Ebro 50. So **150 Mm takes a merchantman and 60 Mm a shallow draught**. My first pass used
+15 Mm, on the strength of the per-river numbers alone, and opened three quarters of every
+watercourse in Europe to shipping - not a river network, a canal system. The distribution is
+what caught it.
+
+- **2,148 cells of the navigation grid are river** where there were none, by class.
+- **Roads bridge them.** `river_mask` was built only by the *generated* network, so since the
+  authored rivers replaced it a road had been laid over the Po as if it were dry ground. 31,895
+  cells carry a river for the roads to bridge now. (Found, not asked for.)
+- Carving is on for authored rivers and off for the generated network; `MARE_RIVER_CARVE`
+  overrides either way.
+- Honest limit: `from_upstream_m` is length, not discharge, so it cannot tell a large river in
+  a small basin from a middling reach of a huge one. The Seine and the Guadalquivir fall short
+  of 60 Mm; the Thames and the Tiber are not in the layer at all, under the export's own
+  filter. `width_m` is null throughout, so there is nothing to correct it with (todo 159).
 
 ## Measured
-- MSVC build green; **`ctest` 7/7**, including a new `test_damage` in `physics_test`.
-- `physics_test`: `rig 0.39, 1 mast(s) down, speed factor 0.75, dry` and `holed hull 1.00
-  flooded to 1.00 and sank; 1 wreck(s)`.
-- Shots in `shots/`: `damage_v.png` (a galley's full bank, blades in the water, looms over the
-  rail), `rig_v.png`, `galley_lateen_v.png`, `oars_c.png`.
-- My test caught my own harness error on the way: `nphys_advance` runs at most
-  `NPHYS_MAX_STEPS` per call, so a 2-second call advances 0.067 s. Sim time has to be fed in
-  frame-sized slices, as the game feeds it.
+
+- MSVC build green; **`ctest` 7/7**.
+- The 3 km path is untouched, which is the thing worth checking: same budget (160 MB), same
+  atlas (4x4 of 513), same fold (5,767,931 cells, 148,995 new land), and with
+  `MARE_RIVER_DATA=0` the generated network still comes up painted, 0 river cells open to ships.
+- The 4x path: 27x14 chunks of 2049 samples at 699 m; budget raised to 408 MB; atlas 3x3 of
+  1025 texels; fold 5,768,831 cells / 148,069 new land in 976 ms.
+- Shots: `terrain_3km.png`, `terrain_4x.png`, `rivers_po2.png` (the Po's lower reach as a
+  navigable channel with its own beaches and surf).
 
 ## Percentage done
-Counted over `docs/todo_list.md` as it stands after this round:
-**153 done, 8 partial, 30 open of 191 tracked items - about 82%.**
-The renderer and the world are close to finished for this phase; what remains is weighted
-towards simulation (damage consequences, the campaign loop) rather than looks.
+
+Over `docs/TODO_STATUS.md` as it now stands: **162 done, 9 partial, 29 open and 2 dropped of
+202 tracked - about 82%.** The number has not moved much, because this round added rows as well
+as closing them; what has moved is the *balance*. The renderer and the world are finished for
+this phase. What is left is simulation and authored art.
 
 ## What I propose next, in order
-1. **The butcher's bill goes home** (todo 153). The damage exists and nothing reads it. Write the
-   tactical result back into the strategic ship - hull, crew, guns, sails, sunk - so a battle
-   costs a fleet something that outlives the scene. This is the single highest-value item left:
-   without it the whole damage model is scenery.
-2. **Fire** (todo 152). A hit on a ship already burning or carrying powder starts a fire that
-   spreads, smokes through the volumetric system that is already there, and ends in flooding or
-   an explosion.
-3. **Gun damage with teeth** (todo 149): the battery scalar exists; let it slow the broadside.
-4. **A sinking that reads**: a wreck should settle by the head and go down over several seconds
-   rather than simply stopping - the heave channel into the shader is already in place.
-5. Then the standing renderer items: a fruit-tree set (117b), river carving and navigation on the
-   authored data (118), a verlet chain for sheets and braces (121b).
 
-## A standing risk worth naming
-Two sessions share one tree and rounds have now been lost twice to commits taken mid-round. Work
-delivered into `mare_sessions/` is safe from that, but it also does not reach the game until
-someone merges it. The 0.22.16 loss cost a full round of work that issue14 then had to re-report.
+1. **The butcher's bill goes home** (row 153). Unchanged from last round, and now the only
+   thing of its size left: the damage model is complete and **nothing reads it**. Write the
+   tactical result back into the strategic ship - hull, crew, guns, sails, sunk - so a battle
+   costs a fleet something that outlives the scene.
+2. **Fire** (row 152): a hit on a ship already burning or carrying powder starts a fire that
+   spreads, smokes through the volumetric system already in place, and ends in flooding or an
+   explosion.
+3. **Bridge props** (TODO 10b, row 161) - newly unblocked. The roads now know where they cross
+   a real river; a stone arch and a timber beam are an afternoon with a visible return.
+4. **Gun damage with teeth** (row 149): the battery scalar exists; let it slow the broadside.
+5. **A fruit-tree set** (row 117b) and the authored village props (7c): the hinterland reads
+   well now, and these are what is thin in it.
+
+## Two things the next session should know
+
+- **Where the data is.** `assets/` is read-only to a session, so the 4x build is unpacked to
+  `mare_sessions/mare_elm_02-11-2026_120500/terrain_v2_extract/mare-world-terrain` (12 GB) with
+  its `rivers.bin` already packed beside each chunk. To make it the game's default, move that
+  folder to **`assets/data-terrain-v2/mare-world-terrain`** - the loader probes that name first,
+  ahead of `data_new`. Until then set `MARE_GEOCHUNK_DIR` to it. If both are present the 4x
+  build answers and the overview stands behind it, which is the intended arrangement.
+- **The standing risk, again.** Two sessions share one tree and rounds have been lost twice to
+  commits taken mid-round. A `mare_oak` session started at 12:06 today, while this one was
+  running.

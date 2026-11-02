@@ -25,6 +25,10 @@ river_t *rivers;
 
 namespace mare::game::world {
 
+// Set while the package's rivers are being read, and the reason carving defaults on: these
+// are surveyed watercourses, not a drainage network guessed from the heightfield.
+int rivers_authored = 0;
+
 class Rivers {
 public:
     void generate();
@@ -55,8 +59,16 @@ void Rivers::shutdown() {
 // tools/rivers_pack.py from waterways.geojsonl. Each segment becomes a river polyline of its own
 // (they are 2-3 km long; the grid the rings query does not care), its half-width from the
 // upstream length: a stream at the threshold, the Danube's lower course a quarter of a unit.
-// Painted only, like the generated network; carving and navigation still wait (MARE_RIVER_CARVE).
+//
+// 0.22.18 (todo 118): the authored reaches are **carved and navigable**. The generated network
+// never was, and for a good reason - a drainage network folded out of 7 km cells puts a river
+// wherever the heightfield happens to dip, and opening those to ships opened channels across
+// half of Europe. These are surveyed watercourses, so the class comes straight off the data:
+// `from_upstream_m`, the total length of river above this segment, is the honest measure of how
+// much water passes it. The thresholds below were read off the data itself (the table in
+// RIVER_UP_DEEP_M), not guessed, which is the other half of what todo 118 asked for.
 int Rivers::load_package() {
+    rivers_authored = 0;
     { const char *e = getenv("MARE_RIVER_DATA"); if (e && !atoi(e)) return 0; }
     gc_dataset_t d; if (!geochunks_dataset_count() || !geochunks_dataset(0, &d)) return 0;
     int nseg = 0, nread = 0; size_t total_pts = 0;
@@ -65,7 +77,7 @@ int Rivers::load_package() {
         FILE *f = fopen(path, "rb"); if (!f) continue;
         char magic[4]; unsigned count = 0;
         if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "MRV1", 4) || fread(&count, 4, 1, f) != 1) { fclose(f); continue; }
-        nread++;
+        nread++; rivers_authored = 1;      // before the first width is computed: it asks rivers_carve_enabled()
         for (unsigned k = 0; k < count && px.size() < RIVER_MAX_POINTS; ++k) {
             float up; unsigned short np;
             if (fread(&up, 4, 1, f) != 1 || fread(&np, 2, 1, f) != 1) break;
@@ -74,14 +86,27 @@ int Rivers::load_package() {
             // inside the world and on the land mask (the data draws into estuaries; the paint stops at the coast)
             int inside = 0; for (int i = 0; i < np; ++i) if (ll[2*i] > LON0 && ll[2*i] < LON1 && ll[2*i+1] > LAT0 && ll[2*i+1] < LAT1) inside = 1;
             if (!inside) continue;
-            float hwv = clampf(0.012f + 0.020f * log10f(maxf(up / 1.5e7f, 1.f)), 0.012f, 0.09f);   // half-width, world units (7 km = 1 unit): a mapped stream to a great river's lower course
-            river_t r; r.first = (int)px.size(); r.cells = (int)(up / 1e6f); r.navigable = 0;
+            // the segment's class, and the width that goes with it. Painted, every river keeps
+            // its true hairline width; carved, a navigable reach widens to ship scale (the same
+            // reasoning as RIVER_W_DEEP in rivers.h - a cog is 1.1 units across and the Danube
+            // is 0.2), crossing over smoothly so no class boundary shows as a step.
+            float hair = clampf(0.012f + 0.020f * log10f(maxf(up / 1.5e7f, 1.f)), 0.012f, 0.09f);
+            unsigned char pc = up >= RIVER_UP_DEEP_M ? 1 : up >= RIVER_UP_NAV_M ? 2 : 0;
+            float hwv = hair;
+            if (rivers_carve_enabled() && pc) {
+                float t = clampf((up - RIVER_UP_NAV_M) / (RIVER_UP_DEEP_M - RIVER_UP_NAV_M), 0.f, 1.f);
+                hwv = lerpf(RIVER_W_NAV, RIVER_W_DEEP, t);
+            } else if (rivers_carve_enabled()) {
+                float t = clampf((up - RIVER_UP_NAV_M * 0.45f) / (RIVER_UP_NAV_M * 0.55f), 0.f, 1.f);
+                hwv = lerpf(hair, RIVER_W_NAV, t);
+            }
+            river_t r; r.first = (int)px.size(); r.cells = (int)(up / 1e6f); r.navigable = pc;
             for (int i = 0; i < np; ++i) {
                 float wx = lon2x(ll[2*i]), wz = lat2z(ll[2*i+1]);
                 int i0 = i > 0 ? i - 1 : i, i1 = i + 1 < np ? i + 1 : i;
                 float tx = lon2x(ll[2*i1]) - lon2x(ll[2*i0]), tz = lat2z(ll[2*i1+1]) - lat2z(ll[2*i0+1]);
                 float tl = sqrtf(tx * tx + tz * tz); if (tl < 1e-6f) { tx = 1; tz = 0; } else { tx /= tl; tz /= tl; }
-                px.push_back(wx); pz.push_back(wz); hw.push_back(hwv); dx.push_back(tx); dz.push_back(tz); cls.push_back(0);
+                px.push_back(wx); pz.push_back(wz); hw.push_back(hwv); dx.push_back(tx); dz.push_back(tz); cls.push_back(pc);
             }
             r.count = (int)px.size() - r.first;
             if (r.count >= 2) list.push_back(r); else { px.resize(r.first); pz.resize(r.first); hw.resize(r.first); dx.resize(r.first); dz.resize(r.first); cls.resize(r.first); }
@@ -98,8 +123,33 @@ int Rivers::load_package() {
     memcpy(river_hw, hw.data(), river_npts * sizeof(float)); memcpy(river_dx, dx.data(), river_npts * sizeof(float)); memcpy(river_dz, dz.data(), river_npts * sizeof(float));
     memcpy(river_cls, cls.data(), river_npts);
     rivers = (river_t *)malloc((river_n ? river_n : 1) * sizeof(river_t)); memcpy(rivers, list.data(), river_n * sizeof(river_t));
+    // --- navigation and bridges, on the authored reaches (todo 118).
+    // navriver: the nav grid's cells under a class-1 or class-2 point become water of that
+    // class, which is what lets a fleet stand up the Danube or the Guadalquivir; nav_init
+    // folds it in and fleet.cc sets how deep a given squadron may go from her hulls.
+    // river_mask: the land-mask cells a *drawn* river runs through, so world/roads.cc throws a
+    // bridge where a road meets one. The generated network built this and the authored path
+    // never did, so until now a road laid over the Po as if it were dry ground.
     if (!navriver) navriver = (unsigned char *)calloc(NAV_W * NAV_H, 1);
+    if (!river_mask) river_mask = (unsigned char *)calloc((size_t)LM_W * LM_H, 1);
+    int nnav = 0, ndeep = 0, nbridge = 0;
+    for (int i = 0; i < river_npts; ++i) {
+        int cx = lon2cx(x2lon(river_px[i])), cy = lat2cy(z2lat(river_pz[i]));     // world units -> land-mask cells
+        if ((unsigned)cx < (unsigned)LM_W && (unsigned)cy < (unsigned)LM_H) {
+            unsigned char *m = &river_mask[(size_t)cy * LM_W + cx];
+            if (!*m) { *m = 1; nbridge++; }
+        }
+        int c = river_cls[i]; if (!c || !rivers_carve_enabled()) continue;        // no channel cut, no river open to ships
+        int nx = nav_x(river_px[i]), ny = nav_y(river_pz[i]);
+        if ((unsigned)nx >= (unsigned)NAV_W || (unsigned)ny >= (unsigned)NAV_H) continue;
+        unsigned char *n = &navriver[ny * NAV_W + nx];
+        if (!*n || c < *n) *n = (unsigned char)c;
+        nnav++; ndeep += c == 1;
+    }
+    int great = 0; for (const river_t &r : list) great += r.navigable == 1;
     LOG_INFO("rivers", "authored rivers from the terrain package: %d segments (%d points) from %d chunks' rivers.bin; the drainage network is not generated", river_n, river_npts, nread);
+    LOG_INFO("rivers", "authored reaches: %d to a merchantman, %d points open to ships (%d deep), %d cells carry a river for the roads to bridge; channels %s",
+             great, nnav, ndeep, nbridge, rivers_carve_enabled() ? "carved" : "painted only");
     return 1;
 }
 
@@ -246,10 +296,19 @@ void Rivers::generate() {
 // the segment grid (C, so the ring composer's workers can call it without the class)
 
 extern "C" {
+// Carving is on for the authored rivers and off for the generated network (0.22.18, todo 118).
+// The default had to be off while the only rivers were a drainage network folded out of 7 km
+// cells: that puts a watercourse wherever the heightfield dips, and cutting ship-scale channels
+// along those opened navigable water across half of Europe. The package's rivers are surveyed
+// lines with a measured catchment, so they can be cut and sailed. MARE_RIVER_CARVE still
+// decides it either way.
 int  rivers_carve_enabled(void) {
-    static int v = -1;
-    if (v < 0) { const char *e = getenv("MARE_RIVER_CARVE"); v = e && atoi(e) != 0 ? 1 : 0;
-                 LOG_INFO("rivers", "river channels %s (MARE_RIVER_CARVE)", v ? "carved into the ground" : "painted on the surface, nothing carved"); }
+    const char *e = getenv("MARE_RIVER_CARVE");
+    int v = e ? atoi(e) != 0 : mare::game::world::rivers_authored;
+    static int said = -1;
+    if (said != v) { said = v;
+        LOG_INFO("rivers", "river channels %s (%s)", v ? "carved into the ground, reaches open to ships" : "painted on the surface, nothing carved",
+                 e ? "MARE_RIVER_CARVE" : mare::game::world::rivers_authored ? "authored data" : "generated network"); }
     return v;
 }
 void rivers_generate(void) { mare::game::world::rivers_sys().generate(); }

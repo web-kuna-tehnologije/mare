@@ -4,7 +4,7 @@ contains oak then you are oak session. Now based on that when creating folder to
 
 save folder under /mnt/c/projects/mare\_sessions
 
-YOU ONLY HAVE READ/WRITE/EXEC PERMISSIONS IN THIS FOLDER:
+YOU ONLY HAVE READ/WRITE/EXEC PERMISSIONS IN THIS FOLDER AND WORK DIRECTORY:
 
 use this syntax mare\_{session:name}\_{date dd-mm-yyyy}\_{timestamp}
 

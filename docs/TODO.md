@@ -1,7 +1,11 @@
 # Terrain chunks and the living hinterland (0.22 plan, 2026-10-31, worktree `oak`)
 
-The exporter under `assets/data_new` (`MARE_INTEGRATION.md`, format `mare-terrain-v2`) is now the
-**only** terrain source: height, coverage, biome IDs, material weights and normals per chunk.
+**0.22.18:** the terrain source is now the **Mare Liberum 4x world build**
+(`assets/data-terrain-v2`, 2049 samples a chunk, ~700 m a sample) where it is present, with the
+3 km overview behind it; `docs/TODO_STATUS.md` holds the whole list as checkboxes.
+
+The exporter under `assets/data_new` (`MARE_INTEGRATION.md`, format `mare-terrain-v2`) is
+the: height, coverage, biome IDs, material weights and normals per chunk.
 Every earlier cache of the same data was removed on 2026-10-31 - the v1 `assets/data/export-global`,
 the u16 cuts (`assets/terrain/tiles`, `assets/elm/terrain/tiles*`, `gebco`), the fine Mediterranean
 cut the height atlas read, and the procedural `.mht` ring caches - together with the code that
@@ -29,8 +33,16 @@ Items 1-3 are done in this session; the rest is the order to take them in.
 4. [x] **Map view modes**: depth, religion, political, port/settlement influence, production
        (HUD "View" button, `common/mapmode.glsl`, the territory texture's influence channel, a
        region-info texture). Religion is a per-nation table, not simulated yet.
-5. [~] **Rivers** (`world/rivers.h/.cc`) - *generated network kept; carving and navigation
-       disabled since 0.22.3, waiting for authored river data*: a priority flood over the folded
+5. [x] **Rivers** (`world/rivers.h/.cc`) - *done 0.22.18: the authored layer is carved and
+       navigable, and the generated network stands behind it as the fallback.* The package's
+       `waterways.geojsonl` (115 chunks, 1.27M surveyed segments) gives each reach a class from
+       its own `from_upstream_m`, with the thresholds read off the layer (150 Mm takes a
+       merchantman, 60 Mm a shallow draught); the lower reaches are cut at ship scale, 2,148
+       nav cells of river are open to fleets, and `world/roads.cc` bridges them. Carving is on
+       for authored data and off for the generated network (`MARE_RIVER_CARVE` overrides).
+       Left: deltas and lakes as basins; the Seine and the Guadalquivir fall under the
+       threshold and the Thames and the Tiber under the export's own filter (todo 159).
+       *The generated network, kept as the fallback:* a priority flood over the folded
        heightfield gives
        every land cell its downstream neighbour, drainage is accumulated down those directions,
        cells draining over 45 land cells are river; polylines are Chaikin-smoothed with a small

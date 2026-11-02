@@ -255,7 +255,20 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 154 | P2 | Broadphase collision | [ ] |
 | 155 | P2 | Multithreaded physics jobs | [ ] |
 
-## Order of work (updated 0.22.17)
+## 0.22.18 (session elm) - the 4x terrain build and the rivers on it
+
+| # | Pri | Item | Status |
+|---|-----|------|--------|
+| 156 | P0 | Read the new asset in `assets/data-terrain-v2`: the Mare Liberum 4x world (2049 samples a chunk, ~700 m) | [x] the 513-sample ceiling lifted to `GC_MAX_SAMPLES`; the resident budget counts chunks (68 MB each at 4x, against 4.5) rather than a flat 160 MB; reads in flight scale with chunk size |
+| 157 | P0 | The 4x chunks on the GPU | [x] the chunk atlas picks its slot grid from the dataset - 3x3 slots of 1025 texels (113 MB) for the 4x build, 4x4 of 513 (50 MB) for the overview - and point-samples finer data down on the shared edges so chunk joins stay seamless. `MARE_CHUNK_ATLAS_SAMPLES=2049` for the full detail |
+| 158 | P1 | (found) the geography fold read 17 MB a chunk to throw fifteen sixteenths away: 2.6 s and ~0.5 GB peak against the overview's 0.7 s | [x] it reads every fourth row and column, by seeking over the rest: 1.0 s, identical output. `MARE_GEOCHUNK_DIR` also takes a `;`-separated list now, so an out-of-tree build joins the ones under `assets` |
+| 93 | P1 | The ranges read as terraces (the 2.8 km samples) | [x] 0.22.18: the finer DEM was the answer. The Dinaric karst has rock faces and ridges where it had smooth green hills (`shots/terrain_3km.png` against `shots/terrain_4x.png`) |
+| 118 | P1 | Carve the great rivers' lower reaches and reopen navigation on the authored data; the half-width from the upstream length is a guess | [x] 0.22.18: the class comes off `from_upstream_m` with thresholds **read off the layer** (150 Mm a merchantman, 60 Mm a shallow draught; the Danube delta measures 338, the Rhine 110, the Po 59). 2,148 nav cells of river open to ships; carving defaults on for authored data and stays off for the generated network |
+| 160 | P1 | (found) roads did not bridge the authored rivers | [x] `river_mask` was built only by the *generated* network, so since 0.22.14 a road had been laid over the Po as if it were dry ground. 31,895 cells carry a river for the roads to bridge |
+| 159 | P2 | The Seine, the Guadalquivir, the Thames and the Tiber are not navigable | [ ] the first two fall under our 60 Mm threshold, the last two under the export's own 10.9 Mm filter. `from_upstream_m` is length, not discharge, and the layer carries no width (`width_m` is null throughout) - correcting it needs a flow figure the data does not have |
+| 161 | P2 | Bridges as props at each `road_bridges[]` point (TODO 10b) | [ ] the points exist over real rivers now, which is what was blocking it |
+
+## Order of work (updated 0.22.18)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -272,7 +285,10 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 13. issue12's rest, rows 119-129. **Done 0.22.15.** Rows 95, 115 and half of 117 closed with it.
 14. issue14 + the lost 0.22.16 work, rows 130-142. **Done 0.22.17** (session elm).
 15. The damage model (P1.3), rows 143-151. **Done 0.22.17** - and with it the two bugs that had kept every battle bloodless.
-16. Next, in this order: 152 (fire), 153 (tactical results into the strategic ship), 117b (a fruit-tree set), 118 (river carving and navigation on the authored data), 121b (a verlet rope), then the list below:
+16. The 4x terrain build and its rivers, rows 156-158, 160, and with them 93 and 118. **Done 0.22.18** (session elm).
+17. Next, in this order: 153 (tactical results into the strategic ship), 152 (fire), 161 (bridge
+    props, now unblocked), 149 (gun damage with teeth), 117b (a fruit-tree set), 121b (a verlet
+    rope), then the list below. `docs/TODO_STATUS.md` is the whole list as checkboxes:
    1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
    2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy knows the waterline), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
    3. **Heave into the shader**: the body's heave is computed but the hull still rides the shader's own wave sample; with the attitude channel in place the heave is one more float.

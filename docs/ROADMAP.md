@@ -1,5 +1,20 @@
 # Development roadmap
 
+## Done: 0.22.18 — the 4x world and its rivers (worktree `elm`)
+
+The Mare Liberum 4x terrain build (2049 samples a chunk, ~700 m) is read, streamed and drawn:
+the budget counts chunks instead of megabytes, the GPU chunk atlas picks its slot grid from the
+dataset, and the geography fold reads a finer build at a stride so its cost no longer scales
+with the data's resolution. The package's rivers are carved and navigable, by a class read off
+the layer's own upstream lengths, and the roads bridge them.
+
+This closes the roadmap's standing **"a genuinely finer DEM for the home seas"**, open since
+0.20 and the highest-value terrain item on the list - though not in the form expected: the
+answer came as a 4x resample of GEBCO for the whole Earth rather than EU-DEM and EMODnet for
+the Adriatic. The caveat in DESIGN_TERRAIN.md 3d still stands at the new scale: GEBCO's own
+grid is ~460 m at the equator, so 700 m output is the end of the source's detail. Anything
+finer has to be procedural, or a genuinely different survey.
+
 ## Done: 0.21 — Vulkan draws, DX12 wakes up, the right GPU, an Options panel (worktree `oak`)
 
 The discrete GPU is asked for (3.85x), Vulkan renders a SPIR-V pipeline offscreen and verifies
@@ -14,10 +29,11 @@ panel that persists, the geography fold reads the export's float32 chunks on the
   pipeline from `rhi_pipeline_desc_t`, move its uniforms into a descriptor set, and render it
   offscreen next to the GL frame for comparison. Presenting comes last, because the swapchain
   has to replace the window's GL context rather than share it.
-- **A genuinely finer DEM for the home seas** - still the highest-value terrain item, and the
-  measurement in DESIGN_TERRAIN.md 3d says why: the renderer already resolves everything the
-  current data holds. EU-DEM + EMODnet for the Adriatic would switch the height atlas on by
-  itself.
+- **The butcher's bill goes home.** The damage model is complete and nothing reads it: write
+  the tactical result back into the strategic ship, so a battle costs a fleet something that
+  outlives the scene. The single highest-value item left (`docs/TODO_STATUS.md`).
+- ~~A genuinely finer DEM for the home seas~~ — **done in 0.22.18** by the 4x world build.
+  What remains under that heading is procedural micro-detail on the near ground, not data.
 - Finish T9: move callers onto the class APIs and inject `game_t`, which is what lets the
   C-ABI globals and their shims retire.
 - A beach profile for the islands `raise_small_islands` lifts; they still read as plateaux.

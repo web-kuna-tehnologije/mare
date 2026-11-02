@@ -3,8 +3,9 @@
 // "mare-world-package-v1" - the same chunks with LOD levels and a few more maps).
 //
 // A dataset is a directory with a manifest.json and chunks/{y}/{x}/ (a package: one per
-// lods/{level}/) holding, per chunk, N x N vertex-aligned samples - 513 for the full-resolution
-// chunks, 257 / 129 / 65 for the package's LOD levels and the regional Dalmatian export -
+// lods/{level}/) holding, per chunk, N x N vertex-aligned samples - **2049** for the Mare
+// Liberum 4x world build (assets/data-terrain-v2, ~700 m a sample), 513 for the 3 km overview,
+// 257 / 129 / 65 for the package's LOD levels and the regional Dalmatian export -
 // neighbouring chunks sharing their edge samples:
 //
 //   height.r32        little-endian float32 metres, negative is sea floor   (authoritative)
@@ -39,12 +40,15 @@
 extern "C" {
 #endif
 
-#define GC_SAMPLES      513           // the full-resolution chunk's samples per edge (the GPU atlas slot size)
+#define GC_SAMPLES      513           // the 3 km overview's samples per edge (the reference grid)
 #define GC_CELLS        512           // ... hence cells; a dataset's own N is gc_dataset_t.samples
+#define GC_MAX_SAMPLES  2049          // the finest grid this build reads: the Mare Liberum 4x world (0.22.18)
 #define GC_MAX_DATASETS 16            // the package's LOD levels plus regional builds
 #define GC_MAX_CHUNKS   4096          // per dataset (the overview has 27 x 14 = 378)
-#define GC_BUDGET_MB    160           // resident payload over all datasets; MARE_GEOCHUNK_MB overrides
-#define GC_MAX_INFLIGHT 4             // chunk reads started per update (~2.4 MB on disk each)
+#define GC_BUDGET_MB    160           // floor for the resident payload over all datasets; MARE_GEOCHUNK_MB overrides
+#define GC_BUDGET_CHUNKS 6            // ... raised, if need be, to hold this many of the finest dataset's chunks
+#define GC_MAX_INFLIGHT 4             // chunk reads started per update at the overview's size, fewer for bigger chunks
+#define GC_INFLIGHT_MB  12            // ... scaled so no more than roughly this much disk is in flight
 
 // land-cover classes, as the manifest lists them
 enum {
@@ -87,7 +91,8 @@ typedef struct gc_sample_t {
 
 // Find the datasets and read their manifests (no payload). `dir` NULL = probe
 // "<assets>/../data_new", "<assets>/data_new", then "assets/data_new" upwards; a dir is either
-// one dataset (it has a manifest.json) or a folder of them. MARE_GEOCHUNK_DIR overrides,
+// one dataset (it has a manifest.json) or a folder of them. MARE_GEOCHUNK_DIR overrides -
+// a ';'-separated list, so an out-of-tree build can join the ones under assets -
 // MARE_GEOCHUNKS=0 disables. Returns the number of datasets accepted.
 int  geochunks_init(const char *dir);
 void geochunks_shutdown(void);
