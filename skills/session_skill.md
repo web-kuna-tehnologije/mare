@@ -1,5 +1,6 @@
-if you are in ~/.cache/claude-hfi/-mnt-c-projects-mare/oak directorey then you are elm session 
-else if you are in ~/.cache/claude-hfi/-mnt-c-projects-mare/oak directory you are oak session. 
+if you start in ~/.cache/claude-hfi/-mnt-c-projects-mare/elm directorey then you are elm session 
+
+if you start in ~/.cache/claude-hfi/-mnt-c-projects-mare/oak directory you are oak session. 
 
 Now based on that when creating folder to work in:
 
