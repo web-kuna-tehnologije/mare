@@ -58,7 +58,7 @@ typedef struct gun_t { float gx, gy, gz, sx, sz, fx, fz, gs, deck; float t; int 
 // of density that grows from r0 to r1 (fast at first), drifts on the wind and thins with age; the
 // fullscreen ray-march in fx/volsmoke.frag draws the set. Replaces the smoke billboards
 // (MARE_SMOKE_BILLBOARDS=1 brings those back).
-typedef struct blob_t { float x, y, z, vx, vy, vz, age, life, r0, r1, dens, seed, shade; int kind; } blob_t;
+typedef struct blob_t { float x, y, z, vx, vy, vz, age, life, r0, r1, dens, seed, shade, rise; int kind; } blob_t;   // 0.22.22 (issue18): `rise` is its own buoyancy - a fire's column keeps climbing long after its first push has died, gunsmoke barely lifts
 #define BLOB_MAX 128
 
 class Particles {
@@ -197,17 +197,47 @@ void Particles::fire(float x, float y, float z, float hull_len, float heat) {
     float L = maxf(hull_len, 3.f);
     float h = clampf(heat, 0.f, 1.f);
     float ox = (rnd_f(&rng_) - 0.5f) * 0.45f * L, oz = (rnd_f(&rng_) - 0.5f) * 0.18f * L;
-    // the smoke column: dark, climbing, carried off on the wind
-    if (vol_on_) {
+    // The smoke column (0.22.21, issue17 "black and grey an whitte smoke dense"): a ship fire
+    // does not make one colour of smoke. The seat of the fire throws black oily soot, charring
+    // timber a mid grey, and steam and fresh pine a dirty white - so each plume rolls one of
+    // the three, two a call instead of one, and denser than before. The mix is what reads as
+    // "something is burning down", where a single grey read as a chimney.
+    // 0.22.22 (issue18 "add more smoke particles by much and let them live longer"): four
+    // volumes a call instead of two, at twice the rate (fire_puff below), living 34-52 s
+    // instead of 16-25 - so a ship well alight carries a standing column rather than a few
+    // passing puffs. They leave fast and are checked by the air almost at once (the drag
+    // above), then climb on their own buoyancy.
+    if (vol_on_) for (int k = 0; k < 4; ++k) {
         blob_t *b = blob_spawn();
         if (b) { *b = blob_t{};
-            b->x = x + ox; b->y = y + 0.4f; b->z = z + oz;
-            b->vy = 1.4f + 2.2f * h; b->vx = wind_x_ * 2.2f; b->vz = wind_z_ * 2.2f;
-            b->life = 14.f + 8.f * rnd_f(&rng_);
-            b->r0 = 0.5f + 0.5f * h; b->r1 = (3.0f + 5.0f * h) * (0.6f + L / 30.f);
-            b->dens = 1.5f + 1.1f * h;
-            b->shade = 0.30f - 0.16f * h;            // soot: far darker than gunsmoke
+            float tone = rnd_f(&rng_);
+            b->x = x + ox + (rnd_f(&rng_) - 0.5f) * 0.16f * L; b->y = y + 0.3f + k * 0.45f; b->z = z + oz + (rnd_f(&rng_) - 0.5f) * 0.08f * L;
+            b->vy = 3.2f + 4.4f * h; b->vx = wind_x_ * 2.6f + (rnd_f(&rng_) - 0.5f) * 1.6f; b->vz = wind_z_ * 2.6f + (rnd_f(&rng_) - 0.5f) * 1.6f;
+            b->life = 34.f + 18.f * rnd_f(&rng_);
+            b->r0 = 0.45f + 0.6f * h; b->r1 = (3.2f + 5.5f * h) * (0.6f + L / 30.f);
+            b->dens = 2.1f + 1.5f * h;
+            b->rise = 0.30f + 0.26f * h;                                // the column keeps going up
+            b->shade = tone < 0.45f ? 0.16f + 0.06f * rnd_f(&rng_)      // black, off the seat of it
+                     : tone < 0.80f ? 0.36f + 0.08f * rnd_f(&rng_)      // charring grey
+                                    : 0.68f + 0.10f * rnd_f(&rng_);     // steam-white
             b->seed = rnd_f(&rng_); b->kind = 1; }
+    }
+    // ... and a skirt of cheap billboard smoke with them, which is what gives the column its
+    // particle *count* without putting another dozen spheres through the ray-march
+    for (int k = 0; k < 3 + (int)(4.f * h); ++k) {
+        ptc_t *p = spawn(); if (!p) break; *p = ptc_t{};
+        p->kind = PK_SMOKE;
+        p->x = x + ox + (rnd_f(&rng_) - 0.5f) * 0.20f * L;
+        p->y = y + 0.3f + rnd_f(&rng_) * 0.8f;
+        p->z = z + oz + (rnd_f(&rng_) - 0.5f) * 0.12f * L;
+        float a = rnd_f(&rng_) * 6.2832f, r = 0.6f + rnd_f(&rng_) * 1.4f;
+        p->vx = cosf(a) * r + wind_x_ * 1.4f; p->vz = sinf(a) * r + wind_z_ * 1.4f;
+        p->vy = 1.8f + 2.4f * rnd_f(&rng_) * (0.5f + h);
+        p->life = 14.f + 10.f * rnd_f(&rng_);
+        p->size0 = (0.35f + 0.4f * h) * (0.5f + L / 34.f); p->size1 = p->size0 * 4.2f;
+        float tone = rnd_f(&rng_);
+        p->shade = tone < 0.45f ? 0.18f : tone < 0.8f ? 0.40f : 0.70f;
+        p->alpha = 0.75f; p->seed = rnd_f(&rng_); p->rot = rnd_f(&rng_) * 6.28f;
     }
     // The flame at its root (0.22.20, issue16 "make more realistic fire, you have particles
     // and smoke also" - the first cut used the muzzle-flash sprite, which is a hot *disc*, so
@@ -216,7 +246,7 @@ void Particles::fire(float x, float y, float z, float hull_len, float heat) {
     // the flicker is many short-lived tongues, not one long-lived sprite. PK_FLAME renders
     // the Meshy fire sheet stretched 2:1 tall with a colour ramp from white at the root to
     // red at the tip (fx/puff.frag), and never spins - fire does not rotate.
-    int nf = 2 + (int)(5.f * h);
+    int nf = 5 + (int)(10.f * h);   // 0.22.22 (issue18 "same with fire add particles")
     for (int k = 0; k < nf; ++k) {
         ptc_t *p = spawn(); if (!p) break; *p = ptc_t{};
         p->kind = PK_FLAME;
@@ -229,6 +259,23 @@ void Particles::fire(float x, float y, float z, float hull_len, float heat) {
         p->size0 = (0.30f + 0.55f * h) * (0.5f + L / 40.f);
         p->size1 = p->size0 * 1.7f;                      // a tongue stretches as it climbs, then the frag fades it
         p->alpha = 0.95f; p->seed = rnd_f(&rng_); p->rot = 0.f;
+    }
+    // ... and sparks (issue17 "fire and sparkles"): a fire spits them continuously, fast,
+    // bright and short-lived, flung upward in a cone and carried off on the wind - more and
+    // harder the hotter she burns. The embers below are the slower, heavier brands.
+    int nsp = 4 + (int)(11.f * h);   // 0.22.22 (issue18 "add particles")
+    for (int k = 0; k < nsp; ++k) {
+        ptc_t *p = spawn(); if (!p) break; *p = ptc_t{};
+        p->kind = PK_EMBER;
+        p->x = x + ox + (rnd_f(&rng_) - 0.5f) * 0.05f * L;
+        p->y = y + 0.3f + rnd_f(&rng_) * 0.3f;
+        p->z = z + oz + (rnd_f(&rng_) - 0.5f) * 0.05f * L;
+        float a = rnd_f(&rng_) * 6.2832f, r = rnd_f(&rng_) * 1.6f;
+        p->vx = cosf(a) * r + wind_x_ * 0.7f; p->vz = sinf(a) * r + wind_z_ * 0.7f;
+        p->vy = 4.0f + 6.0f * rnd_f(&rng_) * (0.4f + h);
+        p->life = 0.5f + rnd_f(&rng_) * 0.9f;
+        p->size0 = 0.030f; p->size1 = 0.012f;
+        p->alpha = 1.f; p->seed = rnd_f(&rng_);
     }
     // ... and embers off a hot fire, carried up and off on the wind
     if (h > 0.3f) for (int k = 0; k < 2; ++k) {
@@ -560,9 +607,15 @@ void Particles::update(float dt) {
     for (int i = 0; i < nblob_; ) {   // the volume: drag towards half the wind, a little buoyancy, gone at its life
         blob_t *b = &vb_[i]; if (!freeze || b->age < 0.35f * b->life) b->age += dt;
         if (b->age >= b->life) { *b = vb_[--nblob_]; continue; }
-        float t = b->age / b->life, d = expf(-dt * 0.55f);
+        // 0.22.22 (issue18 "let them ... move slover - fast then slow down and move upward").
+        // Smoke leaves the fire hard, is stopped by the air within a second or two, and then
+        // only rises: the horizontal drag is three times stiffer than it was, so the initial
+        // push is spent quickly, and `rise` is a *sustained* buoyancy that does not decay with
+        // age - so a plume shoots out, checks, and then goes up in a column, which is what a
+        // burning ship actually looks like.
+        float t = b->age / b->life, d = expf(-dt * 1.7f);
         b->vx = wind_x_ * 0.5f + (b->vx - wind_x_ * 0.5f) * d; b->vz = wind_z_ * 0.5f + (b->vz - wind_z_ * 0.5f) * d;
-        b->vy = b->vy * expf(-dt * 0.8f) + (0.45f * (1.f - t) * (1.f - t) + 0.04f) * dt;
+        b->vy = b->vy * expf(-dt * 1.5f) + (0.45f * (1.f - t) * (1.f - t) + 0.04f + b->rise) * dt;
         b->x += b->vx * dt; b->y += b->vy * dt; b->z += b->vz * dt;
         ++i;
     }

@@ -73,6 +73,7 @@ typedef struct dv_ship_t {
     float furl;                      // 0.22.15: 0..1, how far the sails are taken in (an oared ship pulling into the wind)
     int   src_fleet, src_slot;       // 0.22.19 (todo 153): the strategic ship she stands for; -1 in a staged exercise
     float fire_puff;                 // 0.22.19 (todo 152): seconds to the next plume off a burning ship
+    float mast_fall[4];              // 0.22.23 (issue19): seconds since each station was carried away, <0 standing
 } dv_ship_t;
 
 // Metres per local unit: the authored hulls are fitted at SHIP_M_PER_UNIT (0.045 world units
@@ -147,6 +148,7 @@ public:
             out->sunk = d.sunk; out->stranded = d.stranded; out->masts_down = d.masts_down;
             out->hull = 1.f - d.hull; out->sails = 1.f - d.rig; out->guns = 1.f - d.guns;
             out->water = d.flood; out->fire = d.fire;
+            out->crew = d.crew; out->ammo = d.ammo;        // 0.22.22 (todo 178)
         }
         return 1;
     }
@@ -484,7 +486,7 @@ void DetailView::battle_add_ship(int type, int side, float x, float z, float hea
                       heading, st.turn_dps * 0.0174533f, st.length_m / DV_M_PER_UNIT, 0,
                       st.guns, st.oar_knots > 0.5f * st.knots, -1,
                       st.beam_m / DV_M_PER_UNIT, st.tonnes,
-                      st.oar_knots * DV_KNOT, 0.f, src_fleet, src_slot, 0.f };
+                      st.oar_knots * DV_KNOT, 0.f, src_fleet, src_slot, 0.f, { -1.f, -1.f, -1.f, -1.f } };
     // Her rigid body (0.22.9, P1.3): the battle is stepped at a fixed rate and the hulls
     // collide, so from here on the formation code only *asks* for a course and a speed.
     if (dv.mode == DV_BATTLE || dv.want_mode == DV_BATTLE)
@@ -582,6 +584,10 @@ void DetailView::build_battle(int fleet_id) {
             for (int k = 0; k < f->nships; ++k) {
                 float lx = -46 + (dv.nships % 7) * 15.f + rnd_f(&seed) * 7, lz = (side ? 14 : -14) + ((dv.nships / 7) % 3) * 19.f + rnd_f(&seed) * 8;
                 battle_add_ship(f->ships[k].type, side, lx, lz, side ? 3.14159f + rnd_f(&seed) * 0.5f : rnd_f(&seed) * 0.5f, col, &seed, f->nation, f->id, k);
+                // 0.22.22 (todo 178): she comes into the action with the people and the powder
+                // she actually has - a ship that fought yesterday is short of both
+                if (dv.nships > 0 && dv.ship[dv.nships - 1].body >= 0)
+                    nphys_man(dv.ship[dv.nships - 1].body, f->ships[k].crew, f->ships[k].ammo);
             }
         }
     }
@@ -596,6 +602,9 @@ void DetailView::build_battle(int fleet_id) {
             battle_add_ship(tb, 1, -48 + (i % 6) * 23 + rnd_f(&seed) * 8,  20 + (i / 6) * 19 + rnd_f(&seed) * 6, 3.0f + rnd_f(&seed) * 0.4f, cb, &seed, nb, -1, -1);
         }
         LOG_INFO("gfx", "detail view: no battle under way, staged a %d-ship exercise", dv.nships);
+        { const char *e = getenv("MARE_BATTLE_FREEZE"); if (e && atoi(e)) { set_timescale(0.f);
+              LOG_INFO("gfx", "battle frozen (MARE_BATTLE_FREEZE); ship 0 at %.1f %.1f hdg %.2f, ship 1 at %.1f %.1f",
+                       dv.ship[0].x, dv.ship[0].z, dv.ship[0].heading, dv.nships > 1 ? dv.ship[1].x : 0.f, dv.nships > 1 ? dv.ship[1].z : 0.f); } }
     } else LOG_INFO("gfx", "detail view: battle with %d ships", dv.nships);
     battle_form_lines();
     LOG_INFO("gfx", "battle lines formed: %d against %d, line speeds %.2f / %.2f u/s, gaps %.0f / %.0f",
@@ -654,6 +663,10 @@ void DetailView::write_back(void) {
             sh->hull = 0.f; sh->d_flood = 1.f; sunk++; touched++;
             continue;
         }
+        // 0.22.22 (todo 178): her butcher's bill and her expenditure go home too - casualties
+        // are not replaced at sea and powder burnt is powder gone
+        if (d.crew < sh->crew) { sh->crew = d.crew; touched++; }
+        if (d.ammo < sh->ammo) { sh->ammo = d.ammo; touched++; }
         if (d.rig   > sh->d_rig)   { sh->d_rig   = d.rig;   touched++; }
         if (d.guns  > sh->d_guns)  { sh->d_guns  = d.guns;  touched++; }
         if (d.flood > sh->d_flood) { sh->d_flood = d.flood; touched++; }
@@ -786,11 +799,12 @@ void DetailView::battle_update(float dt) {
             if (fd.fire > 0.02f) {
                 s->fire_puff -= dt;
                 if (s->fire_puff < 0.f) {
-                    s->fire_puff = 0.55f - 0.35f * fd.fire;          // the harder she burns, the thicker it comes
+                    s->fire_puff = 0.26f - 0.17f * fd.fire;          // the harder she burns, the thicker it comes (0.22.22: twice the rate, issue18 "add more smoke particles by much")
                     particles_fire(dv.cx + s->x, 0.06f * s->len, dv.cz + s->z, s->len, fd.fire);
                 }
             }
         }
+        for (int k = 0; k < 4; ++k) if (s->mast_fall[k] >= 0.f) s->mast_fall[k] += dt;   // 0.22.23 (issue19): the mast going by the board
         s->next_fire -= dt;
         if (s->next_fire < 0) {                                                // broadside at the nearest enemy within range
             // 0.22.19 (todo 149, "gun damage with teeth"): the battery scalar has been kept
@@ -827,6 +841,11 @@ void DetailView::battle_update(float dt) {
                 float fx = cosf(s->heading), fz = -sinf(s->heading), tx = dv.ship[j].x - s->x, tz = dv.ship[j].z - s->z;
                 float side = (-fz * tx + fx * tz) >= 0.f ? 1.f : -1.f;
                 int serve = maxi((int)(s->guns * (1.f - gd) + 0.5f), 1);     // the pieces she can still serve
+                // 0.22.22 (todo 178): ... and only as many as her people can man and her
+                // lockers can load. A ship that has shot herself dry falls silent, which is
+                // what makes a long action end.
+                if (s->body >= 0) serve = nphys_spend_ammo(s->body, serve);
+                if (serve <= 0) continue;
                 particles_broadside(dv.cx + s->x, 0.f, dv.cz + s->z, s->heading, side, s->len, maxi(serve, 2), s->body);
             }
         }
@@ -841,7 +860,13 @@ void DetailView::battle_update(float dt) {
         // the water the hulls ride (0.22.11, P1.3 buoyancy): the same wave sum the sea draws,
         // in the staged scene's stretched units; the bodies are in local coordinates
         nphys_set_surface(dv_surface, this);
-        nphys_advance(dt);
+        // 0.22.23: what the tactical world actually costs, so "physics" work is aimed at a
+        // measurement and not a guess (issue19 asks for the physics items next)
+        { double t0 = diag_now(); nphys_advance(dt);
+          static double acc = 0; static int nf = 0; acc += (diag_now() - t0) * 1000.0; nf++;
+          if (nf >= 120) { LOG_INFO("sim", "physics: %.3f ms a frame over %d frames (%d bodies, %d steps, %d contacts, %d shot)",
+                                    acc / nf, nf, nphys_count(), nphys_steps_last(), nphys_contacts_last(), nphys_shots());
+                           acc = 0; nf = 0; } }
         for (int i = 0; i < dv.nships; ++i) { dv_ship_t *s = &dv.ship[i];
             if (s->body < 0) continue;
             nphys_pose(s->body, &s->x, &s->z, &s->heading); }
@@ -852,20 +877,28 @@ void DetailView::battle_update(float dt) {
         static float dmg_log = 0.f; dmg_log += dt;
         { static float wb_t = 0.f; wb_t += dt; if (wb_t > 5.f) { wb_t = 0.f; write_back(); } }   // 0.22.19 (todo 153): and home it goes
         if (dmg_log > 10.f) { dmg_log = 0.f;
-            float wh = 0, wr = 0, wf = 0; int nsunk = 0, nmast = 0;
+            float wh = 0, wr = 0, wf = 0, lc = 1.f, la = 1.f; int nsunk = 0, nmast = 0;
             for (int i = 0; i < dv.nships; ++i) { if (dv.ship[i].body < 0) continue;
                 nphys_damage_t d; nphys_damage_get(dv.ship[i].body, &d);
                 if (d.hull > wh) wh = d.hull; if (d.rig > wr) wr = d.rig; if (d.flood > wf) wf = d.flood;
+                if (d.crew < lc) lc = d.crew; if (d.ammo < la) la = d.ammo;   // 0.22.22 (todo 178)
                 nsunk += d.sunk; nmast += d.masts_down; }
             int nbody = 0; for (int i = 0; i < dv.nships; ++i) nbody += dv.ship[i].body >= 0;
-            LOG_DEBUG("sim", "battle damage: %d hits, worst hull %.2f rig %.2f flood %.2f, %d mast(s) down, %d sunk; %d bodies, %d shot in the air",
-                      dv.hits, wh, wr, wf, nmast, nsunk, nbody, nphys_shots()); }
+            LOG_INFO("sim", "battle damage: %d hits, worst hull %.2f rig %.2f flood %.2f, thinnest crew %.2f driest lockers %.2f, %d mast(s) down, %d sunk; %d bodies, %d shot in the air",
+                     dv.hits, wh, wr, wf, lc, la, nmast, nsunk, nbody, nphys_shots()); }
     }
     for (int e = 0; e < nev; ++e) {
             float sz = 0.7f + 0.004f * ev[e].speed;
             if (ev[e].kind == NPHYS_EV_SPLASH) particles_splash(dv.cx + ev[e].x, dv.cz + ev[e].z, sz);
             else if (ev[e].kind == NPHYS_EV_MAST_DOWN) {   // 0.22.17: a mast carried away
                 particles_hit(dv.cx + ev[e].x, ev[e].y, dv.cz + ev[e].z, 0.f, 1.f, 2.2f);
+                // 0.22.23 (issue19): start this station's fall, so the shipyard can draw it
+                // going over the side instead of blinking out
+                for (int i = 0; i < dv.nships; ++i) if (dv.ship[i].body == ev[e].body) {
+                    nphys_damage_t d; nphys_damage_get(ev[e].body, &d);
+                    int k = d.masts_down - 1;
+                    if (k >= 0 && k < 4 && dv.ship[i].mast_fall[k] < 0.f) dv.ship[i].mast_fall[k] = 0.f;
+                }
                 LOG_INFO("gfx", "battle: a mast goes by the board");
             }
             else if (ev[e].kind == NPHYS_EV_FIRE) {        // 0.22.19 (todo 152)
@@ -1172,8 +1205,13 @@ void DetailView::frame(float dt) {
         shipyard_req_t sr = { s->type, s->nation, ROLE_WARSHIP, wx, wz, s->heading, DV_SHIP_SCALE,
                               rock, 0.f, 0.f, s->r, s->g, s->b,
                               sqrtf(dx*dx + dz*dz + cam.pos.y*cam.pos.y), lod_key(LODK_MISC, 7, i), broll, bpitch, s->furl };
-        // 0.22.20 (issue16 "mesh damage removal"): the masts the physics took are not drawn
-        if (s->body >= 0) { nphys_damage_t dd; nphys_damage_get(s->body, &dd); sr.masts_down = dd.masts_down; }
+        // 0.22.20 (issue16 "mesh damage removal"): the masts the physics took are not drawn;
+        // 0.22.21 (issue17): and a wounded or burning rig loses her canvas from the top down
+        if (s->body >= 0) { nphys_damage_t dd; nphys_damage_get(s->body, &dd);
+            sr.masts_down = dd.masts_down; sr.rig_d = maxf(dd.rig, dd.fire);
+            sr.hull_d = dd.hull;                                      // 0.22.23 (issue19): visible damage on the planking
+            for (int k = 0; k < 4; ++k) sr.mast_fall[k] = s->mast_fall[k]; }
+        else { for (int k = 0; k < 4; ++k) sr.mast_fall[k] = -1.f; }
         if (shipyard_push(&sr)) continue;
         *instlist_push(&dv.ships_il[s->type]) = inst_t{ wx, 0, wz, s->heading,
             ship_scale(s->type) * DV_SHIP_SCALE, s->r, s->g, s->b, rock, 0, 1, 0 }; }

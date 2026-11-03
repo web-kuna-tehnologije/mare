@@ -76,13 +76,14 @@ int  detailview_furl_order(void);
 // The muster list (0.22.20, issue16 "add ship icons and list on top enemy on bottom player and
 // shows stats"). One entry per tactical ship, player's side 0: the HUD draws the player's line
 // along the bottom of the battle view and the enemy's along the top, each ship with her
-// condition bars. `hull`, `sails`, `guns` are what she has LEFT (1 sound, 0 gone); `water` is
-// how far flooded she is (0 dry); `fire` 0..1. Crew and ammunition are not simulated yet, so
-// they are not shown - a bar that never moves is a lie.
+// condition bars. `hull`, `sails`, `guns`, `crew` and `ammo` are what she has LEFT (1 sound
+// or full, 0 gone); `water` is how far flooded she is (0 dry); `fire` 0..1. Crew and
+// ammunition became real in 0.22.22 (todo 178) and are shown with the rest.
 typedef struct dv_shipinfo_t {
     int   side, type;          // 0 = the player's line
     int   sunk, stranded, masts_down;
     float hull, sails, guns, water, fire;
+    float crew, ammo;          // 0.22.22 (todo 178): what is left of her people and her powder
 } dv_shipinfo_t;
 int detailview_ship_info(int i, dv_shipinfo_t *out);   // 0 past the end; i from 0
 int detailview_ship_count(void);

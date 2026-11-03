@@ -15,6 +15,8 @@
 
 #include "gpu.h"
 
+#define SHIP_MAX_MASTS 4     // 0.22.23: the request carries a per-station fall timer, so the count has to be visible here too
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,6 +32,13 @@ typedef struct shipyard_req_t {
     float    roll, pitch;           // the body's attitude in radians (0.22.12): starboard down +, bow up +; 0 on the map
     float    furl;                  // 0.22.15: 1 = sails taken in (an oared ship pulling into the wind); the canvas is not drawn, spars and cordage stay
     int      masts_down;            // 0.22.20 (issue16 "mesh damage removal"): stations carried away, fore first - the mast, its yards and its canvas are not drawn
+    float    rig_d;                 // 0.22.21 (issue17 "sails can burn also" / "visible damage"): rig damage 0..1 - canvas burns and blows out from the topgallants down, before the mast itself goes
+    // 0.22.23 (issue19 "add animation of sails snapping and mast falling and rigging falling"):
+    // seconds since each station's mast was carried away, or <0 for a mast still standing. A
+    // falling mast is drawn for MAST_FALL_SECS, heeling over and going by the board with its
+    // canvas; after that it is gone, as it has been since 0.22.20.
+    float    mast_fall[SHIP_MAX_MASTS];
+    float    hull_d;                // 0.22.23 (issue19 "add parts of damage to ship visible"): hull damage 0..1 - she is scarred, charred and holed with it
 } shipyard_req_t;
 
 // What a class *is*, physically. The design sheets give the dimensions; the sailing numbers

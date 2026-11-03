@@ -303,8 +303,11 @@ void Ai::think(fleet_t *f) {
 fleet_t *Ai::spawn_merchant(int nation, int port) {
     port_t *p = &G.ports[port];
     fleet_t *f = fleet_new(nation, ROLE_TRADER, p->x, p->z, 0); if (!f) return 0;
-    fleet_add_ship(f, rnd_f(&G.rng) < 0.35f ? SHIP_MERCHANT : SHIP_FLUYT);
-    if (rnd_f(&G.rng) < 0.4f) fleet_add_ship(f, SHIP_FLUYT);
+    // 0.22.22 (issue18): the trade fleets draw on all four trader classes - a caravel for a
+    // short haul, a fluyt for bulk, a hulk for weight, a merchantman when it must defend itself
+    { float r = rnd_f(&G.rng);
+      fleet_add_ship(f, r < 0.20f ? SHIP_CARAVEL : r < 0.55f ? SHIP_FLUYT : r < 0.80f ? SHIP_HULK : SHIP_MERCHANT); }
+    if (rnd_f(&G.rng) < 0.4f) fleet_add_ship(f, rnd_f(&G.rng) < 0.5f ? SHIP_FLUYT : SHIP_CARAVEL);
     f->at_port = port; f->home_port = port; f->autotrade = 1; f->order = ORDER_DOCK; f->think_timer = rnd_range(&G.rng, 1, 5);
     f->money = AI_MERCHANT_CAPITAL + AI_MERCHANT_CAPITAL_SHIP * f->nships;
     G.nations[nation].treasury -= fleet_value(f) + f->money;
@@ -313,7 +316,11 @@ fleet_t *Ai::spawn_merchant(int nation, int port) {
 fleet_t *Ai::spawn_warfleet(int nation, int port, int strength) {
     port_t *p = &G.ports[port];
     fleet_t *f = fleet_new(nation, ROLE_WARSHIP, p->x, p->z, 0); if (!f) return 0;
-    for (int i = 0; i < strength; ++i) { float r = rnd_f(&G.rng); fleet_add_ship(f, r < 0.3f ? SHIP_GALLEON : r < 0.5f ? SHIP_LINER : SHIP_FRIGATE); }
+    // 0.22.22 (issue18): a line of battle is built of the three line classes, with frigates
+    // and the odd xebec for the wings
+    for (int i = 0; i < strength; ++i) { float r = rnd_f(&G.rng);
+        fleet_add_ship(f, r < 0.24f ? SHIP_GALLEON : r < 0.42f ? SHIP_WAR_GALLEON : r < 0.54f ? SHIP_LINER
+                        : r < 0.84f ? SHIP_FRIGATE : SHIP_XEBEC); }
     f->at_port = port; f->home_port = port; f->order = ORDER_DOCK; f->think_timer = rnd_range(&G.rng, 2, 6);
     G.nations[nation].treasury -= fleet_value(f);
     return f;
@@ -321,7 +328,9 @@ fleet_t *Ai::spawn_warfleet(int nation, int port, int strength) {
 fleet_t *Ai::spawn_pirates(int haven, int n) {
     port_t *p = &G.ports[haven];
     fleet_t *f = fleet_new(NATION_PIRATES, ROLE_PIRATE, p->x, p->z, 0); if (!f) return 0;
-    for (int i = 0; i < n; ++i) fleet_add_ship(f, rnd_f(&G.rng) < 0.7f ? SHIP_SLOOP : SHIP_FRIGATE);
+    // 0.22.22 (issue18): the interceptor roster - a sloop, a xebec in the Mediterranean trade, a frigate
+    for (int i = 0; i < n; ++i) { float r = rnd_f(&G.rng);
+        fleet_add_ship(f, r < 0.52f ? SHIP_SLOOP : r < 0.78f ? SHIP_XEBEC : SHIP_FRIGATE); }
     f->at_port = haven; f->home_port = haven; f->order = ORDER_DOCK; f->money = 2000; f->think_timer = rnd_range(&G.rng, 1, 4);
     return f;
 }
@@ -333,7 +342,7 @@ void Ai::spawn_treasure_fleet() {
     if (!n || dest < 0 || G.ports[dest].nation != NATION_SPAIN) return;
     int a = cand[rnd_int(&G.rng, n)]; port_t *p = &G.ports[a];
     fleet_t *f = fleet_new(NATION_SPAIN, ROLE_TREASURE, p->x, p->z, "Flota de Indias"); if (!f) return;
-    int ng = 2 + rnd_int(&G.rng, 3); for (int i = 0; i < ng; ++i) fleet_add_ship(f, SHIP_GALLEON); fleet_add_ship(f, SHIP_LINER);
+    int ng = 2 + rnd_int(&G.rng, 3); for (int i = 0; i < ng; ++i) fleet_add_ship(f, rnd_f(&G.rng) < 0.5f ? SHIP_GALLEON : SHIP_WAR_GALLEON); fleet_add_ship(f, SHIP_LINER);
     float taken = minf(p->stock[G_BULLION], 300); p->stock[G_BULLION] -= taken;
     f->cargo[G_BULLION] = rnd_range(&G.rng, 500, 900) + taken; f->cargo[G_SUGAR] = 120; f->cargo[G_TOBACCO] = 80;
     f->home_port = dest;

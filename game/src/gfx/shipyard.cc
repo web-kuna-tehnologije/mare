@@ -48,7 +48,7 @@ namespace mare::game::view {
 #define OAR_INBOARD 0.22f
 #define OAR_PIVOT   0.26f       // 0.22.17: the rowlock, as a fraction of the oar's length inboard of its middle (issue14 "pivot in the ship part")
 
-#define SHIP_MAX_MASTS 4
+// SHIP_MAX_MASTS now lives in shipyard.h (0.22.23)
 
 // What hangs from a mast. The reference sheet (assets/reference/fleet_sails.png) draws a square course
 // with a topsail on the fore and main of every round ship, a third sail on the great carrack's
@@ -124,6 +124,20 @@ static const ship_class_t builtin_classes[] = {
   { "fusta",          "fusta_hull",          "fusta_masts",          "galley_oar", 25.f, .32f, .50f, 1.f,  1, 2,
     { .08f, -.30f },              { 1.f, .62f },             { 1, 2 },       { SAIL_LATEEN, SAIL_LATEEN }, { "mast_lateen_tall", "mast_lateen_tall" },  0, 20, .60f, .09f,
     { 25.f,  4.5f, 1.2f,   80.f, 5.5f, 7.0f, 6.0f,  4,  90 } },
+  // 0.22.22 (issue18 "add real ship classes"): three more, built on hulls that are already
+  // authored, as `great_carrack` has been since 0.22.4 - a caravel is a coaster's hull drawn
+  // out and given a lateen mizzen; a xebec is a galiot lengthened, with a real battery; a
+  // galleon is the armed cog's hull stretched past forty metres, which is roughly the line
+  // the form actually took. No new art, and every authored hull in the tree is now sailed.
+  { "caravel",        "coastal_trader_hull", "coastal_trader_masts", NULL,         24.f, .38f, .60f, 24.f / 21.f, 1, 2,
+    { .06f, -.32f },              { 1.f, .80f },             { 1, 2 },       { SAIL_SQUARE2, SAIL_LATEEN }, { "mast_cog_single", "mast_mizzen" }, 0, 0, 0.f, .16f,
+    { 24.f,  6.5f, 2.0f,   90.f, 5.6f, 0.f, 5.5f,  4,  25 } },
+  { "xebec",          "galiot_hull",         "mediterranean_masts",  "galley_oar", 34.f, .32f, .50f, 34.f / 28.f, 0, 3,
+    { .22f, -.02f, -.34f },       { .86f, 1.f, .66f },       { 0, 0, 0 },    { SAIL_LATEEN, SAIL_LATEEN, SAIL_LATEEN }, { "mast_lateen_tall", "mast_lateen_tall", "mast_lateen_tall" }, 0, 24, .62f, .11f,
+    { 34.f,  7.5f, 2.2f,  200.f, 6.5f, 6.0f, 4.6f, 16, 110 } },
+  { "galleon",        "armed_cog_hull",      "armed_cog_masts",      NULL,         42.f, .36f, .58f, 42.f / 32.f, 0, 3,
+    { .29f, -.02f, -.33f },       { .84f, 1.f, .82f },       { 0, 0, 0 },    { SAIL_SQUARE2, SAIL_SQUARE3, SAIL_LATEEN }, { "mast_cog_two", "mast_carrack", "mast_mizzen" }, 1, 0, 0.f, .16f,
+    { 42.f, 11.5f, 4.4f,  700.f, 4.8f, 0.f, 2.6f, 40, 220 } },
 };
 #define NBUILTIN ((int)(sizeof builtin_classes / sizeof builtin_classes[0]))
 #define SHIP_CLASS_MAX 16
@@ -341,6 +355,87 @@ typedef struct flag_sim_t {
     mesh_t mesh; int built;
     inst_t inst;                    // this frame's rig instance (the flag rides the rig's transform)
 } flag_sim_t;
+
+// ---------------------------------------------------------------------------
+// The cordage, actually simulated (0.22.23, todo 121b - "a verlet chain for the sheets and
+// braces", asked for in issue16, issue17 and now issue19).
+//
+// What this is, exactly, so nobody has to guess: a **four-node verlet chain per ship**, hung
+// from her masthead in her own frame and integrated on the CPU - position Verlet with three
+// relaxation passes on the distance constraints, which is the standard scheme. It is *not* a
+// separate chain per rope: her whole rig shares one solved chain, and each rope takes its
+// shape from it scaled by its own slack. That is a deliberate and defensible simplification -
+// every rope on one ship hangs in the same gravity and swings in the same accelerations, so
+// they really do move together - and it is what lets the rig stay a single per-class mesh
+// instead of needing per-ship geometry, which is the wall this item hit for four rounds.
+//
+// The chain is driven by what actually moves cordage:
+//   * apparent gravity in her frame, which tilts with her heel (g sin roll across the deck),
+//   * the angular whip of her roll - the masthead's lateral acceleration is what throws the
+//     bight out and is why rigging swings *after* the ship rather than with her,
+//   * the wind across the deck.
+// Because it is integrated rather than evaluated, it lags, overshoots and settles on its own:
+// a ship that rolls hard sees her rigging swing out, come back past the vertical and damp
+// down over a few seconds, which is the behaviour a canned sine cannot produce at all.
+#define RIG_NODES    4
+#define RIG_SIM_MAX  96          // ships whose cordage is solved; the rest hang straight
+#define RIG_SEG      0.25f       // segment length of the model chain (it is normalised)
+#define RIG_DAMP     0.985f      // verlet damping per step: hemp is not a pendulum in vacuum
+#define RIG_G        9.0f
+
+typedef struct rig_sim_t {
+    unsigned key; int used, inited;
+    float x[RIG_NODES], y[RIG_NODES];        // current, ship frame: +x to starboard, +y DOWN
+    float ox[RIG_NODES], oy[RIG_NODES];      // previous (verlet keeps no velocity of its own)
+    float last_roll, roll_v, t_seen;
+} rig_sim_t;
+
+static rig_sim_t g_rig_sim[RIG_SIM_MAX];
+
+// solve this ship's chain forward to now, and return her swing angle (radians, + to starboard)
+static void rig_sim_step(unsigned key, float roll, float wind_across, float dt, float *out_swing, float *out_taut) {
+    rig_sim_t *S = NULL, *lru = &g_rig_sim[0];
+    for (int i = 0; i < RIG_SIM_MAX; ++i) {
+        if (g_rig_sim[i].used && g_rig_sim[i].key == key) { S = &g_rig_sim[i]; break; }
+        if (!g_rig_sim[i].used) { lru = &g_rig_sim[i]; break; }
+        if (g_rig_sim[i].t_seen < lru->t_seen) lru = &g_rig_sim[i];
+    }
+    if (!S) { S = lru; S->used = 1; S->key = key; S->inited = 0; }
+    S->t_seen = (float)RF.anim_time;
+    if (!S->inited) {                                   // born hanging straight down
+        S->inited = 1; S->last_roll = roll; S->roll_v = 0.f;
+        for (int i = 0; i < RIG_NODES; ++i) { S->x[i] = S->ox[i] = 0.f; S->y[i] = S->oy[i] = RIG_SEG * i; }
+    }
+    if (dt <= 0.f) { *out_swing = atan2f(S->x[RIG_NODES-1], maxf(S->y[RIG_NODES-1], 1e-3f)); *out_taut = 0.f; return; }
+    dt = clampf(dt, 0.001f, 0.05f);                     // a long frame must not explode the chain
+    // her roll rate and its change: the masthead's lateral whip
+    float rv = (roll - S->last_roll) / dt; S->last_roll = roll;
+    float ra = (rv - S->roll_v) / dt; S->roll_v = rv;
+    ra = clampf(ra, -40.f, 40.f);
+    // the forces, in her frame: gravity tilted by her heel, the whip of the roll, the wind
+    float ax = RIG_G * sinf(roll) - ra * 0.45f + wind_across * 2.2f;
+    float ay = RIG_G * cosf(roll);
+    for (int i = 1; i < RIG_NODES; ++i) {               // node 0 is the masthead and does not move
+        float nx = S->x[i] + (S->x[i] - S->ox[i]) * RIG_DAMP + ax * dt * dt;
+        float ny = S->y[i] + (S->y[i] - S->oy[i]) * RIG_DAMP + ay * dt * dt;
+        S->ox[i] = S->x[i]; S->oy[i] = S->y[i];
+        S->x[i] = nx; S->y[i] = ny;
+    }
+    for (int pass = 0; pass < 3; ++pass)                // relax the distance constraints
+        for (int i = 0; i < RIG_NODES - 1; ++i) {
+            float dx = S->x[i+1] - S->x[i], dy = S->y[i+1] - S->y[i];
+            float d = sqrtf(dx * dx + dy * dy); if (d < 1e-5f) { dy = RIG_SEG; d = RIG_SEG; }
+            float corr = (d - RIG_SEG) / d * 0.5f;
+            float cx = dx * corr, cy = dy * corr;
+            if (i > 0) { S->x[i] += cx; S->y[i] += cy; }           // the masthead end is pinned
+            else { S->x[i+1] -= cx * 2.f; S->y[i+1] -= cy * 2.f; continue; }
+            S->x[i+1] -= cx; S->y[i+1] -= cy;
+        }
+    *out_swing = atan2f(S->x[RIG_NODES-1], maxf(S->y[RIG_NODES-1], 1e-3f));
+    // how far the chain is drawn out towards straight: a rope swung hard is also pulled taut
+    float span = sqrtf(S->x[RIG_NODES-1] * S->x[RIG_NODES-1] + S->y[RIG_NODES-1] * S->y[RIG_NODES-1]);
+    *out_taut = clampf((span / (RIG_SEG * (RIG_NODES - 1)) - 0.92f) / 0.08f, 0.f, 1.f);
+}
 
 typedef struct rig_cache_t { mesh_t rope, rope_worn, cloth; int built; unsigned gen; } rig_cache_t;
 // Square canvas as shared unit meshes (half-width 1, head at y = 0, hanging down), one per
@@ -738,8 +833,13 @@ const ship_class_t *Shipyard::class_for(int type, int nation) {
     case SHIP_FLUYT:    return med_flavour(nation) ? by_name("galiot") : by_name("cog");
     case SHIP_MERCHANT: return north_flavour(nation) ? by_name("hulk") : by_name("carrack");
     case SHIP_FRIGATE:  return med_flavour(nation) ? by_name("galiot") : by_name("armed_cog");
-    case SHIP_GALLEON:  return by_name("war_carrack");
+    case SHIP_GALLEON:  return by_name("galleon");
     case SHIP_LINER:    return by_name("great_carrack");
+    // 0.22.22 (issue18): the four new classes
+    case SHIP_CARAVEL:  return med_flavour(nation) ? by_name("fusta") : by_name("caravel");
+    case SHIP_HULK:     return by_name("hulk");
+    case SHIP_XEBEC:    return by_name("xebec");
+    case SHIP_WAR_GALLEON: return by_name("war_carrack");
     default:            return NULL;
     }
 }
@@ -997,6 +1097,7 @@ int Shipyard::push(const shipyard_req_t *r) {
 
     inst_t in = inst_t{ r->x, -water, r->z, r->heading, cscale,
                           r->cr, r->cg, r->cb, r->rock * resp, r->sel, resp, 0.f, r->dither };
+    in.fx3 = clampf(r->hull_d, 0.f, 1.f);   // 0.22.23 (issue19): the shot scars, splinters and soot meshes.frag paints
     in.roll_b = r->roll; in.pitch_b = r->pitch;   // the body's attitude, inherited by every part below (0.22.12)
     scene_asset_instance(hull, in, r->key, r->camdist);
     shipyard_ships_drawn++;
@@ -1011,7 +1112,8 @@ int Shipyard::push(const shipyard_req_t *r) {
     // The generated poles are chunky for their height - at the battle zoom a cog's mast read as
     // a tree trunk - so they are thinned radially (gpu.h inst_t.slim), which a uniform scale
     // cannot do without losing the height the class table sets.
-    #define MAST_SLIM     0.64f      // 0.22.6: thicker again (issue3); 0.34 -> 0.425 -> 0.52; 0.22.12: 0.64 (issue9 "masts still not thick")
+    #define MAST_FALL_SECS 2.6f      // 0.22.23 (issue19): how long a mast takes to go by the board
+#define MAST_SLIM     0.64f      // 0.22.6: thicker again (issue3); 0.34 -> 0.425 -> 0.52; 0.22.12: 0.64 (issue9 "masts still not thick")
     // ... and stepped *into* the ship rather than stood on `deck`. That fraction is a per-class
     // guess at where the hull model's deck is, and where it guesses high the mast floated a
     // metre over the planking. A mast is stepped on the keelson in any case, so burying the heel
@@ -1047,11 +1149,29 @@ int Shipyard::push(const shipyard_req_t *r) {
                 // bow aft, matching the physics' masts_down count; the standing rigging is one
                 // per-class mesh and still shows its old runs - cutting it per station needs
                 // the per-ship rig buffer the verlet rope needs too (todo 121b).
-                if (k < r->masts_down) continue;
+                // 0.22.23 (issue19 "add animation of ... mast falling"): a mast that has been
+                // carried away is drawn *going* for MAST_FALL_SECS - it heels over the side,
+                // accelerating as a falling spar does, drops as its heel tears out of the
+                // step, and is gone when it is in the water. Before this it simply ceased to
+                // exist between one frame and the next, which is the thing the issue is
+                // about. `fall` is 0 at the moment it is struck and 1 when it is overboard.
+                float fall = -1.f;
+                if (k < r->masts_down) {
+                    float ft = k < SHIP_MAX_MASTS ? r->mast_fall[k] : -1.f;
+                    if (ft < 0.f || ft > MAST_FALL_SECS) continue;      // long gone
+                    fall = ft / MAST_FALL_SECS;
+                }
                 float dx = c->mast_at[k] * len;
                 inst_t mi = in;
                 mi.x = r->x + fx * dx; mi.z = r->z + fz * dx;
                 mi.y = deck_y - MAST_STEP * hh + stn_lift(k);
+                if (fall >= 0.f) {
+                    // over the side, quickening (t^2), and down into the sea as she goes
+                    float a = fall * fall;
+                    mi.fx2 = a * 1.75f;                                  // the lathe pitch meshes.vert reads on a rigid part
+                    mi.y -= a * 0.55f * hh;
+                    mi.x += fx * a * 0.10f * len; mi.z += fz * a * 0.10f * len;   // and she slides forward off her step
+                }
                 // 0.22.8 (issue5 "fix size of rigging and masts"): a lesser mast is a shorter
                 // *copy* of the same model, so scaling it to 0.8 of the main's height also made
                 // it 0.8 as thick - the fore and mizzen read as sticks beside the main. The
@@ -1108,16 +1228,35 @@ int Shipyard::push(const shipyard_req_t *r) {
             inst_t ri = in;
             ri.y = 0.f;                       // the rig mesh is modelled from the waterline
             ri.scale = len;                   // and in fractions of hull length
-            ri.fx1 = cloth_q; ri.fx2 = wdx * wstr; ri.fx3 = wdz * wstr;   // 0.22.8: the rope pipeline reads the quality for its texture (meshes/rope.geom); 0.22.15: and the wind, for the sag's swing
+            ri.fx1 = cloth_q; ri.fx2 = wdx * wstr; ri.fx3 = wdz * wstr;
+            // 0.22.23 (todo 121b): solve this ship's cordage forward and hand the shader the
+            // chain's state instead of a canned sine. The wind is wanted *across* her deck,
+            // which is what actually blows a bight sideways.
+            {
+                static double rig_prev_t = 0.0; static float rig_dt = 0.f;
+                if (RF.anim_time != rig_prev_t) { rig_dt = (float)(RF.anim_time - rig_prev_t); rig_prev_t = RF.anim_time; }
+                float across = -fz * (wdx * wstr) + fx * (wdz * wstr);   // starboard component
+                float sw = 0.f, taut = 0.f;
+                rig_sim_step(r->key, r->roll, across, rig_dt, &sw, &taut);
+                ri.rig_swing = sw; ri.rig_taut = taut;
+            }   // 0.22.8: the rope pipeline reads the quality for its texture (meshes/rope.geom); 0.22.15: and the wind, for the sag's swing
+            // 0.22.23 (issue19 "rigging falling"): when every mast is over the side there is
+            // nothing left for the standing rigging to be made fast to, so the whole rig goes
+            // with the last of them. The shrouds and stays are one per-class mesh and cannot
+            // be cut station by station - that still wants per-ship rope geometry - but a bare
+            // hulk trailing a full suit of rigging was the worst of it, and it is gone.
+            if (r->masts_down < nm)
             *instlist_push(qual ? &rig_inst[(int)(c - g_classes)] : &rig_worn_inst[(int)(c - g_classes)]) = ri;
-            inst_t ci = ri; ci.fx1 = cloth_q;   // cloth: the wind model in meshes.c, and the suit of sails
+            inst_t ci = ri; ci.fx1 = cloth_q;   // cloth: the wind model in meshes.c, and the suit of sails (ci inherits the solved cordage state)
             ci.fx2 = wdx * wstr; ci.fx3 = wdz * wstr;
             *instlist_push(&cloth_inst[(int)(c - g_classes)]) = ci;
             shipyard_rigged++;
 
             // --- the flag: a simulated cloth at the main masthead, in the ship's frame. The
             // apparent wind is the true wind turned into that frame less the ship's own way.
-            {
+            // 0.22.21: no masthead, no flag - a felled mainmast used to leave its colours
+            // hovering over the wreck of itself.
+            if (main >= r->masts_down) {
                 float ml = (mref ? (mref->bmax[0] - mref->bmin[0]) * cscale : len), msf = MAST_TRIM;
                 if (ml > len * MAST_OVERHANG) msf = MAST_TRIM * len * MAST_OVERHANG / ml;
                 float mh_main = mref ? (mref->bmax[1] - mref->bmin[1]) * cscale * msf * (c->mast_h[main] > 0.f ? c->mast_h[main] : 1.f) - MAST_STEP * hh + stn_lift(main) : 0.45f * len;   // 0.22.13: the truck as it stands, from the heel
@@ -1172,7 +1311,15 @@ int Shipyard::push(const shipyard_req_t *r) {
             for (int k = 0; k < nm; ++k) {
                 asset_t *mk = mast_asset(c, k);
                 if (!mk) continue;
-                if (k < r->masts_down) continue;            // 0.22.20: no mast, no canvas
+                // 0.22.23 (issue19 "sails snapping ... and rigging falling"): canvas goes with
+                // its mast, and goes *over the side with it* - drawn through the same fall,
+                // collapsing as the spar swings down, instead of blinking out.
+                float cfall = -1.f;
+                if (k < r->masts_down) {
+                    float ft = k < SHIP_MAX_MASTS ? r->mast_fall[k] : -1.f;
+                    if (ft < 0.f || ft > MAST_FALL_SECS * 0.8f) continue;   // the canvas is in the water before the spar
+                    cfall = ft / (MAST_FALL_SECS * 0.8f);
+                }
                 float mh_full = (mk->bmax[1] - mk->bmin[1]) * msl * (c->mast_h[k] > 0.f ? c->mast_h[k] : 1.f);   // heel to truck
                 // 0.22.13 (issue10): the canvas and the spars are laid out in fractions of the mast
                 // that *stands above the deck* - the heel is MAST_STEP under it - so a layer at 0.96
@@ -1201,7 +1348,8 @@ int Shipyard::push(const shipyard_req_t *r) {
                     li.heading = sw; li.x = bx; li.z = bz; li.y = deck_y2 + stn_lift(k); li.scale = mh;
                     li.fx1 = cloth_q; li.fx2 = wdx * wstr; li.fx3 = wdz * wstr;
                     li.ax = r->x; li.az = r->z;
-                    if (r->furl < 0.5f) *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;   // 0.22.15: furled = no canvas
+                    if (cfall >= 0.f) { float a = cfall * cfall; li.y -= a * 0.75f * hh; li.scale *= 1.f - 0.55f * a; }   // 0.22.23: down with her spar
+                    if (r->furl < 0.5f && r->rig_d < 0.45f) *instlist_push(&lateen_cloth_inst[authored ? 0 : 1]) = li;   // 0.22.15: furled = no canvas; 0.22.21: a half-ruined rig has lost her lateens
                     if (authored) {
                         // the asset's rise is its y extent; scale it to the design line, put its
                         // middle on the line's middle (the model's pivot is its slung point)
@@ -1257,7 +1405,15 @@ int Shipyard::push(const shipyard_req_t *r) {
                     qi.y = top_w; qi.scale = hw_w;
                     qi.fx1 = cloth_q; qi.fx2 = wdx * wstr; qi.fx3 = wdz * wstr;
                     qi.ax = r->x; qi.az = r->z;
-                    if (r->furl < 0.5f) *instlist_push(&sq_cloth_inst[(int)ly->l[l].kind][authored ? 0 : 1]) = qi;
+                    // 0.22.21 (issue17 "add vidible damage on ships when fighting. sails can
+                    // burn also"): a wounded rig loses her canvas from the top down - the
+                    // topgallants blow out or burn first, the topsails next, the courses last,
+                    // each before the mast itself goes by the board. The physics already eats
+                    // d_rig when she burns, so a fire strips her sails on the way to felling
+                    // her masts, which is the visible arc of a ship lost to fire.
+                    int sail_gone = r->rig_d > 0.70f - 0.25f * (float)(l > 2 ? 2 : l);   // topgallant at 0.20, topsail 0.45, course 0.70
+                    if (cfall >= 0.f) { float a = cfall * cfall; qi.y -= a * 0.80f * hh; qi.scale *= 1.f - 0.60f * a; }   // 0.22.23: the canvas collapses as the mast swings down
+                    if (r->furl < 0.5f && !sail_gone) *instlist_push(&sq_cloth_inst[(int)ly->l[l].kind][authored ? 0 : 1]) = qi;
                     if (authored) {
                         // the yard lies across the ship (descriptor forward +z): its z extent is
                         // the spar; scale that to the sail's head and centre it on the mast line
@@ -1339,12 +1495,23 @@ int Shipyard::push(const shipyard_req_t *r) {
 
     // Oar bank: one instance per oar, both sides, swept a little aft and dipped outboard. Only
     // while the ship is large on screen - an oar is a twentieth of the hull.
-    if (c->oars && c->oar_pairs > 0 && lod_px(len * 0.5f, r->camdist) > OAR_MIN_PX) {
+    static float oar_min_px = -1.f;
+    if (oar_min_px < 0.f) { const char *e = getenv("MARE_OAR_MIN_PX"); oar_min_px = e ? (float)atof(e) : (float)OAR_MIN_PX; }
+    if (c->oars && c->oar_pairs > 0 && lod_px(len * 0.5f, r->camdist) > oar_min_px) {
         asset_t *oar = asset_get_role(ASSET_SHIP_PART, c->oars);
         if (oar) {
             float span = c->oar_span * len, half = c->beam_frac * len;
-            float olen = (oar->bmax[0] - oar->bmin[0]) * cscale;   // the oar is modelled along +x
-            float out = half * 0.96f + olen * OAR_INBOARD;         // centre of the oar, just outboard of the rail
+            // 0.22.21 (issue17, the oar "wings"): the oar was drawn at the HULL's import scale.
+            // The oar GLB is normalised like every Meshy asset - it spans ~2 units, the same as
+            // a whole hull - so at `cscale` each sweep came out as long as the ship: a numeric
+            // check printed the blade 12.5 units outboard of a 1.25-unit rail, and the bank
+            // stood over the deck like wings, which is the issue's screenshot. A fusta's sweep
+            // is ~0.38 of her length tip to tip; the instance is scaled to that, from the
+            // model's own measured axis length (2.583 units tip to tip, on a -45-degree
+            // diagonal, blade at the +x,-y end - see 0.22.20).
+            const float OAR_AXIS_M = 2.583f;                       // the model's tip-to-tip length, its own units
+            float oscale = 0.38f * len / OAR_AXIS_M;
+            float olen = OAR_AXIS_M * oscale;                      // tip-to-tip, world units
             float y = -water + hh * c->deck * 1.02f;        // 0.22.6: the ports are just under the rail, not half-way down the side (issue3: "oars are too low in water")
             float pull = clampf(r->rock, 0.f, 1.6f);                      // how hard she is working
             // A sweep is pulled at 20-26 strokes a minute, not the fast churn this used to run:
@@ -1356,6 +1523,20 @@ int Shipyard::push(const shipyard_req_t *r) {
             // side of the square and slow - a stroke every five seconds at rest, under three
             // pulling hard, which is the 20-26 a minute a sweep is actually pulled at.
             float rate = 1.20f + 0.95f * pull, reach = 0.2618f;   // 15 degrees
+            // 0.22.21: the mount, adjustable at runtime while the oars are argued over -
+            // MARE_OAR_SIDE flips which way the bank is hung, MARE_OAR_PITCH pins the blade
+            // angle (radians; the default is what the measured -45-degree model wants)
+            static float oar_side = 0.f, oar_pitch = -1.f;
+            if (oar_side == 0.f) { const char *e = getenv("MARE_OAR_SIDE"); oar_side = e && atof(e) < 0 ? -1.f : 1.f;
+                                   const char *q = getenv("MARE_OAR_PITCH"); if (q) oar_pitch = (float)atof(q); }
+            // 0.22.23b: **reverted to the 0.22.21 stroke.** The drive-and-recovery cycle added
+            // in 0.22.23 was asked for and was right in principle, but it moved the blade's
+            // pitch as well as its swing - it feathered the oar by *dropping fx2*, and fx2 is
+            // not only the blade angle: the rowlock mount below solves the oar's placement
+            // from it, so the whole bank shifted and lifted as the stroke ran, and the look
+            // that had been verified numerically in 0.22.21 was lost. The sine below is the
+            // state the oars were in when they were right. A rowing cycle can come back, but
+            // it has to drive the *swing* only and leave the mount's pitch alone.
             float oph = RF.anim_time * rate + (float)(r->key & 63u) * 0.09f;
             float stroke = reach * sinf(oph);
             float dip = 0.004f * len * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
@@ -1395,7 +1576,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // screenshots show. The side sign is therefore flipped (blade outboard),
                     // and with the model's own -45 droop the fx2 pitch below brings the blade
                     // to ~20 degrees under the horizontal and the loom level over the deck.
-                    oi.heading = r->heading - side * (1.5708f + 0.17f - stroke * side_sign);
+                    oi.heading = r->heading - oar_side * side * (1.5708f + 0.17f - stroke * side_sign);
                     // the sweep angles *down* into the water (0.22.5): a pitch about the oar's own
                     // z axis (meshes.vert reads fx2 on rigid instances), steeper on the pull
                     // 0.22.6: a steeper blade angle from the higher port, so the loom rises over
@@ -1403,16 +1584,39 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // The blade is the model's -x end (measured: its z extent is twice the
                     // loom's), and a positive pitch about the model's z carries -x downward -
                     // so this is the sign that puts the wide part in the water.
-                    oi.fx2 = 0.46f + 0.14f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
-                    {   // the rowlock on the rail, and the oar hung from it
+                    oi.fx2 = (oar_pitch >= 0.f ? oar_pitch : 0.46f) + 0.14f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
+                    oi.scale = oscale;                                      // a sweep, not a second mast (0.22.21)
+                    {   // The rowlock on the rail, and the oar hung from it. The pivot sits
+                        // OAR_PIVOT of the oar's length from the loom end, along the model's
+                        // own -45-degree axis: in model units that point is
+                        // loom_tip + t * axis = (-0.913, +0.913) + t * (0.707, -0.707) * 2.583.
                         float rlx = r->x + fx * along + sx * (half * 0.99f) * side;
                         float rlz = r->z + fz * along + sz * (half * 0.99f) * side;
-                        float pm  = -OAR_PIVOT * olen;                      // model-space: toward the loom, which the measurement puts at **-x** (0.22.20)
+                        float t = OAR_PIVOT * OAR_AXIS_M;
+                        float pvx = (-0.913f + t * 0.7071f) * oscale, pvy = (0.913f - t * 0.7071f) * oscale;
                         float cq = cosf(oi.fx2), sq = sinf(oi.fx2);
-                        float mx = pm * cq, my = pm * sq;                   // after the pitch about the model's z
-                        float ch = cosf(oi.heading), sh2 = -sinf(oi.heading);   // model +x -> this world direction
+                        float mx = pvx * cq - pvy * sq, my = pvx * sq + pvy * cq;   // the pivot after the pitch
+                        float ch = cosf(oi.heading), sh2 = -sinf(oi.heading);       // model +x -> this world direction
                         oi.x = rlx - mx * ch; oi.z = rlz - mx * sh2; oi.y -= my;
                     }
+                    // 0.22.21: a one-shot numeric check, because three rounds of screenshots
+                    // failed to settle this. The measured model's tips are at (+-0.913, -+0.913)
+                    // of its own scale: the +x,-y end is the blade. Print where both tips land
+                    // relative to the rail and the water, in world units, for the first oar.
+                    { static int said = 0;
+                      if (!said && i == 0 && side > 0) { said = 1;
+                        float cs = cosf(oi.fx2), sn = sinf(oi.fx2);
+                        float bxm = 0.913f * oi.scale, bym = -0.913f * oi.scale;  // blade tip, model space
+                        float lxm = -bxm, lym = -bym;                             // loom tip
+                        float bx1 = bxm * cs - bym * sn, by1 = bxm * sn + bym * cs;
+                        float lx1 = lxm * cs - lym * sn, ly1 = lxm * sn + lym * cs;
+                        float ch2 = cosf(oi.heading), sh3 = -sinf(oi.heading);
+                        float bwx = oi.x + bx1 * ch2, bwz = oi.z + bx1 * sh3, bwy = oi.y + by1;
+                        float lwx = oi.x + lx1 * ch2, lwz = oi.z + lx1 * sh3, lwy = oi.y + ly1;
+                        float blat = (bwx - r->x) * sx + (bwz - r->z) * sz;       // + = starboard
+                        float llat = (lwx - r->x) * sx + (lwz - r->z) * sz;
+                        LOG_INFO("gfx", "oar check: rail at %.2f; blade tip lateral %.2f height %.2f (water at 0, deck at %.2f); loom tip lateral %.2f height %.2f",
+                                 half, blat, bwy, -water + hh * c->deck, llat, lwy); } }
                     oi.r = 0.62f; oi.g = 0.52f; oi.b = 0.36f;   // oak, not the nation's colours
                     oi.sel = 0.f;
                     scene_asset_instance(oar, oi, r->key ^ (unsigned)(0x9E37u + i * 2 + (side > 0)), r->camdist);

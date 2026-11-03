@@ -582,7 +582,9 @@ double StreamView::sv_ring_compose(sv_ring_t *r, float cx, float cz) {
         // a farm village's built disc was 0.22-0.35 units against a town's 0.29-0.43, and at
         // the hinterland camera it read as a pink smudge. It now matches a small town's
         // footprint and grows with its people.
-        float rad = s->kind == INLAND_FARM ? 0.34f + 0.11f * sqrtf(maxf(s->pop, 0.f)) : s->kind == INLAND_MINE ? 0.18f : 0.12f;
+        // 0.22.23 (issue19): and the built ground under it matches a town's too, not merely
+        // approaches it - a village is a cluster of roofs you can see, at any zoom
+        float rad = s->kind == INLAND_FARM ? 0.46f + 0.12f * sqrtf(maxf(s->pop, 0.f)) : s->kind == INLAND_MINE ? 0.22f : 0.15f;
         f.set_xz[f.nsets][0] = s->x; f.set_xz[f.nsets][1] = s->z; f.set_xz[f.nsets][2] = rad; f.set_xz[f.nsets][3] = (float)s->kind; f.nsets++;
     }
     for (int i = 0; i < G.nports && f.nsets < 192; ++i) {

@@ -37,6 +37,11 @@ extern "C" {
 #define UPKEEP_PER_CREW   0.02f   // ducats per crew per day
 #define COLONY_COST    6000.f
 #define REPAIR_COST_PER_HP 2.f
+// 0.22.22 (todo 170/178): what a yard charges for the rest of a refit - a man signed on and
+// a gun's lockers filled. A frigate with half her people dead and dry lockers costs about
+// 2,700 to make fit for sea again, against her 12,000 to build.
+#define REPAIR_CREW_COST   14.f
+#define REPAIR_AMMO_COST   22.f
 
 // settlements (colonisation expansion)
 #define MERGE_DIST          (6.0f * WORLD_SCALE)    // world units (~1.5 deg): settlements closer than this merge

@@ -76,6 +76,13 @@ typedef struct inst_t { float x, y, z, heading; float scale, r, g, b; float sway
                         // or a bowsprit must not, since their length lies in x or z.
                         float ax, az;   // wave/roll anchor: the hull position a ship part is rigid to (0,0 = this IS the hull)
                         float roll_b, pitch_b;   // the body's own roll and pitch (radians, sim/naval_physics attitude + recoil heel), the same on every part of one ship (0.22.12)
+                        // 0.22.23 (todo 121b, issue19 "then the verlet rope"): the state of this
+                        // ship's hanging cordage, solved on the CPU by a real verlet chain
+                        // (gfx/shipyard.cc rig_sim). x = the chain's swing angle in radians
+                        // (+ = to starboard), y = how far it is drawn up towards taut, 0..1.
+                        // Only the rope and cloth pipelines read it; everything else ignores
+                        // the attribute, as it already ignores i_anchor.
+                        float rig_swing, rig_taut, rig_pad0, rig_pad1;
 } inst_t;
 typedef struct mesh_t { rhi_geometry_t geo; int ninst; } mesh_t;
 extern const rhi_layout_t mesh_layout;                // builder vertices + inst_t instances (meshes.c program)

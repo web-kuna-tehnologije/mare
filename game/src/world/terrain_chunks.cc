@@ -274,7 +274,18 @@ void GeoChunks::probe(const char *dir, std::vector<std::string> &roots) {
         for (const auto &e : std::filesystem::directory_iterator(c, ec)) {
             if (!e.is_directory(ec)) continue;
             std::string mm = e.path().string() + "/manifest.json";
-            if (file_exists(mm.c_str())) found.push_back(e.path().string());
+            if (file_exists(mm.c_str())) { found.push_back(e.path().string()); continue; }
+            // 0.22.21 (issue17 "take a detailed look at map its bad ... as i delivered [the]
+            // height maps"): a zip extracted *as delivered* lands two levels down -
+            // data-terrain-v2/mare-liberum-world-terrain-4x/mare-world-terrain/manifest.json -
+            // and the one-level scan walked straight past it, so the game quietly fell back to
+            // the 3 km overview and all the delivered detail went unread. One more level.
+            std::error_code ec2;
+            for (const auto &e2 : std::filesystem::directory_iterator(e.path(), ec2)) {
+                if (!e2.is_directory(ec2)) continue;
+                std::string mm2 = e2.path().string() + "/manifest.json";
+                if (file_exists(mm2.c_str())) found.push_back(e2.path().string());
+            }
         }
         if (!found.empty()) { std::sort(found.begin(), found.end()); roots.insert(roots.end(), found.begin(), found.end()); seen.push_back(canon); }
     }
@@ -610,10 +621,18 @@ void GeoChunks::update(float lon, float lat, float radius_deg) {
         int nx = I.chunks_x;
         if (I.wrap && x1 < x0) x1 += nx;        // the window crosses the antimeridian
         if (I.wrap && e - w >= I.east - I.west) { x0 = 0; x1 = nx - 1; }
+        // 0.22.21 (issue17 "game started lagging as more chunks getting loaded - reduce
+        // loaded chunks on zoom out"): a fine dataset's chunk is a 30 MB read and ~70 MB
+        // resident, and zooming out to the map view used to page a whole continent of them in
+        // for detail the camera cannot see from up there. A fine grid (finer than ~1.3 km a
+        // sample) therefore stops *starting* loads once the view radius says the camera is at
+        // map height; what is already resident stays wanted, so nothing thrashes on the way
+        // out and back in, and the far view stands on the baked base world as it always has.
+        int fetch = !(I.step_lat < 0.012f && radius_deg > 6.f);
         for (int y = y0; y <= y1; ++y) for (int xx = x0; xx <= x1; ++xx) {
             gc_chunk_t *c = at(d, I.wrap ? (xx % nx + nx) % nx : xx, y); if (!c) continue;
             c->last_want = update_no;
-            if (c->state == GC_EMPTY && !c->absent && started < inflight) { request(d, c); started++; }
+            if (fetch && c->state == GC_EMPTY && !c->absent && started < inflight) { request(d, c); started++; }
         }
     }
     for (int guard = 0; guard < 8 && bytes > budget; ++guard) {

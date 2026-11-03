@@ -1,5 +1,52 @@
 # Development roadmap
 
+## Done: 0.22.24 — the oars put back, bridges stood, roads graded by trade (worktree `elm`)
+
+The 0.22.23 rowing animation had broken the oars by moving the same value the rowlock mount
+solves their placement from; reverted to the geometry that was verified numerically in
+0.22.21. Then three rows off the list: **stone bridges** where roads cross rivers (16 in a
+ring, of 218 crossings), roads **graded by where trade actually flows** - the old test read a
+counter that is zeroed daily, so every road in the world was a track - and a **fruit-tree set**
+for the orchards in place of forest species scaled down.
+
+## Done: 0.22.23 — issue19: the wake survives the foam, masts fall, cordage is solved (worktree `elm`)
+
+The sea's whitecaps had been *erasing* the wake - every source of white summed and clamped, so
+full foam meant solid white and the trail went with it. Masts now go by the board as an
+animation with their canvas, a battered hull wears shot scars and soot, oars row a real
+drive-and-recovery stroke, fire breaks into separate licks instead of streaming, and villages
+are the size of towns on the map.
+
+And the **verlet cordage** finally landed, four rounds after it was first asked for: a
+four-node chain per ship, position-Verlet with constraint relaxation, driven by her heel, the
+whip of her roll and the wind across her deck. A chain *per rope* still waits on moving the rig
+off its single per-class mesh - the one piece of plumbing left.
+
+**Measured and dropped:** the broadphase and multithreaded physics jobs. The tactical world
+costs 0.05 ms a frame with 40 bodies; there is nothing there to win.
+
+## Done: 0.22.22 — issue18: smoke that climbs, ten real classes, crew and powder (worktree `elm`)
+
+Smoke leaves a fire hard, is checked by the air, and then rises in a column - four times the
+volumes, twice the rate, lives twice as long. The fleet is ten real classes in three roles
+(four traders, three interceptors, three of the line), every authored hull in the tree now
+sailed by one of them. And the two things the muster list had been honestly leaving blank are
+simulated: **crew and ammunition** - balls kill men, a dry ship falls silent - while a **yard**
+finally takes damage back off, so a campaign no longer only grinds down.
+
+## Done: 0.22.21 — issue17: the delivered map finally read, oars to scale, fire that stands up (worktree `elm`)
+
+The biggest find cost nothing to fix and explains the issue's first line: the game had never
+been reading the user's extracted 4x terrain - the dataset probe scanned one directory level
+and the zip extracts two. The oars' recurring fault fell to a numeric check (they were drawn at
+hull scale - sweeps as long as the ship); flames stand up about the world's vertical with
+sparks and three-tone smoke; fine terrain stops streaming at map zoom; a 60 fps limiter is in
+Options; the authored tree LOD carries to the prop ring's edge; canvas burns away from the top
+down; the wave foam lies along the swell at two-thirds strength.
+
+Outstanding from it: one river-packing command in the user's extraction (182b), which a
+read-only session cannot run into assets.
+
 ## Done: 0.22.20 — issue16: fire that burns, oars measured, towns with streets (worktree `elm`)
 
 The fire is tongues of flame instead of glowing discs; the oar asset was finally *measured*
@@ -54,11 +101,8 @@ panel that persists, the geography fold reads the export's float32 chunks on the
 - ~~The butcher's bill goes home~~ — **done in 0.22.19** (todo 153). What remains under that
   heading is the campaign side of it: a yard that *repairs* the damage a fleet brings home, and
   a crew that can be killed and has to be replaced.
-- **The per-ship rope/rig buffer** (todo 121b) - now the top renderer item, since it unblocks
-  *two* asks: the verlet rope, and cutting a felled mast's standing rigging (0.22.20 removes
-  the mast and its canvas; the shrouds still show their old runs).
-- **Crew and ammunition** (todo 178): the muster list shows hull, sails, guns and water and
-  honestly omits the two the simulation does not carry yet.
+- **Per-rope verlet geometry** (todo 121b, the remainder): the rig off its single per-class
+  mesh onto per-ship dynamic geometry, which also lets a felled mast take its own shrouds.
 - ~~A genuinely finer DEM for the home seas~~ — **done in 0.22.18** by the 4x world build.
   What remains under that heading is procedural micro-detail on the near ground, not data.
 - Finish T9: move callers onto the class APIs and inject `game_t`, which is what lets the

@@ -1,4 +1,4 @@
-in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither; in float v_wet; in float v_near;
+in vec3 v_nrm; in vec3 v_col; in vec3 v_wpos; in float v_sel; in vec2 v_rm; in float v_dither; in float v_wet; in float v_near; in float v_dmg;
 in vec3 v_mpos;   // the model's own frame: every surface detail below is sampled in it
 in vec3 v_cloth;
 uniform vec3 u_campos; uniform vec3 u_sky; uniform float u_mapness; uniform sampler2D u_grain;
@@ -49,6 +49,21 @@ void main(){
 // The wet band above the waterline (meshes.vert): soaked wood is darker and glossier, which
 // is what seats a hull *in* the water instead of on it.
   albedo *= 1.0 - 0.38 * v_wet;
+// Battle damage on the planking (0.22.23, issue19 "add parts of damage to ship visible").
+// A ship that has been hit does not change colour evenly - she is *pocked*: shot scars where
+// balls struck, the wood around them splintered pale, and smoke-blacking above the gun ports
+// where her own pieces and whatever burned have stained her. The scars are a noise field
+// thresholded against the damage, so each ship wears her own pattern and it only spreads as
+// she takes more; the blacking is broad and low on the topsides, where it really collects.
+  if (v_dmg > 0.01) {
+    float sc = texture(u_grain, v_mpos.xz * 2.7 + v_mpos.yy * 1.9).b;
+    float hit = smoothstep(0.78 - 0.5 * v_dmg, 0.92 - 0.5 * v_dmg, sc);      // the holes and gouges
+    float splinter = smoothstep(0.62 - 0.4 * v_dmg, 0.80 - 0.4 * v_dmg, sc) - hit;
+    albedo = mix(albedo, albedo * 0.10, hit * 0.85);                          // a shot hole is a dark hole
+    albedo = mix(albedo, albedo * 1.45 + vec3(0.06), clamp(splinter, 0.0, 1.0) * 0.55);  // raw wood round it
+    float soot = smoothstep(0.35, 0.0, v_mpos.y) * v_dmg;                     // low on the side, where it gathers
+    albedo *= 1.0 - 0.45 * soot;
+  }
   rough *= 1.0 - 0.45 * v_wet;
 // Canvas (0.19). A sail is sewn from vertical cloths about 60 cm wide with a tabling at the
 // head and foot: the seams read as faint lines across the panel, the weave as a fine

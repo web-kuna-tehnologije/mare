@@ -16,8 +16,9 @@ static const rhi_attr_t mesh_attrs[] = {
     { "a_rm", 0, 2, 40, 0 },                                      // roughness, metalness
     { "i_pos", 1, 4,  0, 1 }, { "i_scol", 1, 4, 16, 1 }, { "i_misc", 1, 4, 32, 1 }, { "i_fx", 1, 4, 48, 1 },
     { "i_anchor", 1, 4, 64, 1 },                                  // the hull a part is rigid to (inst_t.ax/az) + the body's roll and pitch (0.22.12)
+    { "i_rig", 1, 4, 80, 1 },                                     // 0.22.23 (todo 121b): the verlet cordage state - swing angle, tautness
 };
-const rhi_layout_t mesh_layout = { mesh_attrs, 10, { MB_FLOATS*sizeof(float), sizeof(inst_t) } };
+const rhi_layout_t mesh_layout = { mesh_attrs, 11, { MB_FLOATS*sizeof(float), sizeof(inst_t) } };
 
 namespace mare::engine::render {
 

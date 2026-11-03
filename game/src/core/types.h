@@ -86,7 +86,20 @@ enum { B_WAREHOUSE=0, B_DOCKS, B_FORT, B_MARKET, B_PLANTATION, B_MINE };
 enum { REG_NORTH=0, REG_ATLANTIC, REG_MED, REG_CARIB, REG_NAMER, REG_SAMER, REG_AFRICA,
        REG_ARCTIC, REG_PACIFIC, REG_INDIAN, REG_COUNT };
 
-enum { SHIP_SLOOP=0, SHIP_FLUYT, SHIP_MERCHANT, SHIP_FRIGATE, SHIP_GALLEON, SHIP_LINER, SHIP_COUNT };
+// The fleet, as ten real classes in three roles (0.22.22, issue18 "add real ship classes -
+// 4 trader classes, 3 interceptor classes and 3 ship of the line classes"). The first six
+// keep their old places, so every save, every table index and all forty-odd call sites are
+// unchanged; the four new ones are appended.
+//
+//   traders       Caravel · Fluyt · Hulk · Merchantman          - cargo, and guns enough to argue
+//   interceptors  Sloop · Xebec · Frigate                       - fast, weatherly, lightly built
+//   line          Galleon · War Galleon · Ship of the Line      - built to stand in a line and take it
+//
+// `ship_info_t.role` below carries which is which, so the AI, the yard list and the muster
+// can group them without a table of special cases.
+enum { SHIP_SLOOP=0, SHIP_FLUYT, SHIP_MERCHANT, SHIP_FRIGATE, SHIP_GALLEON, SHIP_LINER,
+       SHIP_CARAVEL, SHIP_HULK, SHIP_XEBEC, SHIP_WAR_GALLEON, SHIP_COUNT };
+enum { SC_TRADER = 0, SC_INTERCEPTOR = 1, SC_LINE = 2 };   // ship_info_t.role
 
 enum { ROLE_TRADER=0, ROLE_WARSHIP, ROLE_PIRATE, ROLE_TREASURE, ROLE_COLONIST };
 
@@ -111,6 +124,7 @@ typedef struct good_info_t {
 typedef struct ship_info_t {
     const char *name;
     float cargo, hull, speed; int guns, crew; float cost;
+    int   role;                 // SC_TRADER / SC_INTERCEPTOR / SC_LINE (0.22.22, issue18)
 } ship_info_t;
 
 typedef struct building_info_t {
@@ -142,6 +156,10 @@ typedef struct ship_t {
     float d_rig;      // masts, yards and canvas: what she can still set
     float d_guns;     // her battery
     float d_flood;    // water in her, 0..1; she is lost at 1
+    // 0.22.22 (todo 178): her people and her powder, as fractions of her full complement and
+    // lockers. Unlike the three above these are not *damage* - they are stores, and a yard
+    // (todo 170) fills them again. A ship fresh off the stocks has 1 and 1.
+    float crew, ammo;
 } ship_t;
 
 typedef struct fleet_t {

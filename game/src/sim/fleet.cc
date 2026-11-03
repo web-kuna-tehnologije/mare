@@ -93,7 +93,11 @@ fleet_t *Fleets::create(int nation, int role, float x, float z, const char *name
 }
 void Fleets::add_ship(fleet_t *f, int type) {
     if (f->nships >= MAX_SHIPS) return;
-    f->ships[f->nships].type = type; f->ships[f->nships].hull = ship_types[type].hull; f->nships++;
+    ship_t *sh = &f->ships[f->nships];
+    *sh = ship_t{};                                   // 0.22.22: no damage, and full stores
+    sh->type = type; sh->hull = ship_types[type].hull;
+    sh->crew = 1.f; sh->ammo = 1.f;                   // todo 178: her complement and her lockers
+    f->nships++;
 }
 void Fleets::destroy(fleet_t *f) {
     if (!f->alive) return;

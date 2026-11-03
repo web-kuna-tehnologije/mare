@@ -144,11 +144,24 @@ int Roads::generate() {
         const region_t *R = &G.regions[ri]; if (!R->alive || R->nhub < 2) continue;
         std::vector<int> hubs(R->hub, R->hub + R->nhub);
         std::sort(hubs.begin(), hubs.end(), [&](int a, int b) { return port_weight(&G.ports[a]) > port_weight(&G.ports[b]); });
-        float load = R->throughput > 0.f ? clampf(R->traded_today / R->throughput, 0.f, 1.f) : 0.f;
-        int rcls = load > 0.6f ? 2 : load > 0.2f ? 1 : 0;
+        // 0.22.24 (todo 181, issue16 "connect cities with roads and villages depending where
+        // trade is flowing to from hinterlands"). The old test was
+        // `traded_today / throughput`, and `traded_today` is **reset to zero every day**
+        // (sim/region.cc) - so whenever the roads happened to be rebuilt it read near nothing
+        // and *every road in the world came out a track*: "195 roads (195 tracks, 0 roads, 0
+        // highways)". The signal has to be a persistent one.
+        //
+        // `development` is exactly that: region.cc drives it from the trade that actually
+        // moved, smoothed over days, so it *is* where the trade has been flowing. A link is
+        // graded by what it carries - the two towns it joins (a road is only as busy as its
+        // smaller end) and how developed the hinterland behind them is.
+        float dev = clampf(R->development, 0.f, 3.f);
         for (size_t k = 0; k + 1 < hubs.size(); ++k) {
             const port_t *a = &G.ports[hubs[k]], *b = &G.ports[hubs[k + 1]];
             if (a->size <= 0 || b->size <= 0) continue;
+            float ends = (float)(a->size < b->size ? a->size : b->size);    // the smaller end sets the traffic
+            float score = ends + 0.8f * dev;
+            int rcls = score > 3.6f ? 2 : score > 2.0f ? 1 : 0;             // highway · road · track
             add_route(a->lx ? a->lx : a->x, a->lz ? a->lz : a->z, b->lx ? b->lx : b->x, b->lz ? b->lz : b->z, rcls, -1, hubs[k]);
         }
     }
@@ -160,8 +173,12 @@ int Roads::generate() {
         for (int k = 0; k < R->nhub; ++k) { const port_t *p = &G.ports[R->hub[k]]; float w = port_weight(p) - 0.002f * dist2d(p->x, p->z, s->x, s->z); if (p->size > 0 && w > bw) { bw = w; best = R->hub[k]; } }
         if (best < 0) continue;
         const port_t *p = &G.ports[best];
-        float load = R->throughput > 0.f ? clampf(R->traded_today / R->throughput, 0.f, 1.f) : 0.f;
-        int rcls = s->output > 2.5f && load > 0.4f ? 1 : 0;              // a busy mine's road is a road; a farm's is a track
+        // 0.22.24 (todo 181): the same, for the track out of a village - what it carries is
+        // its own output and the trade of the hinterland it sits in. A productive mine in a
+        // developed region gets a made road; a smallholding keeps its cart track.
+        float dev = clampf(R->development, 0.f, 3.f);
+        float score = s->output * 0.55f + 0.7f * dev;
+        int rcls = score > 3.2f ? 2 : score > 1.7f ? 1 : 0;
         add_route(s->x, s->z, p->lx ? p->lx : p->x, p->lz ? p->lz : p->z, rcls, i, best);
     }
     road_npts = (int)px.size(); road_n = (int)list.size(); road_nbridges = (int)bridges.size();

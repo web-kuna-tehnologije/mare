@@ -136,8 +136,16 @@ void Hud::market_rows(fleet_t *f, port_t *p) {
     if (docked) {
         ROW(3, 130, 130, -1, 22);
         if (ui_btn("Sell all cargo")) fleet_sell_all(f, p);
-        float cost = 0; for (int i = 0; i < f->nships; ++i) cost += (ship_types[f->ships[i].type].hull - f->ships[i].hull) * REPAIR_COST_PER_HP;
-        if (ui_btn(va("Repair (%.0f)", cost))) { if (cost <= 0) toast("Nothing to repair"); else if (G.nations[f->nation].treasury >= cost) { G.nations[f->nation].treasury -= cost; fleet_repair(f, 1e9f); toast("Repaired for %.0f", cost); } else toast("Repairs cost %.0f", cost); }
+        // 0.22.22 (todo 170): the bill is not planking alone - a wounded rig, a dismounted
+        // battery, the water in her, her casualties and her empty lockers are all charged for,
+        // so refitting a mauled squadron costs what it should.
+        float cost = 0;
+        for (int i = 0; i < f->nships; ++i) { const ship_t *s = &f->ships[i]; const ship_info_t *si = &ship_types[s->type];
+            cost += (si->hull - s->hull) * REPAIR_COST_PER_HP
+                  + si->hull * REPAIR_COST_PER_HP * (0.45f * s->d_rig + 0.35f * s->d_guns + 0.25f * s->d_flood)
+                  + (1.f - s->crew) * si->crew * REPAIR_CREW_COST
+                  + (1.f - s->ammo) * si->guns * REPAIR_AMMO_COST; }
+        if (ui_btn(va("Refit (%.0f)", cost))) { if (cost <= 0) toast("Nothing to repair"); else if (G.nations[f->nation].treasury >= cost) { G.nations[f->nation].treasury -= cost; fleet_repair(f, 1e9f); toast("Refitted for %.0f", cost); } else toast("A refit costs %.0f", cost); }
         mu_label(ui_ctx, "Shift = x100");
     }
 }
@@ -222,17 +230,26 @@ void Hud::port_panel(port_t *p, int pi) {
         if (p->building[B_DOCKS] > 0) {
             if (mu_header_ex(ui_ctx, "Shipyard", MU_OPT_EXPANDED)) {
                 mu_label(ui_ctx, docked ? va("New ships join %s", docked->name) : "New ships form a new fleet here");
-                for (int t = 0; t < SHIP_COUNT; ++t) { mu_push_id(ui_ctx, &t, sizeof t); ROW(3, 120, 70, -1, 20);
+                // 0.22.22 (issue18): the yard lists her ten classes by role, so a player can
+                // see at a glance what she is buying - a trader, an interceptor or a ship
+                // built to stand in the line
+                static const char *const role_name[3] = { "Traders", "Interceptors", "Ships of the line" };
+                for (int role = 0; role < 3; ++role) {
+                    { ROW(1, -1, 18); ui_label_col(role_name[role], mu_color(200, 210, 225, 255)); }
+                for (int t = 0; t < SHIP_COUNT; ++t) { if (ship_types[t].role != role) continue;
+                    mu_push_id(ui_ctx, &t, sizeof t);
+                    ROW(3, 120, 70, -1, 20);
                     const ship_info_t *s = &ship_types[t];
                     mu_label(ui_ctx, s->name);
                     if (ui_btn(va("%.0f", s->cost))) {
                         if (G.nations[G.player].treasury < s->cost) toast("Not enough ducats");
                         else {
-                            fleet_t *tf = docked && docked->nships < MAX_SHIPS ? docked : fleet_new(G.player, t >= SHIP_FRIGATE && t != SHIP_GALLEON ? ROLE_WARSHIP : ROLE_TRADER, p->x, p->z, va("Fleet %d", G.next_fleet_id+1));
+                            fleet_t *tf = docked && docked->nships < MAX_SHIPS ? docked : fleet_new(G.player, ship_types[t].role == SC_TRADER ? ROLE_TRADER : ROLE_WARSHIP, p->x, p->z, va("Fleet %d", G.next_fleet_id+1));
                             if (!tf) toast("Too many fleets at sea");
                             else { if (tf != docked) { tf->at_port = pi; tf->home_port = pi; tf->order = ORDER_DOCK; } G.nations[G.player].treasury -= s->cost; fleet_add_ship(tf, t); toast("%s launched at %s", s->name, p->name); }
                         } }
                     mu_label(ui_ctx, va("cargo %.0f guns %d spd %.1f", s->cargo, s->guns, s->speed)); mu_pop_id(ui_ctx); }
+                }
             }
         } else mu_label(ui_ctx, "Build Docks to open a shipyard.");
     }
@@ -466,7 +483,7 @@ void Hud::labels(void) {
 void Hud::battle_muster(void) {
     int W = screen_w, H = screen_h;
     int n = detailview_ship_count(); if (n <= 0) return;
-    const int cw = 86, chh = 40, gap = 6;
+    const int cw = 86, chh = 51, gap = 6;   // 0.22.22: taller, for the crew and powder bars
     int counts[2] = { 0, 0 };
     dv_shipinfo_t inf;
     for (int i = 0; i < n; ++i) if (detailview_ship_info(i, &inf)) counts[inf.side ? 1 : 0]++;
@@ -486,14 +503,18 @@ void Hud::battle_muster(void) {
         ui_overlay_text(x0 + cw / 2.f, y0 + 8, inf.sunk ? va("%s +", nm) : inf.stranded ? va("%s (aground)", nm) : nm, tc, 1, 0);
         if (inf.fire > 0.02f) ui_overlay_text(x0 + cw - 8, y0 + 8, "~", mu_color(255, 140, 30, 255), 1, 0);
         // the four bars: what she has left of hull, sails and guns, and how full of water she is
-        struct { float v; mu_Color c; } bars[4] = {
+        // 0.22.22 (todo 178): six bars now - the two gaps the 0.22.20 list honestly left for
+        // crew and powder are filled, because both are simulated
+        struct { float v; mu_Color c; } bars[6] = {
             { inf.hull,  mu_color(120, 200, 90, 220) },
             { inf.sails, mu_color(220, 205, 160, 220) },
             { inf.guns,  mu_color(190, 190, 200, 220) },
+            { inf.crew,  mu_color(225, 160, 120, 220) },
+            { inf.ammo,  mu_color(200, 170, 70, 220) },
             { inf.water, mu_color(90, 150, 230, 220) },
         };
-        for (int b = 0; b < 4; ++b) {
-            float bx = x0 + 5, by = y0 + 16 + b * 5.5f, bw = cw - 10;
+        for (int b = 0; b < 6; ++b) {
+            float bx = x0 + 5, by = y0 + 16 + b * 5.6f, bw = cw - 10;
             ui_overlay_rect(bx, by, bw, 4, mu_color(10, 10, 14, 180));
             float v = clampf(bars[b].v, 0.f, 1.f);
             if (v > 0.003f) ui_overlay_rect(bx, by, bw * v, 4, bars[b].c);

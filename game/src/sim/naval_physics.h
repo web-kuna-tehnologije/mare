@@ -124,6 +124,8 @@ typedef struct nphys_damage_t {
     float guns;      // the battery she can still fire
     float flood;     // water in her: 0 dry .. 1 gone
     float fire;      // 0.22.19 (todo 152): how far she is alight, 0 .. 1
+    float crew;      // 0.22.22 (todo 178): what is LEFT of her people, 1 full .. 0 nobody on his feet
+    float ammo;      // ... and of her powder and shot, 1 full lockers .. 0 dry
     int   sunk;      // she has gone under; the body stops driving and is left to settle
     int   stranded;  // 0.22.20 (issue16): stuck fast on the ground - no helm, no way
     int   masts_down;// masts carried away so far (each is an event)
@@ -134,6 +136,13 @@ void nphys_damage_get(int id, nphys_damage_t *out);   // zeros when the id is no
 // A blow dealt by something other than round shot - a ram, a grounding, a fire below:
 // `where` is 0 below the waterline, 1 on the gun deck, 2 aloft.
 void nphys_damage_add(int id, int where, float amount);
+// 0.22.22 (todo 178, and the two honest gaps the muster list was leaving): her people and her
+// powder. `nphys_man` sets how full she comes into the action (1 = her full complement and
+// lockers); `nphys_spend_ammo` asks for a broadside of `guns` pieces and returns how many she
+// can actually serve - fewer when her people are down, fewer again when the lockers run low,
+// and none at all when they are dry, which is what makes a long action end.
+void nphys_man(int id, float crew01, float ammo01);
+int  nphys_spend_ammo(int id, int guns);
 float nphys_speed_factor(int id);   // 1 sound .. ~0.25 a wreck: what her rig and her flooding leave her
 int   nphys_sunk(int id);
 int   nphys_poll_events(nphys_event_t *out, int max);

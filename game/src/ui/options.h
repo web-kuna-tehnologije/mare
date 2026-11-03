@@ -50,6 +50,10 @@ typedef struct options_t {
     int   ssao;
     float bloom;              // 0 .. 1.5
     float exposure;           // 0.4 .. 2.5
+    // frame limit (0.22.21, issue17 "limit fps to 60 (add limiter to options)"): frames per
+    // second the main loop will not exceed, 0 = uncapped. Saves power and keeps a laptop
+    // quiet; the sim is frame-rate independent so nothing else changes.
+    int   fps_cap;
     int   loaded;             // a settings file was read at start-up
 } options_t;
 

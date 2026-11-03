@@ -16,6 +16,7 @@ extern "C" {
 #include "../core/diag.h"
 #include "../world/world.h"
 #include "../world/terrain_chunks.h"
+#include "../world/roads.h"      // 0.22.24 (todo 161): the recorded river crossings
 #include "../assets/asset.h"
 }
 
@@ -46,7 +47,7 @@ namespace mare::game::view {
 // the near ring. The split is made when the ring recomposes - which is whenever the camera
 // leaves the inner quarter of it - so an instance never flips LOD while the view is still.
 #define PROP_LOD1   7.0f
-#define PROP_LOD2   14.0f        // 0.22.15: the authored trees' far LOD ring; the cards take over past it
+#define PROP_LOD2   30.0f        // 0.22.21 (issue17 "low poly models for lod of trees, not ... stock ones"): the authored ~200-tri LOD 5 carries to the edge of the prop ring; the stock cards are only the stand-in while a species streams (was 14)
 #define FENCE_L     0.055f       // one fence panel, post to post
 #define MILL_H      0.075f       // a windmill, ground to the cap
 #define MINE_H      0.045f       // a pithead frame
@@ -64,7 +65,8 @@ private:
     static void octa(mb_t *m, float cy, float rxz, float ry, const float *ca, const float *cb);
     static void cone(mb_t *m, float cy, float r, float h, const float *ca, const float *cb);
     mesh_t tree = {}, olive = {}, vine = {}, sheep = {}, pine = {}, oak = {}, house = {}, cow = {}; int built = 0;
-    mesh_t card_broad = {}, card_pine = {}, fence = {}, wheat = {}, mill = {}, mine = {}, rock = {};
+    mesh_t card_broad = {}, card_pine = {}, fence = {}, wheat = {}, mill = {}, mine = {}, rock = {}, bridge = {};
+    mesh_t fruit[3] = {};        // 0.22.24 (todo 117b): apple, cherry, plum - a real orchard set, not forest species scaled down   // 0.22.24 (todo 161): a bridge at every road crossing
     // 0.22.14 (issue12 "trees in assets/trees: add them, set them up by biome"): the 27 authored
     // trees (assets/generated/tree_*, unit height), one GPU copy each of LOD 4 (~700 tris) made
     // from the asset's CPU vertices the first time it is resident, instanced from the woods and
@@ -89,7 +91,8 @@ private:
     struct { const unsigned char *lu, *forest; const float *delta; int res; float x0, z0, step; const float *sets; int nsets; int valid; } last = {};
     int relay_pending = 0;
     instlist_t li_tree = {}, li_olive = {}, li_vine = {}, li_sheep = {}, li_pine = {}, li_oak = {}, li_house = {}, li_cow = {};
-    instlist_t li_card_b = {}, li_card_p = {}, li_fence = {}, li_wheat = {}, li_mill = {}, li_mine = {}, li_rock = {};
+    instlist_t li_card_b = {}, li_card_p = {}, li_fence = {}, li_wheat = {}, li_mill = {}, li_mine = {}, li_rock = {}, li_bridge = {};
+    instlist_t li_fruit[3] = {};
 };
 
 Scatter &scatter() { static Scatter s; return s; }
@@ -127,6 +130,31 @@ void Scatter::build_meshes() {
         mb_material(&m, 0.92f, 0.f);
         octa(&m, 0.70f, 0.40f, 0.34f, crown_hi, crown_lo);
         tree = mesh_upload(&m);
+    }
+    {   // The fruit-tree set (0.22.24, todo 117b: "the oak/maple in the orchards are the forest
+        // species scaled down - a fruit tree set"). Three varieties, because an orchard is
+        // planted and a planted tree is pruned to a shape: an **apple**, low and wide on a
+        // short bole; a **cherry**, taller and upright with a narrower head; a **plum**,
+        // smallest, bushy and nearly to the ground. They differ in bole height, crown width
+        // and leaf tone, so a grove reads as rows of managed trees and not as scrub wood.
+        const float bole[3]   = { 0.40f, 0.30f, 0.20f };
+        const float ap_hi[3]  = { 0.33f, 0.50f, 0.20f }, ap_lo[3] = { 0.22f, 0.36f, 0.14f };
+        const float ch_hi[3]  = { 0.28f, 0.46f, 0.22f }, ch_lo[3] = { 0.19f, 0.33f, 0.16f };
+        const float pl_hi[3]  = { 0.30f, 0.44f, 0.26f }, pl_lo[3] = { 0.21f, 0.32f, 0.19f };
+        struct { float bole_h, bole_r, cy, rxz, ry; const float *hi, *lo; } V[3] = {
+            { 0.26f, 0.050f, 0.62f, 0.46f, 0.30f, ap_hi, ap_lo },   // apple: wide and low
+            { 0.38f, 0.044f, 0.74f, 0.34f, 0.36f, ch_hi, ch_lo },   // cherry: upright
+            { 0.18f, 0.052f, 0.50f, 0.42f, 0.28f, pl_hi, pl_lo },   // plum: bushy, close to the ground
+        };
+        for (int k = 0; k < 3; ++k) {
+            mb_t m = mb_t{}; mb_material(&m, MB_WOOD);
+            mb_box(&m, 0, V[k].bole_h, 0, V[k].bole_r, V[k].bole_h, V[k].bole_r, bole[0], bole[1], bole[2], 0.f);
+            mb_material(&m, 0.92f, 0.f);
+            octa(&m, V[k].cy, V[k].rxz, V[k].ry, V[k].hi, V[k].lo);
+            // a second, smaller lobe off-centre: a pruned head is two or three boughs, not a ball
+            octa(&m, V[k].cy + V[k].ry * 0.35f, V[k].rxz * 0.62f, V[k].ry * 0.55f, V[k].hi, V[k].lo);
+            fruit[k] = mesh_upload(&m);
+        }
     }
     {   // an olive: a thick short trunk and a broad, flat grey-green crown
         mb_t m = mb_t{}; mb_material(&m, MB_WOOD);
@@ -244,6 +272,28 @@ void Scatter::build_meshes() {
         octa(&m, 0.16f, 0.52f, 0.16f, spoil, spoil);
         mine = mesh_upload(&m);
     }
+    {   // A stone bridge (0.22.24, todo 161 / TODO 10b). Modelled along **x** - the road runs
+        // that way - one unit long and one wide, so the instance scales it to the crossing's
+        // span: two abutments, a segmental arch of eight voussoir boxes springing from them,
+        // a flat deck over it and a low parapet either side. Stone, because a road that has
+        // been upgraded to carry trade is not crossing on logs; the timber beam for the farm
+        // tracks is the obvious next variant and is not here.
+        const float stone[3] = { 0.70f, 0.67f, 0.60f }, para[3] = { 0.63f, 0.60f, 0.54f };
+        mb_t m = mb_t{}; mb_material(&m, MB_STONE);
+        for (int side = -1; side <= 1; side += 2)          // the abutments, on the banks
+            mb_box(&m, side * 0.44f, 0.10f, 0.f, 0.08f, 0.10f, 0.26f, stone[0], stone[1], stone[2], 0.f);
+        const int NA = 8;
+        for (int i = 0; i < NA; ++i) {                      // the arch ring
+            float u = (i + 0.5f) / NA, a = 3.14159f * u;
+            float bx = -0.36f + 0.72f * u, by = 0.10f + sinf(a) * 0.17f;
+            mb_box(&m, bx, by * 0.5f + 0.05f, 0.f, 0.72f / NA * 0.62f, by * 0.5f, 0.24f,
+                   stone[0], stone[1], stone[2], 0.f);
+        }
+        mb_box(&m, 0.f, 0.30f, 0.f, 0.50f, 0.035f, 0.26f, stone[0], stone[1], stone[2], 0.f);   // the deck
+        for (int side = -1; side <= 1; side += 2)          // the parapets
+            mb_box(&m, 0.f, 0.375f, side * 0.235f, 0.50f, 0.045f, 0.025f, para[0], para[1], para[2], 0.f);
+        bridge = mesh_upload(&m);
+    }
     {   // a boulder (0.22.6, TODO 8c): a squashed octahedron, limestone grey
         const float rk_hi[3] = { 0.66f, 0.63f, 0.57f }, rk_lo[3] = { 0.48f, 0.46f, 0.42f };
         mb_t m = mb_t{}; mb_material(&m, 0.80f, 0.f);
@@ -322,7 +372,8 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
     instlist_clear(&li_tree); instlist_clear(&li_olive); instlist_clear(&li_vine); instlist_clear(&li_sheep); instlist_clear(&li_cow);
     instlist_clear(&li_pine); instlist_clear(&li_oak); instlist_clear(&li_house);
     instlist_clear(&li_card_b); instlist_clear(&li_card_p); instlist_clear(&li_fence);
-    instlist_clear(&li_wheat); instlist_clear(&li_mill); instlist_clear(&li_mine); instlist_clear(&li_rock);
+    instlist_clear(&li_wheat); instlist_clear(&li_mill); instlist_clear(&li_mine); instlist_clear(&li_rock); instlist_clear(&li_bridge);
+    for (int k = 0; k < 3; ++k) instlist_clear(&li_fruit[k]);
     const float ringcx = x0 + 0.5f * step * (res - 1), ringcz = z0 + 0.5f * step * (res - 1);
     std::unordered_set<long long> cells;
     double t0 = diag_now();
@@ -436,9 +487,19 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
                     if (h > 0.04f) {
                         float s = TREE_H * (0.8f + 0.4f * hash2(gx + 3.f, gz + 3.f));
                         inst_t in = inst(tx, h - 0.004f, tz, hash2(gx + 4.f, gz + 4.f) * 6.2832f, s);
-                        int spo = medb > 0.5f ? SP_OLIVE : (hash2(gx + 7.f, gz + 7.f) < 0.5f ? SP_OAK : SP_MAPLE);   // 0.22.14: authored olives and orchard trees
-                        if (sp[spo].ready && dist2d(tx, tz, ringcx, ringcz) <= PROP_LOD1) { in.scale = (medb > 0.5f ? 0.075f : 0.085f) * (0.8f + 0.4f * hash2(gx + 3.f, gz + 3.f)); *instlist_push(&sp[spo].il) = in; }
-                        else *instlist_push(medb > 0.5f ? &li_olive : &li_tree) = in;
+                        // 0.22.24 (todo 117b): north of the Mediterranean belt an orchard is
+                        // planted with **fruit trees** - one of the three varieties above,
+                        // chosen per cell so a grove is mixed as a real one is - and no longer
+                        // with the forest oak and maple shrunk down, which is what the row
+                        // complained of. The olive groves keep their authored olive.
+                        if (medb > 0.5f) {
+                            if (sp[SP_OLIVE].ready && dist2d(tx, tz, ringcx, ringcz) <= PROP_LOD1) {
+                                in.scale = 0.075f * (0.8f + 0.4f * hash2(gx + 3.f, gz + 3.f)); *instlist_push(&sp[SP_OLIVE].il) = in;
+                            } else *instlist_push(&li_olive) = in;
+                        } else {
+                            int v = (int)(hash2(gx + 7.f, gz + 7.f) * 2.999f); if (v < 0) v = 0; if (v > 2) v = 2;
+                            *instlist_push(&li_fruit[v]) = in;
+                        }
                         total++;
                     }
                 }
@@ -530,6 +591,28 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
             }
         }
     }
+    // A bridge at every crossing in this ring (0.22.24, todo 161 / TODO 10b). `road_bridges`
+    // has been recorded since 0.22.2 - position, the road's direction and the river's
+    // half-width - and since 0.22.20 it is filled for the *authored* rivers too, which is
+    // what made this worth drawing: the crossings are real ones now. The arch is laid along
+    // the road, spans the river with a little to spare, and sits at the bank's height so it
+    // bridges the cut rather than floating over it.
+    for (int q = 0; q < road_nbridges; ++q) {
+        const bridge_t *b = &road_bridges[q];
+        if (b->x < x0 || b->z < z0 || b->x > x0 + step * (res - 1) || b->z > z0 + step * (res - 1)) continue;
+        if (total >= SCATTER_MAX) break;
+        float span = maxf(b->hw * 2.6f, 0.09f);                 // the river, with abutments on dry ground
+        // the banks either side of the road's crossing, so the deck sits on the higher of them
+        float nx = -b->dz, nz = b->dx;
+        float h0 = ground(b->x + nx * span * 0.5f, b->z + nz * span * 0.5f);
+        float h1 = ground(b->x - nx * span * 0.5f, b->z - nz * span * 0.5f);
+        float h  = maxf(maxf(h0, h1), ground(b->x, b->z));
+        if (h <= 0.02f) continue;                               // no bridge standing in the sea
+        inst_t bi = inst(b->x, h - 0.012f, b->z, atan2f(-b->dz, b->dx), span);
+        *instlist_push(&li_bridge) = bi; total++;
+    }
+    { static int said = 0; if (!said && li_bridge.n) { said = 1;
+        LOG_INFO("gfx", "scatter: %d bridge(s) stand where roads cross rivers in this ring (of %d known crossings)", li_bridge.n, road_nbridges); } }
     // One landmark per settlement (0.22.6, issue3 "villages with mills and so on", TODO 7c):
     // a windmill on the rise beside a farm village, a pithead over a mine.
     for (int q = 0; q < nsets; ++q) {
@@ -558,10 +641,12 @@ void Scatter::rebuild(const unsigned char *lu, const unsigned char *forest, cons
     mesh_set_instances(&mill, li_mill.v, li_mill.n);
     mesh_set_instances(&mine, li_mine.v, li_mine.n);
     mesh_set_instances(&rock, li_rock.v, li_rock.n);
+    mesh_set_instances(&bridge, li_bridge.v, li_bridge.n);
+    for (int k = 0; k < 3; ++k) mesh_set_instances(&fruit[k], li_fruit[k].v, li_fruit[k].n);
     scatter_count = total;
     int nauth = 0; for (int i = 0; i < SP_COUNT; ++i) nauth += sp[i].il.n;
-    LOG_DEBUG("stream", "hinterland props: %d orchard, %d olive, %d vine, %d sheep, %d broadleaf, %d pine (+%d cards), %d authored trees, %d house, %d fence, %d corn, %d mill, %d pithead, %d rock in %.1f ms",
-              li_tree.n, li_olive.n, li_vine.n, li_sheep.n, li_oak.n, li_pine.n, li_card_b.n + li_card_p.n, nauth, li_house.n, li_fence.n, li_wheat.n, li_mill.n, li_mine.n, li_rock.n, (diag_now() - t0) * 1000);
+    LOG_DEBUG("stream", "hinterland props: %d orchard, %d olive, %d vine, %d sheep, %d broadleaf, %d pine (+%d cards), %d authored trees, %d house, %d fence, %d corn, %d mill, %d pithead, %d rock, %d bridge in %.1f ms",
+              li_tree.n, li_olive.n, li_vine.n, li_sheep.n, li_oak.n, li_pine.n, li_card_b.n + li_card_p.n, nauth, li_house.n, li_fence.n, li_wheat.n, li_mill.n, li_mine.n, li_rock.n, li_bridge.n, (diag_now() - t0) * 1000);
 }
 
 int Scatter::submit() {
@@ -575,6 +660,8 @@ int Scatter::submit() {
     int n = 0;
     if (li_house.n) { mesh_draw(&house); n += li_house.n; }
     if (li_mill.n)  { mesh_draw(&mill);  n += li_mill.n; }
+    if (li_bridge.n) { mesh_draw(&bridge); n += li_bridge.n; }
+    for (int k = 0; k < 3; ++k) if (li_fruit[k].n) { mesh_draw(&fruit[k]); n += li_fruit[k].n; }
     if (li_mine.n)  { mesh_draw(&mine);  n += li_mine.n; }
     if (cam.dist < HOUSE_FAR * 0.7f) {
         if (li_oak.n)    { mesh_draw(&oak);  n += li_oak.n; }

@@ -212,6 +212,33 @@ static void test_fire() {
     printf("  fire: she was lost after it%s\n", d.blew_up ? " - the magazine went" : " - burnt and flooded");
 }
 
+
+// 10c (0.22.22, todo 178): her people and her powder. A ship fires until her lockers are dry
+// and then falls silent; balls that come aboard kill men, and a half-manned ship is slower.
+static void test_crew_and_powder() {
+    nphys_reset();
+    int a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
+    nphys_man(a, 1.f, 1.f);
+    int broadsides = 0, guns = 20;
+    for (int i = 0; i < 200; ++i) { int served = nphys_spend_ammo(a, guns); if (served <= 0) break; broadsides++; }
+    nphys_damage_t d; nphys_damage_get(a, &d);
+    CHECK(broadsides > 10 && broadsides < 60, "a full ship fired %d broadsides before running dry", broadsides);
+    CHECK(d.ammo <= 0.001f, "she still has powder after firing herself out: %.3f", d.ammo);
+    CHECK(nphys_spend_ammo(a, guns) == 0, "a dry ship still fired");
+    printf("  powder: %d broadsides of %d guns before the lockers were dry\n", broadsides, guns);
+
+    nphys_reset();
+    a = nphys_add(0, 0, 0, 20, 6, 1.2f, 800);
+    nphys_man(a, 1.f, 1.f);
+    float spd0 = nphys_speed_factor(a);
+    for (int i = 0; i < 10; ++i) nphys_damage_add(a, 1, 0.06f);     // ten balls on the gun deck
+    nphys_damage_get(a, &d);
+    CHECK(d.crew < 0.9f, "ten balls on the gun deck killed nobody: crew %.2f", d.crew);
+    CHECK(nphys_speed_factor(a) < spd0, "losing her people cost her nothing in speed");
+    printf("  crew: ten balls on the gun deck left %.0f%% of her people; she makes %.0f%% of her way\n",
+           100.f * d.crew, 100.f * nphys_speed_factor(a));
+}
+
 // 9: an impulse off the centre pushes her the other way and turns her
 static void test_recoil() {
     nphys_reset();
@@ -267,6 +294,7 @@ int main(void) {
     test_ballistics();
     test_ball_drag();
     test_fire();
+    test_crew_and_powder();
     test_recoil();
     test_fixed_step();
     test_interpolation();

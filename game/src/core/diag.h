@@ -45,7 +45,8 @@ typedef struct diag_config_t {
 void diag_init(const diag_config_t *cfg);        // cfg may be NULL for defaults
 void diag_shutdown(void);                        // flushes, writes a summary, closes files
 void diag_set_sim_day(float day);                // stamped on every record
-double diag_now(void);                           // monotonic seconds
+double diag_now(void);
+void   diag_sleep(double seconds);   // 0.22.21: coarse sleep for the frame limiter (OS granularity; spin the last bit yourself)                           // monotonic seconds
 size_t diag_process_ram(void);                   // process resident set size in bytes (0 if unavailable)
 const char *diag_run_log_path(void);             // path of this run's log file
 

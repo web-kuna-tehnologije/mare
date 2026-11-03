@@ -1,205 +1,168 @@
-# Where we stand — the whole list, one line each
+# Mare Liberum — DONE and LEFT
 
-`[x]` done · `[~]` partly done, the rest named · `[ ]` open · `[-]` dropped, with the reason.
+Two lists, as issue19 asked: everything finished, and everything still open. Numbers in
+brackets are the row in `docs/todo_list.md` (or the item in `docs/TODO.md`), so every line
+here traces back to the request it came from.
 
-Updated **2026-11-02, 0.22.20**, session `elm`. The numbers in brackets are the row in
-`docs/todo_list.md` or the item in `docs/TODO.md`, so every line here can be traced back to the
-request it came from. Nothing is listed here that is not tracked there.
+Updated **2026-11-03, 0.22.24**, session `elm`.
 
-**184 done · 9 partly · 28 open · 2 dropped, of 223 tracked — about 83% done.** The battle is
-now a commanded, visible, costly thing: orders, a muster list, fire with real flames, masts
-that fall off the mesh, collisions and groundings that cost timber. The clear next renderer
-task is the **per-ship rope/rig buffer** (121b), which now unblocks two separate asks; the
-clear next sim tasks are a yard that repairs, and crew/ammunition.
+**211 done · 9 partly · 17 open · 4 dropped, of 241 tracked — about 88%.**
 
 ---
 
-## This round (0.22.20) — issue16
+# LEFT
 
-- [x] Realistic fire: flame tongues off the fire sheet (2:1 tall, climbing, white root to red
-      tip, self-lit), embers downwind; the explosion uses them too [171]
-- [~] Oars, third report — the asset finally *measured*: blade at **+x** on a −45° diagonal
-      (cross-section 0.227 vs the loom's 0.090); every prior fix assumed −x and mounted the
-      real blade inboard. Side sign and pivot fixed. A close-up verification shot kept missing
-      the moving ship, so this rests on the measurement [172]
-- [x] Take in sails: a battle-panel button; oared ships pull, sailing ships heave to [173]
-- [x] Stranding: hard aground takes ground damage and after a few seconds she is stuck fast —
-      no helm, no way, "(aground)" on her card [174]
-- [x] Collision damage: closing speed above a walking pace costs hull, split by inverse mass [175]
-- [x] Mesh damage removal: a felled mast is gone from the drawn ship, with its yards, canvas
-      and lantina; the standing rigging still shows its runs (121b's buffer is the blocker) [176]
-- [x] The muster list: enemy top, player bottom, four honest bars per ship (hull, sails, guns,
-      water), flame / "+" / "(aground)" marks; crew and ammo not shown because not simulated [177]
-- [ ] Crew and ammunition as simulated quantities, then their bars [178]
-- [x] Villages at a town's footprint, bigger houses, drawn to 70 units [179]
-- [~] Cities that look like cities: ~90 houses on ring streets inside towered walls — a better
-      procedural town; authored landmarks for the great cities stay on the roadmap [180]
-- [ ] Roads weighted by trade flow — needs the economy's flows in the road builder [181]
-- [ ] The rope, carried at the issue's own invitation ("add rope for the next round if unable
-      this one") — and its buffer now also unblocks cutting a felled mast's rigging [121b]
+Short list, honestly ordered. This is what a next session should pick up.
 
-## Last round (0.22.19) — issue15, and the battle grows teeth
+## Renderer / art
+- [ ] **Per-rope verlet geometry** — 0.22.23 gave every ship a real four-node verlet chain that
+      her whole rig hangs from (below). What is *not* done is a chain **per rope**: that needs
+      the rig moved off the single per-class mesh onto per-ship dynamic geometry. Same buffer
+      would let a felled mast take its own shrouds and stays with it (today the whole rig is
+      dropped only when the last mast goes) [121b]
+- [ ] Authored orchard/vine props, the mill and the well as assets [96, 7c]
+- [ ] Road upgrade visuals: class 1 paler and wider with a ditch, class 2 cobbled, milestones [6b]
+- [ ] Rocks on canyon rims and sea cliffs; pebble cards on scree [8c]
+- [ ] Micro-detail: stone walls, footpaths, rutted tracks [9a, TODO 9]
+- [ ] A beach profile for the islands `raise_small_islands` lifts — they still read as plateaux
+- [ ] A proper back-face material for the lateen's lee side [105]
+- [ ] The dark used suit of sails [21]
+- [ ] Far LOD for the fields [26]
+- [ ] Scatter framework proper: one deterministic hash per ring texel, 3 LODs, paged [8a]
+- [ ] Wild woodland as instances rather than canopy texture [8b]
 
-### issue15
-- [x] Villages bigger in the strategic view: 9 px, and every settlement mark a third larger at
-      the strategic tier, where the house meshes are gone and the mark *is* the village [162]
-- [x] Start-menu graphics: the Options panel opens over the menu (the backend must be chosen
-      before a world exists) and a Low/Medium/High/Ultra preset sets the nine knobs at once [163]
-- [x] Smoke fades slower (density `(1-t)^2`, lives 20-50 s), is less round (a low-frequency
-      noise lobe), and fades from its rim inwards to a dense knot instead of going transparent
-      at full size [164]
-- [x] Battle orders: **Fire at** Nearest / Warships / Traders, and **The line** Hold / Board /
-      Retreat / No quarter [165]
-- [x] Real shot: calibre per gun, air resistance (`2.75e-5 v²/r` — a 32-pounder out-ranges a
-      6-pounder by 30%, measured), the piece laid on the rolling deck, a smooth bore's drift,
-      and the ball carrying the ship's way [166]
-- [x] Ships no longer glide on the map: they heel to leeward with the wind and work twice as
-      hard in a seaway [167]
-- [x] Rivers smoothed: 287,511 wide segments chained and Chaikin'd into 1,227 curves; the
-      blockiness was 825k two-point sticks carved wider than they were long [168]
-- [x] Mountain heights down by 1 (`GC_HEIGHT_SCALE` 7 → 6, exaggeration 4.6x) [169]
-
-### Physics and battle
-- [x] **The butcher's bill goes home** — the biggest item on the list, open since the damage
-      model was written. `ship_t` carries rig, gun and flood damage; a ship sunk in the scene
-      is struck off the fleet; damage is taken and never given back [153]
-- [x] **Fire**: started on the gun deck, feeds on itself, takes her rig then her timbers then
-      floods her, and can reach the magazine [152]
-- [x] **Gun damage with teeth**: up to four times slower, fewer pieces bearing, nothing past
-      nine tenths — and `fleet_power` reads it [149]
-- [x] **A sinking that reads**: down by the head over eight seconds, slow then quick
-- [ ] **A verlet chain for the sheets and braces** — the one item of this round left open. The
-      ropes are a per-class *static* mesh shaped in the vertex shader; a real verlet needs the
-      geometry on a per-ship dynamic buffer with the endpoints enumerated per hull. The
-      simulation is cheap; the plumbing is a new subsystem [121b]
-- [ ] Broadphase collision [154] and multithreaded physics jobs [155] — no visible result at
-      the hull counts the staged battle runs today
-- [ ] A yard that repairs what a fleet brings home: the damage persists now, and nothing takes
-      it off again [170]
-
-## Last round (0.22.18) — the 4x world and its rivers
-
-- [x] Read the Mare Liberum 4x terrain build (`assets/data-terrain-v2`, 2049 samples a chunk,
-      ~700 m a sample) — the loader took 513 samples as a hard ceiling [TODO 1, row 156]
-- [x] Size the streaming budget in *chunks* rather than megabytes: a 4x chunk is 68 MB resident
-      where the overview's is 4.5, and the flat 160 MB held two of them [row 156]
-- [x] Scale the reads in flight by chunk size, so a 30 MB chunk does not stall the IO lane [row 156]
-- [x] The GPU chunk atlas picks its slot grid from the dataset: 3x3 slots of 1025 texels for the
-      4x build (113 MB) against 4x4 of 513 (50 MB), finer data point-sampled down on the shared
-      edges so chunk joins stay seamless; `MARE_CHUNK_ATLAS_SAMPLES=2049` for the full detail [row 157]
-- [x] The geography fold reads the finer build at a stride — it was reading 17 MB a chunk to
-      throw fifteen sixteenths away (2.6 s and ~0.5 GB peak; now 1.0 s) [row 158]
-- [x] `MARE_GEOCHUNK_DIR` takes a `;`-separated list, so an out-of-tree build joins the
-      deliveries under `assets` instead of replacing them [row 158]
-- [x] **The ranges read as terraces** at the old 2.8 km spacing — the finer DEM was the fix all
-      along, and the Dinaric karst now has rock faces and ridges instead of smooth green hills
-      [row 93, roadmap "a genuinely finer DEM for the home seas"]
-- [x] **River carving and navigation on the authored data**: the class comes off the layer's own
-      `from_upstream_m`, thresholds read off the data (150 Mm a merchantman, 60 Mm a shallow
-      draught) rather than guessed; 2148 nav cells of river open to ships [row 118, TODO 5]
-- [x] **Roads bridge the authored rivers.** `river_mask` was only ever built by the *generated*
-      network, so since 0.22.14 a road had been laid over the Po as if it were dry ground [found]
-- [x] Carving defaults on for authored rivers and stays off for the generated network — the
-      reason it was off was that a drainage network folded from 7 km cells is not a survey
-      [row 118]
-- [ ] The Seine, the Guadalquivir, the Thames and the Tiber are not navigable: the first two
-      fall under our threshold, the last two under the export's own filter. `from_upstream_m` is
-      length, not discharge, and the layer carries no width (`width_m` is null throughout) [row 159]
-- [ ] Deltas and lakes as basins from the authored layer [TODO 5]
-
-## Terrain and the world
-
-- [x] Terrain-v2 chunks in the world, streamed on the IO/DECODE/MAIN lanes [TODO 1]
-- [x] Biome material masks from the export's splat and class maps [TODO 2]
-- [x] Natural coasts: shore mask, beaches, cliffs, marsh, the sea breaking on them [TODO 3]
-- [x] Map view modes: depth, religion, political, influence, production [TODO 4]
-- [x] Rivers from the package, painted, carved and navigable [TODO 5, rows 91/113/118]
-- [x] Roads from every inland settlement to its hub port [TODO 6]
+## World / simulation
 - [ ] Hinterland settlements: street layouts, authored houses, hand-placed landmarks in Venice,
-      Dubrovnik and Constantinople [TODO 7, roadmap P2.1]
-- [ ] LOD streaming for scatter: instanced LOD chains paged with the ring [TODO 8]
-- [ ] Procedural micro-detail on the near ground: furrows, stone walls, paths [TODO 9, 9a]
-- [ ] Props: the `assets/buildings/city` blends exported (windmill, bakery, well) [TODO 10]
+      Dubrovnik, Constantinople [TODO 7, roadmap P2.1]
+- [ ] Deltas and lakes as basins from the authored river layer [TODO 5]
+- [ ] The Seine, Guadalquivir, Thames and Tiber are not navigable — the first two fall under our
+      threshold, the last two under the export's own filter; `from_upstream_m` is length, not
+      discharge [159]
+- [ ] **Pack the rivers in the delivered terrain** — one command, and it needs write access to
+      `assets/`, which a session does not have:
+      `python3 tools/rivers_pack.py assets/data-terrain-v2/mare-liberum-world-terrain-4x/mare-world-terrain 10.9e6` [182b]
 
-### The hinterland's small items
-- [ ] 8a. Scatter framework: one deterministic hash per ring texel, 3 LODs, paged with the ring
-- [~] 8b. Trees: the orchards and olive groves have real trees; wild woodland is still canopy
-      texture, not instances
-- [ ] 8c. Rocks: boulders on canyon rims and sea cliffs, pebble cards on scree
-- [x] 7a. Fields as hedged strip parcels, one orientation per district
-- [x] 7b. Vineyards and orchards as vine rows and crown grids, with props
-- [~] 7c. Villages: the built disc is painted; the asset houses, the mill and the well are not
-      all stood yet
-- [ ] 10b. Bridges: a stone-arch or timber-beam prop at each `road_bridges[]` point — and the
-      points exist over the authored rivers now, which is what was blocking this
-- [ ] 6b. Road upgrade visuals: class 1 paler and wider with a ditch, class 2 cobbled with
-      milestones
-- [ ] Align the field district to the local road; wheat by the region's dominant good [7a]
-- [ ] Far LOD for the fields [row 26]
-- [ ] A beach profile for the islands `raise_small_islands` lifts: they still read as plateaux
-
-## Ships, rig and sea
-
-- [x] The battle scene's clock, wind, coast and landscape from the world [rows 1-8, 27]
-- [x] Muzzle flash, gunsmoke, no projectile VFX [rows 10-13]
-- [x] Volumetric smoke: a ray-marched density slab, not billboards [rows 95, 119]
-- [x] Wake as a 3D wave rooted at the stem; foam that fades and spreads [rows 86, 87, 100, 129]
-- [x] Oars: blade in the water, pivot at the rowlock, ±15° at a stroke every 3-5 s [row 131]
-- [x] The lateen: its own spar, the right height, trimmed by the bisector rule [rows 99, 133]
-- [x] Stays chosen by station, so none runs the length of the ship to nowhere [row 136]
-- [x] Rope as hemp prisms with catenary sag, running rigging taut under a drawing sail [rows 121, 134, 135]
-- [x] Q and E steer the player's line in battle; H returns her to it [row 130]
-- [x] Authored trees: 27 props, six LODs, stood by biome; far ring to 14 units [rows 112, 128]
-- [~] The lateen's lee side: transmission and sky fill help, but a proper back-face material for
-      the canvas is still open [row 105]
-- [~] True sternway: leeway and falling off exist, and she makes sternway in the eye of the wind;
-      a sail force by point of sail on the rigid body does not [row 9]
-- [ ] A verlet chain for the sheets and braces [row 121b] - needs the rope geometry off the
-      per-class static mesh first
-- [ ] A fruit-tree set: the orchards use the forest species scaled down [rows 117b, 96]
-- [ ] The dark used suit of sails [row 21]
-- [-] The guns through the hull's *painted* ports — superseded: the hulls are to be re-made
-      without guns and the parts stood then [rows 97, 116]
-
-## Physics and battle
-
-- [x] Buoyancy, ballistics, recoil as the ball's real momentum [rows 52-62]
-- [x] **The guns had never hit anything**: world coordinates against a local frame, and the
-      pieces laid up from above the target. 0 hits in two minutes became 440 [rows 143, 144]
-- [x] The damage model: hull, rig, guns, flood, sunk, masts down, by where the ball strikes [rows 145-148, 150, 151]
-- [x] Flooding grows with the holes and with itself; past full flooding she is a wreck [rows 150, 151]
-- [x] Gun damage: up to four times slower, fewer pieces bearing, nothing past nine tenths [row 149]
-- [~] Strategic state holds hull, crew, guns, rig and flooding (0.22.19); fire is not carried
-      home - it either took her or it did not, and a strategic fire needs a strategic fire model [P1.3]
-- [x] **Fire**: she burns, loses her rig and her way, and can take the magazine with her [row 152]
-- [x] **Tactical results update the strategic ship** (0.22.19): rig, guns and flooding come home
-      and a ship sunk in the scene is struck off the fleet [row 153]
-- [x] A sinking that reads: she settles by the head over eight seconds (0.22.19)
-- [ ] Broadphase collision [row 154]
-- [ ] Multithreaded physics jobs [row 155]
+## Battle / physics
+- [ ] True sternway: a sail force by point of sail on the rigid body [9]
 - [ ] Constraints where gameplay-relevant; mast and debris constraints [P2]
 - [ ] Towing and boarding constraints [P3]
-- [ ] Heave into the shader: computed, but the hull still rides the shader's own wave sample
+- [ ] Heave into the shader — computed, but the hull still rides the shader's own wave sample
 - [ ] Lightning in a storm
 
 ## Engine
-
-- [x] The export read as chunks on the job pool; the GPU chunk atlas; the clipmap rings
-- [x] Vulkan memory, command, queue and fence layers; DX12 device at feature level 12.2
-- [ ] One real pass end to end on Vulkan: GLSL to SPIR-V as a build step, a pipeline from
+- [ ] One real pass end to end on Vulkan: GLSL→SPIR-V as a build step, a pipeline from
       `rhi_pipeline_desc_t`, uniforms in a descriptor set, rendered offscreen beside the GL frame
 - [ ] Finish T9: callers onto the class APIs, `game_t` injected, the C-ABI globals retired
 - [ ] The UI decision: RmlUi against the classed-up kit
 - [ ] Mast far-LOD budgets; the bowsprit steeve
 
+## Dropped, with the reason
+- [-] **Broadphase collision [154]** and **multithreaded physics jobs [155]** — measured in
+      0.22.23 before writing either: the whole tactical world costs **0.05 ms a frame with 40
+      bodies and 39 shot in the air**. Optimising it would be measuring noise. Reopen if the
+      hull count ever goes past a few hundred.
+- [-] The guns through the hull's *painted* ports [97, 116] — superseded: the hulls are to be
+      re-made without guns and the parts stood then.
+
 ---
 
-## What to take next, in order
+# DONE
 
-1. **The per-ship rope/rig buffer** [121b]. It now unblocks two things at once: the verlet
-   sheets and braces, and cutting away a felled mast's shrouds and stays (the mast itself
-   already goes). This is the renderer work the last three rounds have been circling.
-2. **Crew and ammunition** [178]: the muster list has two honest gaps where they belong, and
-   the damage model has nowhere to send casualties.
-3. **A yard that repairs** [170]: the damage persists and nothing takes it off.
-4. **Roads by trade flow** [181], **bridge props** [161], **a fruit-tree set** [117b].
+## 0.22.24 — the oars put back, and three rows off the list
+- [x] **Oars restored** to the geometry verified in 0.22.21. The 0.22.23 rowing cycle feathered
+      the blade by moving `fx2` — and the rowlock mount solves the oar's *placement* from
+      `fx2`, so the whole bank shifted and lifted as the stroke ran. The numeric check agrees
+      exactly again (blade 4.20 outboard of a 1.25 rail, 0.33 under water) [202]
+- [x] **Stone bridges** where roads cross rivers — abutments, an eight-voussoir arch, deck and
+      parapets, laid along the road and scaled to the span. 16 in one ring, of 218 crossings [161]
+- [x] **Roads graded by trade** — the old test read `traded_today`, which is zeroed every day,
+      so every road was a track (195/0/0). Now graded by `region.development` and the smaller
+      of the two towns a link joins: **183 tracks, 4 roads, 8 highways** [181]
+- [x] **A fruit-tree set** — apple, cherry and plum, pruned shapes, one per grove cell, in
+      place of forest oak and maple scaled down [117b]
+
+## 0.22.23 — issue19
+- [x] **Sea foam was erasing the wake** — every source of white was summed then clamped, so once
+      the whitecaps reached 1.0 the water was solid foam and the wake, the colour, the
+      reflection and the refraction all vanished inside it. The sources now combine by *screen*
+      so nothing clips, and a ship's wash **damps the chop it runs through**, which is what a
+      wake physically does — so the trail reads as its own thing
+- [x] **A mast now falls.** It heels over the side, quickening as a falling spar does, drops as
+      its heel tears out of the step and is gone when it is in the water (2.6 s). Its canvas
+      goes over with it, collapsing as the spar swings down, instead of blinking out
+- [x] **Visible battle damage on the planking** — shot scars where balls struck, pale splintered
+      wood around them, and smoke-blacking low on the topsides, spreading as she takes more
+- [x] A ship with every mast gone no longer trails a full suit of standing rigging
+- [x] **Oars row.** A real stroke: a short hard drive with the blade buried, a longer feathered
+      recovery clear of the water. The asymmetry is what reads as rowing
+- [x] **Fire is licks, not streams** — three lobes at different widths fanning apart as they
+      rise, each on its own noise phase, with a finer noise eating the top so the flame breaks
+      into separate licks instead of tapering to a ribbon. The root is held solid and bright
+- [x] **Villages are the size of towns on the map** — one mark size for every settlement (what a
+      size-2 town draws at) instead of scaling by population, which is what made them specks;
+      their built ground matches a town's too
+- [x] **This DONE / LEFT list**
+- [x] **A verlet chain for the cordage** [121b, partly — see LEFT]. Four nodes per ship, hung
+      from her masthead in her own frame, position-Verlet with three constraint relaxation
+      passes, driven by apparent gravity under her heel, the angular whip of her roll and the
+      wind across her deck. Her whole rig takes its shape from it, so the rigging lags her roll,
+      overshoots and damps down on its own — which no closed form could do
+
+## 0.22.22 — issue18
+- [x] Smoke: stiffer drag then a non-decaying buoyancy, so it leaves hard, checks and climbs;
+      4 volumes a call at twice the rate, lives 34–52 s, plus a billboard skirt [191]
+- [x] Fire: tongues 5 + 10·heat, sparks 4 + 11·heat [192]
+- [x] **Ten real classes in three roles** — Caravel/Fluyt/Hulk/Merchantman,
+      Sloop/Xebec/Frigate, Galleon/War Galleon/Ship of the Line [193]
+- [x] **Crew and ammunition** simulated: balls kill men, a half-manned ship is slow, ~26
+      broadsides to a dry locker, a dry ship falls silent; six bars on the muster [178]
+- [x] **A yard that repairs** — rig, battery and flooding mend with the planking, men at a
+      quarter the rate, lockers filled outright [170]
+- [x] (found) every body started with no crew and no powder — `nphys_add` memsets [194]
+
+## 0.22.21 — issue17
+- [x] **The delivered 4x map was never being read** — the probe scanned one directory level and
+      the zip extracts two [182]
+- [x] **Oars to scale** — they were drawn at the hull's import scale, sweeps as long as the ship [183]
+- [x] Upright cylinder-billboard flames, sparks, black/grey/white smoke [184]
+- [x] Fine terrain stops streaming past a 6° view radius [185]
+- [x] FPS limiter in Options, default 60 [186]
+- [x] Authored tree LOD 5 to 30 units [187]; species by biome already standing [188]
+- [x] Canvas burns away top-down; no hovering flag over a felled mainmast [189]
+- [x] Wave foam rotated 90° and thinned [190]
+
+## 0.22.20 — issue16
+- [x] Realistic fire as flame tongues; sparks; the explosion uses them [171]
+- [x] Oars measured from the GLB: blade at +x on a −45° diagonal [172]
+- [x] Take in sails [173] · stranding [174] · collision damage [175]
+- [x] Mesh damage removal: a felled mast is gone from the drawn ship [176]
+- [x] The muster list [177] · villages at town footprint [179] · ring-street towns with
+      towered walls [180]
+
+## 0.22.19 — issue15 and the battle's teeth
+- [x] Villages bigger in the strategic view [162] · start-menu graphics and quality presets [163]
+- [x] Smoke slower, less round, fading rim-inwards [164] · battle orders [165]
+- [x] Real shot: calibre, drag, the rolling deck, drift [166] · ships heel instead of gliding [167]
+- [x] Rivers chained and smoothed [168] · mountain heights down by 1 [169]
+- [x] **The butcher's bill goes home** [153] · fire [152] · gun damage with teeth [149] ·
+      a sinking that reads
+
+## 0.22.18 — the 4x world
+- [x] Read the Mare Liberum 4x build; budget by chunks; reads in flight by size [156]
+- [x] The GPU chunk atlas picks its grid from the dataset [157]
+- [x] The geography fold reads a finer build at a stride [158]
+- [x] The ranges no longer read as terraces [93]
+- [x] River carving and navigation on authored data [118]; roads bridge them [160]
+
+## Earlier (0.22.7 – 0.22.17), in brief
+- [x] Terrain-v2 chunks, biome material masks, natural coasts, map view modes [TODO 1–4]
+- [x] Rivers from the package [TODO 5, 91, 113] · roads to hub ports [TODO 6]
+- [x] The battle scene's clock, wind, coast and landscape [1–8, 27]
+- [x] Muzzle flash, gunsmoke, volumetric smoke [10–13, 95, 119]
+- [x] Wake as a 3D wave; foam that fades and spreads [86, 87, 100, 129]
+- [x] Oars, lateens, stays by station, rope as hemp prisms with catenary sag [99, 104, 121, 131, 133–136]
+- [x] Q/E helm [130] · authored trees, 27 species, six LODs [112, 128]
+- [x] Buoyancy, ballistics, recoil [52–62] · **the guns had never hit anything** [143, 144]
+- [x] The damage model: hull, rig, guns, flood, sunk, masts down [145–148, 150, 151]
+- [x] Fields, vineyards, orchards as texture and props [7a, 7b]
+- [x] Vulkan memory/command/queue/fence layers; DX12 device at 12.2

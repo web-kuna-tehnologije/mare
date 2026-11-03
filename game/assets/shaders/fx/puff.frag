@@ -34,11 +34,33 @@ void main(){
   if (kind > 7.5) {                                   // a flame tongue (0.22.20, issue16): fire, not a glowing disc
     // the tongue: narrow at the root, waving at the tip, eaten by noise that scrolls *down*
     // through the sprite as the flame climbs through it
+// 0.22.23 (issue19 "fire more detail not streams but realistic fire"). The 0.22.21 tongue was
+// one smooth exponential lobe wobbled by a single noise - at a distance that is a *stream*, a
+// licking ribbon, which is exactly the complaint. A real flame is not one tongue: it is a
+// cluster of them, splitting and rejoining, each with a hard bright root and a torn, lacy top
+// that breaks into separate licks before it goes to smoke. So: three lobes at different
+// widths and offsets, each wobbling on its own phase, combined by max (they overlap and
+// separate as the noise moves); the top third is eaten by a second, finer noise, which is
+// what makes the flame *break up* instead of tapering; and the root is held solid.
     vec2 uv = v_uv; uv.x *= 1.0 + 0.7 * (uv.y * 0.5 + 0.5);                      // wider at the top, where it tears
-    float wob = (vnoise3(vec3(uv * 2.2, seed * 17.0 + age * 6.0)) - 0.5) * (0.5 + 0.8 * (uv.y * 0.5 + 0.5));
-    float tongue = exp(-pow((uv.x + wob * 0.4) * 2.4, 2.0)) * smoothstep(1.0, -0.6, uv.y * (0.8 - 0.5 * age));
+    float hgt0 = uv.y * 0.5 + 0.5;                                               // 0 root, 1 tip
+    float tongue = 0.0;
+    for (int L = 0; L < 3; ++L) {
+      float fl = float(L);
+      float ph = seed * 17.0 + fl * 4.7 + age * 6.0;
+      float wob = (vnoise3(vec3(uv * (2.2 + fl * 1.1), ph)) - 0.5) * (0.4 + 0.9 * hgt0);
+      float off = (fl - 1.0) * 0.30 * hgt0;                                      // the licks fan apart as they rise
+      float w   = 2.9 + fl * 0.8;
+      tongue = max(tongue, exp(-pow((uv.x + off + wob * 0.45) * w, 2.0)) * (L == 1 ? 1.0 : 0.82));
+    }
+    tongue *= smoothstep(1.0, -0.6, uv.y * (0.8 - 0.5 * age));
     float n = fbm3(vec3(uv * 2.6, seed * 9.0 - age * 4.0));
+    // the lacy top: a finer noise eats the flame where it is thin and high, so it ends in
+    // separate licks and embers rather than a drawn-out point
+    float lace = fbm3(vec3(uv * 7.5, seed * 23.0 - age * 9.0));
+    tongue *= 1.0 - smoothstep(0.35, 1.0, hgt0) * smoothstep(0.62, 0.30, lace);
     float body = clamp(tongue * (0.55 + 0.9 * n) - 0.18 * age, 0.0, 1.0);
+    body = max(body, tongue * smoothstep(0.30, 0.0, hgt0) * 0.9);                // the root stays solid and bright
     if (u_has_fx.y > 0.5) {                                                      // the fire sheet gives it structure
       vec4 fx = texture(u_fx_fire, atlas_uv(vec2(uv.x, -uv.y), seed + floor(age * 3.0) * 0.137, 4.0, 2.0));
       body = clamp(body * (0.35 + 1.3 * fx.a), 0.0, 1.0);

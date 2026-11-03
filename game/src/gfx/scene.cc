@@ -352,6 +352,11 @@ void SceneBuilder::build_ships(void) {
                                   col_r(col), col_g(col), col_b(col),
                                   cam_distance(sx_[s], sz_[s]), lod_key(LODK_FLEET, f->id, s + 1) };
             sr.roll = heel; sr.pitch = trim;
+            // 0.22.23: the map ships have no tactical body, so nothing is falling and nothing
+            // is holed - but the fields must be set, or the uninitialised timers draw masts
+            // mid-fall for ever
+            for (int k = 0; k < SHIP_MAX_MASTS; ++k) sr.mast_fall[k] = -1.f;
+            sr.hull_d = 0.f;
             authored[s] = shipyard_push(&sr);
         }
         for (int pass = 0; pass < 2; ++pass) {                                // the level shown, then the one fading in
@@ -942,7 +947,14 @@ void SceneBuilder::push_icons(void) {
         // gone (gfx/scatter.cc stops at cam.mapness 0.5), that 5 px diamond *was* the village,
         // and it read as a speck. Villages now draw at 9 px, and every settlement mark grows
         // by a third once the camera is at the strategic tier, where the map is all there is.
-        float sz = p->size <= 0 ? 9.f : 6.f + 2.5f * p->size;
+        // 0.22.23 (issue19 "village size on strategic map same like cities", the third time of
+        // asking). 0.22.20 took a village from 5 px to 9 against a size-1 town's 8.5 - which
+        // is "nearly a small town", not "the same as a city", and from the strategic camera
+        // the difference still read as a speck beside a disc. A settlement mark is now **one
+        // size for every settlement**: whatever a size-2 town draws at. A village is a place
+        // on the map or it is not; scaling it by population is what made it vanish.
+        float sz = 6.f + 2.5f * 2.f;
+        if (p->size > 2) sz = 6.f + 2.5f * p->size;      // ... and the great cities still stand above the rest
         if (clustering) sz *= 1.35f;
         if (count > 1) sz *= 1.f + 0.16f * logf((float)count) / 0.693f;      // grows with log2 of the group
         icon(p->x, p->z, 0, sz, p->size <= 0 ? ICON_DIAMOND : ICON_DISC, (p->size <= 0 ? 0.8f : 1.f) * w, 1.f, col);

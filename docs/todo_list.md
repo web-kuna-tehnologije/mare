@@ -311,7 +311,57 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 181 | P1 | "connect cities with roads and villages depending where trade is flowing to from hinterlands" | [ ] roads already run settlement -> hub port; weighting by trade flow needs the economy's flows in the road builder - a sim feature, left open rather than faked |
 | 121b | P1 | "add rope for then next round if unable this one" | [ ] carried at the issue's own invitation; the blocker is unchanged (the per-ship rope/rig buffer) and the mast removal now wants the same buffer, so it is the next renderer task |
 
-## Order of work (updated 0.22.20)
+## issue17 (assets/issues/issue17, 0.22.21) - session elm
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 182 | P0 | "take a detailed look at map its bad ... i delivered [high-res] height maps" | [x] the game was never reading the delivered build: the probe scanned one directory level and the zip extracts two deep. It scans two now and logs the 2049-sample dataset from `assets/data-terrain-v2`. [ ] the rivers still need one packing run (182b): `python3 tools/rivers_pack.py assets/data-terrain-v2/mare-liberum-world-terrain-4x/mare-world-terrain 10.9e6` - a read-only session cannot write into assets |
+| 183 | P0 | Oars like the red strokes (image: the banks stood over the deck like wings) | [x] the oar was drawn at the HULL's import scale - each sweep as long as the ship (numeric check: blade 12.5 units outboard of a 1.25 rail). Scaled to a real sweep (0.38 of her length): blade 4.2 outboard and wet, loom over the deck at hand height. Knobs: MARE_OAR_SIDE / MARE_OAR_PITCH / MARE_OAR_MIN_PX, MARE_BATTLE_FREEZE |
+| 184 | P0 | "fix this to look like fire and sparkles and black and grey an whitte smoke dense" | [x] flames are cylinder billboards (upright about world vertical from any camera - they had lain flat from above), plus sparks in a cone downwind, and the smoke in three tones (soot-black, char-grey, steam-white), two denser plumes a call |
+| 185 | P0 | "game started lagging as more chunks getting loaded (reduce loaded chunks on zoom out)" | [x] grids finer than ~1.3 km a sample stop starting loads past a 6-degree view radius; resident chunks stay wanted so nothing thrashes |
+| 186 | P0 | "limit fps to 60 (add limiter to options)" | [x] Options row off/30/60/120, default 60, saved; coarse sleep + spin so the cap holds |
+| 187 | P0 | "make low poly models for lod of trees not change with stock ones" | [x] the authored LOD 5 carries to 30 units (was 14); cards are only the streaming stand-in |
+| 188 | P0 | "add all models of trees based on biome" | [x] standing since 0.22.13/15 (27 species by latitude, hemisphere, conifer/broadleaf, Mediterranean belt); with 187 they stay authored to the prop ring's edge |
+| 189 | P0 | "add vidible damage on ships when fighting. sails can burn also" | [x] canvas goes from the top down with rig damage (topgallants 0.20, topsails 0.45, courses 0.70, lateens 0.45); fire eats the rig, so a burning ship visibly loses her sails, then her masts (0.22.20); a felled mainmast no longer leaves its flag hovering |
+| 190 | P0 | "rotate by 90 degreed foam from waves texture and make it more transparent" | [x] axes swapped so the streaks lie along the swell; cap mask at two thirds, crest foam at three quarters |
+| 182b | P1 | Pack the rivers in the user's extraction (one command, above) | [ ] waits on the user or a session allowed to write into assets |
+
+## issue18 (assets/issues/issue18, 0.22.22) - session elm
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 191 | P0 | "smoke is awfull ... add more smoke particles by much and let them live longer and move slover (fast then slow down and move upward)" | [x] horizontal drag three times stiffer so the first push is spent in a second, and each volume carries its own non-decaying `rise`, so smoke leaves hard, checks, then climbs; four volumes a call at twice the rate, lives 34-52 s (were 16-25), plus a billboard skirt in the same three tones for the particle count |
+| 192 | P0 | "same with fire add particles" | [x] flame tongues 5 + 10·heat (were 2 + 5), sparks 4 + 11·heat (were 2 + 6) |
+| 193 | P0 | "add real ship classes 4 trader 3 interceptor 3 ship of the line (naming conventions)" | [x] ten classes in three roles - Caravel/Fluyt/Hulk/Merchantman, Sloop/Xebec/Frigate, Galleon/War Galleon/Ship of the Line. The six existing keep their enum places (saves and ~40 call sites untouched); `ship_info_t.role` groups them, the yard lists them under three headings, and the AI builds across the roster. Three new hull classes on already-authored hulls, so every hull in the tree is now sailed |
+| 178 | P1 | Crew and ammunition as simulated quantities (then their bars) | [x] balls kill men (most at the guns); under half complement costs up to a third of her way; lockers hold ~26 broadsides and a dry ship falls silent; both come home into `ship_t`, feed `fleet_power`, and the muster list has six bars |
+| 170 | P1 | A yard that repairs what a fleet brings home | [x] a refit mends rig, battery and flooding in step with the planking, finds men at a quarter of that rate, and fills the lockers outright; the port button is "Refit" and prices all of it |
+| 194 | P1 | (found) every body started with no crew and no powder - `nphys_add` memsets, defeating body_t's default initialisers - so not one gun fired | [x] set explicitly in `add()`; caught by the new battle log the hour it was written |
+
+## issue19 (assets/issues/issue19, 0.22.23) - session elm
+
+| # | Pri | Item (as requested) | Status |
+|---|-----|---------------------|--------|
+| 195 | P0 | "on sea foam is removes wake textures and everything" | [x] not a missing texture - every source of white was summed then clamped, so once the whitecaps alone reached 1.0 the water was solid foam and the wake, colour, reflection and refraction all vanished inside it. They combine by *screen* now, and a ship's wash damps the chop it runs through (which is what a wake does), so the trail reads as its own thing |
+| 196 | P0 | "add animation of sails snapping and mast falling and rigging falling" | [x] a mast heels over the side, quickening as a falling spar does, drops as its heel tears out of the step and is gone in the water (2.6 s); its canvas goes over with it, collapsing as the spar swings down. A ship with every mast gone no longer trails a full suit of standing rigging. [ ] cutting *one* station's shrouds still needs per-ship rope geometry (121b) |
+| 197 | P0 | "add parts of damage to ship visible" | [x] shot scars where balls struck, pale splintered wood round them, smoke-blacking low on the topsides, all spreading with her hull damage |
+| 198 | P0 | "oars rowing animation" | [x] a real stroke - a short hard drive with the blade buried, a longer feathered recovery clear of the water; the asymmetry is what reads as rowing, not the swing |
+| 199 | P0 | "fire more detail not streams but realistic fire" | [x] three lobes at different widths fanning apart as they rise, each on its own noise phase, with a finer noise eating the top so the flame breaks into separate licks instead of tapering to a ribbon; the root held solid and bright |
+| 200 | P0 | "village size on strategic map same like cities" | [x] one mark size for every settlement - what a size-2 town draws at - instead of scaling by population, which is what made villages specks; the built ground matches a town's too |
+| 201 | P0 | "also add done list and left form todo" | [x] `docs/TODO_STATUS.md` is now two lists: **LEFT** (ordered, with the dropped items and why) and **DONE** (by version) |
+| 121b | P1 | "and then go start on todo list from engine, physics and then the verlet rope" | [x] **the verlet chain**: four nodes per ship, hung from her masthead in her own frame, position-Verlet with three constraint relaxation passes, driven by apparent gravity under her heel, the angular whip of her roll and the wind across her deck; her whole rig takes its shape from it, so the rigging lags, overshoots and damps on its own. [ ] a chain *per rope* still needs the rig off the per-class mesh onto per-ship geometry |
+| 154 | P2 | Broadphase collision | [-] measured before writing it: the whole tactical world costs **0.05 ms a frame with 40 bodies and 39 shot in the air**. Optimising it would be measuring noise. Reopen past a few hundred hulls |
+| 155 | P2 | Multithreaded physics jobs | [-] as above, same measurement |
+
+## 0.22.24 (session elm) - the oars put back, and three rows off the list
+
+| # | Pri | Item | Status |
+|---|-----|------|--------|
+| 202 | P0 | "fix oars (they were fine 2 turns ago, right before I asked you to add animation)" | [x] correct - the 0.22.23 rowing cycle feathered the blade by moving `fx2`, and the rowlock mount solves the oar's *placement* from `fx2`, so the whole bank shifted and lifted as the stroke ran. Reverted to the 0.22.21 sine; the numeric check agrees exactly (blade 4.20 outboard of a 1.25 rail, 0.33 under water; loom 0.19 inboard at 0.79). A rowing cycle may return but must drive the swing only |
+| 161 | P1 | Bridge props at each `road_bridges[]` crossing (TODO 10b) | [x] a stone arch - abutments, an eight-voussoir segmental arch, deck and parapets - laid along the road, scaled to the span, set at the higher bank. 16 standing in one ring of 218 known crossings |
+| 181 | P1 | "connect cities with roads and villages depending where trade is flowing from hinterlands" | [x] the old test read `traded_today`, which `sim/region.cc` **zeroes every day**, so every road came out a track (195/0/0). Graded now by `region.development` - the persistent, trade-driven measure - and by the smaller of the two towns a link joins: **183 tracks, 4 roads, 8 highways** |
+| 117b | P1 | A fruit-tree set; the orchards used forest species scaled down | [x] three pruned varieties - apple (low, wide), cherry (upright), plum (bushy) - each with an off-centre second lobe, one chosen per grove cell. Olive groves keep the authored olive |
+
+## Order of work (updated 0.22.24)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -331,11 +381,17 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 16. The 4x terrain build and its rivers, rows 156-158, 160, and with them 93 and 118. **Done 0.22.18** (session elm).
 17. issue15 and the battle rows, 162-169 with 149, 152, 153. **Done 0.22.19** (session elm).
 18. issue16, rows 171-180. **Done 0.22.20** (session elm), 181 and 121b carried.
-19. Next, in this order: 121b (the per-ship rope/rig buffer - it now unblocks *two* things, the
-    verlet rope and cutting a felled mast's rigging), 170 (a yard that repairs), 178 (crew and
-    ammunition, so the muster list can show them honestly), 181 (roads by trade flow), 161
-    (bridge props), 117b (a fruit-tree set). `docs/TODO_STATUS.md` is the whole list as
-    checkboxes:
+19. issue17, rows 182-190. **Done 0.22.21** (session elm); 182b (the river packing command)
+    waits on write access to assets.
+20. issue18, rows 191-194, with 178 and 170 off the bottom of the list. **Done 0.22.22.**
+21. issue19, rows 195-201, with the verlet chain (121b) and the physics rows measured and
+    closed. **Done 0.22.23.**
+22. The oars restored, plus 161, 181 and 117b. **Done 0.22.24.**
+23. Next: per-rope verlet geometry (the rig off the per-class mesh - it also buys a felled
+    mast taking its own shrouds), deltas and lakes from the authored river layer, the
+    hinterland's authored village props (7c), 182b (the river packing command, needs write
+    access to assets).
+    **`docs/TODO_STATUS.md` is now a DONE list and a LEFT list**, as issue19 asked:
    1. **The damage model** (P1.3): the hits exist and carry their momentum; give each hull zones (hull, masts, sails, guns) with hit points, let a hit on a mast bring it down and a hit on canvas tear it (the `torn` sail state), and write the tactical result back to the strategic ship. This is the biggest single piece left and everything below hangs on it.
    2. **Flooding, fire and sinking** (P1.3 + issue4 items 14, 16, 18): a holed hull takes water and settles (the buoyancy knows the waterline), a fire from a hit spreads and smokes through the particle system, a sunk ship goes down by the head or the stern and leaves debris.
    3. **Heave into the shader**: the body's heave is computed but the hull still rides the shader's own wave sample; with the attitude channel in place the heave is one more float.

@@ -297,9 +297,15 @@ void main(){
 // breaking crest is a ragged sheet of bubbles and not a tint over the cell the fold found
   float fc = 0.6;
   if (u_has_foamc > 0.5) {
-    float fc1 = texture(u_foamc, p * 0.42 + u_drift1 * 0.8).r, fc2 = texture(u_foamc, p * 1.35 + u_drift2 + vec2(0.61, 0.17)).r;
+// 0.22.21 (issue17 "rotate by 90 degreed foam from waves texture and make it more
+// transparent"): the photograph's streaks ran *across* the swell, against the direction the
+// crests actually travel - sampling it with the axes swapped (a quarter turn) lays the
+// streaks along the wave, and the mask is taken at two thirds strength so the white is a
+// veil over the water instead of paint on it.
+    vec2 pr = vec2(p.y, -p.x);
+    float fc1 = texture(u_foamc, pr * 0.42 + u_drift1 * 0.8).r, fc2 = texture(u_foamc, pr * 1.35 + u_drift2 + vec2(0.61, 0.17)).r;
     fc = clamp(fc1 * 0.6 + fc2 * 0.7, 0.0, 1.4);
-    capmask = max(capmask, smoothstep(0.35, 0.95, fc) * 0.9);
+    capmask = max(capmask, smoothstep(0.35, 0.95, fc) * 0.62);
   }
 // The crest of a collapsing wave (0.22.6, issue3 "add foam and crest on top of collapsing
 // wave"). `lift` is how high this fragment stands in its own wave and `v_jac` how hard the
@@ -307,7 +313,7 @@ void main(){
 // is spilling down the face, and that is where the white sits. Drawn as a band *at* the crest
 // rather than over the whole wave, so a swell reads as a line of white running along its top.
   float collapse = smoothstep(0.40, 0.95, lift) * smoothstep(0.94, 0.60, v_jac) * (0.3 + 0.7 * capvar);
-  float crestfoam = collapse * (0.30 + 0.90 * capmask) * smoothstep(0.12, 0.65, ws) * detail * (0.7 + 0.6 * smoothstep(0.3, 0.9, fc));
+  float crestfoam = collapse * (0.30 + 0.90 * capmask) * smoothstep(0.12, 0.65, ws) * detail * (0.7 + 0.6 * smoothstep(0.3, 0.9, fc)) * 0.75;   // 0.22.21: more transparent (issue17)
 // the staged scenes want white on every tessellated crest ("white foam on peaks"), the map
 // only where the fold says the wave is breaking
   float peak = u_local_depth > 0.0 ? smoothstep(0.10, 0.9, lift) * smoothstep(0.012, 0.09, v_slope) * (0.2 + 0.8 * capvar) : 0.0;   // 0.22.12: the staged crests carry foam like the map's (issue9); 0.22.14: softer and gated by capvar
@@ -436,7 +442,20 @@ void main(){
 // ambient went so dark the foam vanished into the water; a floor keeps foam lighter than the
 // sea whatever the sky does
   vec3 foamcol = srgb_to_linear(vec3(0.96, 0.97, 0.98)) * max(u_ambsky * 1.15 + u_suncol * 0.55, vec3(0.30));
-  float foamall = clamp((caps * 0.95 + crestfoam * 1.05 + (surf * 0.8 + foam * 0.7 + crashf) * marshk + shipf) * u_foam, 0.0, 1.0);
+// 0.22.23 (issue19 "on sea foam is removes wake textures and everything"). Every source of
+// white was *summed* and then clamped, so once the whitecaps alone reached 1.0 the water was
+// solid foam colour and the wake - and the sea's own colour, reflection and refraction with
+// it - simply disappeared inside it. Two fixes, and both are physical:
+//
+//  * the sources combine by *screen* rather than by sum, so each one still whitens the water
+//    but the total approaches 1 asymptotically instead of clipping, and structure survives;
+//  * a ship's wash **flattens the chop it runs through** - that is what a wake is - so the
+//    ambient caps are damped where the trail is strong, which makes the wake read as its own
+//    thing against the sea instead of competing with it.
+  float ambf  = clamp((caps * 0.95 + crestfoam * 1.05 + (surf * 0.8 + foam * 0.7 + crashf) * marshk) * u_foam, 0.0, 1.0);
+  float shipfc = clamp(shipf * u_foam, 0.0, 1.0);
+  ambf *= 1.0 - 0.75 * shipfc;                       // the wash lays the little waves down
+  float foamall = clamp(1.0 - (1.0 - ambf) * (1.0 - shipfc), 0.0, 1.0);
   col3d = mix(col3d, foamcol, foamall);
   col3d = mix(col3d, srgb_to_linear(vec3(0.90,0.93,0.95)) * (u_ambsky * 0.9 + u_suncol * 0.30), streak * 0.10 * u_foam);
   float caps_a = foamall;

@@ -38,7 +38,12 @@ float Combat::fleet_power(const fleet_t *f) {
     // does not come back for the next one. `d_guns` is the tactical damage brought home.
     float s = 0; for (int i = 0; i < f->nships; ++i) s += ship_types[f->ships[i].type].guns
                       * (0.5f + 0.5f*f->ships[i].hull/ship_types[f->ships[i].type].hull)
-                      * (1.f - 0.85f * clampf(f->ships[i].d_guns, 0.f, 1.f));
+                      * (1.f - 0.85f * clampf(f->ships[i].d_guns, 0.f, 1.f))
+                      // 0.22.22 (todo 178): guns are worked by men, and fired with powder.
+                      // A ship with half her people and empty lockers is barely a threat,
+                      // whatever her broadside says on paper.
+                      * (0.25f + 0.75f * clampf(f->ships[i].crew, 0.f, 1.f))
+                      * (0.30f + 0.70f * clampf(f->ships[i].ammo, 0.f, 1.f));
     return s * f->morale + 1;
 }
 
@@ -54,7 +59,10 @@ void Combat::take_damage(fleet_t *victim, fleet_t *attacker, float dmg) {
         float q = victim->cargo[g] * share; victim->cargo[g] -= q;
         if (attacker) { float room = maxf(fleet_capacity(attacker) - fleet_cargo(attacker), 0); attacker->cargo[g] += minf(q, room); }
     }
-    if (captured) { attacker->ships[attacker->nships].type = type; attacker->ships[attacker->nships].hull = ship_types[type].hull * 0.35f; attacker->nships++; }
+    if (captured) { ship_t *pz = &attacker->ships[attacker->nships]; *pz = ship_t{};
+                    pz->type = type; pz->hull = ship_types[type].hull * 0.35f;
+                    pz->crew = 0.45f; pz->ammo = 0.25f;     // 0.22.22 (todo 178): a prize is manned by a scratch crew and nearly out of powder
+                    attacker->nships++; }
     if (attacker) {
         G.nations[attacker->nation].ships_sunk++;
         if (victim->role == ROLE_PIRATE && attacker->nation != NATION_PIRATES) { G.nations[attacker->nation].treasury += PIRATE_BOUNTY; if (is_player(attacker->nation)) G.nations[attacker->nation].income_acc += PIRATE_BOUNTY; }

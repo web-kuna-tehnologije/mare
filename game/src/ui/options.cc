@@ -54,6 +54,7 @@ private:
         o->tessellation = 1; o->lod_bias = 1.f; o->wave_height = 1.f;
         o->ssao = 1; o->bloom = 0.55f; o->exposure = 1.f;
         o->cam_tilt = 0.f;
+        o->fps_cap = 60;        // 0.22.21 (issue17): capped out of the box; 0 in the panel uncaps
     }
     int dirty() const { return memcmp(&saved_, &OPT, sizeof OPT) != 0; }
 };
@@ -75,6 +76,7 @@ void Options::load() {
         else if (!strcmp(key, "shadows"))         OPT.shadows = atoi(val);
         else if (!strcmp(key, "shadow_distance")) OPT.shadow_distance = (float)atof(val);
         else if (!strcmp(key, "anisotropy"))      OPT.anisotropy = (float)atof(val);
+        else if (!strcmp(key, "fps_cap"))         OPT.fps_cap = atoi(val);
         else if (!strcmp(key, "tessellation"))    OPT.tessellation = atoi(val);
         else if (!strcmp(key, "lod_bias"))        OPT.lod_bias = (float)atof(val);
         else if (!strcmp(key, "wave_height"))     OPT.wave_height = (float)atof(val);
@@ -98,6 +100,7 @@ void Options::save() {
     fprintf(f, "shadows %d\n", OPT.shadows);
     fprintf(f, "shadow_distance %.3f\n", OPT.shadow_distance);
     fprintf(f, "anisotropy %.1f\n", OPT.anisotropy);
+    fprintf(f, "fps_cap %d\n", OPT.fps_cap);
     fprintf(f, "tessellation %d\n", OPT.tessellation);
     fprintf(f, "lod_bias %.3f\n", OPT.lod_bias);
     fprintf(f, "wave_height %.3f\n", OPT.wave_height);
@@ -180,6 +183,14 @@ void Options::panel() {
           mu_pop_id(ui_ctx);
       } }
     if (options_quality() == QUALITY_CUSTOM) { ROW(1, -1, 20); mu_label(ui_ctx, "custom - the sliders below have been moved off a preset"); }
+
+    mu_label(ui_ctx, "Frame limit");
+    { ROW(4, 95, 95, 95, -1, 24);
+      static const int caps[4] = { 0, 30, 60, 120 };
+      for (int i = 0; i < 4; ++i) { mu_push_id(ui_ctx, &caps[i], sizeof caps[i]);
+          char lbl[24]; snprintf(lbl, sizeof lbl, "%s%s", OPT.fps_cap == caps[i] ? "* " : "", caps[i] ? va("%d fps", caps[i]) : "off");
+          if (ui_btn(lbl)) OPT.fps_cap = caps[i];
+          mu_pop_id(ui_ctx); } }
 
     mu_label(ui_ctx, "Shadows");
     { ROW(2, 120, -1, 24);

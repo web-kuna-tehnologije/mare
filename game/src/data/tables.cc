@@ -32,14 +32,25 @@ const good_info_t goods[MAX_GOODS] = {
     { "Gold",    250, 0.0015f,2, RGB_(0xff,0xd0,0x30) },
 };
 
+// Ten classes in three roles (0.22.22, issue18). The first six keep their indices; the four
+// new ones are appended, so saves and every SHIP_* call site are untouched. Within a role the
+// progression is real: a caravel is a coaster, a fluyt the Dutch bulk workhorse that carried
+// more for fewer hands, a hulk the heavy northern trader, a merchantman the armed carrack
+// that could look after herself. Interceptors trade hull for speed and weatherliness; the
+// three line classes are the only ones built to lie in a line and be hit.
 const ship_info_t ship_types[SHIP_COUNT] = {
-    //  name          cargo hull  speed guns crew  cost
-    { "Sloop",          60,  40, 1.30f,  8,  40,  2500 },
-    { "Fluyt",         400,  60, 1.00f,  6,  30,  4000 },
-    { "Merchantman",   600, 120, 0.85f, 20,  80,  9000 },
-    { "Frigate",        80, 130, 1.20f, 32, 180, 12000 },
-    { "Galleon",       500, 180, 0.80f, 40, 220, 16000 },
-    { "Ship of the Line",60,260, 0.90f, 74, 500, 28000 },
+    //  name            cargo hull  speed guns crew  cost   role
+    { "Sloop",            60,  40, 1.30f,  8,  40,  2500, SC_INTERCEPTOR },
+    { "Fluyt",           400,  60, 1.00f,  6,  30,  4000, SC_TRADER },
+    { "Merchantman",     600, 120, 0.85f, 20,  80,  9000, SC_TRADER },
+    { "Frigate",          80, 130, 1.20f, 32, 180, 12000, SC_INTERCEPTOR },
+    { "Galleon",         500, 180, 0.80f, 40, 220, 16000, SC_LINE },
+    { "Ship of the Line", 60, 260, 0.90f, 74, 500, 28000, SC_LINE },
+    // 0.22.22 (issue18): the four that complete the 4 / 3 / 3 roster
+    { "Caravel",         120,  50, 1.15f,  4,  25,  3200, SC_TRADER },
+    { "Hulk",            520,  95, 0.80f,  8,  50,  6500, SC_TRADER },
+    { "Xebec",            90,  70, 1.35f, 16, 110,  7000, SC_INTERCEPTOR },
+    { "War Galleon",     240, 215, 0.85f, 54, 320, 21000, SC_LINE },
 };
 
 const building_info_t buildings[MAX_BUILDINGS] = {

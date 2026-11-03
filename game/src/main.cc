@@ -428,6 +428,21 @@ int main(int argc, char **argv) {
     app_swap_flags_t asf = {}; asf.hz = 1; asf.depth = 1; asf.stencil = 0; asf.color = 0xFF000000;
     while ((app_swap)(asf)) {
         if (autoquit && diag_now() - t_run0 > atof(autoquit)) break;
+        // The frame limit (0.22.21, issue17 "limit fps to 60 (add limiter to options)"). The
+        // remainder of the frame's budget is slept away, most of it coarsely and the last
+        // couple of milliseconds spun, because OS sleep granularity overshoots and a cap that
+        // delivers 54 fps when asked for 60 reads as stutter. Off when recording (the film is
+        // frame-locked already) and at cap 0.
+        if (OPT.fps_cap > 0 && !rec_dir[0]) {
+            static double cap_prev = 0.0;
+            double budget = 1.0 / (double)OPT.fps_cap;
+            for (;;) {
+                double left = budget - (diag_now() - cap_prev);
+                if (left <= 0.0) break;
+                if (left > 0.0025) diag_sleep(left - 0.0015);
+            }
+            cap_prev = diag_now();
+        }
         prof_begin(p_frame);
         { app_state_t st = app_state(); screen_w = maxi(1, st.w); screen_h = maxi(1, st.h); glfwGetWindowSize((GLFWwindow *)st.handle, &window_w, &window_h); window_w = maxi(1, window_w); window_h = maxi(1, window_h); }   // once per frame
         double now = time_ss(); float dt = minf((float)(now - last), 0.1f); last = now;

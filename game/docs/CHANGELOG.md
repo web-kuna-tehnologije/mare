@@ -1,5 +1,305 @@
 # Changelog
 
+## 0.22.24 — the oars put back, bridges stood, roads graded by trade, an orchard set
+
+Session **elm** (mare liberum: elm), working into
+`/mnt/c/projects/mare_sessions/mare_elm_03-11-2026_010247`.
+
+### The oars, reverted
+
+"They were fine 2 turns ago, right before I asked you to add animation" - correct, and the
+0.22.23 rowing cycle is what broke them. The fault was not the cycle itself but what it
+touched: it feathered the blade by **moving `fx2`**, and `fx2` is not only the blade's pitch -
+the rowlock mount solves the oar's *placement* from it. So as the stroke ran, the whole bank
+shifted and lifted, and the geometry that had been verified numerically in 0.22.21 was lost.
+
+Reverted to the 0.22.21 sine exactly. The numeric check agrees to the last digit: **blade tip
+4.20 units outboard of a 1.25 rail and 0.33 under the water; loom tip 0.19 inboard at 0.79,
+over a 0.49 deck** - the same figures 0.22.21 measured. A rowing cycle can come back, but it
+has to drive the *swing* only and leave the mount's pitch alone; that is written on the code.
+
+### Then the todo list
+
+- **Bridges where roads cross rivers** (todo 161 / TODO 10b). `road_bridges` has recorded the
+  crossings since 0.22.2 - position, the road's direction, the river's half-width - and since
+  0.22.20 it is filled for the *authored* rivers too, which is what finally made it worth
+  drawing. A stone arch now stands at each: two abutments, an eight-voussoir segmental arch
+  springing from them, a deck and a low parapet either side, laid along the road and scaled to
+  the span, sitting at the higher bank so it bridges the cut instead of floating over it.
+  Measured: **16 bridges standing in one ring, of 218 known crossings** across the map.
+- **Roads graded by where trade actually flows** (todo 181). The builder already tested
+  `traded_today / throughput` - and `traded_today` is **reset to zero every day** by
+  `sim/region.cc`, so whenever the roads were rebuilt it read near nothing and *every road in
+  the world came out a track*: the log said "195 roads (195 tracks, 0 roads, 0 highways)". The
+  signal has to be a persistent one, and there is one: `region.development`, which region.cc
+  drives from the trade that actually moved, smoothed over days. A hub-to-hub link is now
+  graded by the **smaller of the two towns it joins** (a road is only as busy as its lesser
+  end) plus the development behind them; a village's track by its own output and the same.
+  Measured on a fresh map: **183 tracks, 4 roads, 8 highways** where it had been 195 / 0 / 0.
+- **A fruit-tree set for the orchards** (todo 117b). Up close an orchard was planted with the
+  forest **oak and maple scaled down**, which is exactly what the row complained of. There are
+  now three varieties, because a planted tree is a pruned one: an **apple**, low and wide on a
+  short bole; a **cherry**, upright with a narrower head; a **plum**, bushy and nearly to the
+  ground - each with a second off-centre lobe, so the head reads as two or three boughs rather
+  than a ball. One is chosen per grove cell, so a grove is mixed as a real one is. The
+  Mediterranean olive groves keep their authored olive.
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7**, run twice.
+- Oars: identical to the 0.22.21 figures (above).
+- 16 bridges in a ring of 218 crossings; roads 183/4/8.
+- 400 simulated days: trade and war healthy (Spain 32 ports, 325k tariffs).
+- Shots: `oar_fixed_crop.png`, `bridge.png`, `orchard.png`.
+
+### Note on the session tooling
+
+The session folder must live under **`/mnt/c/projects/mare_sessions`** - a path under
+`~/.cache` is WSL-local, and `cmd.exe` cannot reach it ("UNC paths are not supported"), so the
+MSVC build cannot run there. Two stray mirrors were created and removed while this was sorted
+out.
+
+## 0.22.23 — the nineteenth issues folder: the wake survives the foam, masts fall, the cordage is solved
+
+Session **elm** (mare liberum: elm), working into
+`/mnt/c/projects/mare_sessions/mare_elm_03-11-2026_000404`. `assets/issues/issue19` first, then
+the engine / physics / rope items it points at.
+
+### issue19
+
+- **"on sea foam is removes wake textures and everything - not sure if only textures not loaded
+  or actual issue."** An actual issue, and a one-line cause: every source of white - whitecaps,
+  crest foam, shore surf, the ship's own wash - was **summed and then clamped to 1**. Once the
+  caps alone reached 1.0 the water was solid foam colour, and the wake, the sea's colour, its
+  reflection and its refraction all disappeared inside it. Two fixes, both physical: the
+  sources now combine by **screen** (`1-(1-a)(1-b)`), so each still whitens the water but the
+  total approaches 1 asymptotically instead of clipping and structure survives; and a ship's
+  wash **damps the chop it runs through**, which is what a wake actually is, so the trail reads
+  as its own thing against the sea instead of competing with it.
+- **"add animation of sails snapping and mast falling and rigging falling."** Since 0.22.20 a
+  felled mast simply ceased to exist between one frame and the next. It now **goes by the
+  board** over 2.6 s: heeling over the side, quickening as a falling spar does (t²), dropping
+  as its heel tears out of the step and sliding forward off it, gone once it is in the water.
+  Its canvas goes over with it, collapsing as the spar swings down. And a ship with **every**
+  mast gone no longer trails a full suit of standing rigging - the rig is one per-class mesh so
+  it cannot be cut station by station, but a bare hulk wearing a complete set of shrouds was
+  the worst of it.
+- **"add parts of damage to ship visible."** A hit ship is now visibly *pocked*: shot scars
+  where balls struck (dark), the wood around them splintered pale, and smoke-blacking low on
+  the topsides where it really collects. It is a noise field thresholded against her hull
+  damage, so each ship wears her own pattern and it spreads only as she takes more.
+- **"oars rowing animation."** The stroke was a sine - symmetric, and therefore not rowing.
+  Rowing is two unequal halves: a short, hard **drive** with the blade buried, and a longer,
+  easier **recovery** with it feathered clear of the water. That asymmetry, not the swing, is
+  what the eye reads. 40% drive / 60% recovery, eased at the catch and the finish, with the
+  blade squared and buried through the drive and feathered flat on the way forward.
+- **"fire more detail not streams but realistic fire."** The 0.22.21 tongue was one smooth
+  exponential lobe wobbled by a single noise - at any distance that is a *ribbon*, which is the
+  complaint. A flame is a cluster: **three lobes** at different widths and offsets, fanning
+  apart as they rise, each wobbling on its own phase and combined by max so they overlap and
+  separate as the noise moves; a **finer noise eats the top third**, so the flame breaks into
+  separate licks and embers instead of tapering to a point; and the root is held solid and
+  bright, because that is where a fire is densest.
+- **"village size on strategic map same like cities."** The third time of asking, and the first
+  two were half-measures: 0.22.20 took a village from 5 px to 9 against a size-1 town's 8.5,
+  which is "nearly a small town", not "the same as a city". A settlement mark is now **one size
+  for every settlement** - whatever a size-2 town draws at - and only the great cities (size 3)
+  stand above it. Scaling a village by its population is what made it a speck. Its built ground
+  matches a town's too.
+- **"also add done list and left form todo."** `docs/TODO_STATUS.md` is now exactly that: a
+  **LEFT** list (ordered, grouped, with the dropped items and the reason) and a **DONE** list
+  by version.
+
+### "then go start on todo list from engine, physics and then the verlet rope"
+
+- **Physics, measured before touched.** Before writing a broadphase (todo 154) or threading the
+  physics jobs (155) I instrumented `nphys_advance`: the whole tactical world costs
+  **0.05 ms a frame with 40 bodies, 2 sub-steps and 39 shot in the air**. Optimising that is
+  measuring noise, so both rows are **dropped with the number against them** rather than done
+  for the sake of the list. They reopen past a few hundred hulls. The timer stays in, logged
+  every 120 frames, so the decision can be rechecked instead of re-argued.
+- **The verlet cordage** (todo 121b) - asked for in issue16, issue17 and again here, and
+  deferred three times because the rig is a single per-class mesh. It is in, and here is
+  exactly what it is: a **four-node verlet chain per ship**, hung from her masthead in her own
+  frame, integrated with position Verlet and **three relaxation passes** over the distance
+  constraints. It is driven by what actually moves cordage - apparent gravity tilted by her
+  heel (`g sin roll`), the **angular whip of her roll** (the masthead's lateral acceleration,
+  which is why rigging swings *after* a ship rather than with her), and the wind across her
+  deck. The solved swing angle and tautness go to the GPU on a new instance channel (`i_rig`),
+  and `rope.vert` hangs every bight from them instead of from a pair of sines.
+  **It is not a chain per rope** - her whole rig shares the one solved chain, scaled by each
+  rope's own slack. That is a deliberate simplification and a defensible one (every rope on a
+  ship hangs in the same gravity and swings in the same accelerations), and it is what lets the
+  rig stay one mesh. A chain per rope needs per-ship rope geometry, which is now the only thing
+  left on that row and is written up as such.
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7** (twice).
+- Physics: 0.046–0.066 ms a frame over 120-frame windows, 40 bodies.
+- A 60 s staged action: 70 hits, worst hull 1.00, rig 1.00, flood 0.70, thinnest crew 0.14,
+  driest lockers 0.73, 17 masts down.
+- 200 simulated days: trade and war both healthy.
+- Shots: `fire19.png` (clustered licks, wakes clearly visible through the foam),
+  `rig19.png` (hanging cordage, a dismasted hull), `villages19.png` (the 4x map and a town).
+
+## 0.22.22 — the eighteenth issues folder: smoke that climbs, ten real classes, crew and powder
+
+Session **elm** (mare liberum: elm), working into
+`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_231936`. `assets/issues/issue18` first, then
+the todo list from the bottom, as asked.
+
+### issue18
+
+- **"smoke is awfull ... add more smoke particles by much and let them live longer and move
+  slover (fast then slow down and move upward)"** - all three, and the velocity note was the
+  important one. The drag on a volume was gentle, so a plume coasted sideways for its whole
+  life and read as a smear. The horizontal drag is three times stiffer now, so the initial
+  push is spent in about a second; against that, each volume carries its own `rise`, a
+  buoyancy that does **not** decay with age - so smoke leaves the fire hard, checks, and then
+  goes up in a column. With it: **four volumes a call instead of two, at twice the rate**, and
+  lives of **34-52 s against 16-25**; and a skirt of cheap billboard smoke with the same
+  three-tone mix rides along with them, which is where the particle *count* comes from without
+  putting another dozen spheres through the ray-march.
+- **"same with fire add particles"**: flame tongues **5 + 10·heat** (was 2 + 5) and sparks
+  **4 + 11·heat** (was 2 + 6).
+- **"add real ship classes - 4 trader classes, 3 interceptor classes and 3 ship of the line
+  classes (naming conventions)"**. The fleet is **ten classes in three roles**:
+
+  | role | classes |
+  |---|---|
+  | traders | Caravel · Fluyt · Hulk · Merchantman |
+  | interceptors | Sloop · Xebec · Frigate |
+  | line | Galleon · War Galleon · Ship of the Line |
+
+  The six that existed keep their enum places, so every save index and all forty-odd `SHIP_*`
+  call sites are untouched; the four new ones are appended. `ship_info_t.role` carries the
+  grouping, so the AI, the yard list and the muster need no table of special cases - the
+  shipyard panel now lists her stock under three headings. Three new *hull* classes
+  (`caravel`, `xebec`, `galleon`) are built on hulls that were already authored, the way
+  `great_carrack` has been since 0.22.4: a caravel is the coaster's hull drawn out with a
+  lateen mizzen, a xebec a lengthened galiot with a real battery, a galleon the armed cog
+  stretched past forty metres. **Every authored hull in the tree is now sailed by something.**
+  The AI builds across the whole roster - caravels and hulks in the trade fleets, xebecs on
+  the wings of a line, war galleons in the battle squadrons.
+
+### Then the todo list, from the bottom
+
+- **Crew and ammunition** (todo 178) - the two gaps the 0.22.20 muster list honestly left
+  blank, now simulated rather than drawn. A ball that comes aboard **kills men**, most of them
+  at the guns (a gun-deck hit costs most, a hull hit less, aloft least); a ship below half her
+  complement loses up to a third of her way, because she cannot work her canvas. Her lockers
+  hold about **26 broadsides**, and `nphys_spend_ammo` serves only as many pieces as her people
+  can man and her powder can load - **a ship that has shot herself dry falls silent**, which is
+  what lets a long action end. Both come home into `ship_t` (casualties are not replaced at sea
+  and powder burnt is powder gone), both feed `fleet_power`, and the muster list has **six
+  bars** instead of four. A prize is taken with a scratch crew and nearly empty lockers.
+- **A yard that repairs** (todo 170) - since 0.22.19 damage has persisted and nothing took it
+  off, so a campaign could only grind a fleet down. A refit now mends the rig, the battery and
+  the flooding in step with the planking it replaces, finds men at **a quarter** of that rate
+  (a mauled squadron stays weak for a season even when her hulls are sound), and fills her
+  lockers outright, because powder is a store and not a wound. The port panel's button is a
+  **Refit** now and prices all of it.
+
+### Found on the way
+
+- **Every ship in the staged exercise was starting with no crew and no powder**, and so not one
+  gun fired - 0 hits over a minute. `nphys_add` `memset`s the body, which quietly defeats a
+  default member initialiser on `body_t`. Caught by the battle log the same hour it was
+  written, which is the argument for having it.
+- The screenshot hook fires *before* the UI pass (by design - it is the backbuffer before the
+  overlay), so the muster list cannot be verified from one. The battle log was extended with
+  the thinnest crew and driest lockers in the action instead, which is better evidence anyway.
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7**, with a new `test_crew_and_powder`: 26 broadsides of 20
+  guns before the lockers are dry, then silence; ten balls on the gun deck leave 67% of her
+  people and cost her way.
+- A 70-second staged action: **63 hits, worst hull 1.00, rig 1.00, flood 0.89, thinnest crew
+  0.34, driest lockers 0.69, 18 masts down, 2 sunk.**
+- 300 simulated days with the ten-class roster: trade and war both healthy (Spain 32 ports,
+  13 sunk / 17 lost, 170k in tariffs).
+- Shots: `fire18.png` (a standing smoke column off a burning hull), `classes.png` (all ten
+  classes in line).
+
+## 0.22.21 — the seventeenth issues folder: the map found, the oars measured to scale, fire that stands up
+
+Session **elm**, working from the read-only tree into
+`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_192516`. `assets/issues/issue17` first.
+
+### issue17
+
+- **"take a detailed look at map its bad ... as i delivered [high-res] height maps and
+  everything"** - found, and it was not the data's fault and not the renderer's: **the game was
+  never reading the delivered build.** A zip extracted as delivered lands its manifest two
+  directories down (`data-terrain-v2/mare-liberum-world-terrain-4x/mare-world-terrain/`), and
+  the dataset probe scanned one. It scans two now, and the log confirms: `terrain-v2 dataset:
+  27x14 chunks of 2049 samples (~699 m)` from `C:\projects\mare\assets\data-terrain-v2`. One
+  thing is still missing from the extraction, and it cannot be fixed from a read-only session:
+  the river layer needs packing. **Run once:**
+  `python3 tools/rivers_pack.py assets/data-terrain-v2/mare-liberum-world-terrain-4x/mare-world-terrain 10.9e6`
+  - without it the authored rivers (carved and navigable since 0.22.18) stay silent and the
+  generated network stands in, painted only.
+- **The oars** (image: the banks standing over the deck like wings). The 0.22.20 measurement
+  found the blade's end; this round's *numeric* check found the real fault: **the oar was drawn
+  at the hull's import scale.** The oar GLB is normalised like every Meshy asset - it spans ~2
+  units, the same as a whole hull - so each sweep came out as long as the ship: the check
+  printed the blade 12.5 units outboard of a 1.25-unit rail, and the loom crossing the deck and
+  out the far side. That *is* the wings. A fusta's sweep is ~0.38 of her length tip to tip; the
+  instance is scaled to that from the model's measured axis (2.583 units, -45 degrees, blade at
+  +x,-y), the rowlock pivot is computed on that axis, and the check now prints: blade 4.2
+  outboard of the 1.25 rail and 0.33 under the water, loom over the deck at hand height. The
+  wings are gone from the screenshots. Knobs for the next argument: `MARE_OAR_SIDE`,
+  `MARE_OAR_PITCH`, `MARE_OAR_MIN_PX`, and `MARE_BATTLE_FREEZE=1` to hold a staged battle still.
+- **"fix this to look like fire and sparkles and black and grey an whitte smoke dense"** (image:
+  the 0.22.20 tongues lying on the deck as orange streaks). The tongues were stretched along the
+  *camera's* up, so a battle camera looking down laid them flat. A flame is a cylinder
+  billboard now - it turns to face the viewer about the **world's** vertical only, so it stands
+  up from every angle. With it: **sparks** (fast, bright, short-lived, flung in a cone and
+  carried downwind, more the hotter she burns) and the smoke in **three tones** - black oily
+  soot off the seat of the fire, charring grey, steam-white - two denser plumes a call instead
+  of one grey. The screenshot shows upright flames on a dismasted, burning hull.
+- **"game started lagging as more chunks getting loaded (reduce loaded chunks on zoom out)"**:
+  a fine dataset's chunk is a 30 MB read and ~70 MB resident, and zooming out paged a
+  continent of them in for detail the camera cannot see. A grid finer than ~1.3 km a sample now
+  stops *starting* loads once the view radius passes 6 degrees (map height); what is resident
+  stays wanted, so nothing thrashes on the way out and back in.
+- **"limit fps to 60 (adsd limiter to options)"**: a frame limit in Options - off / 30 / 60 /
+  120, **60 by default**, saved to the file. The remainder of each frame is slept coarsely and
+  the last two milliseconds spun, so the cap holds instead of stuttering under OS sleep
+  granularity. Off while recording (the film is frame-locked already).
+- **"make low poly models for lod of trees not change with stock ones (you created)"**: the
+  authored trees' own ~200-triangle LOD 5 now carries to 30 units (was 14), so the stock cards
+  are only the stand-in while a species streams, not the far look of every wood.
+- **"add all models of trees based on biome"**: already standing since 0.22.13/15 - 27 species
+  picked by latitude band, hemisphere, conifer/broadleaf and the Mediterranean belt - and with
+  the LOD range above they now stay authored to the edge of the prop ring.
+- **"add vidible damage on ships when fighting. sails can burn also"**: a wounded or burning
+  rig loses her canvas **from the top down** - topgallants blow out at rig damage 0.20,
+  topsails at 0.45, courses at 0.70, lateens at 0.45 - each before the mast itself goes by the
+  board (0.22.20). The physics already eats the rig while she burns, so a fire visibly strips
+  her sails on its way to felling her masts. And a felled mainmast no longer leaves its **flag**
+  hovering in the air, which 0.22.20 did.
+- **"rotate by 90 degreed foam from waves texture and make it more transparent"**: the foam
+  photograph's streaks ran across the swell; sampled with the axes swapped they lie along it,
+  and the cap mask and crest foam are taken at roughly two thirds and three quarters strength.
+
+### Found on the way
+
+- The staged camera pin's fifth field is a pitch *scale*, not degrees - which is why three
+  rounds of close-up verification shots missed their ships. `MARE_BATTLE_FREEZE` now holds the
+  exercise still, and the numeric oar check exists precisely so a picture is not the only
+  evidence.
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7** (run twice, before and after the flag fix).
+- The probe finds the user's own extraction: 2049 samples, ~699 m, budget raised to 408 MB.
+- The oar check, before: blade lateral 12.55 of a 1.25 rail. After: 4.19, height -0.33 (wet),
+  loom +0.19 lateral (inboard) at 0.79 (over the 0.49 deck).
+- Shots: `fire17b.png` (upright flames, stripped and dismasted hull), `oar_f.png` (no wings).
+
 ## 0.22.20 — the sixteenth issues folder: fire that burns, oars measured at last, towns with streets
 
 Session **elm**, working from `/mnt/c/projects/mare` (read only) into

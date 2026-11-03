@@ -78,7 +78,7 @@ Meshes &meshes() { static Meshes m; return m; }
 // ---------------------------------------------------------------------------
 // ships. local frame: forward +x, up +y, starboard +z, length ~1
 
-float Meshes::ship_scale(int type) { static const float s[SHIP_COUNT] = { 0.7f, 1.0f, 1.2f, 1.25f, 1.3f, 1.55f }; return s[type] * 1.35f; }
+float Meshes::ship_scale(int type) { static const float s[SHIP_COUNT] = { 0.7f, 1.0f, 1.2f, 1.25f, 1.3f, 1.55f, 0.8f, 1.15f, 1.05f, 1.42f }; return s[type] * 1.35f; }   // 0.22.22: ten classes (issue18)
 
 void Meshes::hull_profile(int type, float t, float *halfw, float *depth, float *deck) {
     float u = t + 0.5f;   // 0 stern .. 1 bow

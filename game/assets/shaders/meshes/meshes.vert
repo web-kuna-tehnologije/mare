@@ -9,7 +9,7 @@ uniform vec3 u_campos_v; uniform vec2 u_nearfade;
 // a hull or through the rigging used to fill the screen with one near-plane-clipped triangle
 // and black out the view; everything within u_nearfade.x of the eye is simply not drawn, and
 // the band up to .y dissolves so the part thins out instead of vanishing at a hard line.
-out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet; out float v_near;
+out vec3 v_nrm; out vec3 v_col; out vec3 v_wpos; out float v_sel; out vec2 v_rm; out float v_dither; out float v_wet; out float v_near; out float v_dmg;
 out vec3 v_cloth;   // canvas material (meshes.frag): x = 1 on a cloth instance, y = across the panel -1..1, z = head 0 .. foot 1
 // 0.22.17 (issue13's video, re-applied): the position in the *model's* own frame, in world units.
 // Every surface detail - plank grain, triplanar relief, canvas stain - was sampled at v_wpos, so
@@ -81,6 +81,10 @@ void main(){
 // of the hull's scale above it. Floating instances only - a town's foundations stay dry.
   float wline = (abs(i_anchor.x) + abs(i_anchor.y) > 1e-6 ? 0.0 : i_pos.y) + wdisp.y;
   v_wet = i_misc.z > 0.0 ? clamp(1.0 - (wp.y - wline) / (0.20 * i_scol.x), 0.0, 1.0) : 0.0;
+// 0.22.23 (issue19 "add parts of damage to ship visible"): how badly this hull is knocked
+// about, 0..1. Only rigid parts carry it - on a cloth instance i_fx.w is the wind's z
+// component and means nothing of the kind.
+  v_dmg = isc > 0.5 ? 0.0 : clamp(i_fx.w, 0.0, 1.0);
   v_nrm = n;   // rotated into the world with the rigid motion above
   v_col = mix(a_col, i_scol.yzw, a_mat);
   v_wpos = wp; v_sel = i_misc.y; v_rm = vec2(mix(a_rm.x, 0.9, isc), mix(a_rm.y, 0.0, isc));

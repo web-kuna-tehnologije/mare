@@ -40,6 +40,8 @@ static inline float npf_wrap(float a) { while (a > 3.14159265f) a -= 6.28318531f
 #define NP_BLOW_AT      0.85f   // past this the magazine may go, per second:
 #define NP_BLOW_RATE    0.10f
 // How a wreck goes down (0.22.19): eight seconds, nose first, settling faster as she fills.
+#define NP_ROUNDS_PER_GUN 26.f  // 0.22.22: broadsides a piece can fire before her lockers are dry
+#define NP_CREW_PER_HIT 0.55f   // 0.22.22 (todo 178): of her complement, per unit of gun-deck damage
 #define NP_SINK_SECS    8.0f
 #define NP_SINK_PITCH   0.42f   // radians by the head at the end
 #define NP_SINK_DROP    1.0f    // ... and how far under, in hull heights
@@ -82,6 +84,7 @@ typedef struct body_t {
     float d_hull, d_rig, d_guns, d_flood;   // 0.22.17: the damage model (naval_physics.h)
     float d_fire;                           // 0.22.19 (todo 152): how far she is alight
     float sink_t, sink_pitch, sink_drop;    // 0.22.19: how far through going down she is
+    float crew01 = 1.f, ammo01 = 1.f;       // 0.22.22 (todo 178): her people and her powder, as fractions left
     int   blew_up;                          // ... and whether the magazine went
     int   sunk, masts_down;
     int   used, aground, stranded; float strand_t;
@@ -131,6 +134,7 @@ public:
         const body_t &b = b_[id];
         o->hull = b.d_hull; o->rig = b.d_rig; o->guns = b.d_guns; o->flood = b.d_flood;
         o->fire = b.d_fire; o->blew_up = b.blew_up;
+        o->crew = b.crew01; o->ammo = b.ammo01;
         o->sunk = b.sunk; o->stranded = b.stranded; o->masts_down = b.masts_down;
     }
     float speed_factor(int id) const {
@@ -139,9 +143,26 @@ public:
         if (b.sunk) return 0.f;
         // 0.22.19 (todo 152): a ship fighting a fire is not sailing. Her people are at the
         // buckets, not the braces, and what is burning is her canvas.
-        return npf_clamp((1.f - 0.65f * b.d_rig) * (1.f - 0.55f * b.d_flood) * (1.f - 0.45f * b.d_fire), 0.f, 1.f);
+        // 0.22.22 (todo 178): and she needs hands to make sail. Below half her complement she
+        // cannot work her canvas properly, which costs her up to a third of her way.
+        return npf_clamp((1.f - 0.65f * b.d_rig) * (1.f - 0.55f * b.d_flood) * (1.f - 0.45f * b.d_fire)
+                       * (0.65f + 0.35f * npf_clamp(b.crew01 / 0.5f, 0.f, 1.f)), 0.f, 1.f);
     }
     int sunk(int id) const { return valid(id) && b_[id].sunk; }
+    void man(int id, float c, float a) { if (valid(id)) { b_[id].crew01 = npf_clamp(c, 0.f, 1.f); b_[id].ammo01 = npf_clamp(a, 0.f, 1.f); } }
+    // A broadside she can actually serve: her lockers limit the rounds and her people the
+    // pieces. Each gun fired takes a round out of a nominal NP_ROUNDS_PER_GUN per piece.
+    int spend_ammo(int id, int guns) {
+        if (!valid(id) || guns <= 0) return 0;
+        body_t &b = b_[id];
+        int manned = (int)(guns * npf_clamp(b.crew01 * 1.25f, 0.f, 1.f) + 0.5f);
+        if (manned <= 0) return 0;
+        float need = (float)manned / ((float)guns * NP_ROUNDS_PER_GUN);
+        if (b.ammo01 <= 0.f) return 0;
+        if (need > b.ammo01) { manned = (int)(manned * (b.ammo01 / need)); b.ammo01 = 0.f; }
+        else b.ammo01 -= need;
+        return manned < 0 ? 0 : manned;
+    }
     void damage_add_pub(int id, int where, float amount) { damage_add(id, where, amount); }
     int shot_list(float *xyzr, int max) const { int n = 0; for (int i = 0; i < nshot_ && n < max; ++i) { xyzr[n*4] = sh_[i].x; xyzr[n*4+1] = sh_[i].y; xyzr[n*4+2] = sh_[i].z; xyzr[n*4+3] = sh_[i].r; n++; } return n; }
     int  add(float x, float z, float h, float len, float beam, float draft, float tonnes);
@@ -228,6 +249,11 @@ int NavalPhysics::add(float x, float z, float h, float len, float beam, float dr
     // a box of len x beam about its centre: I = m (l^2 + b^2) / 12
     b.inv_i = 1.f / (m * (b.len * b.len + b.beam * b.beam) / 12.f);
     b.cmd_h = h; b.cmd_turn = 0.3f;
+    // 0.22.22 (todo 178): she comes off the stocks fully manned and with full lockers. The
+    // memset above is why this has to be said explicitly - a default member initialiser on
+    // body_t is not enough, and without it every ship in the staged exercise started with no
+    // crew and no powder, and not one gun fired.
+    b.crew01 = 1.f; b.ammo01 = 1.f;
     b.used = 1;
     return n_++;
 }
@@ -289,6 +315,11 @@ void NavalPhysics::damage_add(int id, int where, float amount) {
     if (!valid(id) || amount <= 0.f) return;
     body_t &b = b_[id];
     if (b.sunk) return;
+    // 0.22.22 (todo 178): a ball that comes aboard kills men. Most of them are at the guns,
+    // so a hit on the gun deck costs the most; a hole between wind and water drowns the pumps'
+    // crew more slowly; aloft it is the topmen, and there are fewer of them. The splinters do
+    // the killing, not the ball, which is why it scales with the damage and not the speed.
+    b.crew01 = npf_clamp(b.crew01 - amount * (where == 1 ? NP_CREW_PER_HIT : where == 0 ? NP_CREW_PER_HIT * 0.55f : NP_CREW_PER_HIT * 0.30f), 0.f, 1.f);
     if (where <= 0) { b.d_hull = npf_clamp(b.d_hull + amount * 1.25f, 0.f, 1.f); }          // between wind and water
     else if (where == 1) { b.d_hull = npf_clamp(b.d_hull + amount * 0.55f, 0.f, 1.f);
                            b.d_guns = npf_clamp(b.d_guns + amount * 1.10f, 0.f, 1.f);       // the battery
@@ -609,6 +640,8 @@ void  nphys_damage_get(int id, nphys_damage_t *out) { mare::game::sim::physics()
 void  nphys_damage_add(int id, int where, float amount) { mare::game::sim::physics().damage_add_pub(id, where, amount); }
 float nphys_speed_factor(int id) { return mare::game::sim::physics().speed_factor(id); }
 int   nphys_sunk(int id) { return mare::game::sim::physics().sunk(id); }
+void  nphys_man(int id, float c, float a) { mare::game::sim::physics().man(id, c, a); }
+int   nphys_spend_ammo(int id, int guns) { return mare::game::sim::physics().spend_ammo(id, guns); }
 int   nphys_shot_list(float *xyzr, int max) { return mare::game::sim::physics().shot_list(xyzr, max); }
 int   nphys_steps_last(void) { return mare::game::sim::physics().steps_last(); }
 int   nphys_contacts_last(void) { return mare::game::sim::physics().contacts_last(); }

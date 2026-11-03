@@ -247,8 +247,32 @@ float Economy::fleet_hull_fraction(const fleet_t *f) {
     float h = 0, m = 0; for (int i = 0; i < f->nships; ++i) { h += f->ships[i].hull; m += ship_types[f->ships[i].type].hull; }
     return m > 0 ? h / m : 0;
 }
+// The yard (0.22.22, todo 170). Since 0.22.19 a battle's damage has *persisted* - a wounded
+// rig, a wrecked battery, water in her, and since this round her casualties and her burnt
+// powder - and nothing took any of it off again, so a long campaign could only grind a fleet
+// down. A yard puts it right, in proportion to the hull planking it replaces: `hull_per_ship`
+// is the timber, and the rest of her repair keeps pace with it.
+//
+// Powder and shot are the exception: they are *stores*, not damage. A port fills her lockers
+// outright, because that is what a port is for, and men are found far more slowly than
+// planks are fitted - a quarter of the rate, which is why a mauled squadron stays weak for a
+// season even when her hulls are sound again.
 void Economy::fleet_repair(fleet_t *f, float hull_per_ship) {
-    for (int i = 0; i < f->nships; ++i) f->ships[i].hull = minf(ship_types[f->ships[i].type].hull, f->ships[i].hull + hull_per_ship);
+    for (int i = 0; i < f->nships; ++i) {
+        ship_t *s = &f->ships[i];
+        float full = ship_types[s->type].hull;
+        float before = s->hull;
+        s->hull = minf(full, s->hull + hull_per_ship);
+        // how much of her planking this spell of work replaced, 0..1
+        float frac = full > 1e-3f ? (s->hull - before) / full : 0.f;
+        if (hull_per_ship > 1e8f) frac = 1.f;                  // the player's "Repair": all of it
+        if (frac <= 0.f && hull_per_ship < 1e8f) { s->ammo = 1.f; continue; }   // nothing to mend; still store her
+        s->d_rig   = maxf(0.f, s->d_rig   - frac * 1.6f);      // cordage and canvas go up quickly
+        s->d_guns  = maxf(0.f, s->d_guns  - frac * 1.3f);
+        s->d_flood = maxf(0.f, s->d_flood - frac * 2.2f);      // she is pumped out first of all
+        s->crew    = minf(1.f, s->crew    + frac * 0.4f);      // men are not found as fast as planks
+        s->ammo    = 1.f;                                      // her lockers are filled outright
+    }
 }
 void Economy::fleet_jettison(fleet_t *f) {
     float cap = fleet_capacity(f), have = fleet_cargo(f);

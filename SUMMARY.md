@@ -1,65 +1,82 @@
-# Mare Liberum - session summary, **elm**, 2026-11-02 (0.22.20)
+# Mare Liberum - session summary, **elm**, 2026-11-03 (0.22.24)
 
-Worked from `/mnt/c/projects/mare` (read only) into this folder and
-`/mnt/c/projects/mare_sessions/mare_elm_02-11-2026_160813`, per `skills/session_skill.md`.
-Nothing written into `docs/dev`. **issue16** (15:43 today) resolved first - issue15 was closed
-in 0.22.19 - then the carried rows. `docs/TODO_STATUS.md` is the whole list as checkboxes.
+Worked per `skills/session_skill.md` (mare liberum: elm) into
+`/mnt/c/projects/mare_sessions/mare_elm_03-11-2026_010247`. Nothing written into `./docs/dev`
+or into the read-only assets. `docs/TODO_STATUS.md` holds the DONE list and the LEFT list.
 
-## issue16, item by item
+## The oars, put back
 
-| the ask | what it is now |
-|---|---|
-| "make mor realistic fire" (screenshot: two yellow discs) | the 0.22.19 fire borrowed the muzzle-flash sprite - a hot *disc*. Fire is tongues: a new flame particle draws the fire sheet 2:1 tall, never spinning, each tongue born at the deck, climbing, dead in under a second; white root to red tip, self-lit; embers downwind. The flicker is many short tongues, not one long sprite |
-| "oars ... wide part needs to be in water and thin part in ship" (the **third** report) | the asset was finally **measured instead of assumed**: the oar GLB is modelled on a **-45° diagonal**, blade at **+x** (cross-section 0.227 vs the loom's 0.090). Every prior fix believed the blade was -x, so the mount put the real blade *inboard* - wide part in the hull, thin loom in the air, exactly what every screenshot showed. Side sign flipped, pivot moved to the loom's true end. *Honest caveat:* the close-up verification shot kept missing the moving ship, so this rests on the measurement, not a picture |
-| "retract sails if upwind" | a **Take in sails** button: the player's side furls; oared ships pull at their oars, sailing ships heave to |
-| "sunk or get strayed on beach" | **stranding**: a quarter of her draft out of her depth she grinds on the bottom (hull damage per second), and after four seconds she is stuck fast - no helm, no way, "(aground)" on her muster card. Sinking has existed since 0.22.17 |
-| "damage on collision" | the contact's closing speed above a walking pace costs timber between wind and water, split by inverse mass - the boat takes the worst of touching a carrack |
-| "mesh damage removal ... actually removing parts of mesh" | a mast that goes by the board **is not drawn** - with its yards, canvas and lantina, stations falling bow-aft to the physics' count. The ships are assembled from parts per frame, so removal is removal. The standing rigging still shows its runs: one per-class mesh, same blocker as the rope (121b) |
-| "ship icons and list on top enemy on bottom player, stats (hull, water, crew, sails, ammo)" | the **muster list**: enemy top, player bottom, per ship four bars - hull, sails, guns, water - a flame when burning, "+" lost, "(aground)" stranded. **Crew and ammo are not shown because they are not simulated**; a bar that never moves is a lie (todo 178 makes them real first) |
-| "villages to small ... same size as cities" | built disc to a small town's footprint (0.34 + 0.11·√pop), houses a third bigger, drawn to 70 units out (the issue's screenshot is from ~55, where villages used to show bare paint) |
-| issue1.png "city ... looks just bad; you have assets for buildings" | a size-3 city stands **~90 houses (was ~40) on ring streets** - doors to the lane, lanes between the rings - inside a wall with a **tower at every other joint**. A better procedural town; authored landmarks for Venice/Dubrovnik/Constantinople stay on the roadmap |
-| "connect cities with roads ... depending where trade is flowing" | **not done** - roads already run settlement→hub port; weighting by trade flow needs the economy's flows plumbed into the road builder. Left open (181) rather than faked with cosmetic lines |
-| "add rope for then next round if unable this one" | taken at its word: carried (121b). Its blocker - a per-ship rope/rig buffer - now also unblocks cutting a felled mast's rigging, which makes it the clear next renderer task |
+You were right: they were fine, and my 0.22.23 rowing animation is what broke them. The fault
+was not the drive-and-recovery cycle in itself - it was **what the cycle touched**. It
+feathered the blade by moving `fx2`, and `fx2` is not only the blade's pitch: the rowlock
+mount solves the oar's *placement* from it. So as the stroke ran, the whole bank shifted and
+lifted off the geometry that had been measured and verified in 0.22.21.
 
-## Found on the way
+Reverted to the 0.22.21 sine exactly, and checked against the numbers rather than by eye - the
+one-shot oar probe prints the same figures it printed then:
 
-**The mirror build was linking stale objects.** `rsync -a` preserves source mtimes, so an edit
-whose mtime landed older than the existing `.obj` was never recompiled - the linker failed (or
-worse, succeeded) against last round's code. The sync step now touches sources after copying.
-Last round's lesson was "grep the linker too"; this is its twin: make sure the linker is even
-looking at your code.
+| | 0.22.21 (good) | now |
+|---|---|---|
+| blade tip, outboard of the 1.25 rail | 4.19 | **4.20** |
+| blade tip height (water at 0) | −0.33 | **−0.33** |
+| loom tip, lateral | +0.19 | **+0.19** |
+| loom tip height (deck at 0.49) | 0.79 | **0.79** |
+
+A rowing cycle can come back, but it has to drive the *swing* only and leave the mount's pitch
+alone. That constraint is now written on the code so the next attempt does not repeat it.
+
+## Then the todo list
+
+- **Bridges where roads cross rivers** (161). The crossings have been recorded since 0.22.2,
+  and filled for the *authored* rivers since 0.22.20 - which is what finally made them worth
+  drawing. A stone arch stands at each now: two abutments, an eight-voussoir segmental arch
+  springing from them, a deck and a low parapet either side, laid along the road, scaled to the
+  span and set at the higher bank so it bridges the cut rather than floating over it.
+  **16 standing in one ring, of 218 known crossings.**
+- **Roads graded by where trade flows** (181). The builder already tested
+  `traded_today / throughput` — and `sim/region.cc` **zeroes `traded_today` every day**, so
+  whenever roads were rebuilt it read nothing and *every road in the world came out a track*
+  ("195 roads (195 tracks, 0 roads, 0 highways)"). The persistent measure is
+  `region.development`, which region.cc drives from the trade that actually moved. A link is
+  now graded by the **smaller of the two towns it joins** - a road is only as busy as its lesser
+  end - plus the development behind them. **183 tracks, 4 roads, 8 highways** on a fresh map.
+- **A fruit-tree set** (117b). Up close an orchard was planted with the forest **oak and maple
+  scaled down**, which is what the row complained of. Three pruned varieties now - an apple,
+  low and wide on a short bole; a cherry, upright with a narrower head; a plum, bushy and
+  nearly to the ground - each with a second off-centre lobe so the head reads as boughs rather
+  than a ball, one chosen per grove cell. The olive groves keep their authored olive.
 
 ## Measured
 
-- MSVC build green; **`ctest` 7/7**.
-- A 55-second staged battle logged six fires; `shots/fire_new.png` shows a flame column with
-  smoke where 0.22.19 showed two discs. `shots/venice_city2.png`: the towered wall and the
-  ring-street houses.
-- The oar GLB numbers the fix rests on: long axis −45.0°, blade cross-section 0.227 at +x
-  against 0.090 at −x.
+- MSVC build green; **`ctest` 7/7**, run twice.
+- The oar probe: identical to 0.22.21, digit for digit (table above).
+- 16 bridges in a ring; roads 183 / 4 / 8 (was 195 / 0 / 0).
+- 400 simulated days: trade and war healthy.
+- Shots: `oar_fixed_crop.png`, `bridge.png`, `orchard.png`.
 
 ## Percentage done
 
-Over `docs/TODO_STATUS.md`: **184 done, 9 partial, 28 open, 2 dropped of 223 tracked — about
-83%.** The battle is now a commanded, visible, costly thing; what is left clusters around one
-renderer buffer (121b) and the campaign loop (yard, crew, trade-flow roads).
+Over `docs/TODO_STATUS.md`: **211 done, 9 partly, 17 open, 4 dropped of 241 tracked — about
+88%.**
 
 ## What I propose next, in order
 
-1. **The per-ship rope/rig buffer** (121b) — one piece of work, two asks unblocked: the verlet
-   sheets and braces, and a felled mast's rigging going with its mast. Promised "next round" in
-   the issue's own words.
-2. **Crew and ammunition** (178): the muster list has two honest gaps where they belong, and
-   the damage model has nowhere to send casualties.
-3. **A yard that repairs** (170): damage persists and nothing takes it off, so a campaign only
-   grinds down.
-4. **Roads by trade flow** (181), **bridge props** (161), **a fruit-tree set** (117b).
+1. **Per-rope verlet geometry** — the rig off its single per-class mesh onto per-ship dynamic
+   geometry. It finishes 121b (today one chain serves a whole ship) and buys a felled mast
+   taking its own shrouds and stays with it.
+2. **Deltas and lakes** from the authored river layer.
+3. **The hinterland's authored props** (7c): the village houses, the mill, the well as assets.
+4. **182b** — the one river-packing command in your terrain extraction.
 
 ## For the next session
 
-- The 4x terrain build still lives at
-  `mare_sessions/mare_elm_02-11-2026_120500/terrain_v2_extract/mare-world-terrain`; move it to
-  `assets/data-terrain-v2/mare-world-terrain` or point `MARE_GEOCHUNK_DIR` at it.
-- After any `rsync` into a mirror that has a `build/`, **touch the sources** (or the build will
-  link whatever was there before).
-- `SAVE_VERSION` is 6 since 0.22.19; old saves are rejected cleanly.
+- **The session folder must be under `/mnt/c/projects/mare_sessions`.** A path under `~/.cache`
+  is WSL-local and `cmd.exe` cannot reach it ("UNC paths are not supported"), so MSVC cannot
+  build there. I lost time to this and left two stray mirrors behind before spotting it (both
+  removed).
+- Still needing write access to `assets/`:
+  `python3 tools/rivers_pack.py assets/data-terrain-v2/mare-liberum-world-terrain-4x/mare-world-terrain 10.9e6`
+- After any `rsync` into a mirror with a `build/`, **touch the sources**. If the linker says it
+  cannot open an exe, a previous run is still alive: `taskkill /F /IM mare.exe`.
+- `MARE_OAR_MIN_PX=0` forces the oars on at any range; `MARE_BATTLE_FREEZE=1` holds a staged
+  battle still; the oar probe logs its numbers at `--log-level=info`.

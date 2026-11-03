@@ -15,6 +15,8 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <thread>
+#include <chrono>
 #include <ctime>
 #include <sys/stat.h>
 #ifdef _WIN32
@@ -430,3 +432,7 @@ double prof_frame_ms(void) { return Diagnostics::instance().profiler().frame_ms(
 const double *prof_frame_history(void) { return Diagnostics::instance().profiler().frame_history(); }
 
 } // extern "C"
+
+extern "C" void diag_sleep(double seconds) {
+    if (seconds > 0) std::this_thread::sleep_for(std::chrono::duration<double>(seconds));
+}
