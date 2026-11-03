@@ -361,7 +361,24 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 | 181 | P1 | "connect cities with roads and villages depending where trade is flowing from hinterlands" | [x] the old test read `traded_today`, which `sim/region.cc` **zeroes every day**, so every road came out a track (195/0/0). Graded now by `region.development` - the persistent, trade-driven measure - and by the smaller of the two towns a link joins: **183 tracks, 4 roads, 8 highways** |
 | 117b | P1 | A fruit-tree set; the orchards used forest species scaled down | [x] three pruned varieties - apple (low, wide), cherry (upright), plum (bushy) - each with an off-centre second lobe, one chosen per grove cell. Olive groves keep the authored olive |
 
-## Order of work (updated 0.22.24)
+## issue20 + the 0.22.25 request (session elm)
+
+| # | Pri | Item | Status |
+|---|-----|------|--------|
+| 203 | P0 | "fix oars sizes and position and rotation to before i even said finally oars are fixed" | [x] **root cause found**: the loader re-fits every part - `galley_oar` loads at `size 0.26x0.02x0.01, scale 0.1006`, not the raw GLB's 2.583 diagonal. 0.22.21 sized from the raw figure, so each sweep drew at 0.43 units on an 11-unit hull (invisible), and the probe measured the raw model too, so it reported a 4.2-unit oar that was never drawn. Restored the pre-claim mount (asset's own loaded extent at hull scale) and rebuilt the probe on the loaded bounds: **oar 2.34 = 21% of hull, blade 2.72 outboard and wet, loom 0.77 inboard over the deck** |
+| 204 | P1 | (found) `MARE_DV_MINDIST` to relax the staged camera's 6-unit floor | [x] four rounds of oar screenshots were taken from too far to judge anything |
+| 205 | P0 | issue20: build warnings - C4005 `_CRT_SECURE_NO_WARNINGS` redefinition, cimgui C5287 enum warnings | [ ] |
+| 206 | P0 | issue20: **22 asset LOD-extent warnings** (`mast_carrack`, `mast_mizzen`, `bowsprit`, yards: "LOD n extent differs from LOD 0 - wrong node?") | [ ] the same class of bug the oars turned out to be (a part not being what the code thinks it is) - should be next |
+| 207 | P0 | Lateen behaviour with the wind, especially angled sails running downwind | [ ] |
+| 208 | P0 | More fire smoke; untextured particle smoke; **massive** particle counts; better cannon smoke; all smoke denser and slower to clear | [ ] |
+| 209 | P0 | Rivers missing again; make them better; **3D/depth channels even where not traversable**; more traversable reaches | [ ] |
+| 210 | P0 | The map: the Po valley and the lowlands read as sand and should not | [ ] |
+| 211 | P0 | Hinterland villages as ordinary small settlements (asset count), **not selectable** | [ ] |
+| 212 | P0 | Bridges across rivers are too large - reduce | [ ] |
+| 213 | P0 | Per-ship sail quality shown by texture in battle (not every ship the same) | [ ] |
+| 214 | P0 | Ships fire only when they have a line of fire | [ ] |
+
+## Order of work (updated 0.22.25)
 
 1. Items 1-8 and 27: the battle scene's clock, wind, coast and landscape from the world. **Done 0.22.7.**
 2. Items 10-13: the particle system, wind-blown smoke, muzzle flash. **Done 0.22.7.**
@@ -387,7 +404,9 @@ P3 = waits on data, assets or a design decision. `[x]` done, `[~]` partly, `[ ]`
 21. issue19, rows 195-201, with the verlet chain (121b) and the physics rows measured and
     closed. **Done 0.22.23.**
 22. The oars restored, plus 161, 181 and 117b. **Done 0.22.24.**
-23. Next: per-rope verlet geometry (the rig off the per-class mesh - it also buys a felled
+23. The oar root cause, rows 203-204. **Done 0.22.25**; rows 205-214 are open and are the
+    next session's list, in that order (206 first - it is the same class of fault).
+24. Then: per-rope verlet geometry (the rig off the per-class mesh - it also buys a felled
     mast taking its own shrouds), deltas and lakes from the authored river layer, the
     hinterland's authored village props (7c), 182b (the river packing command, needs write
     access to assets).

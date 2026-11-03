@@ -1170,7 +1170,10 @@ void DetailView::frame(float dt) {
     if (dv.phase == DVP_OUT && dv.t >= DV_CLOUD_OUT) { dv.phase = DVP_IDLE; dv.mode = DV_OFF; stage_free(); wake_set_region(0, 0, 0); particles_reset(); return; }
     if (dv.phase != DVP_SHOW) return;
 
-    cam.want_dist = clampf(cam.want_dist, 6, 260);            // stay under the map morph in local space
+    // 0.22.25: the floor is relaxable for inspection. Six units is right for play, but it is
+    // also why four rounds of oar screenshots were taken from too far to judge anything.
+    { static float mind = -1.f; if (mind < 0.f) { const char *e = getenv("MARE_DV_MINDIST"); mind = e ? (float)atof(e) : 6.f; }
+      cam.want_dist = clampf(cam.want_dist, mind, 260); }   // stay under the map morph in local space
     cam.want_tx = clampf(cam.want_tx, dv.cx - 120, dv.cx + 120);
     cam.want_tz = clampf(cam.want_tz, dv.cz - 120, dv.cz + 120);
     cam.want_ty = dv.mode == DV_BATTLE ? clampf(cam.want_ty, 0.f, 140.f) : 0.f;   // the look-at point may rise over the battle (R/F)

@@ -1509,9 +1509,23 @@ int Shipyard::push(const shipyard_req_t *r) {
             // is ~0.38 of her length tip to tip; the instance is scaled to that, from the
             // model's own measured axis length (2.583 units tip to tip, on a -45-degree
             // diagonal, blade at the +x,-y end - see 0.22.20).
-            const float OAR_AXIS_M = 2.583f;                       // the model's tip-to-tip length, its own units
-            float oscale = 0.38f * len / OAR_AXIS_M;
-            float olen = OAR_AXIS_M * oscale;                      // tip-to-tip, world units
+            // 0.22.25 - and this is the whole story of four rounds of wrong oars.
+            //
+            // 0.22.21 sized the sweep from the *raw GLB*, which spans 2.583 units tip to tip
+            // on a -45-degree diagonal. But the asset loader **re-fits every part**: the log
+            // says `loaded 'galley_oar' ... size 0.26x0.02x0.01, scale 0.1006`. The loaded
+            // model is a thin stick 0.26 long on its own x - not 2.583, and not diagonal. So
+            // `oscale = 0.38 * len / 2.583` rendered each oar at 0.26 * 1.67 = **0.43 world
+            // units on an eleven-unit hull** - a sliver, which is why the bank simply was not
+            // there. Worse, the numeric probe measured tips at 0.913 * scale, the raw model's
+            // half-extent, so it reported a handsome 4.2-unit sweep that was never drawn:
+            // every "verified" number since 0.22.21 was self-consistent and fictional.
+            //
+            // The sizing that was right all along is the one from before any of that: take
+            // the asset's **own loaded extent** at the hull's import scale.
+            float olen = (oar->bmax[0] - oar->bmin[0]) * cscale;   // tip to tip, world units
+            float out = half * 0.96f + olen * OAR_INBOARD;         // centre of the oar, just outboard of the rail
+            (void)out;
             float y = -water + hh * c->deck * 1.02f;        // 0.22.6: the ports are just under the rail, not half-way down the side (issue3: "oars are too low in water")
             float pull = clampf(r->rock, 0.f, 1.6f);                      // how hard she is working
             // A sweep is pulled at 20-26 strokes a minute, not the fast churn this used to run:
@@ -1576,7 +1590,7 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // screenshots show. The side sign is therefore flipped (blade outboard),
                     // and with the model's own -45 droop the fx2 pitch below brings the blade
                     // to ~20 degrees under the horizontal and the loom level over the deck.
-                    oi.heading = r->heading - oar_side * side * (1.5708f + 0.17f - stroke * side_sign);
+                    oi.heading = r->heading + oar_side * side * (1.5708f + 0.17f - stroke * side_sign);   // 0.22.25: the sign the oars had before I ever called them fixed
                     // the sweep angles *down* into the water (0.22.5): a pitch about the oar's own
                     // z axis (meshes.vert reads fx2 on rigid instances), steeper on the pull
                     // 0.22.6: a steeper blade angle from the higher port, so the loom rises over
@@ -1585,38 +1599,29 @@ int Shipyard::push(const shipyard_req_t *r) {
                     // loom's), and a positive pitch about the model's z carries -x downward -
                     // so this is the sign that puts the wide part in the water.
                     oi.fx2 = (oar_pitch >= 0.f ? oar_pitch : 0.46f) + 0.14f * clampf(cosf(oph), 0.f, 1.f) * (0.3f + 0.7f * pull);
-                    oi.scale = oscale;                                      // a sweep, not a second mast (0.22.21)
-                    {   // The rowlock on the rail, and the oar hung from it. The pivot sits
-                        // OAR_PIVOT of the oar's length from the loom end, along the model's
-                        // own -45-degree axis: in model units that point is
-                        // loom_tip + t * axis = (-0.913, +0.913) + t * (0.707, -0.707) * 2.583.
+                    {   // the rowlock on the rail, and the oar hung from it (the pre-claim mount)
                         float rlx = r->x + fx * along + sx * (half * 0.99f) * side;
                         float rlz = r->z + fz * along + sz * (half * 0.99f) * side;
-                        float t = OAR_PIVOT * OAR_AXIS_M;
-                        float pvx = (-0.913f + t * 0.7071f) * oscale, pvy = (0.913f - t * 0.7071f) * oscale;
+                        float pm  = OAR_PIVOT * olen;                       // model-space: from the oar's middle toward the loom (+x)
                         float cq = cosf(oi.fx2), sq = sinf(oi.fx2);
-                        float mx = pvx * cq - pvy * sq, my = pvx * sq + pvy * cq;   // the pivot after the pitch
-                        float ch = cosf(oi.heading), sh2 = -sinf(oi.heading);       // model +x -> this world direction
+                        float mx = pm * cq, my = pm * sq;                   // after the pitch about the model's z
+                        float ch = cosf(oi.heading), sh2 = -sinf(oi.heading);   // model +x -> this world direction
                         oi.x = rlx - mx * ch; oi.z = rlz - mx * sh2; oi.y -= my;
                     }
-                    // 0.22.21: a one-shot numeric check, because three rounds of screenshots
-                    // failed to settle this. The measured model's tips are at (+-0.913, -+0.913)
-                    // of its own scale: the +x,-y end is the blade. Print where both tips land
-                    // relative to the rail and the water, in world units, for the first oar.
+                    // 0.22.25: the probe, rebuilt on the asset's **loaded** bounds instead of
+                    // the raw GLB's, so it measures what is actually drawn.
                     { static int said = 0;
                       if (!said && i == 0 && side > 0) { said = 1;
                         float cs = cosf(oi.fx2), sn = sinf(oi.fx2);
-                        float bxm = 0.913f * oi.scale, bym = -0.913f * oi.scale;  // blade tip, model space
-                        float lxm = -bxm, lym = -bym;                             // loom tip
-                        float bx1 = bxm * cs - bym * sn, by1 = bxm * sn + bym * cs;
-                        float lx1 = lxm * cs - lym * sn, ly1 = lxm * sn + lym * cs;
+                        float e0 = oar->bmin[0] * cscale, e1 = oar->bmax[0] * cscale;   // the two ends on the model's x
                         float ch2 = cosf(oi.heading), sh3 = -sinf(oi.heading);
-                        float bwx = oi.x + bx1 * ch2, bwz = oi.z + bx1 * sh3, bwy = oi.y + by1;
-                        float lwx = oi.x + lx1 * ch2, lwz = oi.z + lx1 * sh3, lwy = oi.y + ly1;
-                        float blat = (bwx - r->x) * sx + (bwz - r->z) * sz;       // + = starboard
-                        float llat = (lwx - r->x) * sx + (lwz - r->z) * sz;
-                        LOG_INFO("gfx", "oar check: rail at %.2f; blade tip lateral %.2f height %.2f (water at 0, deck at %.2f); loom tip lateral %.2f height %.2f",
-                                 half, blat, bwy, -water + hh * c->deck, llat, lwy); } }
+                        float ax0 = e0 * cs, ay0 = e0 * sn, ax1 = e1 * cs, ay1 = e1 * sn;
+                        float w0x = oi.x + ax0 * ch2, w0z = oi.z + ax0 * sh3, w0y = oi.y + ay0;
+                        float w1x = oi.x + ax1 * ch2, w1z = oi.z + ax1 * sh3, w1y = oi.y + ay1;
+                        LOG_INFO("gfx", "oar check: hull %.2f, oar %.2f (%.0f%% of hull), rail %.2f; -x end lateral %.2f height %.2f; +x end lateral %.2f height %.2f (deck %.2f)",
+                                 len, olen, 100.f * olen / maxf(len, 1e-3f), half,
+                                 (w0x - r->x) * sx + (w0z - r->z) * sz, w0y,
+                                 (w1x - r->x) * sx + (w1z - r->z) * sz, w1y, -water + hh * c->deck); } }
                     oi.r = 0.62f; oi.g = 0.52f; oi.b = 0.36f;   // oak, not the nation's colours
                     oi.sel = 0.f;
                     scene_asset_instance(oar, oi, r->key ^ (unsigned)(0x9E37u + i * 2 + (side > 0)), r->camdist);

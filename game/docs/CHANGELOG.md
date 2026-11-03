@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.22.25 — the oars, and why four rounds of "fixing" them made them worse
+
+Session **elm** (mare liberum: elm), working into
+`/mnt/c/projects/mare_sessions/mare_elm_03-11-2026_020336`. `assets/issues/issue20` read first.
+
+### The oars: the actual cause, found at last
+
+The asset log says it in one line:
+
+    loaded 'galley_oar' (ship_part): 5 LODs, LOD0 59924 tris, size 0.26x0.02x0.01, scale 0.1006
+
+**The loader re-fits every part.** The raw GLB spans 2.583 units tip to tip on a -45-degree
+diagonal - I measured that in 0.22.20 and built everything on it - but what is actually drawn
+is a thin stick **0.26 units long on its own x**, axis-aligned. So 0.22.21's
+
+    oscale = 0.38 * len / 2.583
+
+rendered each sweep at 0.26 x 1.67 = **0.43 world units on an eleven-unit hull**: a sliver,
+which is why the bank simply was not there any more. And the "numeric check" I added in the
+same round measured the tips at `0.913 * scale` - the *raw* model's half-extent - so it
+cheerfully reported a handsome 4.20-unit oar that was never on screen. Every verification
+since 0.22.21 was self-consistent and fictional, which is exactly how this survived four
+rounds of being reported and "fixed".
+
+The sizing that was right all along is the one the oars had **before I ever called them
+fixed**: take the asset's *own loaded extent* at the hull's import scale,
+`olen = (bmax[0] - bmin[0]) * cscale`, with the pre-claim rowlock mount and the pre-claim
+heading sign. Restored, with the probe rebuilt on the loaded bounds so it measures what is
+drawn:
+
+    oar check: hull 11.34, oar 2.34 (21% of hull), rail 1.25;
+               -x end lateral 2.72 height -0.39;  +x end lateral 0.77 height 0.78 (deck 0.49)
+
+A sweep a fifth of the hull's length, blade outboard of the rail and **in the water**, loom
+inboard **over the deck**. That is the geometry, and this time the instrument is honest.
+
+Also added: `MARE_DV_MINDIST` relaxes the staged camera's six-unit floor, which is the other
+half of why four rounds of screenshots settled nothing - they were all taken from too far to
+judge.
+
+### Measured
+
+- MSVC build green; **`ctest` 7/7**.
+- The oar probe, on the loaded asset (above).
+
+### issue20's other contents, and the rest of the request: NOT done this round
+
+Recorded in `docs/TODO_STATUS.md` as the next session's list. Nothing here is started:
+build warnings (C4005 `_CRT_SECURE_NO_WARNINGS`, cimgui C5287); the asset **LOD-extent
+warnings** (22 of them - `mast_carrack`, `mast_mizzen`, `bowsprit`, the yards: LOD n picks a
+different node from LOD 0, which is the same class of bug the oars just turned out to be and
+should be looked at next); lateen behaviour downwind; denser/slower/untextured smoke and far
+more particles; better cannon smoke; rivers missing and 3D river channels with traversable
+reaches; the Po valley and the lowlands reading as sand; hinterland villages as small
+non-selectable settlements; bridges too large; per-ship sail quality shown in battle; and
+ships firing only with a line of fire.
+
 ## 0.22.24 — the oars put back, bridges stood, roads graded by trade, an orchard set
 
 Session **elm** (mare liberum: elm), working into

@@ -1,5 +1,18 @@
 # Development roadmap
 
+## Done: 0.22.25 — the oars, and why four rounds of fixing them made them worse (worktree `elm`)
+
+The asset loader **re-fits every part**: `galley_oar` loads 0.26 units long, not the raw GLB's
+2.583. 0.22.21 sized the sweep from the raw figure and drew every oar as a 0.43-unit sliver -
+and the numeric probe added in the same round measured the raw model too, so it reported a
+handsome oar that was never on screen. Four rounds of reports and "fixes" all argued from that
+fiction. Restored to the pre-claim mount, with the probe rebuilt on the *loaded* bounds.
+
+The lesson generalises, and issue20 hands us the next case: **22 asset LOD-extent warnings**
+("LOD n extent differs from LOD 0 - wrong node?") on the masts, bowsprit and yards. That is
+the same fault - a part not being what the code believes it is - and it is the next thing to
+look at.
+
 ## Done: 0.22.24 — the oars put back, bridges stood, roads graded by trade (worktree `elm`)
 
 The 0.22.23 rowing animation had broken the oars by moving the same value the rowlock mount

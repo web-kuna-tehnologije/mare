@@ -4,15 +4,33 @@ Two lists, as issue19 asked: everything finished, and everything still open. Num
 brackets are the row in `docs/todo_list.md` (or the item in `docs/TODO.md`), so every line
 here traces back to the request it came from.
 
-Updated **2026-11-03, 0.22.24**, session `elm`.
+Updated **2026-11-03, 0.22.25**, session `elm`.
 
-**211 done · 9 partly · 17 open · 4 dropped, of 241 tracked — about 88%.**
+**213 done · 9 partly · 27 open · 4 dropped, of 253 tracked — about 84%.** (The count of
+open items went *up*: issue20 and the request with it added twelve new rows, listed first
+below.)
 
 ---
 
 # LEFT
 
 Short list, honestly ordered. This is what a next session should pick up.
+
+## issue20 and the 0.22.25 request — the next session's list, in order
+- [ ] **The 22 asset LOD-extent warnings** — `mast_carrack`, `mast_mizzen`, `bowsprit`, the
+      yards: "LOD n extent differs from LOD 0 — wrong node?". This is the *same class of fault*
+      the oars turned out to be (a part not being what the code believes it is), so it is first [206]
+- [ ] Rivers are missing again; make them better; **3D/depth channels even where not
+      traversable**, and more traversable reaches [209]
+- [ ] The map: the Po valley and the lowlands read as sand and should not [210]
+- [ ] Smoke: much more of it, untextured particle smoke, massive particle counts, better
+      cannon smoke, all of it denser and slower to clear [208]
+- [ ] Ships fire only when they have a line of fire [214]
+- [ ] Per-ship sail quality shown by texture in battle [213]
+- [ ] Hinterland villages as ordinary small settlements, **not selectable** [211]
+- [ ] Bridges across rivers are too large — reduce [212]
+- [ ] Lateen behaviour with the wind, especially angled sails running downwind [207]
+- [ ] Build warnings: C4005 `_CRT_SECURE_NO_WARNINGS`, cimgui C5287 [205]
 
 ## Renderer / art
 - [ ] **Per-rope verlet geometry** — 0.22.23 gave every ship a real four-node verlet chain that
@@ -67,6 +85,16 @@ Short list, honestly ordered. This is what a next session should pick up.
 ---
 
 # DONE
+
+## 0.22.25 — the oars, root cause
+- [x] **The oars, finally understood.** The loader re-fits every part: `galley_oar` loads at
+      0.26 units, not the raw GLB's 2.583 — so 0.22.21's sizing drew each sweep at 0.43 units
+      on an 11-unit hull (invisible), and the probe I added measured the *raw* model, so it
+      reported a 4.2-unit oar that was never drawn. Four rounds of "verified" numbers were
+      fiction. Restored the pre-claim mount; probe rebuilt on the loaded bounds: **oar 21% of
+      the hull, blade 2.72 outboard and in the water, loom 0.77 inboard over the deck** [203]
+- [x] `MARE_DV_MINDIST` relaxes the staged camera's 6-unit floor — the other reason four rounds
+      of screenshots settled nothing [204]
 
 ## 0.22.24 — the oars put back, and three rows off the list
 - [x] **Oars restored** to the geometry verified in 0.22.21. The 0.22.23 rowing cycle feathered
